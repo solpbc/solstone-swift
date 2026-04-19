@@ -16,14 +16,13 @@ help:
 	@echo "  test, test-build, test-fast, screenshot, crash, clean"
 
 install:
-	@echo "Wave 1 bootstrap: extro-phone source not yet imported. See vpe/workspace/solstone-mobile-mvp-tracking.md."
-	@exit 1
+	@echo "Wave 1 bootstrap: extro-phone source not yet imported — make install is a no-op until the shell lands."
 
 test:
-	@echo "Wave 1 bootstrap: extro-phone source not yet imported."
-	@exit 1
+	@echo "Wave 1 bootstrap: no tests yet."
 
-ci: test
+ci:
+	@echo "Wave 1 bootstrap: no CI yet."
 
 format:
 	@echo "Wave 1 bootstrap: no source to format yet."
