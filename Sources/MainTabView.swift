@@ -3,6 +3,9 @@
 
 import SwiftUI
 import UIKit
+import os
+
+private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
 
 struct MainTabView: View {
     let localPort: Int
@@ -13,6 +16,9 @@ struct MainTabView: View {
     @Environment(PortalPage.self) private var portalPage
     @State private var selectedTab = AppTab.today
     @State private var lastPortalTab = AppTab.today
+    @State private var debugVoiceState: VoiceState?
+    @State private var debugBrainStatus: BrainStatus?
+    @State private var debugCycleCount = 0
     @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
 
@@ -114,8 +120,7 @@ struct MainTabView: View {
                 .keyboardShortcut(KeyEquivalent(AppTab.ask.shortcutKey), modifiers: .command)
 
             NavigationStack {
-                Text("sense")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                SenseView()
             }
             .tag(AppTab.sense)
             .tabItem {
@@ -144,7 +149,12 @@ struct MainTabView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if self.tunnelManager.state.isConnected {
-                VoiceButton(localPort: self.localPort)
+                VoiceButton(
+                    stateOverride: self.debugVoiceState,
+                    brainStatusOverride: self.debugBrainStatus,
+                    onTap: self.handleWave1VoiceTap,
+                    onDebugLongPress: self.cycleDebugVoiceState
+                )
                     .padding(.trailing, 20)
                     .padding(.bottom, 20)
             }
@@ -239,6 +249,31 @@ struct MainTabView: View {
         case .sense, .more:
             break
         }
+    }
+
+    private func handleWave1VoiceTap() {
+        log.info("voice: tap (Wave 2)")
+    }
+
+    private func cycleDebugVoiceState() {
+        let states: [VoiceState] = [
+            .idle,
+            .connecting,
+            .listening,
+            .speaking,
+            .error(.connectionFailed("debug"))
+        ]
+        let nextIndex: Int
+        if let debugVoiceState,
+           let currentIndex = states.firstIndex(of: debugVoiceState)
+        {
+            nextIndex = (currentIndex + 1) % states.count
+        } else {
+            nextIndex = 0
+        }
+        self.debugVoiceState = states[nextIndex]
+        self.debugCycleCount += 1
+        self.debugBrainStatus = self.debugCycleCount.isMultiple(of: 2) ? .refreshing : nil
     }
 }
 

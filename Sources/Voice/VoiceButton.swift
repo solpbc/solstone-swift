@@ -10,8 +10,10 @@ struct VoiceButton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
     @State private var isBrainPulsing = false
-    @State private var showSessionDetail = false
-    let localPort: Int
+    let stateOverride: VoiceState?
+    let brainStatusOverride: BrainStatus?
+    let onTap: () -> Void
+    let onDebugLongPress: () -> Void
 
     var body: some View {
         VStack {
@@ -19,7 +21,7 @@ struct VoiceButton: View {
             HStack {
                 Spacer()
                 Button {
-                    self.handleTap()
+                    self.onTap()
                 } label: {
                     self.voiceContent
                         .frame(width: 56, height: 56)
@@ -29,7 +31,7 @@ struct VoiceButton: View {
                         .scaleEffect(self.isPulsing && !self.reduceMotion ? 1.08 : 1)
                         .animation(self.pulseAnimation, value: self.isPulsing)
                         .overlay(alignment: .topTrailing) {
-                            if self.brainStatusMonitor.status == .refreshing {
+                            if self.effectiveBrainStatus == .refreshing {
                                 Circle()
                                     .fill(.blue)
                                     .frame(width: 10, height: 10)
@@ -52,24 +54,22 @@ struct VoiceButton: View {
                 }
                 .accessibilityLabel(self.accessibilityLabel)
                 .accessibilityHint(self.accessibilityHint)
-                .sheet(isPresented: self.$showSessionDetail) {
-                    if let session = self.voiceManager.lastSession {
-                        VoiceSessionDetailSheet(session: session) {
-                            Task {
-                                await self.voiceManager.startSession(localPort: self.localPort)
-                            }
+#if DEBUG
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 1)
+                        .onEnded { _ in
+                            self.onDebugLongPress()
                         }
-                        .presentationDetents([.height(320)])
-                    }
-                }
+                )
+#endif
                 .padding(.trailing, 20)
                 .padding(.bottom, 20)
             }
         }
         .onAppear {
-            self.updatePulse(for: self.voiceManager.state)
+            self.updatePulse(for: self.effectiveState)
         }
-        .onChange(of: self.voiceManager.state) { oldState, newState in
+        .onChange(of: self.effectiveState) { oldState, newState in
             self.updatePulse(for: newState)
             self.announceTransition(from: oldState, to: newState)
             self.playHaptic(for: newState)
@@ -78,9 +78,17 @@ struct VoiceButton: View {
 }
 
 private extension VoiceButton {
+    var effectiveState: VoiceState {
+        self.stateOverride ?? self.voiceManager.state
+    }
+
+    var effectiveBrainStatus: BrainStatus {
+        self.brainStatusOverride ?? self.brainStatusMonitor.status
+    }
+
     @ViewBuilder
     var voiceContent: some View {
-        switch self.voiceManager.state {
+        switch self.effectiveState {
         case .connecting:
             ProgressView()
                 .tint(.white)
@@ -110,7 +118,7 @@ private extension VoiceButton {
     }
 
     var buttonColor: Color {
-        switch self.voiceManager.state {
+        switch self.effectiveState {
         case .idle:
             .solOrange
         case .connecting:
@@ -131,7 +139,7 @@ private extension VoiceButton {
     }
 
     var shouldPulse: Bool {
-        switch self.voiceManager.state {
+        switch self.effectiveState {
         case .listening, .speaking:
             true
         case .idle, .connecting, .error:
@@ -147,7 +155,7 @@ private extension VoiceButton {
     }
 
     var accessibilityLabel: String {
-        switch self.voiceManager.state {
+        switch self.effectiveState {
         case .idle:
             return self.hasRecentSession ? "view session details" : "start voice conversation"
         case .connecting:
@@ -162,7 +170,7 @@ private extension VoiceButton {
     }
 
     var accessibilityHint: String {
-        switch self.voiceManager.state {
+        switch self.effectiveState {
         case .idle:
             return self.hasRecentSession
                 ? "double-tap to view session details"
@@ -171,23 +179,6 @@ private extension VoiceButton {
             return "double-tap to view session details"
         case .connecting, .listening, .speaking:
             return "double-tap to end voice session"
-        }
-    }
-
-    func handleTap() {
-        switch self.voiceManager.state {
-        case .idle:
-            if self.hasRecentSession {
-                self.showSessionDetail = true
-            } else {
-                Task {
-                    await self.voiceManager.startSession(localPort: self.localPort)
-                }
-            }
-        case .error:
-            self.showSessionDetail = true
-        case .connecting, .listening, .speaking:
-            self.voiceManager.endSession()
         }
     }
 
