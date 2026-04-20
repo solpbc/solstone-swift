@@ -10,9 +10,11 @@ private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "voic
 @Observable
 final class VoiceManager {
     var state: VoiceState = .idle
+    @ObservationIgnored var onObserverAction: (@MainActor @Sendable (ObserverAction) -> Void)?
     @ObservationIgnored private let keyFetcher: any EphemeralKeyFetching
     @ObservationIgnored private let sidebandNotifier: any SidebandNotifying
     @ObservationIgnored private let navHintPoller: any NavHintPolling
+    @ObservationIgnored private let observerActionPoller: any ObserverActionPolling
     @ObservationIgnored private let webrtc: any WebRTCConnecting
     @ObservationIgnored private let onNavHint: @MainActor @Sendable (String) -> Void
     @ObservationIgnored private var eventTask: Task<Void, Never>?
@@ -28,6 +30,7 @@ final class VoiceManager {
         keyFetcher: any EphemeralKeyFetching = EphemeralKeyFetcher(),
         sidebandNotifier: any SidebandNotifying = SidebandNotifier(),
         navHintPoller: any NavHintPolling = NavHintPoller(),
+        observerActionPoller: any ObserverActionPolling = ObserverActionPoller(),
         webrtc: any WebRTCConnecting = WebRTCManager(),
         onNavHint: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         idleTimeoutOverride: Duration? = nil,
@@ -36,6 +39,7 @@ final class VoiceManager {
         self.keyFetcher = keyFetcher
         self.sidebandNotifier = sidebandNotifier
         self.navHintPoller = navHintPoller
+        self.observerActionPoller = observerActionPoller
         self.webrtc = webrtc
         self.onNavHint = onNavHint
         self.idleTimeoutOverride = idleTimeoutOverride
@@ -205,10 +209,28 @@ private extension VoiceManager {
 
         Task { [weak self] in
             guard let self else { return }
-            let hints = await self.navHintPoller.fetch(localPort: localPort, callId: callId)
-            guard !hints.isEmpty else { return }
+            async let hints = self.navHintPoller.fetch(localPort: localPort, callId: callId)
+            async let actions = self.observerActionPoller.fetchActions(localPort: localPort, callId: callId)
+            let (hintsResult, actionsResult) = await (hints, actions)
 
-            for (index, hint) in hints.enumerated() {
+            for action in actionsResult {
+                guard self.state != .idle,
+                      self.lastSession?.callId == callId
+                else { return }
+
+                switch action {
+                case .startObserver(let mode):
+                    log.info("voice-observer-action received: start_observer mode=\(mode.rawValue, privacy: .public)")
+                }
+
+                await MainActor.run {
+                    self.onObserverAction?(action)
+                }
+            }
+
+            guard !hintsResult.isEmpty else { return }
+
+            for (index, hint) in hintsResult.enumerated() {
                 guard self.state != .idle,
                       self.lastSession?.callId == callId
                 else { return }
@@ -217,7 +239,7 @@ private extension VoiceManager {
                     self.onNavHint(hint)
                 }
 
-                if index < hints.count - 1 {
+                if index < hintsResult.count - 1 {
                     try? await Task.sleep(for: .milliseconds(200))
                 }
             }

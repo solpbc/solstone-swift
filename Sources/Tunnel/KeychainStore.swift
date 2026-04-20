@@ -14,6 +14,7 @@ nonisolated enum KeychainStore {
     static let service = "org.solpbc.solstone-swift"
     static let identityKeyAccount = "solstone-swift-identity-key"
     static let hostKeyAccount = "solstone-swift-host-key"
+    static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key"
 
     static func saveIdentityKey(_ key: Curve25519.Signing.PrivateKey) throws {
         try save(data: Data(key.rawRepresentation), account: identityKeyAccount)
@@ -47,6 +48,21 @@ nonisolated enum KeychainStore {
 
     static func deleteHostKey() throws {
         try delete(account: hostKeyAccount)
+    }
+
+    static func saveObserverIngestKey(_ key: String) throws {
+        try save(data: Data(key.utf8), account: observerIngestKeyAccount)
+    }
+
+    static func loadObserverIngestKey() throws -> String? {
+        guard let data = try load(account: observerIngestKeyAccount) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func deleteObserverIngestKey() throws {
+        try delete(account: observerIngestKeyAccount)
     }
 
     private static func save(data: Data, account: String) throws {

@@ -13,6 +13,7 @@ struct MainTabView: View {
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PortalPage.self) private var portalPage
     @Environment(VoiceManager.self) private var voiceManager
+    @Environment(ObserverManager.self) private var observerManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @State private var selectedTab = AppTab.today
     @State private var lastPortalTab = AppTab.today
@@ -126,6 +127,7 @@ struct MainTabView: View {
             .tabItem {
                 Label(AppTab.sense.label, systemImage: AppTab.sense.iconName)
             }
+            .badge(self.observerBadgeVisible ? " " : nil)
             .keyboardShortcut(KeyEquivalent(AppTab.sense.shortcutKey), modifiers: .command)
 
             NavigationStack {
@@ -241,6 +243,15 @@ struct MainTabView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
         .accessibilityLabel("loading portal")
+    }
+
+    private var observerBadgeVisible: Bool {
+        switch self.observerManager.state {
+        case .starting, .active:
+            true
+        case .idle, .stopping, .error:
+            false
+        }
     }
 
     private func tabForRoute(_ route: String, currentPortalTab: AppTab) -> AppTab {

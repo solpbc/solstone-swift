@@ -10,6 +10,7 @@ final class KeychainStoreTests: XCTestCase {
     override func tearDown() {
         try? KeychainStore.deleteIdentityKey()
         try? KeychainStore.deleteHostKey()
+        try? KeychainStore.deleteObserverIngestKey()
     }
 
     func testIdentityKeyRoundTrip() throws {
@@ -49,5 +50,22 @@ final class KeychainStoreTests: XCTestCase {
         let loaded = try KeychainStore.loadIdentityKey()
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.rawRepresentation, key2.rawRepresentation)
+    }
+
+    func testObserverIngestKeyRoundTrip() throws {
+        try KeychainStore.saveObserverIngestKey("observer-key-123")
+
+        let loaded = try KeychainStore.loadObserverIngestKey()
+
+        XCTAssertEqual(loaded, "observer-key-123")
+    }
+
+    func testDeleteObserverIngestKey() throws {
+        try KeychainStore.saveObserverIngestKey("observer-key-123")
+        try KeychainStore.deleteObserverIngestKey()
+
+        let loaded = try KeychainStore.loadObserverIngestKey()
+
+        XCTAssertNil(loaded)
     }
 }

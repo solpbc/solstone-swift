@@ -9,6 +9,7 @@ import os
 final class AppDelegate: NSObject, UIApplicationDelegate {
     let pushManager = PushNotificationManager()
     let pendingRoute = PendingNotificationRouteState()
+    weak var observerUploader: ObserverUploader?
     lazy var tapRouter = NotificationTapRouter { [weak self] route in
         self?.pendingRoute.route = route
     }
@@ -55,6 +56,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) {
         Task { @MainActor [weak self] in
             self?.pushManager.handleRemoteRegistrationFailure(error)
+        }
+    }
+
+    nonisolated func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        guard identifier == ObserverUploader.backgroundSessionIdentifier else {
+            completionHandler()
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            self?.observerUploader?.handleBackgroundURLSessionEvents {
+                completionHandler()
+            }
         }
     }
 }

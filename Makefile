@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-live test-one test-build test-fast \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-live test-one test-build test-fast \
 		       install deploy launch cycle run unlock \
 		       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
@@ -343,6 +343,173 @@ integration-test-push: sim
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
 		echo "integration-test-push passed"; \
 		tail -n 20 "$$APP_LOG"
+
+integration-test-observer: PORT ?= 7071
+integration-test-observer: VOICE_PORT ?= 7072
+integration-test-observer: PUSH_PORT ?= 8474
+integration-test-observer: OBSERVER_PORT ?= 8575
+integration-test-observer: sim
+	@set -eu; \
+		MOCK_PID=""; \
+		VOICE_MOCK_PID=""; \
+		PUSH_MOCK_PID=""; \
+		OBSERVER_MOCK_PID=""; \
+		LAUNCH_PID=""; \
+		MOCK_LOG=$$(mktemp -t solstone-swift-mock.XXXXXX); \
+		VOICE_MOCK_LOG=$$(mktemp -t solstone-swift-voice-mock.XXXXXX); \
+		PUSH_MOCK_LOG=$$(mktemp -t solstone-swift-push-mock.XXXXXX); \
+		OBSERVER_MOCK_LOG=$$(mktemp -t solstone-swift-observer-mock.XXXXXX); \
+		PUSH_COUNT=$$(mktemp -t solstone-swift-push-count.XXXXXX); \
+		OBSERVER_COUNT=$$(mktemp -t solstone-swift-observer-count.XXXXXX); \
+		SENSE_APP_LOG=$$(mktemp -t solstone-swift-observer-sense.XXXXXX); \
+		VOICE_APP_LOG=$$(mktemp -t solstone-swift-observer-voice.XXXXXX); \
+		BOOT_LOG=$$(mktemp -t solstone-swift-observer-boot.XXXXXX); \
+		cleanup() { \
+			status=$$?; \
+			if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
+			if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
+			if [ -n "$$MOCK_PID" ] && kill -0 "$$MOCK_PID" 2>/dev/null; then kill "$$MOCK_PID" 2>/dev/null; fi; \
+			if [ -n "$$VOICE_MOCK_PID" ] && kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then kill "$$VOICE_MOCK_PID" 2>/dev/null; fi; \
+			if [ -n "$$PUSH_MOCK_PID" ] && kill -0 "$$PUSH_MOCK_PID" 2>/dev/null; then kill "$$PUSH_MOCK_PID" 2>/dev/null; fi; \
+			if [ -n "$$OBSERVER_MOCK_PID" ] && kill -0 "$$OBSERVER_MOCK_PID" 2>/dev/null; then kill "$$OBSERVER_MOCK_PID" 2>/dev/null; fi; \
+			rm -f "$$MOCK_LOG" "$$VOICE_MOCK_LOG" "$$PUSH_MOCK_LOG" "$$OBSERVER_MOCK_LOG" "$$PUSH_COUNT" "$$OBSERVER_COUNT" "$$SENSE_APP_LOG" "$$VOICE_APP_LOG" "$$BOOT_LOG"; \
+			exit $$status; \
+		}; \
+		trap cleanup EXIT INT TERM; \
+		if ! xcrun simctl boot "$(SIM)" >"$$BOOT_LOG" 2>&1; then \
+			if ! grep -q "Booted" "$$BOOT_LOG"; then \
+				cat "$$BOOT_LOG"; \
+				exit 1; \
+			fi; \
+		fi; \
+		for port in $(PORT) $(VOICE_PORT) $(PUSH_PORT) $(OBSERVER_PORT); do \
+			pids=$$(lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null || true); \
+			if [ -n "$$pids" ]; then \
+				kill $$pids 2>/dev/null || true; \
+				sleep 1; \
+			fi; \
+		done; \
+		python3 test/mock_hub_phone.py --port $(PORT) >"$$MOCK_LOG" 2>&1 & \
+		MOCK_PID=$$!; \
+		python3 test/mock_voice_server.py --port $(VOICE_PORT) --enable-observer-actions >"$$VOICE_MOCK_LOG" 2>&1 & \
+		VOICE_MOCK_PID=$$!; \
+		python3 test/mock_push_server.py --port $(PUSH_PORT) --count-file "$$PUSH_COUNT" >"$$PUSH_MOCK_LOG" 2>&1 & \
+		PUSH_MOCK_PID=$$!; \
+		python3 test/mock_observer_server.py --port $(OBSERVER_PORT) --count-file "$$OBSERVER_COUNT" >"$$OBSERVER_MOCK_LOG" 2>&1 & \
+		OBSERVER_MOCK_PID=$$!; \
+		ready=0; \
+		for _ in 1 2 3 4 5; do \
+			if grep -q "^READY:$(PORT)$$" "$$MOCK_LOG"; then ready=1; break; fi; \
+			if ! kill -0 "$$MOCK_PID" 2>/dev/null; then cat "$$MOCK_LOG"; exit 1; fi; \
+			sleep 1; \
+		done; \
+		[ "$$ready" -eq 1 ] || { echo "mock hub-phone did not become ready"; cat "$$MOCK_LOG"; exit 1; }; \
+		voice_ready=0; \
+		for _ in 1 2 3 4 5; do \
+			if grep -q "^READY:$(VOICE_PORT)$$" "$$VOICE_MOCK_LOG"; then voice_ready=1; break; fi; \
+			if ! kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then cat "$$VOICE_MOCK_LOG"; exit 1; fi; \
+			sleep 1; \
+		done; \
+		[ "$$voice_ready" -eq 1 ] || { echo "mock voice server did not become ready"; cat "$$VOICE_MOCK_LOG"; exit 1; }; \
+		push_ready=0; \
+		for _ in 1 2 3 4 5; do \
+			if grep -q "^READY:$(PUSH_PORT)$$" "$$PUSH_MOCK_LOG"; then push_ready=1; break; fi; \
+			if ! kill -0 "$$PUSH_MOCK_PID" 2>/dev/null; then cat "$$PUSH_MOCK_LOG"; exit 1; fi; \
+			sleep 1; \
+		done; \
+		[ "$$push_ready" -eq 1 ] || { echo "mock push server did not become ready"; cat "$$PUSH_MOCK_LOG"; exit 1; }; \
+		observer_ready=0; \
+		for _ in 1 2 3 4 5; do \
+			if grep -q "^READY:$(OBSERVER_PORT)$$" "$$OBSERVER_MOCK_LOG"; then observer_ready=1; break; fi; \
+			if ! kill -0 "$$OBSERVER_MOCK_PID" 2>/dev/null; then cat "$$OBSERVER_MOCK_LOG"; exit 1; fi; \
+			sleep 1; \
+		done; \
+		[ "$$observer_ready" -eq 1 ] || { echo "mock observer server did not become ready"; cat "$$OBSERVER_MOCK_LOG"; exit 1; }; \
+		xcrun simctl install booted $(SIM_APP); \
+		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-reset-registration --integration-test-observer-tap=sense >"$$SENSE_APP_LOG" 2>&1 & \
+		LAUNCH_PID=$$!; \
+		sense_started=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10; do \
+			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then sense_started=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$sense_started" -eq 1 ] || { echo "integration-test-observer failed: sense path never started observer"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
+		sense_enqueued=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "uploader"' 2>/dev/null | grep -q "observer: chunk enqueued"; then sense_enqueued=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$sense_enqueued" -eq 1 ] || { echo "integration-test-observer failed: sense path never enqueued chunk"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
+		sleep 10; \
+		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+			echo "integration-test-observer failed: sense path unexpectedly started voice"; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			exit 1; \
+		fi; \
+		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "listening"; then \
+			echo "integration-test-observer failed: sense path unexpectedly emitted listening"; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"upload_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
+			echo "integration-test-observer failed: sense path upload missing"; \
+			cat "$$OBSERVER_COUNT"; \
+			cat "$$OBSERVER_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"filename"[[:space:]]*:[[:space:]]*"audio.m4a"'; then \
+			echo "integration-test-observer failed: sense path upload filename invariant missing"; \
+			cat "$$OBSERVER_COUNT"; \
+			cat "$$OBSERVER_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1 || true; \
+		LAUNCH_PID=""; \
+		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-tap=voice >"$$VOICE_APP_LOG" 2>&1 & \
+		LAUNCH_PID=$$!; \
+		voice_action=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "voice"' 2>/dev/null | grep -q "voice-observer-action received"; then voice_action=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$voice_action" -eq 1 ] || { echo "integration-test-observer failed: voice path never received observer action"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
+		voice_observer_started=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then voice_observer_started=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$voice_observer_started" -eq 1 ] || { echo "integration-test-observer failed: voice path never started observer"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
+		voice_log_snapshot=$$(mktemp -t solstone-swift-observer-voice-log.XXXXXX); \
+		xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null >"$$voice_log_snapshot"; \
+		action_line=$$(grep -n "voice-observer-action received" "$$voice_log_snapshot" | tail -n 1 | cut -d: -f1); \
+		start_line=$$(grep -n "observer: session starting" "$$voice_log_snapshot" | tail -n 1 | cut -d: -f1); \
+		[ -n "$$action_line" ] && [ -n "$$start_line" ] && [ "$$start_line" -gt "$$action_line" ] || { echo "integration-test-observer failed: observer start did not follow voice action"; cat "$$voice_log_snapshot"; rm -f "$$voice_log_snapshot"; exit 1; }; \
+		rm -f "$$voice_log_snapshot"; \
+		voice_reused=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10; do \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "observer"' 2>/dev/null | grep -q "observer: reused active voice session"; then voice_reused=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$voice_reused" -eq 1 ] || { echo "integration-test-observer failed: voice path did not reuse active voice session"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 100; exit 1; }; \
+		sleep 5; \
+		registration_count=$$(xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "registration"' 2>/dev/null | grep -c "observer registration succeeded" || true); \
+		[ "$$registration_count" -eq 1 ] || { echo "integration-test-observer failed: registration logged $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "registration"' 2>/dev/null; exit 1; }; \
+		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"create_count"[[:space:]]*:[[:space:]]*1'; then \
+			echo "integration-test-observer failed: observer registration did not persist"; \
+			cat "$$OBSERVER_COUNT"; \
+			cat "$$OBSERVER_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"upload_count"[[:space:]]*:[[:space:]]*[2-9]'; then \
+			echo "integration-test-observer failed: expected both observer uploads"; \
+			cat "$$OBSERVER_COUNT"; \
+			cat "$$OBSERVER_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		echo "--- subsystem log tail ---"; \
+		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+		echo "integration-test-observer passed"; \
+		tail -n 20 "$$VOICE_APP_LOG"
 
 test-one: generate
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \

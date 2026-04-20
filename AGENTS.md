@@ -4,7 +4,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 
 *Build conventions follow `cto/standards/project-conventions.md`; engineering philosophy follows `cto/standards/engineering-principles.md`.*
 
-> **Wave 3 — APNs client scaffolding landed.** Four categories registered (daily briefing, commitment nudge, pre-meeting prep, agent alert); rich notification content extension; deep-link routing to Today tab via pending-route state; registration + backoff against mock push server. Mark Done / Snooze actions declared but server dispatch deferred — TODO(wave-3-followup). Voice never auto-starts from a notification tap — enforced by negative log assertion in `make integration-test-push`. Live APNs validation pending Apple Developer enrollment.
+> **Wave 4 — Sense + observer pipeline landed.** Sense now runs native observer sessions with registration, chunked upload, recent-observation manifest fetch, and Live Activity stop return. Voice session and observer session are independent; observer never auto-starts from a notification tap — enforced by negative log assertion in `make integration-test-observer`. AVAudioSession coexistence is verified in the voice-then-observer integration path.
 
 ## Principles
 

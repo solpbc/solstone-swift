@@ -17,6 +17,8 @@ SERVER = None
 class Handler(BaseHTTPRequestHandler):
     nav_hint_calls = 0
     simulate_503 = False
+    enable_observer_actions = False
+    consumed_observer_actions = set()
 
     def log_message(self, format, *args):
         print(format % args, flush=True)
@@ -43,6 +45,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"hints": ["today"], "consumed": True})
             else:
                 self._send_json(200, {"hints": [], "consumed": True})
+            return
+        if parsed.path == "/api/voice/observer-actions":
+            if not Handler.enable_observer_actions:
+                self._send_json(200, {"actions": [], "consumed": True})
+                return
+            call_id = parse_qs(parsed.query).get("call_id", [""])[0]
+            if not call_id:
+                self._send_json(400, {"error": "missing call_id"})
+                return
+            if call_id not in Handler.consumed_observer_actions:
+                Handler.consumed_observer_actions.add(call_id)
+                self._send_json(
+                    200,
+                    {"actions": [{"type": "start_observer", "mode": "meeting"}], "consumed": True}
+                )
+            else:
+                self._send_json(200, {"actions": [], "consumed": True})
             return
         if parsed.path == "/api/voice/status":
             self._send_json(200, {"brain_ready": True, "brain_age_seconds": 3600})
@@ -77,9 +96,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7072)
     parser.add_argument("--simulate-503", action="store_true")
+    parser.add_argument("--enable-observer-actions", action="store_true")
     args = parser.parse_args()
 
     Handler.simulate_503 = args.simulate_503
+    Handler.enable_observer_actions = args.enable_observer_actions
     SERVER = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)

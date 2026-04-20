@@ -10,11 +10,14 @@ final class VoiceManagerTests: XCTestCase {
     private var mockWebRTC = MockWebRTCConnector()
     private var mockSideband = MockSidebandNotifier()
     private var mockNavHintPoller = MockNavHintPoller()
+    private var mockObserverActionPoller = MockObserverActionPoller()
     @MainActor private var appliedNavHints: [String] = []
+    @MainActor private var appliedObserverActions: [ObserverAction] = []
     private var manager = VoiceManager(
         keyFetcher: MockEphemeralKeyFetcher(),
         sidebandNotifier: MockSidebandNotifier(),
         navHintPoller: MockNavHintPoller(),
+        observerActionPoller: MockObserverActionPoller(),
         webrtc: MockWebRTCConnector()
     )
 
@@ -25,16 +28,22 @@ final class VoiceManagerTests: XCTestCase {
         self.mockWebRTC = MockWebRTCConnector()
         self.mockSideband = MockSidebandNotifier()
         self.mockNavHintPoller = MockNavHintPoller()
+        self.mockObserverActionPoller = MockObserverActionPoller()
         self.appliedNavHints = []
+        self.appliedObserverActions = []
         self.manager = VoiceManager(
             keyFetcher: self.mockKeyFetcher,
             sidebandNotifier: self.mockSideband,
             navHintPoller: self.mockNavHintPoller,
+            observerActionPoller: self.mockObserverActionPoller,
             webrtc: self.mockWebRTC,
             onNavHint: { @MainActor [weak self] hint in
                 self?.appliedNavHints.append(hint)
             }
         )
+        self.manager.onObserverAction = { @MainActor [weak self] action in
+            self?.appliedObserverActions.append(action)
+        }
     }
 
     override func tearDown() {
@@ -256,6 +265,27 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.mockNavHintPoller.lastCallId, "test-call-id")
         let appliedHints = await MainActor.run { self.appliedNavHints }
         XCTAssertEqual(appliedHints, ["today", "ask"])
+        XCTAssertEqual(self.mockObserverActionPoller.fetchCallCount, 1)
+    }
+
+    func testToolCallCompletedDispatchesObserverActions() async {
+        self.mockObserverActionPoller.actions = [.startObserver(mode: .voiceMemo)]
+
+        await self.manager.startSession(localPort: 7071)
+        self.mockWebRTC.eventContinuation?.yield(.toolCallCompleted)
+
+        for _ in 0..<40 where self.mockObserverActionPoller.fetchCallCount == 0 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        for _ in 0..<40 where await MainActor.run(body: { self.appliedObserverActions.count }) != 1 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(self.mockObserverActionPoller.fetchCallCount, 1)
+        XCTAssertEqual(self.mockObserverActionPoller.lastLocalPort, 7071)
+        XCTAssertEqual(self.mockObserverActionPoller.lastCallId, "test-call-id")
+        let appliedActions = await MainActor.run { self.appliedObserverActions }
+        XCTAssertEqual(appliedActions, [.startObserver(mode: .voiceMemo)])
     }
 
     func testToolCallCompletedSkipsFetchWhenCallIdMissing() async {
@@ -266,8 +296,11 @@ final class VoiceManagerTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(self.mockNavHintPoller.fetchCallCount, 0)
+        XCTAssertEqual(self.mockObserverActionPoller.fetchCallCount, 0)
         let appliedHints = await MainActor.run { self.appliedNavHints }
         XCTAssertEqual(appliedHints, [])
+        let appliedActions = await MainActor.run { self.appliedObserverActions }
+        XCTAssertEqual(appliedActions, [])
     }
 
     func testIdleTimerEndsSessionWithoutEvents() async {
@@ -275,6 +308,7 @@ final class VoiceManagerTests: XCTestCase {
             keyFetcher: self.mockKeyFetcher,
             sidebandNotifier: self.mockSideband,
             navHintPoller: self.mockNavHintPoller,
+            observerActionPoller: self.mockObserverActionPoller,
             webrtc: self.mockWebRTC,
             idleTimeoutOverride: .milliseconds(50)
         )
@@ -294,6 +328,7 @@ final class VoiceManagerTests: XCTestCase {
             keyFetcher: self.mockKeyFetcher,
             sidebandNotifier: self.mockSideband,
             navHintPoller: self.mockNavHintPoller,
+            observerActionPoller: self.mockObserverActionPoller,
             webrtc: self.mockWebRTC,
             idleTimeoutOverride: .milliseconds(100)
         )

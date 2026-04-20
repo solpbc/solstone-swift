@@ -11,11 +11,19 @@ struct SolstoneSwiftApp: App {
     @State private var brainStatusMonitor: BrainStatusMonitor
     @State private var portalPage: PortalPage
     @State private var diagnosticLog: DiagnosticLog
+    @State private var observerRegistration: ObserverRegistration
+    @State private var observerUploader: ObserverUploader
+    @State private var observerManager: ObserverManager
+    @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var voiceManager: VoiceManager
     @State private var bannerPresenter: BannerPresenter
     @State private var backgroundDisconnectTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
+    @State private var integrationObserverStartTask: Task<Void, Never>?
+    @State private var integrationObserverStopTask: Task<Void, Never>?
     @State private var didAutoStartIntegrationVoice = false
+    @State private var didAutoStartIntegrationObserver = false
+    @State private var didAutoStopIntegrationObserver = false
     @Environment(\.scenePhase) private var scenePhase
 
     private static var isIntegrationTest: Bool {
@@ -40,9 +48,31 @@ struct SolstoneSwiftApp: App {
 
     private static var shouldAutoStartIntegrationVoice: Bool {
 #if DEBUG
-        !ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--integration-test-push-tap=") })
+        if let observerTap = self.integrationObserverTapKind {
+            return observerTap == "voice"
+        }
+        return !ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--integration-test-push-tap=") })
 #else
         true
+#endif
+    }
+
+    private static var integrationObserverTapKind: String? {
+#if DEBUG
+        guard let tapArgument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--integration-test-observer-tap=") }) else {
+            return nil
+        }
+        return String(tapArgument.dropFirst("--integration-test-observer-tap=".count))
+#else
+        nil
+#endif
+    }
+
+    private static var shouldResetIntegrationObserverRegistration: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--integration-test-observer-reset-registration")
+#else
+        false
 #endif
     }
 
@@ -54,23 +84,49 @@ struct SolstoneSwiftApp: App {
             tunnelManager: tunnel,
             brainStatusMonitor: brain
         )
+        let observerRegistration = ObserverRegistration()
+        if Self.shouldResetIntegrationObserverRegistration {
+            observerRegistration.reset()
+        }
+        let observerUploader = ObserverUploader(
+            ensureRegistered: {
+                try await observerRegistration.ensureRegistered()
+            },
+            localPortProvider: {
+                observerRegistration.activeLocalPort
+            }
+        )
+        let observerRecorder = Self.makeObserverRecorder()
+        let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
         let voice = VoiceManager(
-            webrtc: Self.isIntegrationTest ? IntegrationTestWebRTCConnector() : WebRTCManager(),
+            webrtc: Self.makeWebRTCConnector(),
             onNavHint: { @MainActor hint in
                 portal.applyNavHint(hint)
             },
             diagnosticLog: log
         )
+        voice.onObserverAction = { @MainActor action in
+            switch action {
+            case .startObserver(let mode):
+                Task { @MainActor in
+                    await observerManager.startSession(mode: mode)
+                }
+            }
+        }
         self._diagnosticLog = State(initialValue: log)
         self._brainStatusMonitor = State(initialValue: brain)
         self._portalPage = State(initialValue: portal)
         self._tunnelManager = State(initialValue: tunnel)
+        self._observerRegistration = State(initialValue: observerRegistration)
+        self._observerUploader = State(initialValue: observerUploader)
+        self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
         self._bannerPresenter = State(initialValue: BannerPresenter(
             diagnosticLog: log,
             voiceManager: voice,
             tunnelManager: tunnel
         ))
+        self.appDelegate.observerUploader = observerUploader
     }
 
     var body: some Scene {
@@ -78,12 +134,30 @@ struct SolstoneSwiftApp: App {
             ContentView()
                 .environment(self.tunnelManager)
                 .environment(self.voiceManager)
+                .environment(self.observerRegistration)
+                .environment(self.observerUploader)
+                .environment(self.observerManager)
+                .environment(self.pendingObserverCommand)
                 .environment(self.brainStatusMonitor)
                 .environment(self.portalPage)
                 .environment(self.diagnosticLog)
                 .environment(self.bannerPresenter)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
+                .onOpenURL { url in
+                    guard url.scheme == "solstone",
+                          url.host == "observer",
+                          url.path == "/stop"
+                    else { return }
+                    self.pendingObserverCommand.command = .stopRequested
+                }
+                .onChange(of: self.pendingObserverCommand.command) { _, command in
+                    guard command == .stopRequested else { return }
+                    self.pendingObserverCommand.command = nil
+                    Task {
+                        await self.observerManager.stopSession()
+                    }
+                }
         }
         .commands {
             CommandMenu("Hub") {
@@ -126,6 +200,10 @@ struct SolstoneSwiftApp: App {
             case .background:
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
+                self.integrationObserverStartTask?.cancel()
+                self.integrationObserverStartTask = nil
+                self.integrationObserverStopTask?.cancel()
+                self.integrationObserverStopTask = nil
                 self.voiceManager.endSession()
                 self.tunnelManager.cancelConnect()
                 self.tunnelManager.cancelReconnect()
@@ -155,7 +233,11 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(let port, _):
+                self.observerRegistration.activeLocalPort = port
                 self.brainStatusMonitor.startPolling(localPort: port)
+                Task {
+                    await self.observerUploader.resumeFromDisk()
+                }
 
                 if Self.isIntegrationMode,
                    Self.shouldAutoStartIntegrationVoice,
@@ -169,11 +251,68 @@ struct SolstoneSwiftApp: App {
                         await self.voiceManager.startSession(localPort: port)
                     }
                 }
+
+                if Self.isIntegrationMode,
+                   Self.integrationObserverTapKind == "sense",
+                   !self.didAutoStartIntegrationObserver
+                {
+                    self.didAutoStartIntegrationObserver = true
+                    self.integrationObserverStartTask?.cancel()
+                    self.integrationObserverStartTask = Task {
+                        try? await Task.sleep(for: .seconds(1))
+                        guard !Task.isCancelled else { return }
+                        await self.observerManager.startSession(mode: .meeting)
+                    }
+                }
             case .connecting, .disconnected, .error:
+                self.observerRegistration.activeLocalPort = nil
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
+                self.integrationObserverStartTask?.cancel()
+                self.integrationObserverStartTask = nil
+                self.integrationObserverStopTask?.cancel()
+                self.integrationObserverStopTask = nil
                 self.brainStatusMonitor.stopPolling()
             }
         }
+        .onChange(of: self.observerManager.state) { _, newState in
+            guard Self.isIntegrationMode,
+                  Self.integrationObserverTapKind != nil
+            else { return }
+
+            switch newState {
+            case .active:
+                guard !self.didAutoStopIntegrationObserver else { return }
+                self.didAutoStopIntegrationObserver = true
+                self.integrationObserverStopTask?.cancel()
+                self.integrationObserverStopTask = Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    await self.observerManager.stopSession()
+                }
+            case .idle, .starting, .stopping, .error:
+                break
+            }
+        }
+    }
+}
+
+private extension SolstoneSwiftApp {
+    static func makeObserverRecorder() -> any ObserverRecording {
+#if DEBUG
+        if self.isIntegrationTest {
+            return IntegrationTestObserverRecorder()
+        }
+#endif
+        return LiveObserverRecorder()
+    }
+
+    static func makeWebRTCConnector() -> any WebRTCConnecting {
+#if DEBUG
+        if self.isIntegrationTest {
+            return IntegrationTestWebRTCConnector()
+        }
+#endif
+        return WebRTCManager()
     }
 }

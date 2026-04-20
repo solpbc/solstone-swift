@@ -46,7 +46,12 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens when you tap Listen"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start, storing them in your private journal. Nothing is shared with sol pbc."
+        INFOPLIST_KEY_UIBackgroundModes:
+          - audio
+          - fetch
+          - remote-notification
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_STRICT_CONCURRENCY: complete
@@ -54,6 +59,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift
     dependencies:
       - target: SolstoneNotificationContent
+        embed: true
+      - target: SolstoneLiveActivityWidget
         embed: true
       - package: swift-nio-ssh
         product: NIOSSH
@@ -96,6 +103,34 @@ targets:
               - SOLSTONE_AGENT_ALERT
             UNNotificationExtensionInitialContentSizeRatio: 1.0
             UNNotificationExtensionDefaultContentHidden: false
+  SolstoneLiveActivityWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - SolstoneLiveActivityWidget
+      - Sources/Observer/ObserverMode.swift
+      - Sources/Observer/ObserverLiveActivity.swift
+      - Sources/Design/Colors.swift
+    entitlements:
+      path: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.org.solpbc.solstone-swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.liveactivity
+        INFOPLIST_KEY_CFBundleDisplayName: SolstoneLiveActivityWidget
+        CODE_SIGN_ENTITLEMENTS: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements
+        DEVELOPMENT_TEAM: VJ57N4RWDA
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
+    info:
+      path: SolstoneLiveActivityWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   solstone-swiftTests:
     type: bundle.unit-test
     platform: iOS

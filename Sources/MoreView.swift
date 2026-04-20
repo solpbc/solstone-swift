@@ -14,11 +14,15 @@ struct MoreView: View {
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(PushNotificationManager.self) private var pushManager
+    @Environment(ObserverRegistration.self) private var observerRegistration
+    @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(ObserverManager.self) private var observerManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
     @State private var isProbing = false
     @State private var probeResult: String?
     @State private var probeResultIsAlive = false
+    @State private var showingObserverReset = false
 
     private var serverHost: String {
         switch self.via {
@@ -98,6 +102,34 @@ struct MoreView: View {
             "registration: registered"
         case .failed(let reason):
             "registration: failed — \(reason)"
+        }
+    }
+
+    private var observerStateText: String {
+        switch self.observerManager.state {
+        case .idle:
+            "idle"
+        case .starting:
+            "starting"
+        case .active:
+            "active"
+        case .stopping:
+            "stopping"
+        case .error(let error):
+            "error — \(error.message)"
+        }
+    }
+
+    private var observerRegistrationText: String {
+        switch self.observerRegistration.state {
+        case .idle:
+            "idle"
+        case .registering:
+            "registering"
+        case .registered:
+            "registered"
+        case .failed(let reason):
+            "failed — \(reason)"
         }
     }
 
@@ -214,6 +246,28 @@ struct MoreView: View {
                 .hoverEffect(.highlight)
             }
 
+            Section("observer") {
+                LabeledContent("state", value: self.observerStateText)
+                LabeledContent("registration", value: self.observerRegistrationText)
+                LabeledContent("last upload") {
+                    if let lastUploadAt = self.observerUploader.lastUploadAt {
+                        Text(lastUploadAt, style: .time)
+                    } else {
+                        Text("none")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                LabeledContent("pending", value: "\(self.observerUploader.pendingCount)")
+                LabeledContent("failed", value: "\(self.observerUploader.failedCount)")
+
+                Button(role: .destructive) {
+                    self.showingObserverReset = true
+                } label: {
+                    Text("reset observer registration")
+                }
+                .hoverEffect(.highlight)
+            }
+
             Section {
                 NavigationLink {
                     SettingsView()
@@ -230,6 +284,14 @@ struct MoreView: View {
         .navigationTitle("more")
         .navigationDestination(isPresented: self.$navigateToDiagnostics) {
             DiagnosticsView()
+        }
+        .alert("reset observer registration?", isPresented: self.$showingObserverReset) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) {
+                self.observerRegistration.reset()
+            }
+        } message: {
+            Text("This clears the stored observer key and forces a fresh registration on next use.")
         }
         .onDisappear {
             self.snapshotCopyTask?.cancel()
