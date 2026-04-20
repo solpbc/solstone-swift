@@ -11,20 +11,46 @@ struct MainTabView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PortalPage.self) private var portalPage
-    @State private var selectedTab = AppTab.dashboard
+    @State private var selectedTab = AppTab.today
+    @State private var lastPortalTab = AppTab.today
     @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
 
     enum AppTab: Hashable {
-        case dashboard, sessions, requests, files, more
+        case today, ask, sense, more
 
         var route: String {
             switch self {
-            case .dashboard: "dashboard"
-            case .sessions: "sessions"
-            case .requests: "requests"
-            case .files: "files"
-            case .more: ""
+            case .today: "today"
+            case .ask: "ask"
+            case .sense, .more: ""
+            }
+        }
+
+        var iconName: String {
+            switch self {
+            case .today: "sun.max"
+            case .ask: "bubble.left.and.questionmark"
+            case .sense: "ear"
+            case .more: "ellipsis.circle"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .today: "today"
+            case .ask: "ask"
+            case .sense: "sense"
+            case .more: "more"
+            }
+        }
+
+        var shortcutKey: Character {
+            switch self {
+            case .today: "1"
+            case .ask: "2"
+            case .sense: "3"
+            case .more: "4"
             }
         }
     }
@@ -72,54 +98,66 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        ZStack {
-            PortalWebView(portalPage: self.portalPage)
-                .ignoresSafeArea(edges: .top)
-                .opacity(self.selectedTab == .more ? 0 : 1)
-                .allowsHitTesting(self.selectedTab != .more)
-
-            if self.selectedTab == .more {
-                NavigationStack {
-                    MoreView(
-                        localPort: self.localPort,
-                        via: self.via,
-                        connectedSince: self.connectedSince,
-                        navigateToDiagnostics: self.$navigateToDiagnostics
-                    )
+        TabView(selection: self.$selectedTab) {
+            self.portalTab(for: .today)
+                .tag(AppTab.today)
+                .tabItem {
+                    Label(AppTab.today.label, systemImage: AppTab.today.iconName)
                 }
-            }
+                .keyboardShortcut(KeyEquivalent(AppTab.today.shortcutKey), modifiers: .command)
 
-            if !self.tunnelManager.state.isConnected && self.selectedTab != .more {
-                self.reconnectOverlay
-            }
+            self.portalTab(for: .ask)
+                .tag(AppTab.ask)
+                .tabItem {
+                    Label(AppTab.ask.label, systemImage: AppTab.ask.iconName)
+                }
+                .keyboardShortcut(KeyEquivalent(AppTab.ask.shortcutKey), modifiers: .command)
 
-            if self.selectedTab != .more && self.tunnelManager.state.isConnected && !self.portalPage.isReady {
-                self.loadingOverlay
+            NavigationStack {
+                Text("sense")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .tag(AppTab.sense)
+            .tabItem {
+                Label(AppTab.sense.label, systemImage: AppTab.sense.iconName)
+            }
+            .keyboardShortcut(KeyEquivalent(AppTab.sense.shortcutKey), modifiers: .command)
+
+            NavigationStack {
+                MoreView(
+                    localPort: self.localPort,
+                    via: self.via,
+                    connectedSince: self.connectedSince,
+                    navigateToDiagnostics: self.$navigateToDiagnostics
+                )
+            }
+            .tag(AppTab.more)
+            .tabItem {
+                Label(AppTab.more.label, systemImage: AppTab.more.iconName)
+            }
+            .keyboardShortcut(KeyEquivalent(AppTab.more.shortcutKey), modifiers: .command)
         }
-        .safeAreaInset(edge: .bottom) {
-            self.tabBar
-        }
+        .tabViewStyle(.sidebarAdaptable)
         .overlay(alignment: .bottomLeading) {
             self.healthDot
                 .allowsHitTesting(false)
         }
-        .overlay {
+        .overlay(alignment: .bottomTrailing) {
             if self.tunnelManager.state.isConnected {
                 VoiceButton(localPort: self.localPort)
-                    .padding(.bottom, 56)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
             }
         }
         .onAppear {
             self.portalPage.load(port: self.localPort)
+            self.handleTabSelection(self.selectedTab)
         }
         .onChange(of: self.localPort) { _, port in
             self.portalPage.load(port: port)
         }
         .onChange(of: self.selectedTab) { _, tab in
-            if tab != .more {
-                self.portalPage.navigate(to: tab.route)
-            }
+            self.handleTabSelection(tab)
         }
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
@@ -134,10 +172,22 @@ struct MainTabView: View {
             }
         }
         .onChange(of: self.portalPage.currentRoute) { _, route in
-            guard self.selectedTab != .more else { return }
-            let matchedTab = self.tabForRoute(route)
-            if matchedTab != self.selectedTab {
-                self.selectedTab = matchedTab
+            self.handlePortalRoute(route)
+        }
+    }
+
+    @ViewBuilder
+    private func portalTab(for _: AppTab) -> some View {
+        ZStack {
+            PortalWebView(portalPage: self.portalPage)
+                .ignoresSafeArea(edges: .top)
+
+            if !self.tunnelManager.state.isConnected {
+                self.reconnectOverlay
+            }
+
+            if self.tunnelManager.state.isConnected && !self.portalPage.isReady {
+                self.loadingOverlay
             }
         }
     }
@@ -157,71 +207,37 @@ struct MainTabView: View {
         .accessibilityLabel("loading portal")
     }
 
-    @ViewBuilder
-    private var tabBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 0) {
-                ForEach([AppTab.dashboard, .sessions, .requests, .files, .more], id: \.self) { tab in
-                    Button {
-                        self.selectedTab = tab
-                        if tab != .more {
-                            self.portalPage.navigate(to: tab.route)
-                        }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: self.iconName(for: tab))
-                                .font(.system(size: 20))
-                            Text(self.label(for: tab))
-                                .font(.caption2)
-                        }
-                        .foregroundStyle(self.selectedTab == tab ? Color.accentColor : Color(.secondaryLabel))
-                        .frame(maxWidth: .infinity)
-                    }
-                    .hoverEffect(.highlight)
-                    .keyboardShortcut(KeyEquivalent(self.shortcutKey(for: tab)), modifiers: .command)
-                    .accessibilityLabel(self.label(for: tab))
-                }
+    private func tabForRoute(_ route: String, currentPortalTab: AppTab) -> AppTab {
+        if route.hasPrefix("today") { return .today }
+        if route.hasPrefix("ask") { return .ask }
+        if route.hasPrefix("entity/") { return currentPortalTab }
+        return .today
+    }
+
+    private func handleTabSelection(_ tab: AppTab) {
+        switch tab {
+        case .today, .ask:
+            self.lastPortalTab = tab
+            if !self.portalPage.currentRoute.hasPrefix(tab.route) {
+                self.portalPage.navigate(to: tab.route)
             }
-            .frame(height: 49)
-        }
-        .background(.bar)
-    }
-
-    private func tabForRoute(_ route: String) -> AppTab {
-        if route.hasPrefix("sessions") { return .sessions }
-        if route.hasPrefix("requests") { return .requests }
-        if route.hasPrefix("files") { return .files }
-        return .dashboard
-    }
-
-    private func iconName(for tab: AppTab) -> String {
-        switch tab {
-        case .dashboard: "globe"
-        case .sessions: "play.circle"
-        case .requests: "tray.full"
-        case .files: "folder"
-        case .more: "ellipsis.circle"
+        case .sense, .more:
+            break
         }
     }
 
-    private func label(for tab: AppTab) -> String {
-        switch tab {
-        case .dashboard: "dashboard"
-        case .sessions: "sessions"
-        case .requests: "requests"
-        case .files: "files"
-        case .more: "more"
+    private func handlePortalRoute(_ route: String) {
+        let matchedTab = self.tabForRoute(route, currentPortalTab: self.lastPortalTab)
+        if matchedTab == .today || matchedTab == .ask {
+            self.lastPortalTab = matchedTab
         }
-    }
-
-    private func shortcutKey(for tab: AppTab) -> Character {
-        switch tab {
-        case .dashboard: "1"
-        case .sessions: "2"
-        case .requests: "3"
-        case .files: "4"
-        case .more: "5"
+        switch self.selectedTab {
+        case .today, .ask:
+            if matchedTab != self.selectedTab {
+                self.selectedTab = matchedTab
+            }
+        case .sense, .more:
+            break
         }
     }
 }
