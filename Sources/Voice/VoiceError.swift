@@ -12,8 +12,8 @@ enum VoiceError: Error, Sendable, Equatable {
         case .microphoneDenied:
             return "microphone access is required for voice conversations — enable it in Settings"
         case .ephemeralKeyFailed(let detail):
-            if UserSettings.verboseErrors {
-                return "unable to start voice session — \(detail)"
+            if !detail.isEmpty {
+                return detail
             }
             return "unable to start voice session"
         case .connectionFailed(let detail):

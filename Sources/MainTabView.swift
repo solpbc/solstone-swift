@@ -3,9 +3,6 @@
 
 import SwiftUI
 import UIKit
-import os
-
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
 
 struct MainTabView: View {
     let localPort: Int
@@ -15,6 +12,7 @@ struct MainTabView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PortalPage.self) private var portalPage
+    @Environment(VoiceManager.self) private var voiceManager
     @State private var selectedTab = AppTab.today
     @State private var lastPortalTab = AppTab.today
     @State private var debugVoiceState: VoiceState?
@@ -152,11 +150,20 @@ struct MainTabView: View {
             VoiceButton(
                 stateOverride: self.debugVoiceState,
                 brainStatusOverride: self.debugBrainStatus,
-                onTap: self.handleWave1VoiceTap,
+                onTap: {
+                    guard self.tunnelManager.state.isConnected else { return }
+                    Task {
+                        await self.voiceManager.startSession(localPort: self.localPort)
+                    }
+                },
                 onDebugLongPress: self.cycleDebugVoiceState
             )
                 .padding(.trailing, 20)
                 .padding(.bottom, 20)
+        }
+        .overlay(alignment: .top) {
+            VoiceHUDOverlay(voiceManager: self.voiceManager)
+                .allowsHitTesting(true)
         }
         .onAppear {
             if !self.isPlaceholderMode {
@@ -265,10 +272,6 @@ struct MainTabView: View {
         case .sense, .more:
             break
         }
-    }
-
-    private func handleWave1VoiceTap() {
-        log.info("voice: tap (Wave 2)")
     }
 
     private func cycleDebugVoiceState() {

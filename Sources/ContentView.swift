@@ -19,8 +19,21 @@ struct ContentView: View {
     @State private var lastVia: ConnectionEndpoint = .lan
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var isIntegrationMode: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--integration-test")
+            || ProcessInfo.processInfo.arguments.contains("--integration-test-live")
+#else
+        false
+#endif
+    }
+
+    private var isPlaceholderMode: Bool {
+        self.appConfig.isPlaceholder && !self.isIntegrationMode
+    }
+
     private var shouldShowMainTab: Bool {
-        self.appConfig.isPlaceholder || self.hasConnected || self.tunnelManager.state.isConnected
+        self.isPlaceholderMode || self.hasConnected || self.tunnelManager.state.isConnected
     }
 
     private var effectivePort: Int {
@@ -43,11 +56,11 @@ struct ContentView: View {
                 MainTabView(
                     localPort: self.effectivePort,
                     via: self.effectiveVia,
-                    isPlaceholderMode: self.appConfig.isPlaceholder,
+                    isPlaceholderMode: self.isPlaceholderMode,
                     onOpenSettings: { self.showSettings = true }
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if self.appConfig.isPlaceholder {
+                    if self.isPlaceholderMode {
                         PlaceholderShellBanner()
                     }
                 }
@@ -147,6 +160,7 @@ struct ContentView: View {
                 self.lastVia = .lan
                 return
             }
+#if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--integration-test") {
                 let mockPort = Int(ProcessInfo.processInfo.environment["MOCK_PORT"] ?? "") ?? 7071
                 self.tunnelManager.forceConnected(port: mockPort, via: .lan)
@@ -155,7 +169,16 @@ struct ContentView: View {
                 self.lastVia = .lan
                 return
             }
-            if self.appConfig.isPlaceholder {
+            if ProcessInfo.processInfo.arguments.contains("--integration-test-live") {
+                let livePort = Int(ProcessInfo.processInfo.environment["LIVE_PORT"] ?? "") ?? 7071
+                self.tunnelManager.forceConnected(port: livePort, via: .lan)
+                self.hasConnected = true
+                self.lastPort = livePort
+                self.lastVia = .lan
+                return
+            }
+#endif
+            if self.isPlaceholderMode {
                 log.info("ContentView: placeholder AppConfig, skipping tunnel (Wave 5 onboarding)")
                 return
             }

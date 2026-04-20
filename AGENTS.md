@@ -4,11 +4,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 
 *Build conventions follow `cto/standards/project-conventions.md`; engineering philosophy follows `cto/standards/engineering-principles.md`.*
 
-> **Status — Wave 1 foundation imported.** The extro-phone foundation now lives in this repo as the baseline solstone iOS shell. `MainTabView` is a four-tab `TabView` (`Today`, `Ask`, `Sense`, `More`) with `.sidebarAdaptable`, Today/Ask share a single `PortalPage`-backed `WKWebView`, and `PortalPage` registers the `solstone` `WKScriptMessageHandler` and loads `/dev/mock-portal` during development.
->
-> **Wave 1 scope boundary.** `SenseView` is a native scaffold only, `MoreView` reuses the upstream connection/diagnostics/settings surface without uploads, and the floating `VoiceButton` is a static/debug-rendered shell surface. There is no production voice-session launch path, observer pipeline, share extension, upload pipeline, or onboarding flow in this wave.
->
-> **Module shape.** `Sources/Tunnel/` owns SSH, reconnect, and host-key behavior. `Sources/Portal/` owns web embedding, route sync, and brain status updates. `Sources/Voice/` keeps the imported voice/session types for later waves, but Wave 1 only exercises the rendering/debug path. `Sources/Diagnostics/` and `Sources/Settings/` remain native support surfaces reused from upstream.
+> **Status — Wave 2 voice client landed.** The solstone shell now runs continuous voice sessions end-to-end: `VoiceButton` starts a real OpenAI Realtime-backed session, `VoiceHUDOverlay` exposes active-session status and stop control, `PortalPage` applies server-provided nav hints, and `BrainStatusMonitor` polls native voice status for the refresh dot. The Wave 1 shell shape remains intact — `MainTabView` is still the four-tab `.sidebarAdaptable` container, Today/Ask still share a single `PortalPage`-backed `WKWebView`, and `SenseView` remains a native scaffold while uploads, onboarding, share extension, and the full observer pipeline stay out of scope for later waves.
 
 ## Principles
 

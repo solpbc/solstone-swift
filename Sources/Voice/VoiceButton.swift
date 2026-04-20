@@ -169,7 +169,16 @@ private extension VoiceButton {
     }
 
     var accessibilityHint: String {
-        "activates in a future wave"
+        switch self.effectiveState {
+        case .idle:
+            "starts a voice session"
+        case .connecting:
+            "voice session is starting"
+        case .listening, .speaking:
+            "voice session is active"
+        case .error:
+            "shows the last voice error"
+        }
     }
 
     func updatePulse(for state: VoiceState) {

@@ -201,7 +201,7 @@ struct MoreView: View {
     }
 
     private func refreshBrain() async {
-        guard let url = URL(string: "http://127.0.0.1:\(self.localPort)/api/voice/refresh-brain") else { return }
+        guard let url = VoiceServerURL.url(localPort: self.localPort, path: "/api/voice/refresh-brain") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         _ = try? await URLSession.shared.data(for: request)

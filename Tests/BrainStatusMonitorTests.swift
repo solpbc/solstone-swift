@@ -22,12 +22,12 @@ final class BrainStatusMonitorTests: XCTestCase {
 
     func testUpdateReady() {
         self.monitor.update(from: #"{"status": "ready"}"#)
-        XCTAssertEqual(self.monitor.status, .idle)
+        XCTAssertEqual(self.monitor.status, .ready)
     }
 
     func testUpdateIdle() {
         self.monitor.update(from: #"{"status": "idle"}"#)
-        XCTAssertEqual(self.monitor.status, .idle)
+        XCTAssertEqual(self.monitor.status, .ready)
     }
 
     func testUpdateAnswering() {

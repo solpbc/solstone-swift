@@ -6,6 +6,7 @@ enum DataChannelEvent: Sendable {
     case modelSpeakingStopped
     case userSpeechStarted
     case userSpeechStopped
+    case toolCallCompleted
     case disconnected
 }
 

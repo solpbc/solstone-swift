@@ -12,20 +12,33 @@ final class VoiceManager {
     var state: VoiceState = .idle
     @ObservationIgnored private let keyFetcher: any EphemeralKeyFetching
     @ObservationIgnored private let sidebandNotifier: any SidebandNotifying
+    @ObservationIgnored private let navHintPoller: any NavHintPolling
     @ObservationIgnored private let webrtc: any WebRTCConnecting
+    @ObservationIgnored private let onNavHint: @MainActor @Sendable (String) -> Void
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    // OpenAI Realtime keeps the peer connection open indefinitely; client owns owner-facing idle.
+    @ObservationIgnored private let voiceIdleTimeout: Duration = .seconds(300)
+    @ObservationIgnored private var idleTimer: Task<Void, Never>?
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
+    @ObservationIgnored private var activeLocalPort: Int?
+    @ObservationIgnored private let idleTimeoutOverride: Duration?
     private(set) var lastSession: VoiceSession?
 
     init(
         keyFetcher: any EphemeralKeyFetching = EphemeralKeyFetcher(),
         sidebandNotifier: any SidebandNotifying = SidebandNotifier(),
+        navHintPoller: any NavHintPolling = NavHintPoller(),
         webrtc: any WebRTCConnecting = WebRTCManager(),
+        onNavHint: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        idleTimeoutOverride: Duration? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.keyFetcher = keyFetcher
         self.sidebandNotifier = sidebandNotifier
+        self.navHintPoller = navHintPoller
         self.webrtc = webrtc
+        self.onNavHint = onNavHint
+        self.idleTimeoutOverride = idleTimeoutOverride
         self.diagnosticLog = diagnosticLog
         self.lastSession = VoiceSession.loadFromDefaults()
     }
@@ -49,11 +62,19 @@ final class VoiceManager {
             key = try await self.keyFetcher.fetchKey(localPort: localPort)
             self.diagnosticLog?.append(category: .voice, message: "ephemeral key fetched")
         } catch {
-            let detail = String(describing: error)
+            let detail: String
+            let voiceError: VoiceError
+            if case .ephemeralKeyFailed(let message) = error as? VoiceError {
+                detail = message
+                voiceError = .ephemeralKeyFailed(message)
+            } else {
+                detail = String(describing: error)
+                voiceError = .ephemeralKeyFailed(detail)
+            }
             log.error("[solstone-swift] failed to fetch voice key: \(detail)")
             self.diagnosticLog?.append(category: .voice, severity: .error, message: "key fetch failed", detail: detail)
             if case .connecting = self.state {
-                self.state = .error(.ephemeralKeyFailed(detail))
+                self.state = .error(voiceError)
                 self.lastSession?.endTime = Date()
                 self.lastSession?.errorDetail = detail
                 self.lastSession?.saveToDefaults()
@@ -77,8 +98,11 @@ final class VoiceManager {
             }
 
             self.state = .listening
+            self.activeLocalPort = localPort
+            log.info("[solstone-swift] listening")
             self.diagnosticLog?.append(category: .voice, message: "listening")
             self.lastSession?.saveToDefaults()
+            self.resetIdleTimer()
             self.startObserving(events)
         } catch {
             let voiceError = self.map(error)
@@ -113,19 +137,24 @@ private extension VoiceManager {
         self.eventTask = Task { [weak self] in
             for await event in events {
                 guard let self, !Task.isCancelled else { return }
+                self.resetIdleTimer()
                 switch event {
                 case .modelSpeakingStarted:
                     if self.state != .speaking {
                         self.state = .speaking
+                        log.info("[solstone-swift] speaking")
                         self.diagnosticLog?.append(category: .voice, message: "speaking")
                     }
                 case .modelSpeakingStopped:
                     if self.state != .listening {
                         self.state = .listening
+                        log.info("[solstone-swift] listening")
                         self.diagnosticLog?.append(category: .voice, message: "listening")
                     }
                 case .userSpeechStarted, .userSpeechStopped:
                     break
+                case .toolCallCompleted:
+                    self.handleToolCallCompleted()
                 case .disconnected:
                     self.endSession()
                     return
@@ -137,6 +166,9 @@ private extension VoiceManager {
     func cleanup() {
         self.eventTask?.cancel()
         self.eventTask = nil
+        self.idleTimer?.cancel()
+        self.idleTimer = nil
+        self.activeLocalPort = nil
         self.webrtc.disconnect()
     }
 
@@ -149,5 +181,46 @@ private extension VoiceManager {
             return .microphoneDenied
         }
         return .connectionFailed(description)
+    }
+
+    func resetIdleTimer() {
+        self.idleTimer?.cancel()
+        self.idleTimer = Task { [weak self] in
+            do {
+                try await Task.sleep(for: self?.idleTimeoutOverride ?? self?.voiceIdleTimeout ?? .zero)
+            } catch {
+                return
+            }
+
+            guard let self, !Task.isCancelled else { return }
+            self.endSession()
+        }
+    }
+
+    func handleToolCallCompleted() {
+        guard let callId = self.lastSession?.callId,
+              !callId.isEmpty,
+              let localPort = self.activeLocalPort
+        else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            let hints = await self.navHintPoller.fetch(localPort: localPort, callId: callId)
+            guard !hints.isEmpty else { return }
+
+            for (index, hint) in hints.enumerated() {
+                guard self.state != .idle,
+                      self.lastSession?.callId == callId
+                else { return }
+
+                await MainActor.run {
+                    self.onNavHint(hint)
+                }
+
+                if index < hints.count - 1 {
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+            }
+        }
     }
 }

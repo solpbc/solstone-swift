@@ -144,6 +144,8 @@ private extension WebRTCManager {
             self.eventContinuation?.yield(.userSpeechStarted)
         case "input_audio_buffer.speech_stopped":
             self.eventContinuation?.yield(.userSpeechStopped)
+        case "response.function_call_arguments.done":
+            self.eventContinuation?.yield(.toolCallCompleted)
         default:
             break
         }

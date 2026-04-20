@@ -75,6 +75,11 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
+    func applyNavHint(_ hash: String) {
+        log.info("[solstone-swift] portal: nav hint applied: \(hash, privacy: .public)")
+        self.navigate(to: hash)
+    }
+
     nonisolated func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         Task { @MainActor [weak self] in
             guard let self,

@@ -4,7 +4,7 @@
 import Foundation
 
 enum UserSettings: Sendable {
-    static var verboseErrors: Bool {
+    nonisolated static var verboseErrors: Bool {
         get {
             if UserDefaults.standard.object(forKey: "verboseErrors") == nil {
                 return true

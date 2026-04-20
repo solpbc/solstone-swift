@@ -3,9 +3,17 @@
 
 import Foundation
 
+private struct EphemeralKeyResponse: Decodable {
+    let ephemeralKey: String
+}
+
+private struct ServerErrorResponse: Decodable {
+    let error: String
+}
+
 nonisolated struct EphemeralKeyFetcher: EphemeralKeyFetching {
     func fetchKey(localPort: Int) async throws -> String {
-        guard let url = URL(string: "http://127.0.0.1:\(localPort)/api/voice/session") else {
+        guard let url = VoiceServerURL.url(localPort: localPort, path: "/api/voice/session") else {
             throw FetchError.invalidRequest
         }
 
@@ -14,7 +22,16 @@ nonisolated struct EphemeralKeyFetcher: EphemeralKeyFetching {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let response = response as? HTTPURLResponse, 200..<300 ~= response.statusCode else {
+        guard let response = response as? HTTPURLResponse else {
+            throw FetchError.invalidResponse
+        }
+
+        guard 200..<300 ~= response.statusCode else {
+            if let serverError = try? JSONDecoder().decode(ServerErrorResponse.self, from: data).error,
+               !serverError.isEmpty
+            {
+                throw VoiceError.ephemeralKeyFailed(serverError)
+            }
             throw FetchError.invalidResponse
         }
 
@@ -28,9 +45,5 @@ private extension EphemeralKeyFetcher {
     enum FetchError: Error {
         case invalidRequest
         case invalidResponse
-    }
-
-    struct EphemeralKeyResponse: Decodable {
-        let ephemeralKey: String
     }
 }

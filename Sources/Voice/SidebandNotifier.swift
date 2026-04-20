@@ -4,11 +4,10 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "voice")
-
 nonisolated struct SidebandNotifier: SidebandNotifying {
     func notify(callId: String, localPort: Int) async {
-        guard let url = URL(string: "http://127.0.0.1:\(localPort)/api/voice/connect") else {
+        let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "voice")
+        guard let url = VoiceServerURL.url(localPort: localPort, path: "/api/voice/connect") else {
             log.error("[solstone-swift] invalid sideband URL")
             return
         }

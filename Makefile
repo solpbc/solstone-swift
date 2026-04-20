@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test test-one test-build test-fast \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-live test-one test-build test-fast \
 	       install deploy launch cycle run unlock \
 	       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
@@ -96,11 +96,14 @@ ui-test: generate
 		-derivedDataPath $(DERIVED)
 
 integration-test: PORT ?= 7071
+integration-test: VOICE_PORT ?= 7072
 integration-test: sim
 	@set -eu; \
 	MOCK_PID=""; \
+	VOICE_MOCK_PID=""; \
 	LAUNCH_PID=""; \
 	MOCK_LOG=$$(mktemp -t solstone-swift-mock.XXXXXX); \
+	VOICE_MOCK_LOG=$$(mktemp -t solstone-swift-voice-mock.XXXXXX); \
 	APP_LOG=$$(mktemp -t solstone-swift-app.XXXXXX); \
 	BOOT_LOG=$$(mktemp -t solstone-swift-boot.XXXXXX); \
 	cleanup() { \
@@ -108,7 +111,8 @@ integration-test: sim
 		if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
 		if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
 		if [ -n "$$MOCK_PID" ] && kill -0 "$$MOCK_PID" 2>/dev/null; then kill "$$MOCK_PID" 2>/dev/null; fi; \
-		rm -f "$$MOCK_LOG" "$$APP_LOG" "$$BOOT_LOG"; \
+		if [ -n "$$VOICE_MOCK_PID" ] && kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then kill "$$VOICE_MOCK_PID" 2>/dev/null; fi; \
+		rm -f "$$MOCK_LOG" "$$VOICE_MOCK_LOG" "$$APP_LOG" "$$BOOT_LOG"; \
 		exit $$status; \
 	}; \
 	trap cleanup EXIT INT TERM; \
@@ -120,6 +124,8 @@ integration-test: sim
 	fi; \
 	python3 test/mock_hub_phone.py --port $(PORT) >"$$MOCK_LOG" 2>&1 & \
 	MOCK_PID=$$!; \
+	python3 test/mock_voice_server.py --port $(VOICE_PORT) >"$$VOICE_MOCK_LOG" 2>&1 & \
+	VOICE_MOCK_PID=$$!; \
 	ready=0; \
 	for _ in 1 2 3 4 5; do \
 		if grep -q "^READY:$(PORT)$$" "$$MOCK_LOG"; then \
@@ -138,11 +144,29 @@ integration-test: sim
 		cat "$$MOCK_LOG"; \
 		exit 1; \
 	fi; \
+	voice_ready=0; \
+	for _ in 1 2 3 4 5; do \
+		if grep -q "^READY:$(VOICE_PORT)$$" "$$VOICE_MOCK_LOG"; then \
+			voice_ready=1; \
+			break; \
+		fi; \
+		if ! kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then \
+			echo "mock voice server exited before becoming ready (port $(VOICE_PORT) may be in use):"; \
+			cat "$$VOICE_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	if [ "$$voice_ready" -ne 1 ]; then \
+		echo "mock voice server did not become ready"; \
+		cat "$$VOICE_MOCK_LOG"; \
+		exit 1; \
+	fi; \
 	xcrun simctl install booted $(SIM_APP); \
-	SIMCTL_CHILD_MOCK_PORT=$(PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test >"$$APP_LOG" 2>&1 & \
+	SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test >"$$APP_LOG" 2>&1 & \
 	LAUNCH_PID=$$!; \
 	passed=0; \
-	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
 		if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "portal: spa ready"; then \
 			passed=1; \
 			break; \
@@ -157,12 +181,65 @@ integration-test: sim
 		tail -n 50 "$$APP_LOG"; \
 		echo "--- mock log ---"; \
 		cat "$$MOCK_LOG"; \
+		echo "--- voice mock log ---"; \
+		cat "$$VOICE_MOCK_LOG"; \
 		exit 1; \
 	fi; \
+	for pattern in "voice session starting" "listening" "portal: nav hint applied: today" "brain: status ready"; do \
+		matched=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+			if xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "$$pattern"; then \
+				matched=1; \
+				break; \
+			fi; \
+			sleep 1; \
+		done; \
+		if [ "$$matched" -ne 1 ]; then \
+			echo "integration-test failed: missing log pattern $$pattern"; \
+			echo "--- subsystem log tail ---"; \
+			xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			echo "--- app log tail ---"; \
+			tail -n 80 "$$APP_LOG"; \
+			echo "--- mock log ---"; \
+			cat "$$MOCK_LOG"; \
+			echo "--- voice mock log ---"; \
+			cat "$$VOICE_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+	done; \
 	echo "--- subsystem log tail ---"; \
 	xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 20; \
 	echo "integration-test passed"; \
 	tail -n 20 "$$APP_LOG"
+
+integration-test-live: PORT ?= 7071
+integration-test-live: sim
+	@set -eu; \
+	LAUNCH_PID=""; \
+	APP_LOG=$$(mktemp -t solstone-swift-live-app.XXXXXX); \
+	BOOT_LOG=$$(mktemp -t solstone-swift-live-boot.XXXXXX); \
+	cleanup() { \
+		status=$$?; \
+		if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
+		if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
+		rm -f "$$APP_LOG" "$$BOOT_LOG"; \
+		exit $$status; \
+	}; \
+	trap cleanup EXIT INT TERM; \
+	if ! xcrun simctl boot "$(SIM)" >"$$BOOT_LOG" 2>&1; then \
+		if ! grep -q "Booted" "$$BOOT_LOG"; then \
+			cat "$$BOOT_LOG"; \
+			exit 1; \
+		fi; \
+	fi; \
+	xcrun simctl install booted $(SIM_APP); \
+	SIMCTL_CHILD_LIVE_SERVER=$(SERVER) SIMCTL_CHILD_LIVE_PORT=$(PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test-live >"$$APP_LOG" 2>&1 & \
+	LAUNCH_PID=$$!; \
+	sleep 10; \
+	echo "--- subsystem log tail ---"; \
+	xcrun simctl spawn booted log show --info --last 15s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+	echo "integration-test-live launched"; \
+	tail -n 40 "$$APP_LOG"
 
 test-one: generate
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \

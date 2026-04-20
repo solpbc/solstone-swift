@@ -9,6 +9,7 @@ final class MockWebRTCConnector: WebRTCConnecting {
     var connectCallCount = 0
     var disconnectCallCount = 0
     var delay: Duration?
+    var callId = "test-call-id"
     private(set) var eventContinuation: AsyncStream<DataChannelEvent>.Continuation?
 
     func connect(ephemeralKey: String) async throws -> (callId: String, events: AsyncStream<DataChannelEvent>) {
@@ -21,7 +22,7 @@ final class MockWebRTCConnector: WebRTCConnecting {
         }
         let (stream, continuation) = AsyncStream<DataChannelEvent>.makeStream()
         self.eventContinuation = continuation
-        return (callId: "test-call-id", events: stream)
+        return (callId: self.callId, events: stream)
     }
 
     func disconnect() {

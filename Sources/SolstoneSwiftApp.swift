@@ -13,19 +13,48 @@ struct SolstoneSwiftApp: App {
     @State private var voiceManager: VoiceManager
     @State private var bannerPresenter: BannerPresenter
     @State private var backgroundDisconnectTask: Task<Void, Never>?
+    @State private var integrationVoiceStartTask: Task<Void, Never>?
+    @State private var didAutoStartIntegrationVoice = false
     @Environment(\.scenePhase) private var scenePhase
+
+    private static var isIntegrationTest: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--integration-test")
+#else
+        false
+#endif
+    }
+
+    private static var isIntegrationTestLive: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--integration-test-live")
+#else
+        false
+#endif
+    }
+
+    private static var isIntegrationMode: Bool {
+        Self.isIntegrationTest || Self.isIntegrationTestLive
+    }
 
     init() {
         let log = DiagnosticLog()
         let tunnel = TunnelManager(diagnosticLog: log)
         let brain = BrainStatusMonitor(diagnosticLog: log)
-        let voice = VoiceManager(diagnosticLog: log)
-        self._diagnosticLog = State(initialValue: log)
-        self._brainStatusMonitor = State(initialValue: brain)
-        self._portalPage = State(initialValue: PortalPage(
+        let portal = PortalPage(
             tunnelManager: tunnel,
             brainStatusMonitor: brain
-        ))
+        )
+        let voice = VoiceManager(
+            webrtc: Self.isIntegrationTest ? IntegrationTestWebRTCConnector() : WebRTCManager(),
+            onNavHint: { @MainActor hint in
+                portal.applyNavHint(hint)
+            },
+            diagnosticLog: log
+        )
+        self._diagnosticLog = State(initialValue: log)
+        self._brainStatusMonitor = State(initialValue: brain)
+        self._portalPage = State(initialValue: portal)
         self._tunnelManager = State(initialValue: tunnel)
         self._voiceManager = State(initialValue: voice)
         self._bannerPresenter = State(initialValue: BannerPresenter(
@@ -50,7 +79,7 @@ struct SolstoneSwiftApp: App {
                 Button("Refresh Brain") {
                     guard case .connected(let port, _) = self.tunnelManager.state else { return }
                     Task {
-                        guard let url = URL(string: "http://127.0.0.1:\(port)/api/voice/refresh-brain") else { return }
+                        guard let url = VoiceServerURL.url(localPort: port, path: "/api/voice/refresh-brain") else { return }
                         var request = URLRequest(url: url)
                         request.httpMethod = "POST"
                         _ = try? await URLSession.shared.data(for: request)
@@ -64,7 +93,9 @@ struct SolstoneSwiftApp: App {
             case .active:
                 self.backgroundDisconnectTask?.cancel()
                 self.backgroundDisconnectTask = nil
-                if ProcessInfo.processInfo.arguments.contains("--integration-test") { return }
+                if Self.isIntegrationMode {
+                    return
+                }
                 self.tunnelManager.startNetworkMonitoring()
 
                 switch self.tunnelManager.state {
@@ -82,6 +113,8 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .background:
+                self.integrationVoiceStartTask?.cancel()
+                self.integrationVoiceStartTask = nil
                 self.voiceManager.endSession()
                 self.tunnelManager.cancelConnect()
                 self.tunnelManager.cancelReconnect()
@@ -109,8 +142,25 @@ struct SolstoneSwiftApp: App {
             }
         }
         .onChange(of: self.tunnelManager.state) { _, newState in
-            if !newState.isConnected {
-                self.brainStatusMonitor.reset()
+            switch newState {
+            case .connected(let port, _):
+                self.brainStatusMonitor.startPolling(localPort: port)
+
+                if Self.isIntegrationMode,
+                   !self.didAutoStartIntegrationVoice
+                {
+                    self.didAutoStartIntegrationVoice = true
+                    self.integrationVoiceStartTask?.cancel()
+                    self.integrationVoiceStartTask = Task {
+                        try? await Task.sleep(for: .seconds(1))
+                        guard !Task.isCancelled else { return }
+                        await self.voiceManager.startSession(localPort: port)
+                    }
+                }
+            case .connecting, .disconnected, .error:
+                self.integrationVoiceStartTask?.cancel()
+                self.integrationVoiceStartTask = nil
+                self.brainStatusMonitor.stopPolling()
             }
         }
     }
