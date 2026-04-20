@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import XCTest
+import WebKit
+@testable import solstone_swift
+
+@MainActor
+final class PortalPageTests: XCTestCase {
+    private var mockSSH: MockSSHTransport!
+    private var tunnelManager: TunnelManager!
+    private var brainStatusMonitor: BrainStatusMonitor!
+    private var mockEngine: MockPortalWebEngine!
+    private var portalPage: PortalPage!
+
+    override func setUp() {
+        super.setUp()
+        self.mockSSH = MockSSHTransport()
+        self.tunnelManager = TunnelManager(transport: self.mockSSH)
+        self.brainStatusMonitor = BrainStatusMonitor()
+        self.mockEngine = MockPortalWebEngine()
+        self.portalPage = PortalPage(
+            tunnelManager: self.tunnelManager,
+            brainStatusMonitor: self.brainStatusMonitor,
+            webEngine: self.mockEngine
+        )
+    }
+
+    override func tearDown() async throws {
+        self.portalPage = nil
+        self.mockEngine = nil
+        self.brainStatusMonitor = nil
+        self.tunnelManager = nil
+        self.mockSSH = nil
+        try await super.tearDown()
+    }
+
+    private func settleStageCallbacks() async {
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+
+    // Bridge-message handling (route/ready/brain) is covered in BridgeIntegrationTests.
+
+    func test_load_requestsExpectedURL() {
+        self.portalPage.load(port: 7071)
+
+        XCTAssertEqual(self.mockEngine.loadCallCount, 1)
+        XCTAssertEqual(self.mockEngine.lastLoadedURL, URL(string: "http://127.0.0.1:7071/dev/mock-portal"))
+    }
+
+    func test_load_resetsReadyAndCurrentRoute() {
+        self.portalPage.isReady = true
+        self.portalPage.currentRoute = "/old"
+
+        self.portalPage.load(port: 7071)
+
+        XCTAssertFalse(self.portalPage.isReady)
+        XCTAssertEqual(self.portalPage.currentRoute, "")
+    }
+
+    func test_load_samePortIsIdempotent() {
+        self.portalPage.load(port: 7071)
+        self.portalPage.load(port: 7071)
+
+        XCTAssertEqual(self.mockEngine.loadCallCount, 1)
+    }
+
+    func test_load_zeroPortIsNoop() {
+        self.portalPage.load(port: 0)
+
+        XCTAssertEqual(self.mockEngine.loadCallCount, 0)
+    }
+
+    func test_navigate_emitsHashJSAndUpdatesRoute() {
+        self.portalPage.navigate(to: "/foo")
+
+        XCTAssertEqual(self.mockEngine.lastEvaluatedScript, "window.location.hash = '/foo'")
+        XCTAssertEqual(self.portalPage.currentRoute, "/foo")
+        XCTAssertEqual(self.mockEngine.evaluateJavaScriptCallCount, 1)
+    }
+
+    func test_navigate_escapesBackslashAndSingleQuote() {
+        self.portalPage.navigate(to: "a'b\\c")
+
+        XCTAssertEqual(self.mockEngine.lastEvaluatedScript, "window.location.hash = 'a\\'b\\\\c'")
+    }
+
+    func test_navigate_sameRouteIsIdempotent() {
+        self.portalPage.navigate(to: "/foo")
+        self.portalPage.navigate(to: "/foo")
+
+        XCTAssertEqual(self.mockEngine.evaluateJavaScriptCallCount, 1)
+    }
+
+    func test_handleNavigationFailure_loadsErrorPageForNonTunnelError() {
+        self.portalPage.load(port: 7071)
+        let initialLoadHTMLStringCallCount = self.mockEngine.loadHTMLStringCallCount
+        let error = NSError(
+            domain: "TestDomain",
+            code: 999,
+            userInfo: [NSLocalizedDescriptionKey: "Custom 'error' & <msg>"]
+        )
+
+        self.portalPage.handleNavigationFailure(error: error, kind: "provisional")
+
+        XCTAssertGreaterThanOrEqual(self.mockEngine.loadHTMLStringCallCount, initialLoadHTMLStringCallCount + 1)
+        XCTAssertNotNil(self.mockEngine.lastLoadedHTML)
+        XCTAssertTrue(self.mockEngine.lastLoadedHTML!.contains("Custom 'error' &amp; &lt;msg&gt;"))
+    }
+}
