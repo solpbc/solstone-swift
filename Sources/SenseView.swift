@@ -67,7 +67,7 @@ struct SenseView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("sense")
-                    .font(.custom("Comfortaa", size: 22).weight(.bold))
+                    .font(.custom("Comfortaa-Bold", size: 22))
             }
         }
     }

@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(BannerPresenter.self) private var bannerPresenter
+    private let appConfig = AppConfig.default
     @State private var showSettings = false
     @State private var hasConnected = false
     @State private var lastPort: Int = 0
@@ -19,7 +20,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shouldShowMainTab: Bool {
-        self.hasConnected || self.tunnelManager.state.isConnected
+        self.appConfig.isPlaceholder || self.hasConnected || self.tunnelManager.state.isConnected
     }
 
     private var effectivePort: Int {
@@ -42,8 +43,14 @@ struct ContentView: View {
                 MainTabView(
                     localPort: self.effectivePort,
                     via: self.effectiveVia,
+                    isPlaceholderMode: self.appConfig.isPlaceholder,
                     onOpenSettings: { self.showSettings = true }
                 )
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if self.appConfig.isPlaceholder {
+                        PlaceholderShellBanner()
+                    }
+                }
             } else {
                 ConnectingView(
                     state: self.tunnelManager.state,
@@ -148,6 +155,10 @@ struct ContentView: View {
                 self.lastVia = .lan
                 return
             }
+            if self.appConfig.isPlaceholder {
+                log.info("ContentView: placeholder AppConfig, skipping tunnel (Wave 5 onboarding)")
+                return
+            }
             self.tunnelManager.startNetworkMonitoring()
             log.info("[solstone-swift] onAppear state=\(self.tunnelManager.state)")
             if case .disconnected = self.tunnelManager.state {
@@ -157,6 +168,22 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+private struct PlaceholderShellBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "clock.badge.exclamationmark")
+                .foregroundStyle(Color.solOrangeAccessible)
+            Text("onboarding pending — wave 5")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground))
     }
 }
 
@@ -325,7 +352,7 @@ struct ConnectingView: View {
                                 }
                             }
                         Text("solstone")
-                            .font(.custom("Comfortaa", size: 28).weight(.bold))
+                            .font(.custom("Comfortaa-Bold", size: 28))
                             .foregroundStyle(Color.solOrangeAccessible)
                     }
                     .accessibilityElement(children: .combine)

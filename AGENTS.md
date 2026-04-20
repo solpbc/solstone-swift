@@ -53,6 +53,8 @@ make test-fast     # run tests without rebuilding
 make clean         # remove build artifacts
 ```
 
+`make test-fast` is an inner-loop target. Run `make test-build` immediately before it, or use `make test` for a full clean validation pass.
+
 **Local DerivedData** (`./DerivedData/`, gitignored) — NEVER delete, breaks SPM cache.
 
 **xcsift** — `brew install xcsift`. `make sim-json` pipes build output through it for structured errors.
@@ -86,6 +88,10 @@ make clean         # remove build artifacts
 - **Never reintroduce the URL scheme handler bridge** — cross-origin policy blocks it from `http://127.0.0.1`. `WKScriptMessageHandler` is the contract.
 - **Don't delete `DerivedData/`** — breaks SPM cache resolution.
 - **All product changes go through Makefile targets.** Don't compose `xcodebuild` / `devicectl` / `simctl` by hand.
+
+## Known exceptions
+
+- `Sources/Services/SSHTransport.swift` keeps `remoteHubSpawnCommand` with `extro-hub` / `--extro-root`. That path and flag are owned by the journal server repo, not the iOS app. Remove this grep exception only after the server exposes the `solstone-hub` replacement.
 
 ## Agent skills (install on the Mac)
 

@@ -28,4 +28,8 @@ nonisolated struct AppConfig: Sendable {
         connectTimeoutLan: .seconds(3),
         connectTimeoutRemote: .seconds(15)
     )
+
+    var isPlaceholder: Bool {
+        self.remoteHost.hasSuffix(".invalid")
+    }
 }

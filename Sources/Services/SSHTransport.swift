@@ -11,6 +11,10 @@ import NIOTransportServices
 import os
 
 private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ssh-transport")
+// Server-side path/flags owned by the journal server repo, not solstone-swift.
+// Cross-repo rename coordination is deferred beyond Wave 1. Tracked as a
+// solstone-hub migration follow-up.
+private let remoteHubSpawnCommand = "cd /home/jer/projects/extro-hub && exec .venv/bin/hub-phone --port 0 --extro-root /home/jer/projects/extro"
 
 nonisolated protocol SSHTransporting: Sendable {
     func probeLAN() async -> Bool
@@ -428,7 +432,7 @@ extension SSHTransport {
             do {
                 let sshHandler = try sshChannel.pipeline.syncOperations.handler(type: NIOSSHHandler.self)
                 let promise = sshChannel.eventLoop.makePromise(of: Channel.self)
-                let command = "cd /home/jer/projects/extro-hub && exec .venv/bin/hub-phone --port 0 --extro-root /home/jer/projects/extro"
+                let command = remoteHubSpawnCommand
 
                 sshHandler.createChannel(promise, channelType: .session) { childChannel, _ in
                     childChannel.eventLoop.makeCompletedFuture {

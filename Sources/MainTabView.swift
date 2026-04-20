@@ -10,6 +10,7 @@ private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
 struct MainTabView: View {
     let localPort: Int
     let via: ConnectionEndpoint
+    let isPlaceholderMode: Bool
     let onOpenSettings: () -> Void
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
@@ -105,14 +106,14 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: self.$selectedTab) {
-            self.portalTab(for: .today)
+            self.portalTab
                 .tag(AppTab.today)
                 .tabItem {
                     Label(AppTab.today.label, systemImage: AppTab.today.iconName)
                 }
                 .keyboardShortcut(KeyEquivalent(AppTab.today.shortcutKey), modifiers: .command)
 
-            self.portalTab(for: .ask)
+            self.portalTab
                 .tag(AppTab.ask)
                 .tabItem {
                     Label(AppTab.ask.label, systemImage: AppTab.ask.iconName)
@@ -148,23 +149,25 @@ struct MainTabView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .bottomTrailing) {
-            if self.tunnelManager.state.isConnected {
-                VoiceButton(
-                    stateOverride: self.debugVoiceState,
-                    brainStatusOverride: self.debugBrainStatus,
-                    onTap: self.handleWave1VoiceTap,
-                    onDebugLongPress: self.cycleDebugVoiceState
-                )
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 20)
-            }
+            VoiceButton(
+                stateOverride: self.debugVoiceState,
+                brainStatusOverride: self.debugBrainStatus,
+                onTap: self.handleWave1VoiceTap,
+                onDebugLongPress: self.cycleDebugVoiceState
+            )
+                .padding(.trailing, 20)
+                .padding(.bottom, 20)
         }
         .onAppear {
-            self.portalPage.load(port: self.localPort)
-            self.handleTabSelection(self.selectedTab)
+            if !self.isPlaceholderMode {
+                self.portalPage.load(port: self.localPort)
+                self.handleTabSelection(self.selectedTab)
+            }
         }
         .onChange(of: self.localPort) { _, port in
-            self.portalPage.load(port: port)
+            if !self.isPlaceholderMode {
+                self.portalPage.load(port: port)
+            }
         }
         .onChange(of: self.selectedTab) { _, tab in
             self.handleTabSelection(tab)
@@ -182,21 +185,28 @@ struct MainTabView: View {
             }
         }
         .onChange(of: self.portalPage.currentRoute) { _, route in
-            self.handlePortalRoute(route)
+            if !self.isPlaceholderMode {
+                self.handlePortalRoute(route)
+            }
         }
     }
 
     @ViewBuilder
-    private func portalTab(for _: AppTab) -> some View {
+    private var portalTab: some View {
         ZStack {
-            PortalWebView(portalPage: self.portalPage)
-                .ignoresSafeArea(edges: .top)
+            if self.isPlaceholderMode {
+                Color(.systemBackground)
+                    .ignoresSafeArea(edges: .top)
+            } else {
+                PortalWebView(portalPage: self.portalPage)
+                    .ignoresSafeArea(edges: .top)
+            }
 
-            if !self.tunnelManager.state.isConnected {
+            if !self.isPlaceholderMode && !self.tunnelManager.state.isConnected {
                 self.reconnectOverlay
             }
 
-            if self.tunnelManager.state.isConnected && !self.portalPage.isReady {
+            if !self.isPlaceholderMode && self.tunnelManager.state.isConnected && !self.portalPage.isReady {
                 self.loadingOverlay
             }
         }
@@ -225,6 +235,12 @@ struct MainTabView: View {
     }
 
     private func handleTabSelection(_ tab: AppTab) {
+        if self.isPlaceholderMode {
+            if tab == .today || tab == .ask {
+                self.lastPortalTab = tab
+            }
+            return
+        }
         switch tab {
         case .today, .ask:
             self.lastPortalTab = tab

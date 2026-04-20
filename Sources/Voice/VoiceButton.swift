@@ -69,9 +69,8 @@ struct VoiceButton: View {
         .onAppear {
             self.updatePulse(for: self.effectiveState)
         }
-        .onChange(of: self.effectiveState) { oldState, newState in
+        .onChange(of: self.effectiveState) { _, newState in
             self.updatePulse(for: newState)
-            self.announceTransition(from: oldState, to: newState)
             self.playHaptic(for: newState)
         }
     }
@@ -157,29 +156,20 @@ private extension VoiceButton {
     var accessibilityLabel: String {
         switch self.effectiveState {
         case .idle:
-            return self.hasRecentSession ? "view session details" : "start voice conversation"
+            return self.hasRecentSession ? "voice" : "voice"
         case .connecting:
-            return "starting voice conversation"
+            return "voice"
         case .listening:
-            return "end voice conversation"
+            return "voice"
         case .speaking:
             return "voice is speaking"
         case .error:
-            return "view session details"
+            return "voice"
         }
     }
 
     var accessibilityHint: String {
-        switch self.effectiveState {
-        case .idle:
-            return self.hasRecentSession
-                ? "double-tap to view session details"
-                : "double-tap to start voice session"
-        case .error:
-            return "double-tap to view session details"
-        case .connecting, .listening, .speaking:
-            return "double-tap to end voice session"
-        }
+        "activates in a future wave"
     }
 
     func updatePulse(for state: VoiceState) {
@@ -206,25 +196,6 @@ private extension VoiceButton {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         case .idle, .connecting:
             break
-        }
-    }
-
-    func announceTransition(from oldState: VoiceState, to newState: VoiceState) {
-        let message: String? = switch newState {
-        case .connecting:
-            "starting voice session"
-        case .listening:
-            "voice session active, listening"
-        case .speaking:
-            "voice is speaking"
-        case .error(let error):
-            "voice error, \(error.userMessage)"
-        case .idle:
-            oldState == .idle ? nil : "voice session ended"
-        }
-
-        if let message {
-            UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
 }
