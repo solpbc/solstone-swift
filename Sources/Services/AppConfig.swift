@@ -14,12 +14,15 @@ nonisolated struct AppConfig: Sendable {
     let connectTimeoutLan: TimeAmount
     let connectTimeoutRemote: TimeAmount
 
+    /// Wave 1 placeholders.
+    /// Wave 5 onboarding replaces these values at runtime with user-configured settings.
+    /// No runtime override path is implemented yet in this wave.
     static let `default` = AppConfig(
-        lanHost: "fedora.local",
+        lanHost: "journal.local",
         lanPort: 22,
-        remoteHost: "jeremie.com",
-        remotePort: 22222,
-        sshUsername: "jer",
+        remoteHost: "journal.example.invalid",
+        remotePort: 22,
+        sshUsername: "solstone",
         forwardHost: "localhost",
         forwardPort: 7071,
         connectTimeoutLan: .seconds(3),
