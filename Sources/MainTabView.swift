@@ -13,6 +13,7 @@ struct MainTabView: View {
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PortalPage.self) private var portalPage
     @Environment(VoiceManager.self) private var voiceManager
+    @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @State private var selectedTab = AppTab.today
     @State private var lastPortalTab = AppTab.today
     @State private var debugVoiceState: VoiceState?
@@ -170,6 +171,9 @@ struct MainTabView: View {
                 self.portalPage.load(port: self.localPort)
                 self.handleTabSelection(self.selectedTab)
             }
+            if let route = self.pendingRoute.route {
+                self.apply(route)
+            }
         }
         .onChange(of: self.localPort) { _, port in
             if !self.isPlaceholderMode {
@@ -194,6 +198,11 @@ struct MainTabView: View {
         .onChange(of: self.portalPage.currentRoute) { _, route in
             if !self.isPlaceholderMode {
                 self.handlePortalRoute(route)
+            }
+        }
+        .onChange(of: self.pendingRoute.route) { _, route in
+            if let route {
+                self.apply(route)
             }
         }
     }
@@ -272,6 +281,15 @@ struct MainTabView: View {
         case .sense, .more:
             break
         }
+    }
+
+    private func apply(_ route: NotificationRoute) {
+        self.selectedTab = .today
+        self.lastPortalTab = .today
+        if !self.isPlaceholderMode {
+            self.portalPage.navigate(to: route.portalHash)
+        }
+        self.pendingRoute.route = nil
     }
 
     private func cycleDebugVoiceState() {

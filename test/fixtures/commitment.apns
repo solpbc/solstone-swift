@@ -1,0 +1,16 @@
+{
+  "SPDX-License-Identifier": "AGPL-3.0-only",
+  "copyright": "Copyright (c) 2026 sol pbc",
+  "Simulator Target Bundle": "org.solpbc.solstone-swift",
+  "aps": {
+    "alert": {
+      "title": "Commitment nudge",
+      "body": "Check in on your commitment."
+    },
+    "category": "SOLSTONE_COMMITMENT_NUDGE"
+  },
+  "data": {
+    "action": "open_commitment",
+    "commitment_id": "commitment-123"
+  }
+}

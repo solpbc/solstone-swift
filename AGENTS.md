@@ -4,7 +4,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 
 *Build conventions follow `cto/standards/project-conventions.md`; engineering philosophy follows `cto/standards/engineering-principles.md`.*
 
-> **Status — Wave 2 voice client landed.** The solstone shell now runs continuous voice sessions end-to-end: `VoiceButton` starts a real OpenAI Realtime-backed session, `VoiceHUDOverlay` exposes active-session status and stop control, `PortalPage` applies server-provided nav hints, and `BrainStatusMonitor` polls native voice status for the refresh dot. The Wave 1 shell shape remains intact — `MainTabView` is still the four-tab `.sidebarAdaptable` container, Today/Ask still share a single `PortalPage`-backed `WKWebView`, and `SenseView` remains a native scaffold while uploads, onboarding, share extension, and the full observer pipeline stay out of scope for later waves.
+> **Wave 3 — APNs client scaffolding landed.** Four categories registered (daily briefing, commitment nudge, pre-meeting prep, agent alert); rich notification content extension; deep-link routing to Today tab via pending-route state; registration + backoff against mock push server. Mark Done / Snooze actions declared but server dispatch deferred — TODO(wave-3-followup). Voice never auto-starts from a notification tap — enforced by negative log assertion in `make integration-test-push`. Live APNs validation pending Apple Developer enrollment.
 
 ## Principles
 

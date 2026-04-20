@@ -1,0 +1,16 @@
+{
+  "SPDX-License-Identifier": "AGPL-3.0-only",
+  "copyright": "Copyright (c) 2026 sol pbc",
+  "Simulator Target Bundle": "org.solpbc.solstone-swift",
+  "aps": {
+    "alert": {
+      "title": "Good morning",
+      "body": "Your briefing is ready."
+    },
+    "category": "SOLSTONE_DAILY_BRIEFING"
+  },
+  "data": {
+    "action": "open_briefing",
+    "date": "2026-04-19"
+  }
+}

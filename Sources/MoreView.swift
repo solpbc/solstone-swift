@@ -13,6 +13,7 @@ struct MoreView: View {
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
+    @Environment(PushNotificationManager.self) private var pushManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
     @State private var isProbing = false
@@ -72,6 +73,32 @@ struct MoreView: View {
 
     private var probeResultColor: Color {
         self.probeResultIsAlive ? .green : .orange
+    }
+
+    private var permissionStatusText: String {
+        switch self.pushManager.permissionState {
+        case .notDetermined:
+            "system: not requested"
+        case .authorized:
+            "system: authorized"
+        case .denied:
+            "system: denied"
+        case .provisional:
+            "system: provisional"
+        }
+    }
+
+    private var registrationStatusText: String {
+        switch self.pushManager.registrationState {
+        case .idle:
+            "registration: idle"
+        case .registering:
+            "registration: registering"
+        case .registered:
+            "registration: registered"
+        case .failed(let reason):
+            "registration: failed — \(reason)"
+        }
     }
 
     var body: some View {
@@ -158,6 +185,32 @@ struct MoreView: View {
                 } label: {
                     Text("event log")
                 }
+                .hoverEffect(.highlight)
+            }
+
+            Section("notifications") {
+                LabeledContent("permission", value: self.permissionStatusText)
+                    .accessibilityLabel(self.permissionStatusText)
+
+                LabeledContent("registration", value: self.registrationStatusText)
+                    .accessibilityLabel(self.registrationStatusText)
+
+                Button("enable notifications") {
+                    Task {
+                        await self.pushManager.requestAuthorization()
+                    }
+                }
+                .disabled(self.pushManager.permissionState == .authorized || self.pushManager.permissionState == .provisional)
+                .accessibilityLabel("enable notifications")
+                .hoverEffect(.highlight)
+
+                Button("send test notification") {
+                    Task {
+                        _ = await self.pushManager.sendTestNotification()
+                    }
+                }
+                .disabled(self.pushManager.activeLocalPort == nil)
+                .accessibilityLabel("send test notification")
                 .hoverEffect(.highlight)
             }
 

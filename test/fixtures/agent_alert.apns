@@ -1,0 +1,16 @@
+{
+  "SPDX-License-Identifier": "AGPL-3.0-only",
+  "copyright": "Copyright (c) 2026 sol pbc",
+  "Simulator Target Bundle": "org.solpbc.solstone-swift",
+  "aps": {
+    "alert": {
+      "title": "Agent alert",
+      "body": "There is something to review."
+    },
+    "category": "SOLSTONE_AGENT_ALERT"
+  },
+  "data": {
+    "action": "open_alert",
+    "custom_path": "#today/alert"
+  }
+}

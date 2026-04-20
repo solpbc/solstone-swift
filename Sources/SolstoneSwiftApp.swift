@@ -6,6 +6,7 @@ import SwiftUI
 
 @main
 struct SolstoneSwiftApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var tunnelManager: TunnelManager
     @State private var brainStatusMonitor: BrainStatusMonitor
     @State private var portalPage: PortalPage
@@ -35,6 +36,14 @@ struct SolstoneSwiftApp: App {
 
     private static var isIntegrationMode: Bool {
         Self.isIntegrationTest || Self.isIntegrationTestLive
+    }
+
+    private static var shouldAutoStartIntegrationVoice: Bool {
+#if DEBUG
+        !ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--integration-test-push-tap=") })
+#else
+        true
+#endif
     }
 
     init() {
@@ -73,6 +82,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.portalPage)
                 .environment(self.diagnosticLog)
                 .environment(self.bannerPresenter)
+                .environment(self.appDelegate.pushManager)
+                .environment(self.appDelegate.pendingRoute)
         }
         .commands {
             CommandMenu("Hub") {
@@ -147,6 +158,7 @@ struct SolstoneSwiftApp: App {
                 self.brainStatusMonitor.startPolling(localPort: port)
 
                 if Self.isIntegrationMode,
+                   Self.shouldAutoStartIntegrationVoice,
                    !self.didAutoStartIntegrationVoice
                 {
                     self.didAutoStartIntegrationVoice = true

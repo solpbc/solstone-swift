@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(BannerPresenter.self) private var bannerPresenter
+    @Environment(PushNotificationManager.self) private var pushManager
     private let appConfig = AppConfig.default
     @State private var showSettings = false
     @State private var hasConnected = false
@@ -110,6 +111,11 @@ struct ContentView: View {
                 self.hasConnected = true
                 self.lastPort = port
                 self.lastVia = via
+                Task {
+                    await self.pushManager.handleTunnelConnected(localPort: port)
+                }
+            } else {
+                self.pushManager.activeLocalPort = nil
             }
             let message: String? = switch newState {
             case .connecting(let via):
@@ -167,6 +173,9 @@ struct ContentView: View {
                 self.hasConnected = true
                 self.lastPort = mockPort
                 self.lastVia = .lan
+                Task {
+                    await self.pushManager.handleTunnelConnected(localPort: mockPort)
+                }
                 return
             }
             if ProcessInfo.processInfo.arguments.contains("--integration-test-live") {
@@ -175,6 +184,9 @@ struct ContentView: View {
                 self.hasConnected = true
                 self.lastPort = livePort
                 self.lastVia = .lan
+                Task {
+                    await self.pushManager.handleTunnelConnected(localPort: livePort)
+                }
                 return
             }
 #endif
