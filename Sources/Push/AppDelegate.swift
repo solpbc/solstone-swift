@@ -31,6 +31,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 let syntheticToken = Self.integrationTestToken()
                 await self.pushManager.submitToken(syntheticToken)
             }
+            if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
+                UserDefaults.standard.set(true, forKey: "integration.onboarding.enabled")
+            }
+            if let pairingArgument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--onboarding-mock-pair-token=") }) {
+                UserDefaults.standard.set(
+                    String(pairingArgument.dropFirst("--onboarding-mock-pair-token=".count)),
+                    forKey: "integration.onboarding.mockToken"
+                )
+            }
             if let tapArgument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--integration-test-push-tap=") }) {
                 try? await Task.sleep(for: .seconds(1))
                 let kind = String(tapArgument.dropFirst("--integration-test-push-tap=".count))

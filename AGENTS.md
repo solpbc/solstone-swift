@@ -4,7 +4,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 
 *Build conventions follow `cto/standards/project-conventions.md`; engineering philosophy follows `cto/standards/engineering-principles.md`.*
 
-> **Wave 4 — Sense + observer pipeline landed.** Sense now runs native observer sessions with registration, chunked upload, recent-observation manifest fetch, and Live Activity stop return. Voice session and observer session are independent; observer never auto-starts from a notification tap — enforced by negative log assertion in `make integration-test-observer`. AVAudioSession coexistence is verified in the voice-then-observer integration path.
+> **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates the shell behind native onboarding, persists pair/session state, surfaces Day-0/Day-1 states, adds a single offline banner plus file-backed portal cache metadata, and enforces the terminology grep in `bash test/assert_terminology.sh`. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
 
 ## Principles
 
@@ -88,6 +88,7 @@ make clean         # remove build artifacts
 ## Known exceptions
 
 - `Sources/Services/SSHTransport.swift` keeps `remoteHubSpawnCommand` with `extro-hub` / `--extro-root`. That path and flag are owned by the journal server repo, not the iOS app. Remove this grep exception only after the server exposes the `solstone-hub` replacement.
+- Terminology grep exceptions are limited to non-UI Apple and internal implementation names: `AVAudioSession.Category.record`, `.playAndRecord`, `requestRecordPermission`, `recordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `ObserverRecording`, `LiveObserverRecorder`, `ObserverRecordedChunk`, `IntegrationTestObserverRecorder`, `recordKeepaliveFailure`, and `recordingID`. Keep any new exception out of user-visible copy and add it to `test/assert_terminology.sh` only if it is an API or internal-only identifier.
 
 ## Agent skills (install on the Mac)
 

@@ -57,7 +57,9 @@ struct VoiceSessionDetailSheet: View, Sendable {
                             .truncationMode(.middle)
                         Button {
                             UIPasteboard.general.string = callId
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if UserSettings.haptics {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            }
                             self.copyTask?.cancel()
                             withAnimation(.easeInOut) {
                                 self.justCopied = true

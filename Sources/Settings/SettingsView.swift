@@ -7,6 +7,7 @@ import SwiftUI
 import UIKit
 
 struct SettingsView: View {
+    @Environment(AppConfig.self) private var appConfig
     var keyManager: any KeyManaging = KeyManager()
 
     @State private var publicKeyString = ""
@@ -38,7 +39,9 @@ struct SettingsView: View {
 
                 Button {
                     UIPasteboard.general.string = self.publicKeyString
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    if UserSettings.haptics {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
                     self.copyTask?.cancel()
                     withAnimation(.easeInOut) {
                         self.justCopied = true
@@ -81,20 +84,16 @@ struct SettingsView: View {
             }
 
             Section("connection") {
-                LabeledContent("LAN host") {
-                    Text("\(AppConfig.default.lanHost):\(AppConfig.default.lanPort)")
+                LabeledContent("host") {
+                    Text("\(self.appConfig.host):\(self.appConfig.port)")
                         .font(.footnote.monospaced())
                 }
-                LabeledContent("remote host") {
-                    Text("\(AppConfig.default.remoteHost):\(AppConfig.default.remotePort)")
+                LabeledContent("journal root") {
+                    Text(self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot)
                         .font(.footnote.monospaced())
                 }
-                LabeledContent("SSH user") {
-                    Text(AppConfig.default.sshUsername)
-                        .font(.footnote.monospaced())
-                }
-                LabeledContent("forward to") {
-                    Text("\(AppConfig.default.forwardHost) (dynamic port)")
+                LabeledContent("identity") {
+                    Text(self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity)
                         .font(.footnote.monospaced())
                 }
             }
@@ -149,7 +148,9 @@ private extension SettingsView {
             try self.keyManager.deleteIdentityKey()
             try self.keyManager.deleteHostKey()
             _ = try self.keyManager.loadOrCreateIdentityKey()
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if UserSettings.haptics {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
         } catch {
             self.regenerateErrorMessage = "key regeneration failed — your previous key may have been deleted, check settings"
             self.showRegenerateError = true

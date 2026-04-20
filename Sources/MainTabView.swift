@@ -3,11 +3,14 @@
 
 import SwiftUI
 import UIKit
+import os
+
+private let mainTabLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
 
 struct MainTabView: View {
     let localPort: Int
     let via: ConnectionEndpoint
-    let isPlaceholderMode: Bool
+    let pairingClient: any PairingClient
     let onOpenSettings: () -> Void
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
@@ -135,7 +138,8 @@ struct MainTabView: View {
                     localPort: self.localPort,
                     via: self.via,
                     connectedSince: self.connectedSince,
-                    navigateToDiagnostics: self.$navigateToDiagnostics
+                    navigateToDiagnostics: self.$navigateToDiagnostics,
+                    pairingClient: self.pairingClient
                 )
             }
             .tag(AppTab.more)
@@ -165,22 +169,32 @@ struct MainTabView: View {
                 .padding(.bottom, 20)
         }
         .overlay(alignment: .top) {
+            if self.selectedTab == .today && self.tunnelManager.state.isConnected {
+                DayZeroOverlayView(
+                    pairingClient: self.pairingClient,
+                    onBrowseJournal: {
+                        self.selectedTab = .today
+                        self.portalPage.navigate(to: AppTab.today.route)
+                    }
+                )
+            }
+        }
+        .overlay(alignment: .top) {
             VoiceHUDOverlay(voiceManager: self.voiceManager)
                 .allowsHitTesting(true)
         }
         .onAppear {
-            if !self.isPlaceholderMode {
-                self.portalPage.load(port: self.localPort)
-                self.handleTabSelection(self.selectedTab)
-            }
+            self.portalPage.load(port: self.localPort)
+            self.handleTabSelection(self.selectedTab)
             if let route = self.pendingRoute.route {
                 self.apply(route)
             }
+            if !self.tunnelManager.state.isConnected {
+                mainTabLog.info("voice button showing disconnected shell state")
+            }
         }
         .onChange(of: self.localPort) { _, port in
-            if !self.isPlaceholderMode {
-                self.portalPage.load(port: port)
-            }
+            self.portalPage.load(port: port)
         }
         .onChange(of: self.selectedTab) { _, tab in
             self.handleTabSelection(tab)
@@ -188,6 +202,8 @@ struct MainTabView: View {
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
                 self.connectedSince = Date()
+            } else if !isConnected {
+                mainTabLog.info("voice button showing disconnected shell state")
             }
         }
         .onChange(of: self.bannerPresenter.showDiagnostics) { _, show in
@@ -198,9 +214,7 @@ struct MainTabView: View {
             }
         }
         .onChange(of: self.portalPage.currentRoute) { _, route in
-            if !self.isPlaceholderMode {
-                self.handlePortalRoute(route)
-            }
+            self.handlePortalRoute(route)
         }
         .onChange(of: self.pendingRoute.route) { _, route in
             if let route {
@@ -212,19 +226,14 @@ struct MainTabView: View {
     @ViewBuilder
     private var portalTab: some View {
         ZStack {
-            if self.isPlaceholderMode {
-                Color(.systemBackground)
-                    .ignoresSafeArea(edges: .top)
-            } else {
-                PortalWebView(portalPage: self.portalPage)
-                    .ignoresSafeArea(edges: .top)
-            }
+            PortalWebView(portalPage: self.portalPage)
+                .ignoresSafeArea(edges: .top)
 
-            if !self.isPlaceholderMode && !self.tunnelManager.state.isConnected {
+            if !self.tunnelManager.state.isConnected {
                 self.reconnectOverlay
             }
 
-            if !self.isPlaceholderMode && self.tunnelManager.state.isConnected && !self.portalPage.isReady {
+            if self.tunnelManager.state.isConnected && !self.portalPage.isReady {
                 self.loadingOverlay
             }
         }
@@ -262,12 +271,6 @@ struct MainTabView: View {
     }
 
     private func handleTabSelection(_ tab: AppTab) {
-        if self.isPlaceholderMode {
-            if tab == .today || tab == .ask {
-                self.lastPortalTab = tab
-            }
-            return
-        }
         switch tab {
         case .today, .ask:
             self.lastPortalTab = tab
@@ -297,9 +300,7 @@ struct MainTabView: View {
     private func apply(_ route: NotificationRoute) {
         self.selectedTab = .today
         self.lastPortalTab = .today
-        if !self.isPlaceholderMode {
-            self.portalPage.navigate(to: route.portalHash)
-        }
+        self.portalPage.navigate(to: route.portalHash)
         self.pendingRoute.route = nil
     }
 

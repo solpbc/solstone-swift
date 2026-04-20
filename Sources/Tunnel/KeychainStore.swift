@@ -15,6 +15,8 @@ nonisolated enum KeychainStore {
     static let identityKeyAccount = "solstone-swift-identity-key"
     static let hostKeyAccount = "solstone-swift-host-key"
     static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key"
+    static let pairIdentityAccount = "solstone-swift-pair-identity"
+    static let pairSessionAccount = "solstone-swift-pair-session"
 
     static func saveIdentityKey(_ key: Curve25519.Signing.PrivateKey) throws {
         try save(data: Data(key.rawRepresentation), account: identityKeyAccount)
@@ -63,6 +65,48 @@ nonisolated enum KeychainStore {
 
     static func deleteObserverIngestKey() throws {
         try delete(account: observerIngestKeyAccount)
+    }
+
+    static func savePairIdentity(_ key: Curve25519.Signing.PrivateKey) throws {
+        try save(data: Data(key.rawRepresentation), account: pairIdentityAccount)
+    }
+
+    static func loadPairIdentity() throws -> Curve25519.Signing.PrivateKey? {
+        guard let data = try load(account: pairIdentityAccount) else {
+            return nil
+        }
+
+        return try Curve25519.Signing.PrivateKey(rawRepresentation: data)
+    }
+
+    static func deletePairIdentity() throws {
+        try delete(account: pairIdentityAccount)
+    }
+
+    static func loadOrCreatePairIdentity() throws -> Curve25519.Signing.PrivateKey {
+        if let existing = try loadPairIdentity() {
+            return existing
+        }
+
+        let key = Curve25519.Signing.PrivateKey()
+        try savePairIdentity(key)
+        return key
+    }
+
+    static func savePairSession(_ sessionKey: String) throws {
+        try save(data: Data(sessionKey.utf8), account: pairSessionAccount)
+    }
+
+    static func loadPairSession() throws -> String? {
+        guard let data = try load(account: pairSessionAccount) else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func deletePairSession() throws {
+        try delete(account: pairSessionAccount)
     }
 
     private static func save(data: Data, account: String) throws {

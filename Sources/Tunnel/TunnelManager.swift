@@ -34,12 +34,12 @@ final class TunnelManager {
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
 
     init(
-        transport: any SSHTransporting = SSHTransport(),
+        transport: (any SSHTransporting)? = nil,
         initialRetryDelay: TimeInterval = 2.0,
         jitterRange: ClosedRange<Double> = 0.75...1.25,
         diagnosticLog: DiagnosticLog? = nil
     ) {
-        self.transport = transport
+        self.transport = transport ?? SSHTransport(configProvider: { AppConfig() })
         self.initialRetryDelay = initialRetryDelay
         self.retryDelay = initialRetryDelay
         self.jitterRange = jitterRange
@@ -292,6 +292,15 @@ final class TunnelManager {
 
     // Integration tests use this to bypass real tunnel startup.
     func forceConnected(port: Int, via: ConnectionEndpoint) { self.state = .connected(localPort: port, via: via) }
+
+    func forceDisconnectedForUITest() {
+        self.state = .disconnected
+    }
+
+    func forceNetworkStatus(isSatisfied: Bool, isWiFi: Bool) {
+        self.isNetworkSatisfied = isSatisfied
+        self.currentInterfaceIsWiFi = isWiFi
+    }
 
     func handleTunnelFailure() async {
         guard case .connected = self.state else { return }

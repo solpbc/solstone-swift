@@ -194,7 +194,9 @@ final class BannerPresenter {
         self.currentBanner = item
 
         if item.event.severity == .error {
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            if UserSettings.haptics {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            }
         }
 
         self.announceForAccessibility(item)

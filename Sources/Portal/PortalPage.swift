@@ -21,6 +21,8 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     @ObservationIgnored let tunnelManager: TunnelManager
     @ObservationIgnored let brainStatusMonitor: BrainStatusMonitor
+    @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private let cache: PortalCache
     @ObservationIgnored private let injectedEngine: (any PortalWebEngine)?
     @ObservationIgnored private var currentPort: Int = 0
     @ObservationIgnored lazy var webView: WKWebView = {
@@ -42,10 +44,14 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     init(
         tunnelManager: TunnelManager,
         brainStatusMonitor: BrainStatusMonitor,
+        session: URLSession = .shared,
+        cache: PortalCache = PortalCache(),
         webEngine: (any PortalWebEngine)? = nil
     ) {
         self.tunnelManager = tunnelManager
         self.brainStatusMonitor = brainStatusMonitor
+        self.session = session
+        self.cache = cache
         self.injectedEngine = webEngine
         super.init()
     }
@@ -58,8 +64,14 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         self.brainStatusMonitor.reset()
 
         guard let url = URL(string: "http://127.0.0.1:\(port)\(devMockPortalPath)") else { return }
+        if self.loadCachedHTMLIfAvailable(for: url) {
+            return
+        }
         log.info("[solstone-swift] portal: loading \(url.absoluteString, privacy: .public)")
         self.engine.load(URLRequest(url: url))
+        Task {
+            await self.warmCache(for: url)
+        }
     }
 
     func navigate(to route: String) {
@@ -104,6 +116,10 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                       let jsonString = String(data: jsonData, encoding: .utf8)
                 else { return }
                 self.brainStatusMonitor.update(from: jsonString)
+            case "get_cache_age":
+                let data = body["data"] as? [String: Any]
+                let requestedPath = data?["path"] as? String ?? self.currentRoute
+                self.replyCacheAge(for: requestedPath)
             default:
                 log.info("[solstone-swift] portal: unknown message \(type, privacy: .public)")
             }
@@ -132,6 +148,11 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 extension PortalPage {
     func handleNavigationFailure(error: Error, kind: String) {
         log.error("[solstone-swift] portal: \(kind, privacy: .public) failed \(error.localizedDescription, privacy: .public)")
+        if let url = URL(string: "http://127.0.0.1:\(self.currentPort)\(devMockPortalPath)"),
+           self.loadCachedHTMLIfAvailable(for: url)
+        {
+            return
+        }
         let code = (error as NSError).code
         if tunnelDeadErrorCodes.contains(code) {
             Task {
@@ -216,5 +237,43 @@ extension PortalPage {
         </html>
         """
         self.engine.loadHTMLString(html, baseURL: nil)
+    }
+
+    private func warmCache(for url: URL) async {
+        do {
+            let (data, response) = try await self.session.data(from: url)
+            guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { return }
+            guard let html = String(data: data, encoding: .utf8) else { return }
+            try self.cache.storeHTML(html, path: url.path, etag: http.value(forHTTPHeaderField: "ETag"))
+        } catch {
+            log.debug("[solstone-swift] portal: cache warm failed \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func replyCacheAge(for path: String) {
+        let cachePath = path.isEmpty ? devMockPortalPath : path
+        let hours = self.cache.cacheAgeHours(path: cachePath) ?? -1
+        let escapedPath = cachePath
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        self.engine.evaluateJavaScript(
+            "window.__solstone && window.__solstone.cacheAge && window.__solstone.cacheAge('\(escapedPath)', \(hours))",
+            completionHandler: nil
+        )
+    }
+
+    @discardableResult
+    private func loadCachedHTMLIfAvailable(for url: URL) -> Bool {
+        guard self.tunnelManager.isNetworkSatisfied == false,
+              let cached = self.cache.cachedHTML(path: url.path)
+        else {
+            return false
+        }
+
+        self.isReady = true
+        let ageHours = self.cache.cacheAgeHours(path: url.path) ?? -1
+        log.info("[solstone-swift] portal: loading cached html age=\(ageHours)h")
+        self.engine.loadHTMLString(cached.html, baseURL: url)
+        return true
     }
 }

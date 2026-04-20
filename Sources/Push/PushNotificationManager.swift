@@ -94,6 +94,23 @@ final class PushNotificationManager {
     }
 
     func requestAuthorization() async {
+#if DEBUG
+        if let granted = self.integrationTestAuthorizationDecision {
+            self.permissionState = granted ? .authorized : .denied
+            if granted {
+                if self.activeLocalPort == nil,
+                   let localPort = Self.integrationTestPairingPort
+                {
+                    self.activeLocalPort = localPort
+                }
+                log.info("push authorization granted (integration)")
+                await self.submitToken(Self.integrationTestToken())
+            } else {
+                log.info("push authorization denied (integration)")
+            }
+            return
+        }
+#endif
         do {
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(
                 options: [.alert, .sound, .badge]
@@ -327,6 +344,25 @@ private extension PushNotificationManager {
             "platform": "ios",
         ]
         return try? JSONSerialization.data(withJSONObject: payload)
+    }
+
+    var integrationTestAuthorizationDecision: Bool? {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--integration-test-onboarding-grant-notifications") {
+            return true
+        }
+        if arguments.contains("--integration-test-onboarding-deny-notifications") {
+            return false
+        }
+        return nil
+    }
+
+    static var integrationTestPairingPort: Int? {
+        Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "")
+    }
+
+    static func integrationTestToken() -> Data {
+        Data("integration-push-token".utf8)
     }
 
     static func hexEncode(_ token: Data) -> String {

@@ -8,33 +8,22 @@ import UIKit
 private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
 
 struct ContentView: View {
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PushNotificationManager.self) private var pushManager
-    private let appConfig = AppConfig.default
+    let pairingClient: any PairingClient
     @State private var showSettings = false
     @State private var hasConnected = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var isIntegrationMode: Bool {
-#if DEBUG
-        ProcessInfo.processInfo.arguments.contains("--integration-test")
-            || ProcessInfo.processInfo.arguments.contains("--integration-test-live")
-#else
-        false
-#endif
-    }
-
-    private var isPlaceholderMode: Bool {
-        self.appConfig.isPlaceholder && !self.isIntegrationMode
-    }
-
     private var shouldShowMainTab: Bool {
-        self.isPlaceholderMode || self.hasConnected || self.tunnelManager.state.isConnected
+        self.hasConnected || self.tunnelManager.state.isConnected
     }
 
     private var effectivePort: Int {
@@ -53,18 +42,15 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if self.shouldShowMainTab {
+            if !self.appConfig.isPaired || !self.onboardingFlow.isCompleted {
+                OnboardingRootView(pairingClient: self.pairingClient)
+            } else if self.shouldShowMainTab {
                 MainTabView(
                     localPort: self.effectivePort,
                     via: self.effectiveVia,
-                    isPlaceholderMode: self.isPlaceholderMode,
+                    pairingClient: self.pairingClient,
                     onOpenSettings: { self.showSettings = true }
                 )
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    if self.isPlaceholderMode {
-                        PlaceholderShellBanner()
-                    }
-                }
             } else {
                 ConnectingView(
                     state: self.tunnelManager.state,
@@ -88,6 +74,11 @@ struct ContentView: View {
                     connectionStages: self.tunnelManager.connectionStages
                 )
                 .transition(.opacity)
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if self.appConfig.isPaired && self.tunnelManager.isNetworkSatisfied == false {
+                OfflineBanner()
             }
         }
         .overlay(alignment: .bottom) {
@@ -132,19 +123,23 @@ struct ContentView: View {
             }
             switch newState {
             case .connected:
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                if UserSettings.haptics {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             case .error(let error):
                 if case .hostKeyMismatch = error {
                     // host-key mismatch fires warning haptic via separate onChange
                 } else {
-                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    if UserSettings.haptics {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    }
                 }
             default:
                 break
             }
         }
         .onChange(of: self.tunnelManager.hasHostKeyMismatch) { _, newValue in
-            if newValue {
+            if newValue && UserSettings.haptics {
                 UINotificationFeedbackGenerator().notificationOccurred(.warning)
             }
         }
@@ -161,14 +156,63 @@ struct ContentView: View {
         }
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("--ui-test") {
-                self.hasConnected = true
-                self.lastPort = 0
+                let port = Self.uiTestPort
+                let journalRoot = Self.uiTestJournalRoot(port: port)
+                let sessionKey = Self.uiTestPairSessionKey
+                let deviceID = Self.uiTestDeviceID
+                let onboardingStep = Self.uiTestOnboardingStep
+                log.info(
+                    "ui-test seeding journalRoot=\(journalRoot, privacy: .public) deviceID=\(deviceID, privacy: .public) hasSession=\(sessionKey != nil)"
+                )
+
+                if let onboardingStep {
+                    if onboardingStep != .welcome {
+                        self.appConfig.seedUITestPairing(
+                            journalRoot: journalRoot,
+                            deviceID: deviceID,
+                            sessionKey: sessionKey
+                        )
+                    }
+                    self.onboardingFlow.seedUITest(step: onboardingStep)
+                } else {
+                    self.appConfig.seedUITestPairing(
+                        journalRoot: journalRoot,
+                        deviceID: deviceID,
+                        sessionKey: sessionKey
+                    )
+                    self.onboardingFlow.markCompletedForUITest()
+                }
+
+                if ProcessInfo.processInfo.arguments.contains("--ui-test-shell-disconnected") {
+                    self.tunnelManager.forceDisconnectedForUITest()
+                    self.tunnelManager.forceNetworkStatus(
+                        isSatisfied: !ProcessInfo.processInfo.arguments.contains("--ui-test-network-unsatisfied"),
+                        isWiFi: true
+                    )
+                    self.hasConnected = true
+                } else {
+                    self.tunnelManager.forceConnected(port: port, via: .lan)
+                    self.tunnelManager.forceNetworkStatus(
+                        isSatisfied: !ProcessInfo.processInfo.arguments.contains("--ui-test-network-unsatisfied"),
+                        isWiFi: true
+                    )
+                    self.hasConnected = true
+                }
+                if let reconnectDelay = Self.uiTestNetworkReconnectDelay {
+                    Task {
+                        try? await Task.sleep(for: .seconds(reconnectDelay))
+                        self.tunnelManager.forceNetworkStatus(isSatisfied: true, isWiFi: true)
+                    }
+                }
+                self.lastPort = port
                 self.lastVia = .lan
                 return
             }
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--integration-test") {
                 let mockPort = Int(ProcessInfo.processInfo.environment["MOCK_PORT"] ?? "") ?? 7071
+                self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(mockPort)")
+                self.onboardingFlow.markCompletedForUITest()
                 self.tunnelManager.forceConnected(port: mockPort, via: .lan)
                 self.hasConnected = true
                 self.lastPort = mockPort
@@ -180,6 +224,8 @@ struct ContentView: View {
             }
             if ProcessInfo.processInfo.arguments.contains("--integration-test-live") {
                 let livePort = Int(ProcessInfo.processInfo.environment["LIVE_PORT"] ?? "") ?? 7071
+                self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(livePort)")
+                self.onboardingFlow.markCompletedForUITest()
                 self.tunnelManager.forceConnected(port: livePort, via: .lan)
                 self.hasConnected = true
                 self.lastPort = livePort
@@ -190,8 +236,8 @@ struct ContentView: View {
                 return
             }
 #endif
-            if self.isPlaceholderMode {
-                log.info("ContentView: placeholder AppConfig, skipping tunnel (Wave 5 onboarding)")
+            guard self.appConfig.isPaired else {
+                log.info("ContentView: onboarding active, skipping tunnel start")
                 return
             }
             self.tunnelManager.startNetworkMonitoring()
@@ -206,19 +252,50 @@ struct ContentView: View {
     }
 }
 
-private struct PlaceholderShellBanner: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "clock.badge.exclamationmark")
-                .foregroundStyle(Color.solOrangeAccessible)
-            Text("onboarding pending — wave 5")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
+private extension ContentView {
+    static var uiTestPort: Int {
+        if let raw = ProcessInfo.processInfo.environment["UI_TEST_PORT"],
+           let value = Int(raw)
+        {
+            return value
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground))
+        return 7071
+    }
+
+    static func uiTestJournalRoot(port: Int) -> String {
+        if let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-test-journal-root=") }) {
+            return String(argument.dropFirst("--ui-test-journal-root=".count))
+        }
+        return "http://127.0.0.1:\(port)"
+    }
+
+    static var uiTestPairSessionKey: String? {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-test-pair-session=") }) else {
+            return nil
+        }
+        return String(argument.dropFirst("--ui-test-pair-session=".count))
+    }
+
+    static var uiTestDeviceID: String {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-test-device-id=") }) else {
+            return "ui-test-device"
+        }
+        return String(argument.dropFirst("--ui-test-device-id=".count))
+    }
+
+    static var uiTestOnboardingStep: OnboardingFlow.Step? {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-test-onboarding-step=") }) else {
+            return nil
+        }
+        let rawValue = String(argument.dropFirst("--ui-test-onboarding-step=".count))
+        return OnboardingFlow.Step(rawValue: rawValue)
+    }
+
+    static var uiTestNetworkReconnectDelay: Double? {
+        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-test-network-reconnect-after=") }) else {
+            return nil
+        }
+        return Double(argument.dropFirst("--ui-test-network-reconnect-after=".count))
     }
 }
 

@@ -79,7 +79,7 @@ final class ObserverRegistrationTests: XCTestCase {
     }
 
     func testEnsureRegisteredRetriesAndSucceeds() async throws {
-        let sleepRecorder = SleepRecorder()
+        let sleepRecorder = DelayRecorder()
         ObserverRegistrationURLProtocol.handler = { request in
             if ObserverRegistrationURLProtocol.callCount < 2 {
                 return (
@@ -95,7 +95,7 @@ final class ObserverRegistrationTests: XCTestCase {
 
         let registration = self.makeRegistration(
             retryDelays: [2, 4, 8],
-            sleep: { delay in await sleepRecorder.record(delay) }
+            sleep: { delay in await sleepRecorder.append(delay) }
         )
         await MainActor.run {
             registration.activeLocalPort = 7071
@@ -191,15 +191,15 @@ private final class ObserverRegistrationURLProtocol: URLProtocol, @unchecked Sen
     override func stopLoading() {}
 }
 
-private actor SleepRecorder {
-    private var recordedValues: [UInt64] = []
+private actor DelayRecorder {
+    private var valuesStore: [UInt64] = []
 
-    func record(_ value: UInt64) {
-        self.recordedValues.append(value)
+    func append(_ value: UInt64) {
+        self.valuesStore.append(value)
     }
 
     func values() -> [UInt64] {
-        self.recordedValues
+        self.valuesStore
     }
 }
 

@@ -12,6 +12,7 @@ final class PortalPageTests: XCTestCase {
     private var brainStatusMonitor: BrainStatusMonitor!
     private var mockEngine: MockPortalWebEngine!
     private var portalPage: PortalPage!
+    private var cacheDirectory: URL!
 
     override func setUp() {
         super.setUp()
@@ -19,14 +20,21 @@ final class PortalPageTests: XCTestCase {
         self.tunnelManager = TunnelManager(transport: self.mockSSH)
         self.brainStatusMonitor = BrainStatusMonitor()
         self.mockEngine = MockPortalWebEngine()
+        self.cacheDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         self.portalPage = PortalPage(
             tunnelManager: self.tunnelManager,
             brainStatusMonitor: self.brainStatusMonitor,
+            cache: PortalCache(cacheDirectory: self.cacheDirectory),
             webEngine: self.mockEngine
         )
     }
 
     override func tearDown() async throws {
+        if let cacheDirectory {
+            try? FileManager.default.removeItem(at: cacheDirectory)
+        }
+        self.cacheDirectory = nil
         self.portalPage = nil
         self.mockEngine = nil
         self.brainStatusMonitor = nil
@@ -107,5 +115,18 @@ final class PortalPageTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(self.mockEngine.loadHTMLStringCallCount, initialLoadHTMLStringCallCount + 1)
         XCTAssertNotNil(self.mockEngine.lastLoadedHTML)
         XCTAssertTrue(self.mockEngine.lastLoadedHTML!.contains("Custom 'error' &amp; &lt;msg&gt;"))
+    }
+
+    func test_load_usesCachedHTMLWhenOffline() throws {
+        let cache = PortalCache(cacheDirectory: self.cacheDirectory)
+        try cache.storeHTML("<html><body>cached</body></html>", path: "/dev/mock-portal")
+        self.tunnelManager.forceNetworkStatus(isSatisfied: false, isWiFi: true)
+
+        self.portalPage.load(port: 7071)
+
+        XCTAssertEqual(self.mockEngine.loadCallCount, 0)
+        XCTAssertEqual(self.mockEngine.loadHTMLStringCallCount, 1)
+        XCTAssertEqual(self.mockEngine.lastLoadedBaseURL, URL(string: "http://127.0.0.1:7071/dev/mock-portal"))
+        XCTAssertEqual(self.portalPage.isReady, true)
     }
 }

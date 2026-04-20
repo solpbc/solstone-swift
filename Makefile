@@ -1,8 +1,8 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-live test-one test-build test-fast \
-		       install deploy launch cycle run unlock \
-		       screenshot logs logs-collect log-show crash devices deps clean signing-check
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci \
+			       install deploy launch cycle run unlock \
+			       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
 PROJECT   ?= solstone-swift.xcodeproj
@@ -508,8 +508,111 @@ integration-test-observer: sim
 		fi; \
 		echo "--- subsystem log tail ---"; \
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
-		echo "integration-test-observer passed"; \
-		tail -n 20 "$$VOICE_APP_LOG"
+			echo "integration-test-observer passed"; \
+			tail -n 20 "$$VOICE_APP_LOG"
+
+integration-test-onboarding: PAIRING_PORT ?= 8676
+integration-test-onboarding: sim
+	@set -eu; \
+		PAIRING_MOCK_PID=""; \
+		LAUNCH_PID=""; \
+		PAIRING_MOCK_LOG=$$(mktemp -t solstone-swift-pairing-mock.XXXXXX); \
+		PAIRING_COUNT=$$(mktemp -t solstone-swift-pairing-count.XXXXXX); \
+		DENY_APP_LOG=$$(mktemp -t solstone-swift-onboarding-deny.XXXXXX); \
+		GRANT_APP_LOG=$$(mktemp -t solstone-swift-onboarding-grant.XXXXXX); \
+		BOOT_LOG=$$(mktemp -t solstone-swift-onboarding-boot.XXXXXX); \
+		cleanup() { \
+			status=$$?; \
+			if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
+			if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
+			if [ -n "$$PAIRING_MOCK_PID" ] && kill -0 "$$PAIRING_MOCK_PID" 2>/dev/null; then kill "$$PAIRING_MOCK_PID" 2>/dev/null; fi; \
+			rm -f "$$PAIRING_MOCK_LOG" "$$PAIRING_COUNT" "$$DENY_APP_LOG" "$$GRANT_APP_LOG" "$$BOOT_LOG"; \
+			exit $$status; \
+		}; \
+		trap cleanup EXIT INT TERM; \
+		if ! xcrun simctl boot "$(SIM)" >"$$BOOT_LOG" 2>&1; then \
+			if ! grep -q "Booted" "$$BOOT_LOG"; then \
+				cat "$$BOOT_LOG"; \
+				exit 1; \
+			fi; \
+		fi; \
+		pids=$$(lsof -tiTCP:$(PAIRING_PORT) -sTCP:LISTEN 2>/dev/null || true); \
+		if [ -n "$$pids" ]; then kill $$pids 2>/dev/null || true; sleep 1; fi; \
+		python3 test/mock_pairing_server.py --port $(PAIRING_PORT) --count-file "$$PAIRING_COUNT" >"$$PAIRING_MOCK_LOG" 2>&1 & \
+		PAIRING_MOCK_PID=$$!; \
+		pairing_ready=0; \
+		for _ in 1 2 3 4 5; do \
+			if grep -q "^READY:$(PAIRING_PORT)$$" "$$PAIRING_MOCK_LOG"; then pairing_ready=1; break; fi; \
+			if ! kill -0 "$$PAIRING_MOCK_PID" 2>/dev/null; then cat "$$PAIRING_MOCK_LOG"; exit 1; fi; \
+			sleep 1; \
+		done; \
+		[ "$$pairing_ready" -eq 1 ] || { echo "mock pairing server did not become ready"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		xcrun simctl install booted $(SIM_APP); \
+		DENY_START=$$(date +"%Y-%m-%d %H:%M:%S"); \
+		SIMCTL_CHILD_MOCK_PAIRING_PORT=$(PAIRING_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test-onboarding --integration-test-onboarding-deny-notifications --onboarding-mock-pair-token=ptk_mock >"$$DENY_APP_LOG" 2>&1 & \
+		LAUNCH_PID=$$!; \
+		completed=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+			if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: deny scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; tail -n 120 "$$DENY_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+			echo "integration-test-onboarding failed: unexpected voice session start in deny scenario"; \
+			xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"confirm_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
+			echo "integration-test-onboarding failed: deny scenario pairing confirm never hit the mock server"; \
+			cat "$$PAIRING_COUNT"; \
+			cat "$$PAIRING_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -q '"tz_identifier"'; then \
+			echo "integration-test-onboarding failed: deny scenario briefing-time PUT missing"; \
+			cat "$$PAIRING_COUNT"; \
+			cat "$$PAIRING_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*0'; then \
+			echo "integration-test-onboarding failed: deny scenario unexpectedly registered for push"; \
+			cat "$$PAIRING_COUNT"; \
+			cat "$$PAIRING_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1 || true; \
+		LAUNCH_PID=""; \
+		sleep 2; \
+		GRANT_START=$$(date +"%Y-%m-%d %H:%M:%S"); \
+		SIMCTL_CHILD_MOCK_PAIRING_PORT=$(PAIRING_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test-onboarding --integration-test-onboarding-grant-notifications --onboarding-mock-pair-token=ptk_mock_grant >"$$GRANT_APP_LOG" 2>&1 & \
+		LAUNCH_PID=$$!; \
+		completed=0; \
+		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+			if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
+			sleep 1; \
+		done; \
+		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: grant scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; tail -n 120 "$$GRANT_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+			echo "integration-test-onboarding failed: unexpected voice session start in grant scenario"; \
+			xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; \
+			exit 1; \
+		fi; \
+		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
+			echo "integration-test-onboarding failed: grant scenario never registered push"; \
+			cat "$$PAIRING_COUNT"; \
+			cat "$$PAIRING_MOCK_LOG"; \
+			exit 1; \
+		fi; \
+		echo "--- subsystem log tail ---"; \
+		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+		echo "integration-test-onboarding passed"; \
+		tail -n 20 "$$GRANT_APP_LOG"
+
+ci:
+	bash test/assert_terminology.sh
+	bash test/assert_accessibility_hints.sh
+	bash test/assert_haptics_gated.sh
+	bash test/assert_tap_targets.sh
 
 test-one: generate
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \

@@ -7,6 +7,8 @@ import SwiftUI
 @main
 struct SolstoneSwiftApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var appConfig: AppConfig
+    @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
     @State private var brainStatusMonitor: BrainStatusMonitor
     @State private var portalPage: PortalPage
@@ -17,6 +19,7 @@ struct SolstoneSwiftApp: App {
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var voiceManager: VoiceManager
     @State private var bannerPresenter: BannerPresenter
+    @State private var pairingClient: LivePairingClient
     @State private var backgroundDisconnectTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -77,12 +80,23 @@ struct SolstoneSwiftApp: App {
     }
 
     init() {
+        if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
+            Self.resetOnboardingIntegrationState()
+        }
         let log = DiagnosticLog()
-        let tunnel = TunnelManager(diagnosticLog: log)
+        let appConfig = AppConfig()
+        let onboardingFlow = OnboardingFlow()
+        let tunnel = TunnelManager(
+            transport: SSHTransport(configProvider: { appConfig }),
+            diagnosticLog: log
+        )
         let brain = BrainStatusMonitor(diagnosticLog: log)
         let portal = PortalPage(
             tunnelManager: tunnel,
             brainStatusMonitor: brain
+        )
+        let pairingClient = LivePairingClient(
+            journalRootProvider: { appConfig.journalRoot }
         )
         let observerRegistration = ObserverRegistration()
         if Self.shouldResetIntegrationObserverRegistration {
@@ -113,6 +127,8 @@ struct SolstoneSwiftApp: App {
                 }
             }
         }
+        self._appConfig = State(initialValue: appConfig)
+        self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
         self._brainStatusMonitor = State(initialValue: brain)
         self._portalPage = State(initialValue: portal)
@@ -121,6 +137,7 @@ struct SolstoneSwiftApp: App {
         self._observerUploader = State(initialValue: observerUploader)
         self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
+        self._pairingClient = State(initialValue: pairingClient)
         self._bannerPresenter = State(initialValue: BannerPresenter(
             diagnosticLog: log,
             voiceManager: voice,
@@ -131,7 +148,9 @@ struct SolstoneSwiftApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(pairingClient: self.pairingClient)
+                .environment(self.appConfig)
+                .environment(self.onboardingFlow)
                 .environment(self.tunnelManager)
                 .environment(self.voiceManager)
                 .environment(self.observerRegistration)
@@ -179,6 +198,9 @@ struct SolstoneSwiftApp: App {
                 self.backgroundDisconnectTask?.cancel()
                 self.backgroundDisconnectTask = nil
                 if Self.isIntegrationMode {
+                    return
+                }
+                guard self.appConfig.isPaired else {
                     return
                 }
                 self.tunnelManager.startNetworkMonitoring()
@@ -298,6 +320,14 @@ struct SolstoneSwiftApp: App {
 }
 
 private extension SolstoneSwiftApp {
+    static func resetOnboardingIntegrationState() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "onboarding.step")
+        defaults.removeObject(forKey: "onboarding.completed")
+        defaults.removeObject(forKey: "briefing.firstSeen")
+        AppConfig(defaults: defaults).clearPairing()
+    }
+
     static func makeObserverRecorder() -> any ObserverRecording {
 #if DEBUG
         if self.isIntegrationTest {

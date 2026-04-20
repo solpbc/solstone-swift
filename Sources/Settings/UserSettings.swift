@@ -4,6 +4,18 @@
 import Foundation
 
 enum UserSettings: Sendable {
+    nonisolated static var haptics: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "haptics") == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: "haptics")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "haptics")
+        }
+    }
+
     nonisolated static var verboseErrors: Bool {
         get {
             if UserDefaults.standard.object(forKey: "verboseErrors") == nil {

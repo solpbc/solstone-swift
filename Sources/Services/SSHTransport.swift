@@ -32,7 +32,31 @@ nonisolated protocol SSHTransporting: Sendable {
 }
 
 actor SSHTransport: SSHTransporting {
-    private let config: AppConfig
+    private struct ConfigSnapshot: Sendable {
+        let lanHost: String
+        let lanPort: Int
+        let remoteHost: String
+        let remotePort: Int
+        let sshUsername: String
+        let forwardHost: String
+        let forwardPort: Int
+        let connectTimeoutLan: TimeAmount
+        let connectTimeoutRemote: TimeAmount
+
+        static let fallback = ConfigSnapshot(
+            lanHost: "journal.local",
+            lanPort: 22,
+            remoteHost: "journal.example.invalid",
+            remotePort: 22,
+            sshUsername: "solstone",
+            forwardHost: "localhost",
+            forwardPort: 7071,
+            connectTimeoutLan: .seconds(3),
+            connectTimeoutRemote: .seconds(15)
+        )
+    }
+
+    private let configProvider: @MainActor @Sendable () -> AppConfig
     private let keyManager: any KeyManaging
     private let group = NIOTSEventLoopGroup(loopCount: 1)
     private var sshChannel: (any Channel)?
@@ -47,17 +71,21 @@ actor SSHTransport: SSHTransporting {
     private let execOutputBuffer = NIOLockedValueBox(ExecOutputBuffer())
     private let readyPortBox = NIOLockedValueBox(ReadyPortWaiter())
 
-    init(config: AppConfig = .default, keyManager: any KeyManaging = KeyManager()) {
-        self.config = config
+    init(
+        configProvider: @escaping @MainActor @Sendable () -> AppConfig,
+        keyManager: any KeyManaging = KeyManager()
+    ) {
+        self.configProvider = configProvider
         self.keyManager = keyManager
     }
 
     func probeLAN() async -> Bool {
+        let config = await self.configSnapshot()
         do {
             let ch = try await NIOTSConnectionBootstrap(group: self.group)
-                .connectTimeout(self.config.connectTimeoutLan)
+                .connectTimeout(config.connectTimeoutLan)
                 .channelInitializer { channel in channel.eventLoop.makeSucceededVoidFuture() }
-                .connect(host: self.config.lanHost, port: self.config.lanPort)
+                .connect(host: config.lanHost, port: config.lanPort)
                 .get()
             try? await ch.close().get()
             return true
@@ -73,13 +101,14 @@ actor SSHTransport: SSHTransporting {
         onKeepaliveResult: @Sendable @escaping (Bool, Int) -> Void,
         onStageChange: @Sendable @escaping (SSHStageEvent) -> Void
     ) async throws -> Int {
+        let config = await self.configSnapshot()
         self.pendingHostKeyBox.withLockedValue { $0 = nil }
         self.execOutputBuffer.withLockedValue { $0 = ExecOutputBuffer() }
         self.readyPortBox.withLockedValue { $0 = ReadyPortWaiter() }
 
         let identityKey = try self.keyManager.loadOrCreateIdentityKey()
         let authDelegate = PrivateKeyAuthDelegate(
-            username: self.config.sshUsername,
+            username: config.sshUsername,
             privateKey: NIOSSHPrivateKey(ed25519Key: identityKey)
         )
         let validator = HostKeyValidator(keyManager: self.keyManager) { [pendingHostKeyBox] candidate in
@@ -87,15 +116,15 @@ actor SSHTransport: SSHTransporting {
             onHostKeyMismatch()
         }
 
-        let host = endpoint == .lan ? self.config.lanHost : self.config.remoteHost
-        let port = endpoint == .lan ? self.config.lanPort : self.config.remotePort
+        let host = endpoint == .lan ? config.lanHost : config.remoteHost
+        let port = endpoint == .lan ? config.lanPort : config.remotePort
 
         do {
             let tcp = NWProtocolTCP.Options()
             tcp.noDelay = true
             onStageChange(.sshConnecting)
             let sshChannel = try await NIOTSConnectionBootstrap(group: self.group)
-                .connectTimeout(endpoint == .lan ? self.config.connectTimeoutLan : self.config.connectTimeoutRemote)
+                .connectTimeout(endpoint == .lan ? config.connectTimeoutLan : config.connectTimeoutRemote)
                 .tcpOptions(tcp)
                 .channelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {
@@ -134,7 +163,7 @@ actor SSHTransport: SSHTransporting {
             }
 
             onStageChange(.portForwarding)
-            let forwardHost = self.config.forwardHost
+            let forwardHost = config.forwardHost
             let portForwardServer = PortForwardingServer(group: self.group) { inboundChannel in
                 Self.makeForwardingFuture(
                     inboundChannel: inboundChannel,
@@ -210,6 +239,24 @@ actor SSHTransport: SSHTransporting {
         }
     }
 
+    private func configSnapshot() async -> ConfigSnapshot {
+        let configProvider = self.configProvider
+        return await MainActor.run {
+            let config = configProvider()
+            return ConfigSnapshot(
+                lanHost: config.host.isEmpty ? ConfigSnapshot.fallback.lanHost : config.host,
+                lanPort: config.port,
+                remoteHost: config.host.isEmpty ? ConfigSnapshot.fallback.remoteHost : config.host,
+                remotePort: config.port,
+                sshUsername: ConfigSnapshot.fallback.sshUsername,
+                forwardHost: ConfigSnapshot.fallback.forwardHost,
+                forwardPort: ConfigSnapshot.fallback.forwardPort,
+                connectTimeoutLan: ConfigSnapshot.fallback.connectTimeoutLan,
+                connectTimeoutRemote: ConfigSnapshot.fallback.connectTimeoutRemote
+            )
+        }
+    }
+
     func disconnect() async {
         self.monitorTask?.cancel()
         self.monitorTask = nil
@@ -237,7 +284,7 @@ actor SSHTransport: SSHTransporting {
         self.consecutiveKeepaliveFailures = 0
     }
 
-    // "record" is metrics terminology here, not audio.
+    // Track keepalive failures without implying audio semantics.
     private func recordKeepaliveFailure() -> Bool {
         consecutiveKeepaliveFailures += 1
         if consecutiveKeepaliveFailures == 1 {

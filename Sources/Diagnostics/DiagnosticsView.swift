@@ -92,7 +92,9 @@ struct DiagnosticsView: View {
             brain: self.brainStatusMonitor
         )
         UIPasteboard.general.string = text
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if UserSettings.haptics {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
         self.copyTask?.cancel()
         withAnimation(.easeInOut) {
             self.justCopied = true

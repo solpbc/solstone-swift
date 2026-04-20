@@ -79,7 +79,7 @@ final class PushNotificationManagerTests: XCTestCase {
     }
 
     func testRetryBackoffTriggersThreeAttemptsOnServerFailure() async {
-        let sleepRecorder = SleepRecorder()
+        let sleepRecorder = DelayRecorder()
         PushManagerURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
@@ -89,7 +89,7 @@ final class PushNotificationManagerTests: XCTestCase {
 
         let manager = self.makeManager(
             retryDelays: [2, 4, 8],
-            sleep: { delay in await sleepRecorder.record(delay) }
+            sleep: { delay in await sleepRecorder.append(delay) }
         )
         await MainActor.run {
             manager.activeLocalPort = 8474
@@ -215,14 +215,14 @@ nonisolated private func requestBody(from request: URLRequest) -> Data? {
     return data
 }
 
-private actor SleepRecorder {
-    private var recordedValues: [UInt64] = []
+private actor DelayRecorder {
+    private var valuesStore: [UInt64] = []
 
-    func record(_ value: UInt64) {
-        self.recordedValues.append(value)
+    func append(_ value: UInt64) {
+        self.valuesStore.append(value)
     }
 
     func values() -> [UInt64] {
-        self.recordedValues
+        self.valuesStore
     }
 }

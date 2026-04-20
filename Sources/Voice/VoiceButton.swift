@@ -198,11 +198,17 @@ private extension VoiceButton {
     func playHaptic(for state: VoiceState) {
         switch state {
         case .listening:
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            if UserSettings.haptics {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
         case .speaking:
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if UserSettings.haptics {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
         case .error:
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            if UserSettings.haptics {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
         case .idle, .connecting:
             break
         }

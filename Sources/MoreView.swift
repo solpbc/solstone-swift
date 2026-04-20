@@ -3,12 +3,18 @@
 
 import SwiftUI
 import UIKit
+import os
+
+private let moreLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "pairing")
 
 struct MoreView: View {
     let localPort: Int
     let via: ConnectionEndpoint
     let connectedSince: Date
     @Binding var navigateToDiagnostics: Bool
+    let pairingClient: any PairingClient
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
@@ -23,12 +29,17 @@ struct MoreView: View {
     @State private var probeResult: String?
     @State private var probeResultIsAlive = false
     @State private var showingObserverReset = false
+    @State private var showingUnpairConfirm = false
+    @State private var selectedBriefingTime = Calendar.current.date(
+        bySettingHour: 7,
+        minute: 0,
+        second: 0,
+        of: .now
+    ) ?? .now
+    @State private var briefingError: String?
 
     private var serverHost: String {
-        switch self.via {
-        case .lan: AppConfig.default.lanHost
-        case .remote: AppConfig.default.remoteHost
-        }
+        self.appConfig.host
     }
 
     private var versionString: String {
@@ -246,6 +257,38 @@ struct MoreView: View {
                 .hoverEffect(.highlight)
             }
 
+            Section("briefing") {
+                DatePicker(
+                    "time",
+                    selection: self.$selectedBriefingTime,
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.compact)
+                .accessibilityHint("Chooses the time for your morning briefing")
+
+                Button("save briefing time") {
+                    Task {
+                        await self.saveBriefingTime()
+                    }
+                }
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityHint("Saves your morning briefing time")
+
+                if let briefingError {
+                    Text(briefingError)
+                        .font(.body)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section("preferences") {
+                Toggle("haptics", isOn: Binding(
+                    get: { UserSettings.haptics },
+                    set: { UserSettings.haptics = $0 }
+                ))
+                .accessibilityHint("Turns interface haptics on or off")
+            }
+
             Section("observer") {
                 LabeledContent("state", value: self.observerStateText)
                 LabeledContent("registration", value: self.observerRegistrationText)
@@ -277,8 +320,22 @@ struct MoreView: View {
                 .hoverEffect(.highlight)
             }
 
-            Section {
+            Section("identity") {
+                LabeledContent("owner", value: self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity)
+                LabeledContent("device", value: self.appConfig.deviceID.isEmpty ? "unpaired" : self.appConfig.deviceID)
+            }
+
+            Section("about") {
                 LabeledContent("version", value: self.versionString)
+                LabeledContent("server", value: self.appConfig.serverVersion.isEmpty ? "unknown" : self.appConfig.serverVersion)
+                LabeledContent("journal root", value: self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot)
+            }
+
+            Section {
+                Button("unpair this device", role: .destructive) {
+                    self.showingUnpairConfirm = true
+                }
+                .accessibilityHint("Clears this device pairing and returns to onboarding")
             }
         }
         .navigationTitle("more")
@@ -292,6 +349,16 @@ struct MoreView: View {
             }
         } message: {
             Text("This clears the stored observer key and forces a fresh registration on next use.")
+        }
+        .alert("unpair this device?", isPresented: self.$showingUnpairConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Unpair", role: .destructive) {
+                Task {
+                    await self.unpairDevice()
+                }
+            }
+        } message: {
+            Text("This clears the paired session on this phone and returns you to onboarding.")
         }
         .onDisappear {
             self.snapshotCopyTask?.cancel()
@@ -309,9 +376,13 @@ struct MoreView: View {
         self.probeResultIsAlive = alive
         self.probeResult = alive ? "ok · \(milliseconds)ms" : "failed · \(milliseconds)ms"
         if alive {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if UserSettings.haptics {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
         } else {
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            if UserSettings.haptics {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            }
         }
     }
 
@@ -322,6 +393,42 @@ struct MoreView: View {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    private func saveBriefingTime() async {
+        guard let sessionKey = self.appConfig.currentSessionKey() else {
+            self.briefingError = "Missing pairing session."
+            return
+        }
+        let components = Calendar.current.dateComponents([.hour, .minute], from: self.selectedBriefingTime)
+        do {
+            try await self.pairingClient.setBriefingTime(
+                hour: components.hour ?? 7,
+                minute: components.minute ?? 0,
+                tzIdentifier: TimeZone.current.identifier,
+                sessionKey: sessionKey
+            )
+            self.briefingError = nil
+        } catch {
+            self.briefingError = "Unable to save briefing time."
+        }
+    }
+
+    private func unpairDevice() async {
+        if let sessionKey = self.appConfig.currentSessionKey(), !self.appConfig.deviceID.isEmpty {
+            do {
+                moreLog.info("unpair starting for device \(self.appConfig.deviceID, privacy: .public)")
+                try await self.pairingClient.unpair(deviceID: self.appConfig.deviceID, sessionKey: sessionKey)
+                moreLog.info("unpair request completed")
+            } catch {
+                moreLog.error("unpair request failed: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            moreLog.error("unpair skipped: missing session or device id")
+        }
+        self.appConfig.clearPairing()
+        self.onboardingFlow.reset()
+        await self.tunnelManager.disconnect()
+    }
+
     private func copySnapshot() {
         let text = self.diagnosticLog.snapshot(
             tunnel: self.tunnelManager,
@@ -329,7 +436,9 @@ struct MoreView: View {
             brain: self.brainStatusMonitor
         )
         UIPasteboard.general.string = text
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if UserSettings.haptics {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
         self.snapshotCopyTask?.cancel()
         withAnimation(.easeInOut) {
             self.justCopiedSnapshot = true
