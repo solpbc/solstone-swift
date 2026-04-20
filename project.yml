@@ -1,0 +1,85 @@
+name: solstone-swift
+options:
+  bundleIdPrefix: org.solpbc
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: VJ57N4RWDA
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 1
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+
+packages:
+  swift-nio-ssh:
+    url: https://github.com/apple/swift-nio-ssh
+    from: "0.12.0"
+  swift-nio-transport-services:
+    url: https://github.com/apple/swift-nio-transport-services
+    from: "1.21.0"
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    from: "147.0.0"
+
+targets:
+  solstone-swift:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    entitlements:
+      path: Sources/solstone-swift.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.org.solpbc.solstone-swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: solstone
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens when you tap Listen"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_STRICT_CONCURRENCY: complete
+        INFOPLIST_KEY_UIAppFonts: "[Comfortaa-Bold.ttf]"
+        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift
+    dependencies:
+      - package: swift-nio-ssh
+        product: NIOSSH
+      - package: swift-nio-transport-services
+        product: NIOTransportServices
+      - package: WebRTC
+        product: WebRTC
+  solstone-swiftTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: solstone-swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.tests
+        SWIFT_STRICT_CONCURRENCY: complete
+  solstone-swiftUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: solstone-swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.uitests
+        TEST_TARGET_NAME: solstone-swift
+        SWIFT_STRICT_CONCURRENCY: complete
