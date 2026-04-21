@@ -22,29 +22,16 @@ DEVICE_LOG ?= /tmp/solstone-swift.log
 
 # --- Project setup ---
 
-# Platform guard — xcodegen/xcodebuild only exist on Darwin. Hopper's lode
-# setup runs `make install` on Linux workers; no-op cleanly there so the
-# lode can proceed to text-only edit stages.
-UNAME_S := $(shell uname -s)
-
 generate:
-ifeq ($(UNAME_S),Darwin)
 	xcodegen generate
-else
-	@echo "generate: non-Darwin host ($(UNAME_S)); skipping xcodegen"
-endif
 
 install: deps
 
 deps: generate
-ifeq ($(UNAME_S),Darwin)
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-destination 'generic/platform=iOS' \
 		-resolvePackageDependencies
-else
-	@echo "deps: non-Darwin host ($(UNAME_S)); skipping SPM resolve"
-endif
 
 # --- Keychain (required for device builds over SSH) ---
 
