@@ -6,7 +6,7 @@ import Network
 import Observation
 import os
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "tunnel")
+private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
 
 @Observable
 final class TunnelManager {

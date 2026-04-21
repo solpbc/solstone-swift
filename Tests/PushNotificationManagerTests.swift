@@ -61,7 +61,7 @@ final class PushNotificationManagerTests: XCTestCase {
             let body = try XCTUnwrap(requestBody(from: request))
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
             XCTAssertEqual(json["device_token"], "deadbeef")
-            XCTAssertEqual(json["bundle_id"], "org.solpbc.solstone-swift")
+            XCTAssertEqual(json["bundle_id"], "app.solstone.swift")
             XCTAssertEqual(json["environment"], "development")
             XCTAssertEqual(json["platform"], "ios")
             return (
@@ -152,7 +152,7 @@ final class PushNotificationManagerTests: XCTestCase {
             session: self.session,
             retryDelays: retryDelays,
             sleep: sleep,
-            bundleIdentifierOverride: "org.solpbc.solstone-swift",
+            bundleIdentifierOverride: "app.solstone.swift",
             environmentOverride: "development"
         )
     }

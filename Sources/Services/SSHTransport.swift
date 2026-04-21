@@ -10,7 +10,7 @@ import NIOSSH
 import NIOTransportServices
 import os
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ssh-transport")
+private let log = Logger(subsystem: "app.solstone.swift", category: "ssh-transport")
 // Server-side path/flags owned by the journal server repo, not solstone-swift.
 // Cross-repo rename coordination is deferred beyond Wave 1. Tracked as a
 // solstone-hub migration follow-up.

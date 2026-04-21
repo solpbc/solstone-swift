@@ -6,7 +6,7 @@ import AVFoundation
 import Foundation
 import os
 
-private let integrationObserverLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "observer")
+private let integrationObserverLog = Logger(subsystem: "app.solstone.swift", category: "observer")
 
 @MainActor
 final class IntegrationTestObserverRecorder: ObserverRecording {

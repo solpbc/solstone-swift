@@ -21,7 +21,7 @@ protocol ObserverLiveActivitying: AnyObject {
 }
 
 actor ObserverLiveActivity: ObserverLiveActivitying {
-    private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "liveactivity")
+    private let log = Logger(subsystem: "app.solstone.swift", category: "liveactivity")
     private var activitySessionID: String?
 
     func start(mode: ObserverMode, sessionID: UUID, elapsed: TimeInterval) async {

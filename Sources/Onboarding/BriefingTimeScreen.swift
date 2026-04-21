@@ -4,7 +4,7 @@
 import SwiftUI
 import os
 
-private let onboardingBriefingLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "onboarding")
+private let onboardingBriefingLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 struct BriefingTimeScreen: View {
     @Environment(AppConfig.self) private var appConfig

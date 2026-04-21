@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import os
 
-private let onboardingFlowLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "onboarding")
+private let onboardingFlowLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 @MainActor
 @Observable

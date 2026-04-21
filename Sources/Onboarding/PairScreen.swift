@@ -6,7 +6,7 @@ import SwiftUI
 import UIKit
 import os
 
-private let onboardingLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "onboarding")
+private let onboardingLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 struct PairScreen: View {
     @Environment(AppConfig.self) private var appConfig
@@ -118,7 +118,7 @@ private extension PairScreen {
             let privateKey = try KeychainStore.loadOrCreatePairIdentity()
             let publicKey = Data(privateKey.publicKey.rawRepresentation).base64EncodedString()
             let deviceName = "\(UIDevice.current.name)'s \(UIDevice.current.model)"
-            let bundleID = Bundle.main.bundleIdentifier ?? "org.solpbc.solstone-swift"
+            let bundleID = Bundle.main.bundleIdentifier ?? "app.solstone.swift"
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             let response = try await self.pairingClient.confirm(
                 token: pairToken.token,

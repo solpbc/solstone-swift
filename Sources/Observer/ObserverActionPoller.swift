@@ -16,7 +16,7 @@ private struct ObserverActionResponse: Decodable {
 
 nonisolated struct ObserverActionPoller: ObserverActionPolling {
     func fetchActions(localPort: Int, callId: String) async -> [ObserverAction] {
-        let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "observer-actions")
+        let log = Logger(subsystem: "app.solstone.swift", category: "observer-actions")
         guard let url = VoiceServerURL.url(
             localPort: localPort,
             path: "/api/voice/observer-actions",

@@ -72,7 +72,7 @@ nonisolated struct ObserverManifestClient: Sendable {
                 return ObserverManifestItem(id: title, title: title, subtitle: subtitle)
             }
         } catch {
-            let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "observer")
+            let log = Logger(subsystem: "app.solstone.swift", category: "observer")
             log.debug("observer manifest unavailable: \(String(describing: error), privacy: .public)")
             return []
         }

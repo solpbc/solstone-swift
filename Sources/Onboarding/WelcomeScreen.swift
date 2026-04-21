@@ -4,7 +4,7 @@
 import SwiftUI
 import os
 
-private let onboardingWelcomeLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "onboarding")
+private let onboardingWelcomeLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 struct WelcomeScreen: View {
     let onGetStarted: () -> Void

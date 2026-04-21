@@ -6,7 +6,7 @@ import Network
 import Observation
 import os
 
-private let uploaderLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "uploader")
+private let uploaderLog = Logger(subsystem: "app.solstone.swift", category: "uploader")
 
 struct ChunkSidecar: Codable, Equatable, Sendable {
     let segment: String
@@ -53,7 +53,7 @@ final class ObserverUploaderSessionDelegate: NSObject, URLSessionDelegate, URLSe
 @MainActor
 @Observable
 final class ObserverUploader {
-    static let backgroundSessionIdentifier = "org.solpbc.solstone-swift.observer-upload"
+    static let backgroundSessionIdentifier = "app.solstone.swift.observer-upload"
 
     var pendingCount = 0
     var failedCount = 0
@@ -79,7 +79,7 @@ final class ObserverUploader {
     @ObservationIgnored private var attemptCountByChunkID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
-    @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "org.solpbc.solstone-swift.observer-uploader")
+    @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.observer-uploader")
 
     init(
         cacheRootURL: URL? = nil,

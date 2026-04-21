@@ -11,7 +11,7 @@ enum KeychainError: Error {
 }
 
 nonisolated enum KeychainStore {
-    static let service = "org.solpbc.solstone-swift"
+    static let service = "app.solstone.swift"
     static let identityKeyAccount = "solstone-swift-identity-key"
     static let hostKeyAccount = "solstone-swift-host-key"
     static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key"

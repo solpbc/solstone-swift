@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import os
 
-private let appConfigLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "app-config")
+private let appConfigLog = Logger(subsystem: "app.solstone.swift", category: "app-config")
 
 @MainActor
 @Observable

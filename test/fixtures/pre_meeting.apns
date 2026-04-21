@@ -1,7 +1,7 @@
 {
   "SPDX-License-Identifier": "AGPL-3.0-only",
   "copyright": "Copyright (c) 2026 sol pbc",
-  "Simulator Target Bundle": "org.solpbc.solstone-swift",
+  "Simulator Target Bundle": "app.solstone.swift",
   "aps": {
     "alert": {
       "title": "Prep is ready",

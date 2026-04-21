@@ -5,7 +5,7 @@ import os
 import SwiftUI
 import UIKit
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
+private let log = Logger(subsystem: "app.solstone.swift", category: "ui")
 
 struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig

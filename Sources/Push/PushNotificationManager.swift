@@ -7,7 +7,7 @@ import UIKit
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "push")
+private let log = Logger(subsystem: "app.solstone.swift", category: "push")
 
 @MainActor
 @Observable
@@ -250,7 +250,7 @@ private extension PushNotificationManager {
     var bundleIdentifier: String {
         self.bundleIdentifierOverride
             ?? Bundle.main.bundleIdentifier
-            ?? "org.solpbc.solstone-swift"
+            ?? "app.solstone.swift"
     }
 
     var environmentName: String {

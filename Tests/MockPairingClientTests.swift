@@ -14,7 +14,7 @@ final class MockPairingClientTests: XCTestCase {
             publicKey: "pub-key",
             deviceName: "Jer's iPhone",
             platform: "ios",
-            bundleID: "org.solpbc.solstone-swift",
+            bundleID: "app.solstone.swift",
             appVersion: "0.1.0"
         )
 

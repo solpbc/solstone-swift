@@ -6,7 +6,7 @@
 	<string>development</string>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.org.solpbc.solstone-swift</string>
+		<string>group.app.solstone.swift</string>
 	</array>
 </dict>
 </plist>

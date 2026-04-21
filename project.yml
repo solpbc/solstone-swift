@@ -1,6 +1,6 @@
 name: solstone-swift
 options:
-  bundleIdPrefix: org.solpbc
+  bundleIdPrefix: app.solstone
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
@@ -8,7 +8,7 @@ options:
 settings:
   base:
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: VJ57N4RWDA
+    DEVELOPMENT_TEAM: 7QCG8V4M6H
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: 1
     TARGETED_DEVICE_FAMILY: "1,2"
@@ -36,7 +36,7 @@ targets:
       path: Sources/solstone-swift.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.org.solpbc.solstone-swift
+          - group.app.solstone.swift
         aps-environment: development
     settings:
       base:
@@ -56,7 +56,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_STRICT_CONCURRENCY: complete
         INFOPLIST_KEY_UIAppFonts: "[Comfortaa-Bold.ttf]"
-        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift
     dependencies:
       - target: SolstoneNotificationContent
         embed: true
@@ -79,13 +79,13 @@ targets:
       path: SolstoneNotificationContent/SolstoneNotificationContent.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.org.solpbc.solstone-swift
+          - group.app.solstone.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.content
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.content
         INFOPLIST_KEY_CFBundleDisplayName: SolstoneNotificationContent
         CODE_SIGN_ENTITLEMENTS: SolstoneNotificationContent/SolstoneNotificationContent.entitlements
-        DEVELOPMENT_TEAM: VJ57N4RWDA
+        DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
@@ -116,13 +116,13 @@ targets:
       path: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.org.solpbc.solstone-swift
+          - group.app.solstone.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.liveactivity
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.liveactivity
         INFOPLIST_KEY_CFBundleDisplayName: SolstoneLiveActivityWidget
         CODE_SIGN_ENTITLEMENTS: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements
-        DEVELOPMENT_TEAM: VJ57N4RWDA
+        DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
@@ -141,7 +141,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.tests
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.tests
         SWIFT_STRICT_CONCURRENCY: complete
   solstone-swiftUITests:
     type: bundle.ui-testing
@@ -153,6 +153,6 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: org.solpbc.solstone-swift.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.uitests
         TEST_TARGET_NAME: solstone-swift
         SWIFT_STRICT_CONCURRENCY: complete

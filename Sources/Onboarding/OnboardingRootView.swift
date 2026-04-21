@@ -4,7 +4,7 @@
 import SwiftUI
 import os
 
-private let onboardingRootLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "onboarding")
+private let onboardingRootLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 struct OnboardingRootView: View {
     @Environment(AppConfig.self) private var appConfig

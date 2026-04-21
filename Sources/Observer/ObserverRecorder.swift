@@ -5,7 +5,7 @@ import AVFoundation
 import Foundation
 import os
 
-private let observerLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "observer")
+private let observerLog = Logger(subsystem: "app.solstone.swift", category: "observer")
 
 enum ObserverInterruptionEvent: Sendable {
     case began

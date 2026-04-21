@@ -6,7 +6,7 @@ import Foundation
 import Observation
 import os
 
-private let managerLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "observer")
+private let managerLog = Logger(subsystem: "app.solstone.swift", category: "observer")
 
 struct ObserverSession: Equatable, Sendable {
     let sessionID: UUID

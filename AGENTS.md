@@ -1,6 +1,6 @@
 # solstone-swift
 
-Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Private repo. Bundle ID: `org.solpbc.solstone-swift`.
+Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Private repo. Bundle ID: `app.solstone.swift`.
 
 *Build conventions follow `cto/standards/project-conventions.md`; engineering philosophy follows `cto/standards/engineering-principles.md`.*
 
@@ -11,7 +11,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 - **Privacy is an architecture decision.** Voice audio flows P2P phone ↔ OpenAI Realtime — acceptable tradeoff for low-latency voice, disclosed clearly. Observer audio goes to the owner's journal server, never sol pbc. No analytics, no crash reporting, no telemetry. No phone-home.
 - **Agent-native.** All builds, tests, deploys, and diagnostics happen through Makefile targets — no freeform `xcodebuild` / `simctl` / `devicectl` composition. `make sim-json` pipes through xcsift for structured JSON errors an agent can parse.
 - **Swift 6.2 strict concurrency.** `@MainActor` by default. `nonisolated` where it belongs (NIO handlers, WebRTC callbacks, WKScriptMessageHandler). Never `nonisolated(unsafe)` — fix the isolation. `@Observable`, not `ObservableObject`. `NavigationStack`, not `NavigationView`. `async/await`, no completion handlers.
-- **`os.Logger` only.** `.info` / `.error` / `.debug` survive from any thread. `print()` and `NSLog()` silently drop from NIO dispatch queues — don't use them. Subsystem: `org.solpbc.solstone-swift`.
+- **`os.Logger` only.** `.info` / `.error` / `.debug` survive from any thread. `print()` and `NSLog()` silently drop from NIO dispatch queues — don't use them. Subsystem: `app.solstone.swift`.
 - **WKScriptMessageHandler is the only bridge.** URL-scheme handler (`fetch('solstone://…')`) fails cross-origin from the `http://127.0.0.1` portal. Do NOT re-introduce it.
 - **Universal always.** `.sidebarAdaptable` on the TabView; size-class-aware SwiftUI. No iPhone-only hardcoding.
 
@@ -55,7 +55,7 @@ make clean         # remove build artifacts
 
 **xcsift** — `brew install xcsift`. `make sim-json` pipes build output through it for structured errors.
 
-**Signing** — Team `VJ57N4RWDA` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). Persistent `hopper:build` tmux window keeps the unlock state across commands.
+**Signing** — Team `7QCG8V4M6H` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). Persistent `hopper:build` tmux window keeps the unlock state across commands.
 
 ## Dependencies
 
@@ -75,7 +75,7 @@ make clean         # remove build artifacts
 
 - Always `os.Logger`. All levels surface in `log collect` (sudo). `.debug` is silent on `devicectl --console` and `pymobiledevice3 syslog` — that's fine for production, use `log collect` for post-hoc.
 - `print()` / `NSLog()` silently drop from NIO threads — do not use them in production code.
-- Subsystem: `org.solpbc.solstone-swift`.
+- Subsystem: `app.solstone.swift`.
 
 ## Safety rails
 

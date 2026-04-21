@@ -5,7 +5,7 @@ import SwiftUI
 import UIKit
 import os
 
-private let mainTabLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "ui")
+private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
 
 struct MainTabView: View {
     let localPort: Int

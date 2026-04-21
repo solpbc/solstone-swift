@@ -6,14 +6,14 @@
 
 SCHEME    ?= solstone-swift
 PROJECT   ?= solstone-swift.xcodeproj
-BUNDLE_ID ?= org.solpbc.solstone-swift
-TEAM_ID   ?= VJ57N4RWDA
+BUNDLE_ID ?= app.solstone.swift
+TEAM_ID   ?= 7QCG8V4M6H
 DEVICE    ?= 1776B0A9-E149-52A1-9F6F-04CCDE223940
 SIM       ?= iPhone 17 Pro
 SIM_IPAD  ?= iPad Pro 13-inch (M4)
 ARCHIVE   ?= build/solstone-swift.xcarchive
 APP       ?= $(ARCHIVE)/Products/Applications/solstone-swift.app
-LOG_SUB   ?= org.solpbc.solstone-swift
+LOG_SUB   ?= app.solstone.swift
 KEYCHAIN  ?= ~/Library/Keychains/login.keychain-db
 DERIVED   ?= DerivedData
 SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
@@ -167,7 +167,7 @@ integration-test: sim
 	LAUNCH_PID=$$!; \
 	passed=0; \
 	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "portal: spa ready"; then \
+		if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "portal: spa ready"; then \
 			passed=1; \
 			break; \
 		fi; \
@@ -176,7 +176,7 @@ integration-test: sim
 	if [ "$$passed" -ne 1 ]; then \
 		echo "integration-test failed: portal did not become ready"; \
 		echo "--- subsystem log tail ---"; \
-		xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 50; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 50; \
 		echo "--- app log tail ---"; \
 		tail -n 50 "$$APP_LOG"; \
 		echo "--- mock log ---"; \
@@ -188,7 +188,7 @@ integration-test: sim
 	for pattern in "voice session starting" "listening" "portal: nav hint applied: today" "brain: status ready"; do \
 		matched=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-			if xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "$$pattern"; then \
+			if xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "$$pattern"; then \
 				matched=1; \
 				break; \
 			fi; \
@@ -197,7 +197,7 @@ integration-test: sim
 		if [ "$$matched" -ne 1 ]; then \
 			echo "integration-test failed: missing log pattern $$pattern"; \
 			echo "--- subsystem log tail ---"; \
-			xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+				xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			echo "--- app log tail ---"; \
 			tail -n 80 "$$APP_LOG"; \
 			echo "--- mock log ---"; \
@@ -208,7 +208,7 @@ integration-test: sim
 		fi; \
 	done; \
 	echo "--- subsystem log tail ---"; \
-	xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 20; \
+	xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 20; \
 	echo "integration-test passed"; \
 	tail -n 20 "$$APP_LOG"
 
@@ -237,7 +237,7 @@ integration-test-live: sim
 	LAUNCH_PID=$$!; \
 	sleep 10; \
 		echo "--- subsystem log tail ---"; \
-		xcrun simctl spawn booted log show --info --last 15s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+		xcrun simctl spawn booted log show --info --last 15s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 		echo "integration-test-live launched"; \
 		tail -n 40 "$$APP_LOG"
 
@@ -312,25 +312,25 @@ integration-test-push: sim
 		LAUNCH_PID=$$!; \
 		app_ready=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10; do \
-			if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "portal: spa ready"; then app_ready=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "portal: spa ready"; then app_ready=1; break; fi; \
 			sleep 1; \
 		done; \
 		[ "$$app_ready" -eq 1 ] || { echo "integration-test-push failed: app did not become ready"; tail -n 80 "$$APP_LOG"; cat "$$MOCK_LOG"; cat "$$VOICE_MOCK_LOG"; cat "$$PUSH_MOCK_LOG"; exit 1; }; \
 		positive=0; \
 		for _ in 1 2 3 4 5; do \
-			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "router"' 2>/dev/null | grep -q "routed to today"; then positive=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "$(LOG_SUB)" AND category == "router"' 2>/dev/null | grep -q "routed to today"; then positive=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$positive" -eq 1 ] || { echo "integration-test-push failed: missing routed to today log"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; exit 1; }; \
+		[ "$$positive" -eq 1 ] || { echo "integration-test-push failed: missing routed to today log"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; exit 1; }; \
 		sleep 10; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
 			echo "integration-test-push failed: unexpected voice session start"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			exit 1; \
 		fi; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "listening"; then \
+		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "listening"; then \
 			echo "integration-test-push failed: unexpected listening log"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			exit 1; \
 		fi; \
 		if ! curl -s "http://127.0.0.1:$(PUSH_PORT)/api/push/status" | grep -Eq '"registration_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
@@ -340,7 +340,7 @@ integration-test-push: sim
 			exit 1; \
 		fi; \
 		echo "--- subsystem log tail ---"; \
-		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 		echo "integration-test-push passed"; \
 		tail -n 20 "$$APP_LOG"
 
@@ -430,25 +430,25 @@ integration-test-observer: sim
 		LAUNCH_PID=$$!; \
 		sense_started=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10; do \
-			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then sense_started=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "$(LOG_SUB)" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then sense_started=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$sense_started" -eq 1 ] || { echo "integration-test-observer failed: sense path never started observer"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
+		[ "$$sense_started" -eq 1 ] || { echo "integration-test-observer failed: sense path never started observer"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
 		sense_enqueued=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "uploader"' 2>/dev/null | grep -q "observer: chunk enqueued"; then sense_enqueued=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "uploader"' 2>/dev/null | grep -q "observer: chunk enqueued"; then sense_enqueued=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$sense_enqueued" -eq 1 ] || { echo "integration-test-observer failed: sense path never enqueued chunk"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
+		[ "$$sense_enqueued" -eq 1 ] || { echo "integration-test-observer failed: sense path never enqueued chunk"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
 		sleep 10; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
 			echo "integration-test-observer failed: sense path unexpectedly started voice"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			exit 1; \
 		fi; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "listening"; then \
+		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "listening"; then \
 			echo "integration-test-observer failed: sense path unexpectedly emitted listening"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 80; \
+			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			exit 1; \
 		fi; \
 		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"upload_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
@@ -469,31 +469,31 @@ integration-test-observer: sim
 		LAUNCH_PID=$$!; \
 		voice_action=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "voice"' 2>/dev/null | grep -q "voice-observer-action received"; then voice_action=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "voice"' 2>/dev/null | grep -q "voice-observer-action received"; then voice_action=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$voice_action" -eq 1 ] || { echo "integration-test-observer failed: voice path never received observer action"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
+		[ "$$voice_action" -eq 1 ] || { echo "integration-test-observer failed: voice path never received observer action"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
 		voice_observer_started=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then voice_observer_started=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then voice_observer_started=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$voice_observer_started" -eq 1 ] || { echo "integration-test-observer failed: voice path never started observer"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
+		[ "$$voice_observer_started" -eq 1 ] || { echo "integration-test-observer failed: voice path never started observer"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
 		voice_log_snapshot=$$(mktemp -t solstone-swift-observer-voice-log.XXXXXX); \
-		xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null >"$$voice_log_snapshot"; \
+		xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null >"$$voice_log_snapshot"; \
 		action_line=$$(grep -n "voice-observer-action received" "$$voice_log_snapshot" | tail -n 1 | cut -d: -f1); \
 		start_line=$$(grep -n "observer: session starting" "$$voice_log_snapshot" | tail -n 1 | cut -d: -f1); \
 		[ -n "$$action_line" ] && [ -n "$$start_line" ] && [ "$$start_line" -gt "$$action_line" ] || { echo "integration-test-observer failed: observer start did not follow voice action"; cat "$$voice_log_snapshot"; rm -f "$$voice_log_snapshot"; exit 1; }; \
 		rm -f "$$voice_log_snapshot"; \
 		voice_reused=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "observer"' 2>/dev/null | grep -q "observer: reused active voice session"; then voice_reused=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "observer"' 2>/dev/null | grep -q "observer: reused active voice session"; then voice_reused=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$voice_reused" -eq 1 ] || { echo "integration-test-observer failed: voice path did not reuse active voice session"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 100; exit 1; }; \
+		[ "$$voice_reused" -eq 1 ] || { echo "integration-test-observer failed: voice path did not reuse active voice session"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 100; exit 1; }; \
 		sleep 5; \
-		registration_count=$$(xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "registration"' 2>/dev/null | grep -c "observer registration succeeded" || true); \
-		[ "$$registration_count" -eq 1 ] || { echo "integration-test-observer failed: registration logged $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "registration"' 2>/dev/null; exit 1; }; \
+		registration_count=$$(xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null | grep -c "observer registration succeeded" || true); \
+		[ "$$registration_count" -eq 1 ] || { echo "integration-test-observer failed: registration logged $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null; exit 1; }; \
 		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"create_count"[[:space:]]*:[[:space:]]*1'; then \
 			echo "integration-test-observer failed: observer registration did not persist"; \
 			cat "$$OBSERVER_COUNT"; \
@@ -507,7 +507,7 @@ integration-test-observer: sim
 			exit 1; \
 		fi; \
 		echo "--- subsystem log tail ---"; \
-		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 			echo "integration-test-observer passed"; \
 			tail -n 20 "$$VOICE_APP_LOG"
 
@@ -553,13 +553,13 @@ integration-test-onboarding: sim
 		LAUNCH_PID=$$!; \
 		completed=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
-			if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "$(LOG_SUB)" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: deny scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; tail -n 120 "$$DENY_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
-		if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: deny scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; tail -n 120 "$$DENY_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
 			echo "integration-test-onboarding failed: unexpected voice session start in deny scenario"; \
-			xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; \
+			xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; \
 			exit 1; \
 		fi; \
 		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"confirm_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
@@ -588,13 +588,13 @@ integration-test-onboarding: sim
 		LAUNCH_PID=$$!; \
 		completed=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
-			if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "org.solpbc.solstone-swift" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "$(LOG_SUB)" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: grant scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; tail -n 120 "$$GRANT_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
-		if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | grep -q "voice session starting"; then \
+		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: grant scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; tail -n 120 "$$GRANT_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
 			echo "integration-test-onboarding failed: unexpected voice session start in grant scenario"; \
-			xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 120; \
+			xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; \
 			exit 1; \
 		fi; \
 		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
@@ -604,7 +604,7 @@ integration-test-onboarding: sim
 			exit 1; \
 		fi; \
 		echo "--- subsystem log tail ---"; \
-		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "org.solpbc.solstone-swift"' 2>/dev/null | tail -n 40; \
+		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 		echo "integration-test-onboarding passed"; \
 		tail -n 20 "$$GRANT_APP_LOG"
 
@@ -639,6 +639,7 @@ test-fast:
 build: generate unlock
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
+		-allowProvisioningUpdates \
 		-destination 'id=$(DEVICE)' \
 		-derivedDataPath $(DERIVED) \
 		DEVELOPMENT_TEAM=$(TEAM_ID) \

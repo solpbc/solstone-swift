@@ -5,7 +5,7 @@ import Foundation
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "router")
+private let log = Logger(subsystem: "app.solstone.swift", category: "router")
 
 final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     nonisolated struct TapPayload {

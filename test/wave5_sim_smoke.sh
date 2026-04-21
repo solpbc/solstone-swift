@@ -9,7 +9,7 @@ cd "$ROOT"
 
 SCHEME="${SCHEME:-solstone-swift}"
 PROJECT="${PROJECT:-solstone-swift.xcodeproj}"
-BUNDLE_ID="${BUNDLE_ID:-org.solpbc.solstone-swift}"
+BUNDLE_ID="${BUNDLE_ID:-app.solstone.swift}"
 SIM="${SIM:-iPhone 17 Pro}"
 DERIVED="${DERIVED:-DerivedData}"
 SIM_APP="$DERIVED/Build/Products/Debug-iphonesimulator/${SCHEME}.app"
@@ -152,7 +152,7 @@ start_pairing_server
 fresh_start="$(timestamp)"
 fresh_epoch="$(date +%s)"
 launch_app --integration-test-onboarding --integration-test-onboarding-deny-notifications --onboarding-mock-pair-token=ptk_smoke
-wait_for_log "$fresh_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "onboarding"' "onboarding completed"
+wait_for_log "$fresh_start" 'subsystem == "app.solstone.swift" AND category == "onboarding"' "onboarding completed"
 fresh_duration=$(( $(date +%s) - fresh_epoch ))
 [ "$fresh_duration" -lt 120 ] || { echo "fresh onboarding exceeded 120s (${fresh_duration}s)"; exit 1; }
 assert_pairing_status '"confirm_count"[[:space:]]*:[[:space:]]*[1-9]' || { echo "pair confirm missing"; exit 1; }
@@ -163,8 +163,8 @@ echo "== relaunch skip =="
 terminate_app
 relaunch_start="$(next_timestamp)"
 launch_app
-wait_for_log "$relaunch_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "ui"' "launching connect task"
-if log_show_since "$relaunch_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "onboarding"' | grep -q "OnboardingRootView presenting"; then
+wait_for_log "$relaunch_start" 'subsystem == "app.solstone.swift" AND category == "ui"' "launching connect task"
+if log_show_since "$relaunch_start" 'subsystem == "app.solstone.swift" AND category == "onboarding"' | grep -q "OnboardingRootView presenting"; then
   echo "relaunch unexpectedly presented onboarding"
   exit 1
 fi
@@ -214,17 +214,17 @@ start_pairing_server
 start_portal_server
 cache_prime_start="$(next_timestamp)"
 launch_app --ui-test --ui-test-journal-root="http://127.0.0.1:${PAIRING_PORT}"
-wait_for_log "$cache_prime_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "portal"' "portal: spa ready"
-wait_for_log "$cache_prime_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "portal"' "portal: page loaded"
+wait_for_log "$cache_prime_start" 'subsystem == "app.solstone.swift" AND category == "portal"' "portal: spa ready"
+wait_for_log "$cache_prime_start" 'subsystem == "app.solstone.swift" AND category == "portal"' "portal: page loaded"
 sleep 2
 terminate_app
 stop_portal_server
 offline_start="$(next_timestamp)"
 launch_app --ui-test --ui-test-journal-root="http://127.0.0.1:${PAIRING_PORT}" --ui-test-shell-disconnected --ui-test-network-unsatisfied --ui-test-network-reconnect-after=2
-wait_for_log "$offline_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "offline"' "offline banner visible"
-wait_for_log "$offline_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "ui"' "voice button showing disconnected shell state"
-wait_for_log "$offline_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "offline"' "offline banner hidden"
-if log_show_since "$offline_start" 'subsystem == "org.solpbc.solstone-swift" AND category == "portal"' | grep -q "portal: loading cached html age="; then
+wait_for_log "$offline_start" 'subsystem == "app.solstone.swift" AND category == "offline"' "offline banner visible"
+wait_for_log "$offline_start" 'subsystem == "app.solstone.swift" AND category == "ui"' "voice button showing disconnected shell state"
+wait_for_log "$offline_start" 'subsystem == "app.solstone.swift" AND category == "offline"' "offline banner hidden"
+if log_show_since "$offline_start" 'subsystem == "app.solstone.swift" AND category == "portal"' | grep -q "portal: loading cached html age="; then
   echo "evidence: offline banner rendered, cached portal fallback loaded, banner cleared on reconnect, and disconnected voice shell rendered"
 else
   echo "blocker: cached portal fallback did not emit during simulator relaunch; item 13 remains open"

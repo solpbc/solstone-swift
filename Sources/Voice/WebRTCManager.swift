@@ -6,7 +6,7 @@ import AVFoundation
 import Foundation
 import os
 
-private let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "voice")
+private let log = Logger(subsystem: "app.solstone.swift", category: "voice")
 
 final class WebRTCManager: NSObject, WebRTCConnecting {
     private var peerConnection: RTCPeerConnection?

@@ -4,7 +4,7 @@
 import Foundation
 import os
 
-private let pairingLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "pairing")
+private let pairingLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
 
 @MainActor
 protocol PairingClient: AnyObject, Sendable {

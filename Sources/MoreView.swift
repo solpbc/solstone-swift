@@ -5,7 +5,7 @@ import SwiftUI
 import UIKit
 import os
 
-private let moreLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "pairing")
+private let moreLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
 
 struct MoreView: View {
     let localPort: Int

@@ -4,7 +4,7 @@
 import SwiftUI
 import os
 
-private let homeLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "home")
+private let homeLog = Logger(subsystem: "app.solstone.swift", category: "home")
 
 struct DayZeroOverlayView: View {
     @Environment(AppConfig.self) private var appConfig

@@ -11,7 +11,7 @@ private struct NavHintResponse: Decodable {
 
 nonisolated struct NavHintPoller: NavHintPolling {
     func fetch(localPort: Int, callId: String) async -> [String] {
-        let log = Logger(subsystem: "org.solpbc.solstone-swift", category: "voice")
+        let log = Logger(subsystem: "app.solstone.swift", category: "voice")
         guard let url = VoiceServerURL.url(
             localPort: localPort,
             path: "/api/voice/nav-hints",

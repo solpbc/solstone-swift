@@ -4,7 +4,7 @@
 import SwiftUI
 import os
 
-private let offlineLog = Logger(subsystem: "org.solpbc.solstone-swift", category: "offline")
+private let offlineLog = Logger(subsystem: "app.solstone.swift", category: "offline")
 
 struct OfflineBanner: View {
     var body: some View {
