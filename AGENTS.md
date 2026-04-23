@@ -55,7 +55,7 @@ make clean         # remove build artifacts
 
 **xcsift** — `brew install xcsift`. `make sim-json` pipes build output through it for structured errors.
 
-**Signing** — Team `7QCG8V4M6H` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). Persistent `hopper:build` tmux window keeps the unlock state across commands.
+**Signing** — Team `7QCG8V4M6H` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). Persistent `hopper:build-solstone-swift` tmux window keeps the unlock state across commands. Restore after reboot: `ssh pro5e.local "ensure-build-windows"`.
 
 ## Dependencies
 
