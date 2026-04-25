@@ -179,8 +179,8 @@ struct SolstoneSwiftApp: App {
                 }
         }
         .commands {
-            CommandMenu("Hub") {
-                Button("Refresh Brain") {
+            CommandMenu("hub") {
+                Button("refresh brain") {
                     guard case .connected(let port, _) = self.tunnelManager.state else { return }
                     Task {
                         guard let url = VoiceServerURL.url(localPort: port, path: "/api/voice/refresh-brain") else { return }

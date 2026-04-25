@@ -3,6 +3,9 @@
 
 import SwiftUI
 
+// Brand spec: extro/cmo/brand/sol/index.md
+// Canonical triples — locked by Tests/BrandColorTests.swift
+// Do not edit values; mirror via `make brand-sync`.
 extension Color {
     /// Sol orange — primary brand accent (#E8923A)
     static let solOrange = Color(red: 0.910, green: 0.573, blue: 0.227)

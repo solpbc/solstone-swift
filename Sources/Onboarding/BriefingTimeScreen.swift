@@ -27,12 +27,12 @@ struct BriefingTimeScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "Set your briefing time",
-            subtitle: "When would you like your morning briefing?"
+            title: "set your briefing time",
+            subtitle: "when would you like your morning briefing?"
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 DatePicker(
-                    "Briefing time",
+                    "briefing time",
                     selection: self.$selectedTime,
                     displayedComponents: .hourAndMinute
                 )
@@ -47,7 +47,7 @@ struct BriefingTimeScreen: View {
                         .foregroundStyle(.red)
                 }
 
-                Button(self.isSaving ? "Saving…" : "Get started") {
+                Button(self.isSaving ? "saving…" : "get started") {
                     Task {
                         await self.saveSelectedTime()
                     }
@@ -58,7 +58,7 @@ struct BriefingTimeScreen: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Saves your morning briefing time")
 
-                Button("Use 7:00 AM") {
+                Button("use 7:00 AM") {
                     self.selectedTime = Self.defaultTime
                     Task {
                         await self.saveSelectedTime()
@@ -67,7 +67,7 @@ struct BriefingTimeScreen: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Uses the default 7 AM briefing time")
 
-                Button("Back", action: self.onBack)
+                Button("back", action: self.onBack)
                     .frame(minWidth: 44, minHeight: 44)
                     .accessibilityHint("Returns to the notifications step")
             }
@@ -87,7 +87,7 @@ struct BriefingTimeScreen: View {
 private extension BriefingTimeScreen {
     func saveSelectedTime() async {
         guard let sessionKey = self.appConfig.currentSessionKey() else {
-            self.errorMessage = "Missing pairing session."
+            self.errorMessage = "missing pairing session."
             onboardingBriefingLog.error("onboarding briefing save missing session")
             return
         }
@@ -111,13 +111,13 @@ private extension BriefingTimeScreen {
             onboardingBriefingLog.error("onboarding briefing save failed: \(String(describing: error), privacy: .public)")
             switch error {
             case .server(_, let body):
-                self.errorMessage = body.isEmpty ? "Unable to save your briefing time." : body
+                self.errorMessage = body.isEmpty ? "unable to save your briefing time." : body
             default:
-                self.errorMessage = "Unable to save your briefing time."
+                self.errorMessage = "unable to save your briefing time."
             }
         } catch {
             onboardingBriefingLog.error("onboarding briefing save failed: \(String(describing: error), privacy: .public)")
-            self.errorMessage = "Unable to save your briefing time."
+            self.errorMessage = "unable to save your briefing time."
         }
     }
 }

@@ -56,7 +56,7 @@ private extension DayZeroOverlayView {
     @ViewBuilder
     func dayZeroCard(snapshot: ProgressSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sol is observing your day.")
+            Text("sol is observing your day.")
                 .font(.title3.weight(.semibold))
             ProgressView(value: Double(snapshot.percent), total: 100)
                 .tint(Color.solOrangeAccessible)
@@ -68,10 +68,10 @@ private extension DayZeroOverlayView {
                 .font(.body)
             Text("\(snapshot.entitiesIdentified) entities identified")
                 .font(.body)
-            Text("Your first briefing arrives tomorrow at 7:00 AM")
+            Text("your first briefing arrives tomorrow at 7:00 AM")
                 .font(.body)
                 .foregroundStyle(.secondary)
-            Button("Browse your journal", action: self.onBrowseJournal)
+            Button("browse your journal", action: self.onBrowseJournal)
                 .buttonStyle(.borderedProminent)
                 .frame(minWidth: 44, minHeight: 44)
                 .accessibilityHint("Opens Today in your journal")
@@ -88,12 +88,12 @@ private extension DayZeroOverlayView {
 
     var dayOneCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Your first briefing")
+            Text("your first briefing")
                 .font(.title3.weight(.semibold))
-            Text("This is how sol will reach you each morning. You can change the time in Settings.")
+            Text("this is how sol will reach you each morning. You can change the time in Settings.")
                 .font(.body)
                 .foregroundStyle(.secondary)
-            Button("Continue") {
+            Button("continue") {
                 self.hasSeenFirstBriefing = true
                 self.snapshot = nil
                 homeLog.info("day-one acknowledgment dismissed")

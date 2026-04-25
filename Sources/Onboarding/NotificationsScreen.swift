@@ -15,11 +15,11 @@ struct NotificationsScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "Allow notifications",
-            subtitle: "So sol can reach you for your morning briefing and meeting prep. No ads, no marketing, no third parties."
+            title: "allow notifications",
+            subtitle: "so sol can reach you for your morning briefing and meeting prep. No ads, no marketing, no third parties."
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                Button("Allow notifications") {
+                Button("allow notifications") {
                     Task {
                         await self.pushManager.requestAuthorization()
                         await self.pushManager.refreshPermissionState()
@@ -31,13 +31,13 @@ struct NotificationsScreen: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Requests iOS notification permission")
 
-                Button("Skip for now") {
+                Button("skip for now") {
                     self.onNext(false)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Continues without enabling notifications")
 
-                Button("Back", action: self.onBack)
+                Button("back", action: self.onBack)
                     .frame(minWidth: 44, minHeight: 44)
                     .accessibilityHint("Returns to the pairing step")
             }

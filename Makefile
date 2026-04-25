@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci brand-sync \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
@@ -19,6 +19,7 @@ DERIVED   ?= DerivedData
 SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
 DEV_APP    = $(DERIVED)/Build/Products/Debug-iphoneos/$(SCHEME).app
 DEVICE_LOG ?= /tmp/solstone-swift.log
+BRAND_DIR  ?= ../extro/cmo/brand/sol
 
 # --- Project setup ---
 
@@ -32,6 +33,14 @@ deps: generate
 		-skipMacroValidation \
 		-destination 'generic/platform=iOS' \
 		-resolvePackageDependencies
+
+brand-sync:
+	@test -d "$(BRAND_DIR)" || { echo "brand: $(BRAND_DIR) not found — clone extro alongside this repo (or set BRAND_DIR=...)"; exit 1; }
+	cp "$(BRAND_DIR)/sol-app-icon-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
+	cp "$(BRAND_DIR)/sol-wordmark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
+	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmarkWhite.imageset/sol-wordmark-white.svg
+	cp "$(BRAND_DIR)/sol-ring-icon.svg" Sources/Assets.xcassets/SolRing.imageset/sol-ring-icon.svg
+	@echo "brand: synced from $(BRAND_DIR)"
 
 # --- Keychain (required for device builds over SSH) ---
 
@@ -613,6 +622,7 @@ ci:
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
+	bash test/assert_casing.sh
 
 test-one: generate
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \

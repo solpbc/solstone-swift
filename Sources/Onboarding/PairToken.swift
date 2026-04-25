@@ -13,15 +13,15 @@ enum PairTokenError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidURL:
-            "Invalid pairing URL."
+            "invalid pairing URL."
         case .invalidScheme:
-            "Pairing URL must start with solstone://."
+            "pairing URL must start with solstone://."
         case .invalidHost:
-            "Pairing URL must target solstone://pair."
+            "pairing URL must target solstone://pair."
         case .missingToken:
-            "Pairing URL is missing its token."
+            "pairing URL is missing its token."
         case .missingHost:
-            "Pairing URL is missing its host."
+            "pairing URL is missing its host."
         }
     }
 }

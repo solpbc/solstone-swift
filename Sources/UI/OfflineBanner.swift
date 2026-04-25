@@ -10,7 +10,7 @@ struct OfflineBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "wifi.slash")
-            Text("Offline — showing cached data")
+            Text("offline — showing cached data")
                 .font(.body.weight(.semibold))
             Spacer()
         }

@@ -71,7 +71,7 @@ struct SenseView: View {
                             .multilineTextAlignment(.center)
 
                         if self.observerManager.state == .error(.permissionDenied) {
-                            Button("Open Settings") {
+                            Button("open settings") {
                                 UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                             }
                             .buttonStyle(.borderedProminent)
@@ -81,7 +81,7 @@ struct SenseView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Recent")
+                    Text("recent")
                         .font(.custom("Comfortaa-Bold", size: 20))
 
                     if self.manifestItems.isEmpty {
@@ -106,12 +106,12 @@ struct SenseView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        SenseChip(label: "Location", systemImage: "location")
-                        SenseChip(label: "Health", systemImage: "heart")
-                        SenseChip(label: "Photos", systemImage: "photo")
-                        SenseChip(label: "Calendar", systemImage: "calendar")
-                        SenseChip(label: "Motion", systemImage: "figure.walk")
-                        SenseChip(label: "Focus", systemImage: "moon")
+                        SenseChip(label: "location", systemImage: "location")
+                        SenseChip(label: "health", systemImage: "heart")
+                        SenseChip(label: "photos", systemImage: "photo")
+                        SenseChip(label: "calendar", systemImage: "calendar")
+                        SenseChip(label: "motion", systemImage: "figure.walk")
+                        SenseChip(label: "focus", systemImage: "moon")
                     }
                 }
                 .disabled(true)
@@ -215,11 +215,11 @@ private extension SenseView {
     var buttonLabel: String {
         switch self.observerManager.state {
         case .active:
-            "Stop"
+            "stop"
         case .error:
-            "Retry"
+            "retry"
         case .idle, .starting, .stopping:
-            "Listen"
+            "listen"
         }
     }
 

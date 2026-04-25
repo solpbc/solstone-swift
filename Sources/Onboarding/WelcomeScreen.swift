@@ -12,18 +12,18 @@ struct WelcomeScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "Welcome to solstone",
-            subtitle: "Pair this phone with your journal, choose notifications, and set your morning briefing time."
+            title: "welcome to solstone",
+            subtitle: "pair this phone with your journal, choose notifications, and set your morning briefing time."
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                Label("Private by design", systemImage: "lock.fill")
+                Label("private by design", systemImage: "lock.fill")
                     .font(.headline)
-                Label("No ads, no analytics, no third parties", systemImage: "hand.raised.fill")
+                Label("no ads, no analytics, no third parties", systemImage: "hand.raised.fill")
                     .font(.headline)
-                Label("Your phone can resume where you left off if onboarding is interrupted", systemImage: "arrow.clockwise")
+                Label("your phone can resume where you left off if onboarding is interrupted", systemImage: "arrow.clockwise")
                     .font(.headline)
 
-                Button("Get started", action: self.onGetStarted)
+                Button("get started", action: self.onGetStarted)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .accessibilityHint("Opens the pairing step")

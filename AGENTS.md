@@ -106,3 +106,13 @@ make clean         # remove build artifacts
 - Remote dev loop: `cto/playbooks/extro-phone-dev-loop.md`
 - Architecture guide: `cto/projects/extro-hub/extro-phone-guide.md`
 - Upstream source: https://github.com/quartzjer/extro-phone (extro-phone — the fork source)
+
+## Brand
+
+- Follow lowercase-first UI copy in visible product text.
+- Exceptions are limited to HIG cancel/destructive labels, `accessibilityHint` / `accessibilityLabel`, third-party proper nouns, protocol and URL literals, and AM/PM or date abbreviations.
+- Canonical brand source: `extro/cmo/brand/sol/index.md`.
+- Sync shipped brand assets with `make brand-sync`.
+- Override the source directory with `BRAND_DIR=/path/to/extro/cmo/brand/sol make brand-sync`.
+- `Tests/BrandColorTests.swift` is the tripwire for canonical `solOrange`, `solGold`, `solOrangeAccessible`, and the light `AccentColor` variant.
+- Keep `Sources/Design/Colors.swift` numeric triples locked; update brand assets through `make brand-sync`, not ad hoc edits.

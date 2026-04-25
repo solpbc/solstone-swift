@@ -1,0 +1,51 @@
+# Format: <path-suffix>|<literal substring>
+# Use * for globals. `|` is the delimiter because allowed substrings may contain `:`.
+# Keep this list limited to approved copy exceptions and internal-only identifiers.
+
+MoreView.swift|Cancel
+MoreView.swift|Reset
+MoreView.swift|Unpair
+BriefingTimeScreen.swift|7:00 AM
+DayZeroOverlayView.swift|7:00 AM
+PairScreen.swift|solstone://
+*|iOS
+*|iPadOS
+*|Apple
+*|OpenAI
+*|WCAG
+*|AGPL
+*|QR
+*|URL
+*|LAN
+*|OK
+
+# Internal protocol, transport, and build identifiers
+*|POST
+*|DELETE
+*|PUT
+*|GET
+*|HTTP
+*|Authorization
+*|Content-Type
+*|Bearer
+*|CFBundleShortVersionString
+*|CFBundleVersion
+*|MOCK_
+*|LIVE_
+*|UI_TEST_
+*|SOLSTONE_
+*|OfferToReceiveAudio
+
+# Internal logger/type names
+*|OnboardingRootView
+*|ContentView
+*|WiFi
+WebRTCManager.swift|Location
+ObserverMode.swift|Meeting
+ObserverMode.swift|Voice memo
+ObserverLiveActivity.swift|Meeting
+ObserverLiveActivity.swift|Voice memo
+ObserverLiveActivity.swift|Listening
+ObserverUploader.swift|Observer
+ObserverUploader.swift|Boundary-
+ObserverUploader.swift|Content-Disposition

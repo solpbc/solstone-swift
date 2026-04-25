@@ -168,6 +168,7 @@ extension PortalPage {
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+        // Portal error-page palette mirrors extro/cmo/brand/sol/index.md (orange-on-cream).
         let html = """
         <!doctype html>
         <html>

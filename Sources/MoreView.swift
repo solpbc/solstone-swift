@@ -326,6 +326,13 @@ struct MoreView: View {
             }
 
             Section("about") {
+                NavigationLink {
+                    AboutView()
+                } label: {
+                    Text("about solstone")
+                }
+                .accessibilityHint("Opens an about screen with version, server, and credits")
+
                 LabeledContent("version", value: self.versionString)
                 LabeledContent("server", value: self.appConfig.serverVersion.isEmpty ? "unknown" : self.appConfig.serverVersion)
                 LabeledContent("journal root", value: self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot)
@@ -348,7 +355,7 @@ struct MoreView: View {
                 self.observerRegistration.reset()
             }
         } message: {
-            Text("This clears the stored observer key and forces a fresh registration on next use.")
+            Text("this clears the stored observer key and forces a fresh registration on next use.")
         }
         .alert("unpair this device?", isPresented: self.$showingUnpairConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -358,7 +365,7 @@ struct MoreView: View {
                 }
             }
         } message: {
-            Text("This clears the paired session on this phone and returns you to onboarding.")
+            Text("this clears the paired session on this phone and returns you to onboarding.")
         }
         .onDisappear {
             self.snapshotCopyTask?.cancel()
@@ -395,7 +402,7 @@ struct MoreView: View {
 
     private func saveBriefingTime() async {
         guard let sessionKey = self.appConfig.currentSessionKey() else {
-            self.briefingError = "Missing pairing session."
+            self.briefingError = "missing pairing session."
             return
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: self.selectedBriefingTime)
@@ -408,7 +415,7 @@ struct MoreView: View {
             )
             self.briefingError = nil
         } catch {
-            self.briefingError = "Unable to save briefing time."
+            self.briefingError = "unable to save briefing time."
         }
     }
 

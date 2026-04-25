@@ -19,7 +19,7 @@ final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["5 segments observed"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["2 meetings detected"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["8 entities identified"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Browse your journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["browse your journal"].waitForExistence(timeout: 5))
     }
 
     func testDayOneAcknowledgmentDismissesOnce() throws {
@@ -28,10 +28,10 @@ final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.openTodayTabIfNeeded(in: app)
 
-        let title = app.staticTexts["Your first briefing"]
+        let title = app.staticTexts["your first briefing"]
         XCTAssertTrue(title.waitForExistence(timeout: 10))
 
-        let continueButton = app.buttons["Continue"]
+        let continueButton = app.buttons["continue"]
         XCTAssertTrue(continueButton.waitForExistence(timeout: 5))
         continueButton.tap()
 
@@ -47,7 +47,7 @@ final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.openTodayTabIfNeeded(in: app)
 
-        let bannerText = app.staticTexts["Offline — showing cached data"]
+        let bannerText = app.staticTexts["offline — showing cached data"]
         let bannerElement = app.otherElements["Offline. Showing cached data."]
         XCTAssertTrue(
             bannerText.waitForExistence(timeout: 10) || bannerElement.waitForExistence(timeout: 10)

@@ -4,9 +4,9 @@
       "color" : {
         "color-space" : "srgb",
         "components" : {
-          "red" : "0.910",
-          "green" : "0.573",
-          "blue" : "0.227",
+          "red" : "0.690",
+          "green" : "0.416",
+          "blue" : "0.102",
           "alpha" : "1.000"
         }
       },
@@ -33,6 +33,7 @@
   ],
   "info" : {
     "version" : 1,
-    "author" : "xcode"
+    "author" : "xcode",
+    "comment" : "extro/cmo/brand/sol/index.md — solOrangeAccessible (light, WCAG-AA-on-cream) & solOrange (dark)"
   }
 }

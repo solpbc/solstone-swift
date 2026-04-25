@@ -32,14 +32,14 @@ private extension OnboardingAccessibilityTests {
         app.launchArguments = ["--ui-test", "--ui-test-onboarding-step=welcome"]
         app.launch()
 
-        let getStarted = app.buttons["Get started"]
+        let getStarted = app.buttons["get started"]
         self.assertMetadata(for: getStarted, in: app)
         getStarted.tap()
 
-        self.assertMetadata(for: app.buttons["Scan pairing code"], in: app)
+        self.assertMetadata(for: app.buttons["scan pairing code"], in: app)
         self.assertMetadata(for: app.textFields["Pairing URL"], in: app)
-        self.assertMetadata(for: app.buttons["Pair this device"], in: app)
-        self.assertMetadata(for: app.buttons["Back"], in: app)
+        self.assertMetadata(for: app.buttons["pair this device"], in: app)
+        self.assertMetadata(for: app.buttons["back"], in: app)
     }
 
     func assertNotificationsScreen() {
@@ -51,9 +51,9 @@ private extension OnboardingAccessibilityTests {
         ]
         app.launch()
 
-        self.assertMetadata(for: app.buttons["Allow notifications"], in: app)
-        self.assertMetadata(for: app.buttons["Skip for now"], in: app)
-        self.assertMetadata(for: app.buttons["Back"], in: app)
+        self.assertMetadata(for: app.buttons["allow notifications"], in: app)
+        self.assertMetadata(for: app.buttons["skip for now"], in: app)
+        self.assertMetadata(for: app.buttons["back"], in: app)
     }
 
     func assertBriefingTimeScreen() {
@@ -66,9 +66,9 @@ private extension OnboardingAccessibilityTests {
         app.launch()
 
         self.assertMetadata(for: app.datePickers.element(boundBy: 0), in: app)
-        self.assertMetadata(for: app.buttons["Get started"], in: app)
-        self.assertMetadata(for: app.buttons["Use 7:00 AM"], in: app)
-        self.assertMetadata(for: app.buttons["Back"], in: app)
+        self.assertMetadata(for: app.buttons["get started"], in: app)
+        self.assertMetadata(for: app.buttons["use 7:00 AM"], in: app)
+        self.assertMetadata(for: app.buttons["back"], in: app)
     }
 
     func assertMoreViewAccessibility() {

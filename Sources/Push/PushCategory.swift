@@ -41,12 +41,12 @@ enum PushAction: String, CaseIterable, Sendable {
         [
             UNNotificationAction(
                 identifier: Self.markDone.rawValue,
-                title: "Mark Done",
+                title: "mark done",
                 options: [.foreground]
             ),
             UNNotificationAction(
                 identifier: Self.snooze.rawValue,
-                title: "Snooze",
+                title: "snooze",
                 options: []
             ),
         ]

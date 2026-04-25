@@ -24,11 +24,11 @@ struct PairScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "Pair your journal",
-            subtitle: "Open /app/pairing/ on your desktop convey and scan the QR code, or paste the pairing URL below."
+            title: "pair your journal",
+            subtitle: "open /app/pairing/ on your desktop convey and scan the QR code, or paste the pairing URL below."
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                Button("Scan pairing code") {
+                Button("scan pairing code") {
                     self.showScanner = true
                 }
                 .buttonStyle(.borderedProminent)
@@ -44,7 +44,7 @@ struct PairScreen: View {
                     .accessibilityLabel("Pairing URL")
                     .accessibilityHint("Paste the pairing URL from your desktop")
 
-                Button(self.isPairing ? "Pairing…" : "Pair this device") {
+                Button(self.isPairing ? "pairing…" : "pair this device") {
                     Task {
                         await self.confirmPairing(rawValue: self.pastedURL)
                     }
@@ -56,7 +56,7 @@ struct PairScreen: View {
                 .accessibilityHint("Pairs this phone with your journal using the pasted URL")
 
                 if self.cameraPermissionDenied {
-                    Text("Camera access is unavailable on this device. Paste the pairing URL instead.")
+                    Text("camera access is unavailable on this device. Paste the pairing URL instead.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                 }
@@ -68,7 +68,7 @@ struct PairScreen: View {
                         .accessibilityLabel("Pairing error: \(errorMessage)")
                 }
 
-                Button("Back", action: self.onBack)
+                Button("back", action: self.onBack)
                     .frame(minWidth: 44, minHeight: 44)
                     .accessibilityHint("Returns to the welcome screen")
             }
@@ -139,7 +139,7 @@ private extension PairScreen {
             self.errorMessage = self.message(for: error)
             onboardingLog.error("onboarding pairing request failed: \(String(describing: error), privacy: .public)")
         } catch {
-            self.errorMessage = "Pairing failed. Try again."
+            self.errorMessage = "pairing failed. Try again."
             onboardingLog.error("onboarding pairing failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -147,19 +147,19 @@ private extension PairScreen {
     func message(for error: PairingClientError) -> String {
         switch error {
         case .invalidToken:
-            "This pairing token is invalid."
+            "this pairing token is invalid."
         case .expiredToken:
-            "This pairing token has expired."
+            "this pairing token has expired."
         case .network:
-            "Network error while pairing."
+            "network error while pairing."
         case .server(_, let body):
-            body.isEmpty ? "The server rejected this pairing request." : body
+            body.isEmpty ? "the server rejected this pairing request." : body
         case .decoding:
-            "The server returned an unreadable pairing response."
+            "the server returned an unreadable pairing response."
         case .missingPairingHost:
-            "Pairing URL is missing its host."
+            "pairing URL is missing its host."
         case .missingJournalRoot:
-            "The journal root is not available yet."
+            "the journal root is not available yet."
         }
     }
 

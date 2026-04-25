@@ -43,7 +43,6 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: solstone
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start, storing them in your private journal. Nothing is shared with sol pbc."
@@ -57,6 +56,13 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         INFOPLIST_KEY_UIAppFonts: "[Comfortaa-Bold.ttf]"
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift
+    info:
+      path: Sources/Info.plist
+      properties:
+        UILaunchScreen:
+          UIImageName: SolWordmark
+          UIColorName: systemBackground
+          UIImageRespectsSafeAreaInsets: true
     dependencies:
       - target: SolstoneNotificationContent
         embed: true
