@@ -36,7 +36,7 @@ deps: generate
 
 brand-sync:
 	@test -d "$(BRAND_DIR)" || { echo "brand: $(BRAND_DIR) not found — clone extro alongside this repo (or set BRAND_DIR=...)"; exit 1; }
-	cp "$(BRAND_DIR)/sol-app-icon-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
+	cp "$(BRAND_DIR)/png/apple/sol-app-icon-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
 	cp "$(BRAND_DIR)/sol-wordmark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
 	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmarkWhite.imageset/sol-wordmark-white.svg
 	cp "$(BRAND_DIR)/sol-ring-icon.svg" Sources/Assets.xcassets/SolRing.imageset/sol-ring-icon.svg
