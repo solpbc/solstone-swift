@@ -19,7 +19,7 @@ DERIVED   ?= DerivedData
 SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
 DEV_APP    = $(DERIVED)/Build/Products/Debug-iphoneos/$(SCHEME).app
 DEVICE_LOG ?= /tmp/solstone-swift.log
-BRAND_DIR  ?= ../extro/cmo/brand/sol
+BRAND_DIR  ?= ../sol-brand
 
 # --- Project setup ---
 
@@ -35,7 +35,7 @@ deps: generate
 		-resolvePackageDependencies
 
 brand-sync:
-	@test -d "$(BRAND_DIR)" || { echo "brand: $(BRAND_DIR) not found — clone extro alongside this repo (or set BRAND_DIR=...)"; exit 1; }
+	@test -d "$(BRAND_DIR)" || { echo "brand: $(BRAND_DIR) not found — set BRAND_DIR to the sol brand source directory (BRAND_DIR=/path/to/brand make brand-sync)"; exit 1; }
 	cp "$(BRAND_DIR)/png/apple/sol-app-icon-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
 	cp "$(BRAND_DIR)/sol-wordmark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
 	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmarkWhite.imageset/sol-wordmark-white.svg
