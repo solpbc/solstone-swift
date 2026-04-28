@@ -2,15 +2,15 @@
 
 Native iOS app for [solstone](https://solpbc.org) — the private, AI-powered personal journal from sol pbc.
 
-Hybrid shell (native SwiftUI + embedded WKWebView portal) with voice-first interaction. Forked from `extro-phone`. The shell, tunnel, voice stack, and build system are the same proven plumbing; what's added here is solstone-specific — journal-aware voice persona, mobile portal content, APNs for daily briefings, observer pipeline, Sense tab, onboarding.
+Hybrid shell (native SwiftUI + embedded WKWebView portal) with voice-first interaction. The shell, tunnel, voice stack, and build system are well-proven plumbing; what's solstone-specific is the journal-aware voice persona, mobile portal content, APNs for daily briefings, observer pipeline, Sense tab, and onboarding.
 
 ## Status
 
-Pre-alpha. Bootstrapped 2026-04-19. MVP under active development — see `cpo/specs/in-flight/mobile-ux-native-ios-android.md` in the extro org for the approved spec and `vpe/workspace/solstone-mobile-mvp-tracking.md` for wave-by-wave progress.
+Pre-alpha. Bootstrapped 2026-04-19. MVP under active development.
 
 ## Install
 
-iOS development runs on macOS (`pro5e.local`). On Linux you can read code and write hop scopes; builds go through the Mac hopper.
+iOS development runs on macOS. On Linux you can read code and write hop scopes; builds go through the Mac build host.
 
 Prerequisites on the Mac:
 - Xcode 26+ with iOS 26+ SDK

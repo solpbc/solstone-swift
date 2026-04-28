@@ -2,7 +2,7 @@
 
 Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Private repo. Bundle ID: `app.solstone.swift`.
 
-*Build conventions follow `cto/standards/project-conventions.md`; engineering philosophy follows `cto/standards/engineering-principles.md`.*
+*Build conventions and engineering philosophy follow sol pbc's internal standards.*
 
 > **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates the shell behind native onboarding, persists pair/session state, surfaces Day-0/Day-1 states, adds a single offline banner plus file-backed portal cache metadata, and enforces the terminology grep in `bash test/assert_terminology.sh`. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
 
@@ -17,7 +17,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 
 ## Architecture
 
-Forked from [extro-phone](https://github.com/quartzjer/extro-phone). Three-layer design inherits directly:
+Three-layer design:
 
 1. **Native SwiftUI shell** — `MainTabView` with tabs (Today / Ask / Sense / More), floating voice button overlay, keyboard shortcuts, `.sidebarAdaptable` iPad behavior.
 2. **WKWebView portal** — Today and Ask route a shared webview; Sense and More are native. Portal content is served by convey's purpose-built mobile SPA endpoint (co-developed with this app wave-by-wave).
@@ -30,7 +30,7 @@ Forked from [extro-phone](https://github.com/quartzjer/extro-phone). Three-layer
 
 **Tunnel** — NIOSSH with Ed25519 keychain keys, LAN-first / WAN-fallback, host-key pinning, keepalive + reconnect. Self-hosted journals go through the tunnel; hosted tier is direct HTTPS.
 
-See `cpo/specs/in-flight/mobile-ux-native-ios-android.md` (approved 2026-04-19) in extro for the full system picture.
+See sol pbc's internal mobile UX spec (approved 2026-04-19) for the full system picture.
 
 ## Build
 
@@ -55,7 +55,7 @@ make clean         # remove build artifacts
 
 **xcsift** — `brew install xcsift`. `make sim-json` pipes build output through it for structured errors.
 
-**Signing** — Team `7QCG8V4M6H` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). Persistent `hopper:build-solstone-swift` tmux window keeps the unlock state across commands. Restore after reboot: `ssh pro5e.local "ensure-build-windows"`.
+**Signing** — Team `7QCG8V4M6H` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). A persistent `hopper:build-solstone-swift` tmux window on the build host keeps the unlock state across commands. Restore after reboot by running `ensure-build-windows` on the build host.
 
 ## Dependencies
 
@@ -87,7 +87,7 @@ make clean         # remove build artifacts
 
 ## Known exceptions
 
-- `Sources/Services/SSHTransport.swift` keeps `remoteHubSpawnCommand` with `extro-hub` / `--extro-root`. That path and flag are owned by the journal server repo, not the iOS app. Remove this grep exception only after the server exposes the `solstone-hub` replacement.
+- `Sources/Services/SSHTransport.swift` `remoteHubSpawnCommand` is currently a generic stub. The real spawn command (path + flags) is owned by the journal server repo, not the iOS app, and will be wired in once the server exposes the `solstone-hub` interface.
 - Terminology grep exceptions are limited to non-UI Apple and internal implementation names: `AVAudioSession.Category.record`, `.playAndRecord`, `requestRecordPermission`, `recordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `ObserverRecording`, `LiveObserverRecorder`, `ObserverRecordedChunk`, `IntegrationTestObserverRecorder`, `recordKeepaliveFailure`, and `recordingID`. Keep any new exception out of user-visible copy and add it to `test/assert_terminology.sh` only if it is an API or internal-only identifier.
 
 ## Agent skills (install on the Mac)
@@ -99,20 +99,13 @@ make clean         # remove build artifacts
 
 ## References
 
-- Approved spec: `cpo/specs/in-flight/mobile-ux-native-ios-android.md` (in extro org)
-- Master plan: `cpo/workspace/solstone-mobile-master-plan.md`
-- Wave tracking: `vpe/workspace/solstone-mobile-mvp-tracking.md`
-- Wave 1 grounding: `vpe/workspace/solstone-mobile-mvp-wave-1-grounding.md`
-- Remote dev loop: `cto/playbooks/extro-phone-dev-loop.md`
-- Architecture guide: `cto/projects/extro-hub/extro-phone-guide.md`
-- Upstream source: https://github.com/quartzjer/extro-phone (extro-phone — the fork source)
+The approved mobile UX spec, master plan, wave tracking, and remote-dev playbook live in sol pbc's internal engineering tree.
 
 ## Brand
 
 - Follow lowercase-first UI copy in visible product text.
 - Exceptions are limited to HIG cancel/destructive labels, `accessibilityHint` / `accessibilityLabel`, third-party proper nouns, protocol and URL literals, and AM/PM or date abbreviations.
-- Canonical brand source: `extro/cmo/brand/sol/index.md`.
-- Sync shipped brand assets with `make brand-sync`.
-- Override the source directory with `BRAND_DIR=/path/to/extro/cmo/brand/sol make brand-sync`.
+- Canonical brand source is sol pbc's internal brand canon, kept outside this repo.
+- Sync shipped brand assets with `make brand-sync` (set `BRAND_DIR=/path/to/brand` to point at the canon).
 - `Tests/BrandColorTests.swift` is the tripwire for canonical `solOrange`, `solGold`, `solOrangeAccessible`, and the light `AccentColor` variant.
 - Keep `Sources/Design/Colors.swift` numeric triples locked; update brand assets through `make brand-sync`, not ad hoc edits.

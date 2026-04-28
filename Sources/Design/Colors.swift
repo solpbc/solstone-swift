@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-// Brand spec: extro/cmo/brand/sol/index.md
+// Brand spec: sol brand canon (kept outside this repo).
 // Canonical triples — locked by Tests/BrandColorTests.swift
 // Do not edit values; mirror via `make brand-sync`.
 extension Color {
