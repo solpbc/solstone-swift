@@ -2,31 +2,22 @@
 // Copyright (c) 2026 sol pbc
 
 enum TunnelError: Error, Sendable, Equatable {
-    case networkUnreachable
-    case connectionRefused
-    case connectionTimeout
-    case authenticationFailed
-    case hostKeyMismatch
-    case tunnelClosed
-    case hubPhoneStartFailed(String)
+    case revoked
+    case tlsHandshakeFailed
+    case muxTeardown
+    case unreachable
     case unknown(String)
 
     var userMessage: String {
         switch self {
-        case .networkUnreachable:
-            return "unable to reach the server"
-        case .connectionRefused:
-            return "server refused the connection"
-        case .connectionTimeout:
-            return "connection timed out"
-        case .authenticationFailed:
-            return "authentication failed — check your SSH key"
-        case .hostKeyMismatch:
-            return "server identity has changed since last connection"
-        case .tunnelClosed:
-            return "connection lost"
-        case .hubPhoneStartFailed:
-            return "hub-phone failed to start"
+        case .revoked:
+            return "this solstone has unpaired your phone. tap to re-pair."
+        case .tlsHandshakeFailed:
+            return "couldn't verify this solstone."
+        case .muxTeardown:
+            return "connection lost."
+        case .unreachable:
+            return "can't reach this solstone right now."
         case .unknown(let detail):
             if UserSettings.verboseErrors {
                 return "connection failed — \(detail)"
@@ -37,20 +28,14 @@ enum TunnelError: Error, Sendable, Equatable {
 
     var iconName: String {
         switch self {
-        case .networkUnreachable:
-            return "wifi.slash"
-        case .connectionRefused:
-            return "server.rack"
-        case .connectionTimeout:
-            return "clock.badge.xmark"
-        case .authenticationFailed:
-            return "key.slash"
-        case .hostKeyMismatch:
+        case .revoked:
+            return "person.crop.circle.badge.xmark"
+        case .tlsHandshakeFailed:
             return "exclamationmark.shield"
-        case .tunnelClosed:
+        case .muxTeardown:
             return "bolt.horizontal.circle"
-        case .hubPhoneStartFailed:
-            return "server.rack"
+        case .unreachable:
+            return "wifi.slash"
         case .unknown:
             return "exclamationmark.triangle"
         }
@@ -58,9 +43,9 @@ enum TunnelError: Error, Sendable, Equatable {
 
     var isRetryable: Bool {
         switch self {
-        case .hostKeyMismatch, .authenticationFailed:
+        case .revoked:
             return false
-        case .networkUnreachable, .connectionRefused, .connectionTimeout, .tunnelClosed, .hubPhoneStartFailed, .unknown:
+        case .unreachable, .tlsHandshakeFailed, .muxTeardown, .unknown:
             return true
         }
     }

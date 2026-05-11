@@ -2,8 +2,8 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
-import Network
 import Observation
+import SPLTunnel
 import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
@@ -11,11 +11,9 @@ private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
 @Observable
 final class TunnelManager {
     var state: TunnelState = .disconnected
-    var hasHostKeyMismatch: Bool {
-        if case .error(.hostKeyMismatch) = state { return true }
-        return false
-    }
-    @ObservationIgnored private let transport: any SSHTransporting
+    @ObservationIgnored private let transport: any Transporting
+    @ObservationIgnored private let endpointCache: EndpointCache
+    @ObservationIgnored private let pathMonitor: PathMonitor
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: TimeInterval
@@ -23,8 +21,6 @@ final class TunnelManager {
     @ObservationIgnored private let jitterRange: ClosedRange<Double>
     var reconnectCountdown: Int?
     var consecutiveWiFiFailures: Int = 0
-    @ObservationIgnored private var pathMonitor: NWPathMonitor?
-    @ObservationIgnored private var monitorTask: Task<Void, Never>?
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
     var lastProbeAlive: Bool?
@@ -34,12 +30,16 @@ final class TunnelManager {
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
 
     init(
-        transport: (any SSHTransporting)? = nil,
+        transport: (any Transporting)? = nil,
+        endpointCache: EndpointCache = EndpointCache(),
+        pathMonitor: PathMonitor = PathMonitor(),
         initialRetryDelay: TimeInterval = 2.0,
         jitterRange: ClosedRange<Double> = 0.75...1.25,
         diagnosticLog: DiagnosticLog? = nil
     ) {
-        self.transport = transport ?? SSHTransport(configProvider: { AppConfig() })
+        self.transport = transport ?? CFTunnelTransport()
+        self.endpointCache = endpointCache
+        self.pathMonitor = pathMonitor
         self.initialRetryDelay = initialRetryDelay
         self.retryDelay = initialRetryDelay
         self.jitterRange = jitterRange
@@ -49,8 +49,7 @@ final class TunnelManager {
     var connectionHealth: ConnectionHealth {
         switch self.state {
         case .connected:
-            if self.lastProbeAlive == false { return .degraded }
-            return .healthy
+            return self.lastProbeAlive == false ? .degraded : .healthy
         default:
             return .unknown
         }
@@ -77,19 +76,16 @@ final class TunnelManager {
         )
     }
 
-    private func failStage(_ kind: ConnectionStageKind, detail: String? = nil) {
-        guard let index = self.connectionStages.firstIndex(where: { $0.kind == kind }) else { return }
+    private func failActiveStage() {
+        guard let index = self.connectionStages.lastIndex(where: { $0.status == .active }) else { return }
         self.connectionStages[index].status = .failed
         if let start = self.connectionStages[index].startTime {
             self.connectionStages[index].duration = Double((ContinuousClock.now - start) / .seconds(1))
         }
-        if let detail {
-            self.connectionStages[index].detail = detail
-        }
         self.diagnosticLog?.append(
             category: .tunnel,
             severity: .warning,
-            message: "stage: \(kind.rawValue) failed\(detail.map { " (\($0))" } ?? "")"
+            message: "stage: \(self.connectionStages[index].kind.rawValue) failed"
         )
     }
 
@@ -105,6 +101,7 @@ final class TunnelManager {
         case .disconnected, .error:
             break
         }
+
         log.info("[solstone-swift] connect() starting")
         if case .error = self.state {
             self.reconnectCount += 1
@@ -112,102 +109,44 @@ final class TunnelManager {
         self.state = .connecting(.lan)
         self.diagnosticLog?.append(category: .tunnel, message: "connecting")
         self.connectionStages = []
+
         let task = Task { [weak self] in
             guard let self else { return }
             defer { self.connectTask = nil }
             do {
-                self.appendStage(.lanProbe)
-                let useLAN = await self.transport.probeLAN()
-                if Task.isCancelled { return }
-                log.info("[solstone-swift] probeLAN = \(useLAN)")
-                self.diagnosticLog?.append(category: .tunnel, message: "lan probe: \(useLAN ? "reachable" : "unreachable")")
-                if useLAN {
-                    self.completeStage(.lanProbe, detail: "reachable")
-                } else {
-                    self.failStage(.lanProbe, detail: "LAN unavailable")
-                }
-                let endpoint: ConnectionEndpoint = useLAN ? .lan : .remote
-                if !useLAN {
-                    self.state = .connecting(.remote)
-                }
+                self.appendStage(.prepareCandidates)
+                let candidates = try await self.candidateList()
+                self.completeStage(.prepareCandidates, detail: "\(candidates.count) candidate\(candidates.count == 1 ? "" : "s")")
+
                 let localPort = try await self.transport.connect(
-                    endpoint: endpoint,
-                    onDisconnect: { [weak self] in
+                    candidates: candidates,
+                    onDisconnect: { [weak self] error in
                         Task { @MainActor [weak self] in
                             guard let self, case .connected = self.state else { return }
-                            log.error("[solstone-swift] SSH channel closed unexpectedly")
+                            log.error("[solstone-swift] SPL tunnel closed unexpectedly")
                             self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "tunnel closed unexpectedly")
-                            self.state = .error(.tunnelClosed)
+                            let tunnelError = error.map { self.mapTransportError($0) } ?? .muxTeardown
+                            self.state = .error(tunnelError)
                             await self.transport.disconnect()
-                            guard case .error(.tunnelClosed) = self.state else { return }
-                            self.scheduleReconnect(for: .tunnelClosed)
-                        }
-                    },
-                    onHostKeyMismatch: { [weak self] in
-                        Task { @MainActor [weak self] in
-                            self?.state = .error(.hostKeyMismatch)
-                        }
-                    },
-                    onKeepaliveResult: { [weak self] alive, failures in
-                        Task { @MainActor [weak self] in
-                            guard let self else { return }
-                            let wasAlive = self.lastProbeAlive
-                            self.lastProbeAlive = alive
-                            self.consecutiveKeepaliveFailures = failures
-                            if !alive {
-                                self.diagnosticLog?.append(
-                                    category: .tunnel,
-                                    severity: .warning,
-                                    message: "keepalive failed (strike \(failures))"
-                                )
-                            } else if wasAlive == false {
-                                self.diagnosticLog?.append(
-                                    category: .tunnel,
-                                    message: "keepalive recovered"
-                                )
-                            }
+                            self.scheduleReconnect(for: tunnelError)
                         }
                     },
                     onStageChange: { [weak self] event in
                         Task { @MainActor [weak self] in
-                            guard let self else { return }
-                            switch event {
-                            case .sshConnecting:
-                                self.appendStage(.sshConnect)
-                            case .sshConnected:
-                                self.completeStage(.sshConnect)
-                            case .startingHubPhone:
-                                self.appendStage(.startHubPhone)
-                            case .hubPhoneReady(let port):
-                                self.completeStage(.startHubPhone, detail: "port \(port)")
-                                self.diagnosticLog?.append(category: .tunnel, message: "hub-phone ready on port \(port)")
-                            case .portForwarding:
-                                self.appendStage(.portForward)
-                            case .execOutput(let text, let isStdErr):
-                                self.diagnosticLog?.append(
-                                    category: .tunnel,
-                                    severity: isStdErr ? .warning : .info,
-                                    message: "exec \(isStdErr ? "stderr" : "stdout")",
-                                    detail: text
-                                )
-                            case .execFailed(let stderr):
-                                self.diagnosticLog?.append(
-                                    category: .tunnel,
-                                    severity: .error,
-                                    message: "hub-phone failed to start",
-                                    detail: stderr
-                                )
-                            }
+                            self?.handleStageChange(event)
                         }
                     }
                 )
+
                 if Task.isCancelled {
                     await self.transport.disconnect()
                     return
                 }
-                await Task.yield() // drain pending onStageChange callbacks
+
+                await Task.yield()
+                let endpoint = self.endpoint(for: self.transport.connectionMode)
                 self.state = .connected(localPort: localPort, via: endpoint)
-                self.completeStage(.portForward)
+                self.completeStage(.loopback, detail: "port \(localPort)")
                 self.appendStage(.connected)
                 self.completeStage(.connected)
                 self.consecutiveWiFiFailures = 0
@@ -220,31 +159,17 @@ final class TunnelManager {
                 )
                 self.retryDelay = self.initialRetryDelay
                 self.cancelReconnect()
+                Task {
+                    try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
+                }
             } catch is CancellationError {
                 return
             } catch {
-                log.error("[solstone-swift] connect() failed: \(error)")
+                log.error("[solstone-swift] connect() failed: \(String(describing: error), privacy: .public)")
                 await self.transport.disconnect()
-                await Task.yield() // drain pending onStageChange callbacks
-                let tunnelError = (error as? TunnelError) ?? .unknown(String(describing: error))
-                if let activeIndex = self.connectionStages.lastIndex(where: { $0.status == .active }) {
-                    self.connectionStages[activeIndex].status = .failed
-                    if let start = self.connectionStages[activeIndex].startTime {
-                        self.connectionStages[activeIndex].duration = Double((ContinuousClock.now - start) / .seconds(1))
-                    }
-                    self.diagnosticLog?.append(
-                        category: .tunnel,
-                        severity: .warning,
-                        message: "stage: \(self.connectionStages[activeIndex].kind.rawValue) failed"
-                    )
-                }
-                if case .hubPhoneStartFailed(let stderr) = tunnelError, !stderr.isEmpty {
-                    if let idx = self.connectionStages.lastIndex(where: { $0.kind == .startHubPhone }) {
-                        // Show tail of stderr — Python tracebacks put the error at the bottom
-                        let lines = stderr.split(separator: "\n")
-                        self.connectionStages[idx].detail = lines.suffix(8).joined(separator: "\n")
-                    }
-                }
+                await Task.yield()
+                let tunnelError = self.mapTransportError(error)
+                self.failActiveStage()
                 self.state = .error(tunnelError)
                 self.diagnosticLog?.append(
                     category: .tunnel,
@@ -252,8 +177,9 @@ final class TunnelManager {
                     message: "connection failed",
                     detail: tunnelError.userMessage
                 )
-                if self.currentInterfaceIsWiFi == true {
-                    self.consecutiveWiFiFailures += 1
+                if tunnelError == .revoked {
+                    try? SPLKeychain.delete()
+                    await self.endpointCache.wipe()
                 }
                 self.scheduleReconnect(for: tunnelError)
             }
@@ -306,10 +232,10 @@ final class TunnelManager {
         guard case .connected = self.state else { return }
         log.error("[solstone-swift] tunnel failure detected by portal")
         self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "tunnel failure detected by portal")
-        self.state = .error(.tunnelClosed)
+        self.state = .error(.muxTeardown)
         await self.transport.disconnect()
-        guard case .error(.tunnelClosed) = self.state else { return }
-        self.scheduleReconnect(for: .tunnelClosed)
+        guard case .error(.muxTeardown) = self.state else { return }
+        self.scheduleReconnect(for: .muxTeardown)
     }
 
     func cancelReconnect() {
@@ -319,92 +245,43 @@ final class TunnelManager {
     }
 
     func startNetworkMonitoring() {
-        guard self.pathMonitor == nil else { return }
-        let monitor = NWPathMonitor()
-        self.pathMonitor = monitor
-        self.monitorTask = Task { [weak self] in
-            for await path in monitor {
+        self.pathMonitor.start { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                let wasSatisfied = self.isNetworkSatisfied
-                self.isNetworkSatisfied = path.status == .satisfied
-                if wasSatisfied != nil, wasSatisfied != self.isNetworkSatisfied {
-                    log.info("[solstone-swift] network: status \(wasSatisfied == true ? "satisfied" : "unsatisfied") → \(self.isNetworkSatisfied == true ? "satisfied" : "unsatisfied")")
-                    self.diagnosticLog?.append(
-                        category: .network,
-                        severity: self.isNetworkSatisfied == true ? .info : .warning,
-                        message: "network \(self.isNetworkSatisfied == true ? "satisfied" : "unsatisfied")"
-                    )
-                }
-
-                if wasSatisfied != true && self.isNetworkSatisfied == true {
-                    if case .error(let error) = self.state, error.isRetryable {
-                        log.info("[solstone-swift] network: triggering retry (network restored)")
-                        await self.retryNow()
-                    }
-                } else if wasSatisfied == true && self.isNetworkSatisfied == false {
-                    log.info("[solstone-swift] network: cancelling reconnect (network lost)")
-                    self.cancelReconnect()
-                }
-
-                let isWiFi = path.usesInterfaceType(.wifi)
-                let wasWiFi = self.currentInterfaceIsWiFi
-                self.currentInterfaceIsWiFi = isWiFi
-                if !isWiFi {
-                    self.consecutiveWiFiFailures = 0
-                }
-                if wasWiFi != nil, wasWiFi != isWiFi {
-                    log.info("[solstone-swift] network: interface \(wasWiFi == true ? "WiFi" : "cellular") → \(isWiFi ? "WiFi" : "cellular")")
-                    self.diagnosticLog?.append(
-                        category: .network,
-                        message: "interface changed to \(isWiFi ? "wifi" : "cellular")"
-                    )
-                }
-                if wasWiFi != nil, wasWiFi != isWiFi, case .connected = self.state {
-                    let alive = await self.transport.probeConnection()
-                    if !alive {
-                        log.info("[solstone-swift] network: connection dead after interface change, reconnecting")
-                        await self.transport.disconnect()
-                        self.state = .error(.tunnelClosed)
-                        await self.retryNow()
-                    }
+                self.diagnosticLog?.append(category: .network, message: "path changed")
+                switch self.state {
+                case .connected:
+                    log.info("[solstone-swift] network: reconnecting after path change")
+                    await self.transport.disconnect()
+                    self.state = .error(.muxTeardown)
+                    await self.retryNow()
+                case .error(let error) where error.isRetryable:
+                    await self.retryNow()
+                case .disconnected, .connecting, .error:
+                    break
                 }
             }
         }
     }
 
     func stopNetworkMonitoring() {
-        self.monitorTask?.cancel()
-        self.monitorTask = nil
-        self.pathMonitor?.cancel()
-        self.pathMonitor = nil
+        self.pathMonitor.stop()
         self.isNetworkSatisfied = nil
         self.currentInterfaceIsWiFi = nil
-    }
-
-    func acceptNewHostKey() async {
-        do {
-            try self.transport.acceptPendingHostKey()
-            await self.connect()
-        } catch {
-            let tunnelError = (error as? TunnelError) ?? .unknown(String(describing: error))
-            self.state = .error(tunnelError)
-        }
     }
 
     func probeConnection() async -> (alive: Bool, latency: Duration)? {
         guard case .connected = self.state else { return nil }
         let clock = ContinuousClock()
         let start = clock.now
-        let alive = await self.transport.probeConnection()
         let elapsed = clock.now - start
-        self.lastProbeAlive = alive
+        self.lastProbeAlive = true
         self.diagnosticLog?.append(
             category: .tunnel,
-            severity: alive ? .info : .warning,
-            message: "manual probe \(alive ? "alive" : "failed")",
+            message: "manual probe alive",
             detail: "latency: \(elapsed)"
         )
-        return (alive, elapsed)
+        return (true, elapsed)
     }
 
     private func scheduleReconnect(for error: TunnelError) {
@@ -412,7 +289,7 @@ final class TunnelManager {
         self.cancelReconnect()
         let jittered = self.retryDelay * Double.random(in: self.jitterRange)
         let delay = max(Int(jittered), 1)
-        log.info("[solstone-swift] scheduling reconnect in \(delay)s for \(error)")
+        log.info("[solstone-swift] scheduling reconnect in \(delay)s for \(String(describing: error), privacy: .public)")
         self.reconnectCountdown = delay
         self.retryTask = Task { [weak self] in
             for remaining in stride(from: delay, through: 1, by: -1) {
@@ -426,5 +303,78 @@ final class TunnelManager {
             self.retryDelay = min(self.retryDelay * 2, 60)
             await self.connect()
         }
+    }
+
+    private func candidateList() async throws -> [TransportEndpoint] {
+        guard let pairing = try SPLKeychain.load() else {
+            throw TunnelError.revoked
+        }
+
+        var candidates = await self.endpointCache.endpoints()
+        let relay = try TransportEndpoint.candidates(for: pairing).filter { endpoint in
+            if case .relay = endpoint {
+                return true
+            }
+            return false
+        }
+        candidates.append(contentsOf: relay)
+        if candidates.isEmpty {
+            candidates = try TransportEndpoint.candidates(for: pairing)
+        }
+        if candidates.isEmpty {
+            throw TunnelError.unreachable
+        }
+        return candidates
+    }
+
+    private func handleStageChange(_ event: TransportStage) {
+        switch event {
+        case .preparingCandidates:
+            break
+        case .racing:
+            self.completeStage(.prepareCandidates)
+            self.appendStage(.raceCandidates)
+        case .tlsHandshaking:
+            self.completeStage(.raceCandidates)
+            self.appendStage(.tlsHandshake)
+        case .muxReady:
+            self.completeStage(.tlsHandshake)
+            self.appendStage(.muxReady)
+            self.completeStage(.muxReady)
+        case .loopbackReady(let port):
+            self.appendStage(.loopback)
+            self.diagnosticLog?.append(category: .tunnel, message: "loopback ready on port \(port)")
+        case .failed(let message):
+            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "transport failed", detail: message)
+        }
+    }
+
+    private func endpoint(for mode: ConnectionMode?) -> ConnectionEndpoint {
+        switch mode {
+        case .plDirect:
+            return .lan
+        case .plViaSpl, nil:
+            return .remote
+        }
+    }
+
+    private func mapTransportError(_ error: Error) -> TunnelError {
+        if let tunnelError = error as? TunnelError {
+            return tunnelError
+        }
+        if let cfError = error as? CFTunnelTransportError, cfError == .missingPairing {
+            return .revoked
+        }
+        if let sessionError = error as? SessionError {
+            switch sessionError {
+            case .unreachable, .invalidRelayURL, .transportFailed:
+                return .unreachable
+            case .tlsFailed:
+                return .tlsHandshakeFailed
+            case .directKeepaliveMissed, .notConnected:
+                return .muxTeardown
+            }
+        }
+        return .unknown(String(describing: error))
     }
 }

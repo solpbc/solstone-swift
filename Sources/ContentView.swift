@@ -54,12 +54,6 @@ struct ContentView: View {
             } else {
                 ConnectingView(
                     state: self.tunnelManager.state,
-                    hasHostKeyMismatch: self.tunnelManager.hasHostKeyMismatch,
-                    onAcceptKey: {
-                        Task {
-                            await self.tunnelManager.acceptNewHostKey()
-                        }
-                    },
                     onOpenSettings: {
                         self.showSettings = true
                     },
@@ -126,21 +120,12 @@ struct ContentView: View {
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
-            case .error(let error):
-                if case .hostKeyMismatch = error {
-                    // host-key mismatch fires warning haptic via separate onChange
-                } else {
-                    if UserSettings.haptics {
-                        UINotificationFeedbackGenerator().notificationOccurred(.error)
-                    }
+            case .error:
+                if UserSettings.haptics {
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
             default:
                 break
-            }
-        }
-        .onChange(of: self.tunnelManager.hasHostKeyMismatch) { _, newValue in
-            if newValue && UserSettings.haptics {
-                UINotificationFeedbackGenerator().notificationOccurred(.warning)
             }
         }
         .onChange(of: self.diagnosticLog.events.count) {
@@ -328,8 +313,6 @@ struct ConnectingView: View {
     @State private var isPulsing = false
     @ScaledMetric(relativeTo: .body) private var stackSpacing: CGFloat = 24
     let state: TunnelState
-    let hasHostKeyMismatch: Bool
-    let onAcceptKey: () -> Void
     let onOpenSettings: () -> Void
     let onRetry: () -> Void
     let reconnectCountdown: Int?
@@ -384,8 +367,7 @@ struct ConnectingView: View {
                     .accessibilityLabel(self.stageAccessibilityLabel(for: stage))
                     .transition(.opacity)
 
-                    if stage.kind == .startHubPhone, stage.status == .failed,
-                       let detail = stage.detail, !detail.isEmpty {
+                    if stage.status == .failed, let detail = stage.detail, !detail.isEmpty {
                         Text(detail)
                             .font(.caption2.monospaced())
                             .foregroundStyle(.secondary)
@@ -401,18 +383,16 @@ struct ConnectingView: View {
 
     private func stageLabel(for stage: ConnectionStage) -> String {
         switch stage.kind {
-        case .lanProbe:
-            if stage.status == .failed { return "LAN unavailable" }
-            return "LAN probe"
-        case .sshConnect:
-            return "ssh connect"
-        case .startHubPhone:
-            if stage.status == .failed {
-                return "hub-phone failed to start"
-            }
-            return "start hub-phone"
-        case .portForward:
-            return "port forwarding"
+        case .prepareCandidates:
+            return "prepare candidates"
+        case .raceCandidates:
+            return "race candidates"
+        case .tlsHandshake:
+            return "verify solstone"
+        case .muxReady:
+            return "secure channel"
+        case .loopback:
+            return "local proxy"
         case .connected:
             return "connected"
         }
@@ -536,26 +516,8 @@ struct ConnectingView: View {
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.secondary)
                         }
-                        if case .hostKeyMismatch = error {
-                            Text("the server's SSH key doesn't match what was previously saved — this can happen after a server reinstall or configuration change")
-                                .font(.footnote)
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.secondary)
-                        }
-                        if self.hasHostKeyMismatch {
-                            Button("accept new host key", action: self.onAcceptKey)
-                                .buttonStyle(.borderedProminent)
-                                .accessibilityHint("trusts the new server key and reconnects")
-                        }
-                        Group {
-                            if self.hasHostKeyMismatch {
-                                Button("try again", action: self.onRetry)
-                                    .buttonStyle(.bordered)
-                            } else {
-                                Button("try again", action: self.onRetry)
-                                    .buttonStyle(.borderedProminent)
-                            }
-                        }
+                        Button("try again", action: self.onRetry)
+                            .buttonStyle(.borderedProminent)
                         .accessibilityHint("attempts to reconnect to the server")
                         Button("settings", action: self.onOpenSettings)
                             .buttonStyle(.bordered)

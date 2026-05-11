@@ -36,10 +36,11 @@ enum ConnectionHealth: Sendable, Equatable {
 }
 
 enum ConnectionStageKind: String, Sendable, Equatable {
-    case lanProbe
-    case sshConnect
-    case startHubPhone
-    case portForward
+    case prepareCandidates
+    case raceCandidates
+    case tlsHandshake
+    case muxReady
+    case loopback
     case connected
 }
 
@@ -57,14 +58,4 @@ struct ConnectionStage: Identifiable, Sendable {
     var detail: String?
     var attemptCount: Int?
     var startTime: ContinuousClock.Instant?
-}
-
-enum SSHStageEvent: Sendable {
-    case sshConnecting
-    case sshConnected
-    case startingHubPhone
-    case hubPhoneReady(port: Int)
-    case portForwarding
-    case execOutput(String, isStdErr: Bool)
-    case execFailed(stderr: String)
 }

@@ -73,12 +73,6 @@ struct MainTabView: View {
                     .ignoresSafeArea()
                 ConnectingView(
                     state: self.tunnelManager.state,
-                    hasHostKeyMismatch: self.tunnelManager.hasHostKeyMismatch,
-                    onAcceptKey: {
-                        Task {
-                            await self.tunnelManager.acceptNewHostKey()
-                        }
-                    },
                     onOpenSettings: self.onOpenSettings,
                     onRetry: {
                         Task {

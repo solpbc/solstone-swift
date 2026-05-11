@@ -86,8 +86,9 @@ struct SolstoneSwiftApp: App {
         let log = DiagnosticLog()
         let appConfig = AppConfig()
         let onboardingFlow = OnboardingFlow()
+        let transport = CFTunnelTransport(appConfig: appConfig)
         let tunnel = TunnelManager(
-            transport: SSHTransport(configProvider: { appConfig }),
+            transport: transport,
             diagnosticLog: log
         )
         let brain = BrainStatusMonitor(diagnosticLog: log)

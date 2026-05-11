@@ -53,6 +53,10 @@ targets:
       - path: Sources
         excludes:
           - SPLTunnel
+          - Services/SSHTransport.swift
+          - Tunnel/GlueHandler.swift
+          - Tunnel/HostKeyValidator.swift
+          - Tunnel/PortForwardingServer.swift
     entitlements:
       path: Sources/solstone-swift.entitlements
       properties:

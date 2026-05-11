@@ -9,14 +9,17 @@ enum CFTunnelTransportError: Error, Sendable, Equatable {
 }
 
 @MainActor
-public final class CFTunnelTransport: Transporting {
+final class CFTunnelTransport: Transporting {
     public private(set) var connectionMode: ConnectionMode?
+    private let appConfig: AppConfig?
 
     private var session: TunnelSession?
     private var proxy: LoopbackProxy?
     private var stateTask: Task<Void, Never>?
 
-    public init() {}
+    init(appConfig: AppConfig? = nil) {
+        self.appConfig = appConfig
+    }
 
     public func connect(
         candidates: [TransportEndpoint],
