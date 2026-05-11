@@ -316,21 +316,37 @@ final class TunnelManager {
             throw TunnelError.revoked
         }
 
-        var candidates = await self.endpointCache.endpoints()
-        let relay = try TransportEndpoint.candidates(for: pairing).filter { endpoint in
+        let bootstrapCandidates = try TransportEndpoint.candidates(for: pairing)
+        let cachedCandidates = await self.endpointCache.endpoints()
+        var seenDirects = Set<String>()
+        var directCandidates: [TransportEndpoint] = []
+        for endpoint in cachedCandidates + bootstrapCandidates {
+            guard let key = self.directCandidateKey(for: endpoint),
+                  seenDirects.insert(key).inserted
+            else {
+                continue
+            }
+            directCandidates.append(endpoint)
+        }
+        let relayCandidates = bootstrapCandidates.filter { endpoint in
             if case .relay = endpoint {
                 return true
             }
             return false
         }
-        candidates.append(contentsOf: relay)
-        if candidates.isEmpty {
-            candidates = try TransportEndpoint.candidates(for: pairing)
-        }
+
+        let candidates = directCandidates + relayCandidates
         if candidates.isEmpty {
             throw TunnelError.unreachable
         }
         return candidates
+    }
+
+    private func directCandidateKey(for endpoint: TransportEndpoint) -> String? {
+        guard case .lan(let host, let port, let scope) = endpoint else {
+            return nil
+        }
+        return "\(host)|\(port)|\(scope)"
     }
 
     private func handleStageChange(_ event: TransportStage) {
@@ -364,7 +380,7 @@ final class TunnelManager {
         }
     }
 
-    private func mapTransportError(_ error: Error) -> TunnelError {
+    func mapTransportError(_ error: Error) -> TunnelError {
         if let tunnelError = error as? TunnelError {
             return tunnelError
         }
@@ -375,6 +391,8 @@ final class TunnelManager {
             switch sessionError {
             case .unreachable, .invalidRelayURL, .transportFailed:
                 return .unreachable
+            case .revoked:
+                return .revoked
             case .tlsFailed:
                 return .tlsHandshakeFailed
             case .directKeepaliveMissed, .notConnected:

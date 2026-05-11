@@ -34,4 +34,22 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
 
         XCTAssertNil(transport.connectionMode)
     }
+
+    @MainActor
+    func testConnectionModeUpdatesFollowSessionStream() async {
+        let transport = CFTunnelTransport(loadPairing: { nil })
+        let stream = AsyncStream<ConnectionMode?>.makeStream()
+
+        transport.observeConnectionModeUpdates(stream.stream)
+        stream.continuation.yield(.plDirect)
+        try? await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(transport.connectionMode, .plDirect)
+
+        stream.continuation.yield(.plViaSpl)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(transport.connectionMode, .plViaSpl)
+
+        stream.continuation.finish()
+        await transport.disconnect()
+    }
 }

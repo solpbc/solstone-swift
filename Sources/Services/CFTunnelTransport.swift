@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import Observation
 import SPLTunnel
 
 enum CFTunnelTransportError: Error, Sendable, Equatable {
@@ -9,14 +10,22 @@ enum CFTunnelTransportError: Error, Sendable, Equatable {
 }
 
 @MainActor
+@Observable
 final class CFTunnelTransport: Transporting {
     public private(set) var connectionMode: ConnectionMode?
+    @ObservationIgnored
     private let appConfig: AppConfig?
+    @ObservationIgnored
     private let loadPairing: @Sendable () throws -> StoredPairing?
 
+    @ObservationIgnored
     private var session: TunnelSession?
+    @ObservationIgnored
     private var proxy: LoopbackProxy?
+    @ObservationIgnored
     private var stateTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var connectionModeTask: Task<Void, Never>?
 
     init(
         appConfig: AppConfig? = nil,
@@ -40,6 +49,7 @@ final class CFTunnelTransport: Transporting {
         let session = TunnelSession(pairing: pairing)
         self.session = session
         observe(session: session, onDisconnect: onDisconnect, onStageChange: onStageChange)
+        observeConnectionModeUpdates(session.connectionModeUpdates)
 
         onStageChange(.racing)
         _ = try await session.connect(endpoints: candidates)
@@ -57,6 +67,8 @@ final class CFTunnelTransport: Transporting {
     public func disconnect() async {
         stateTask?.cancel()
         stateTask = nil
+        connectionModeTask?.cancel()
+        connectionModeTask = nil
         await proxy?.stop()
         proxy = nil
         await session?.disconnect()
@@ -80,6 +92,15 @@ final class CFTunnelTransport: Transporting {
                 case .connecting, .tlsHandshaking, .connected:
                     break
                 }
+            }
+        }
+    }
+
+    func observeConnectionModeUpdates(_ updates: AsyncStream<ConnectionMode?>) {
+        connectionModeTask?.cancel()
+        connectionModeTask = Task { @MainActor [weak self] in
+            for await mode in updates {
+                self?.connectionMode = mode
             }
         }
     }

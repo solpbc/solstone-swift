@@ -15,6 +15,48 @@ final class PairingHandoffState {
     var pairURL: PairURL?
 }
 
+@MainActor
+@Observable
+final class PairFlowFallbackTimer {
+    var shouldShowCodeFallback = false
+
+    private let delay: Duration
+    @ObservationIgnored
+    private var task: Task<Void, Never>?
+
+    init(delay: Duration = .seconds(5)) {
+        self.delay = delay
+    }
+
+    func start() {
+        guard task == nil, !shouldShowCodeFallback else {
+            return
+        }
+        task = Task { @MainActor in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            shouldShowCodeFallback = true
+            task = nil
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+
+    func reset() {
+        cancel()
+        shouldShowCodeFallback = false
+    }
+}
+
 struct PairFlowView: View {
     enum EntryMode: String, CaseIterable, Identifiable {
         case scan
@@ -26,11 +68,13 @@ struct PairFlowView: View {
 
     @Environment(AppConfig.self) private var appConfig
     @Environment(PairingHandoffState.self) private var handoff
+    @Environment(\.scenePhase) private var scenePhase
 
     let onBack: () -> Void
     let onComplete: () -> Void
 
     @State private var coordinator = PairFlowCoordinator()
+    @State private var fallbackTimer = PairFlowFallbackTimer()
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
     @State private var errorMessage: String?
@@ -59,6 +103,7 @@ struct PairFlowView: View {
                         },
                         onUnavailable: {
                             self.errorMessage = "camera access is unavailable on this device. Type a code instead."
+                            self.fallbackTimer.cancel()
                             self.mode = .code
                         }
                     )
@@ -85,6 +130,15 @@ struct PairFlowView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
 
+                if self.fallbackTimer.shouldShowCodeFallback, self.mode != .code {
+                    Button("type a code instead") {
+                        self.fallbackTimer.cancel()
+                        self.mode = .code
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.body)
@@ -92,35 +146,64 @@ struct PairFlowView: View {
                         .accessibilityLabel("Pairing error: \(errorMessage)")
                 }
 
-                Button("back", action: self.onBack)
+                Button("back") {
+                    self.fallbackTimer.cancel()
+                    self.onBack()
+                }
                     .frame(minWidth: 44, minHeight: 44)
             }
         }
         .onAppear {
             guard !self.didAutoPair else { return }
             if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
+                self.fallbackTimer.cancel()
                 self.didAutoPair = true
                 Task {
                     await self.completeIntegrationPairing()
                 }
             } else if let pairURL = self.handoff.pairURL {
+                self.fallbackTimer.cancel()
                 self.didAutoPair = true
                 self.handoff.pairURL = nil
                 Task {
                     await self.handle(pairURL)
                 }
+            } else {
+                self.startFallbackTimerIfNeeded()
             }
+        }
+        .onDisappear {
+            self.fallbackTimer.cancel()
         }
         .onChange(of: self.handoff.pairURL) { _, pairURL in
             guard let pairURL else { return }
+            self.fallbackTimer.cancel()
             self.handoff.pairURL = nil
             Task {
                 await self.handle(pairURL)
             }
         }
+        .onChange(of: self.mode) { _, mode in
+            if mode == .scan {
+                self.startFallbackTimerIfNeeded()
+            } else {
+                self.fallbackTimer.cancel()
+            }
+        }
+        .onChange(of: self.scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                self.startFallbackTimerIfNeeded()
+            case .background, .inactive:
+                self.fallbackTimer.cancel()
+            @unknown default:
+                break
+            }
+        }
     }
 
     private func handlePastedURL() async {
+        self.fallbackTimer.cancel()
         let trimmed = self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed) else {
             self.errorMessage = "enter a valid pairing link."
@@ -130,6 +213,7 @@ struct PairFlowView: View {
     }
 
     private func handle(_ url: URL) async {
+        self.fallbackTimer.cancel()
         guard let pairURL = UniversalLinkRouter.route(url) else {
             self.errorMessage = "enter a valid pairing link."
             return
@@ -138,6 +222,7 @@ struct PairFlowView: View {
     }
 
     private func handle(_ pairURL: PairURL) async {
+        self.fallbackTimer.cancel()
         do {
             try await self.coordinator.handlePairURL(pairURL)
             if let pairing = try SPLKeychain.load() {
@@ -152,6 +237,7 @@ struct PairFlowView: View {
 
     private func completeIntegrationPairing() async {
 #if DEBUG
+        self.fallbackTimer.cancel()
         let port = Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "") ?? 8676
         await Self.recordIntegrationPairConfirm(port: port)
         self.appConfig.seedUITestPairing(
@@ -188,5 +274,14 @@ struct PairFlowView: View {
         default:
             return "pairing failed. Try again."
         }
+    }
+
+    private func startFallbackTimerIfNeeded() {
+        guard self.mode == .scan,
+              self.coordinator.state == .idle,
+              !self.didAutoPair,
+              self.handoff.pairURL == nil
+        else { return }
+        self.fallbackTimer.start()
     }
 }

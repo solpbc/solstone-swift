@@ -61,6 +61,67 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testCandidateListIncludesBootstrapLocalsWhenCacheEmpty() async {
+        let transport = MockCFTunnelTransport()
+        let pairing = Self.fixturePairing(localEndpoints: [
+            Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local"),
+            Self.localEndpoint(host: "fd12::1", port: 7657, scope: "ula"),
+        ])
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            pairing: pairing
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(Self.lanCandidates(from: transport.capturedCandidates), [
+            .lan(host: "10.0.0.10", port: 7657, scope: "local"),
+            .lan(host: "fd12::1", port: 7657, scope: "ula"),
+        ])
+        XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 1)
+    }
+
+    @MainActor
+    func testCandidateListDedupesCacheAndBootstrapLocalsWithCacheFirst() async {
+        let transport = MockCFTunnelTransport()
+        let cachePairing = Self.fixturePairing(localEndpoints: [
+            Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local"),
+        ])
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: cachePairing)
+        let pairing = Self.fixturePairing(localEndpoints: [
+            Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local"),
+            Self.localEndpoint(host: "fd12::1", port: 7657, scope: "ula"),
+        ])
+        let manager = makeManager(transport: transport, endpointCache: cache, pairing: pairing)
+
+        await manager.connect()
+
+        XCTAssertEqual(Self.lanCandidates(from: transport.capturedCandidates), [
+            .lan(host: "10.0.0.10", port: 7657, scope: "local"),
+            .lan(host: "fd12::1", port: 7657, scope: "ula"),
+        ])
+        XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 1)
+    }
+
+    @MainActor
+    func testCandidateListFallsBackToRelayWhenNoLocalEndpointsExist() async {
+        let transport = MockCFTunnelTransport()
+        let pairing = Self.fixturePairing(localEndpoints: [])
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            pairing: pairing
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(Self.lanCandidates(from: transport.capturedCandidates), [])
+        XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 1)
+    }
+
+    @MainActor
     func testSuccessfulRelayConnectPublishesLoopbackPort() async {
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plViaSpl
@@ -169,7 +230,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             .appendingPathComponent("endpoints.json")
     }
 
-    private static func fixturePairing() -> StoredPairing {
+    private static func fixturePairing(localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")]) -> StoredPairing {
         StoredPairing(
             instanceID: "instance-123",
             homeLabel: "sol",
@@ -179,8 +240,30 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             clientKeyPEM: "key",
             caChainPEM: "ca",
             deviceToken: "device-token",
-            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
+            localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
+    }
+
+    private static func localEndpoint(host: String, port: Int, scope: String) -> LocalEndpoint {
+        LocalEndpoint(host: host, port: port, scope: scope)
+    }
+
+    private static func lanCandidates(from candidates: [TransportEndpoint]) -> [TransportEndpoint] {
+        candidates.filter { endpoint in
+            if case .lan = endpoint {
+                return true
+            }
+            return false
+        }
+    }
+
+    private static func relayCandidateCount(from candidates: [TransportEndpoint]) -> Int {
+        candidates.filter { endpoint in
+            if case .relay = endpoint {
+                return true
+            }
+            return false
+        }.count
     }
 }

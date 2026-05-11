@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import SPLTunnel
 import XCTest
 
 nonisolated final class ErrorClassificationTests: XCTestCase {
@@ -27,5 +28,27 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         XCTAssertFalse(TunnelError.tlsHandshakeFailed.iconName.isEmpty)
         XCTAssertFalse(TunnelError.muxTeardown.iconName.isEmpty)
         XCTAssertFalse(TunnelError.unreachable.iconName.isEmpty)
+    }
+
+    @MainActor
+    func testSessionRevokedMapsToTunnelRevoked() {
+        let manager = TunnelManager(transport: MockCFTunnelTransport())
+
+        XCTAssertEqual(manager.mapTransportError(SessionError.revoked), .revoked)
+        XCTAssertEqual(
+            manager.mapTransportError(SessionError.revoked).userMessage,
+            "this solstone has unpaired your phone. tap to re-pair."
+        )
+    }
+
+    @MainActor
+    func testSessionUnreachableKeepsUnreachable() {
+        let manager = TunnelManager(transport: MockCFTunnelTransport())
+
+        XCTAssertEqual(manager.mapTransportError(SessionError.unreachable), .unreachable)
+        XCTAssertEqual(
+            manager.mapTransportError(SessionError.unreachable).userMessage,
+            "can't reach this solstone right now."
+        )
     }
 }
