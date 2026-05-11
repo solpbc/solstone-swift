@@ -8,26 +8,9 @@ import XCTest
 nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     @MainActor
     func testOnboardingTodayMoreAndSenseRenderAtAccessibilityXXXL() throws {
-        let appConfig = AppConfig(
-            defaults: UserDefaults(suiteName: "DynamicTypeSmokeTests.\(UUID().uuidString)")!,
-            loadPairSession: { "pair-session" },
-            savePairSession: { _ in },
-            deletePairSession: {},
-            deletePairIdentity: {}
-        )
-        try appConfig.applyPairConfirm(
-            PairConfirmResponse(
-                sessionKey: "pair-session",
-                deviceID: "device-123",
-                journalRoot: "https://journal.example.com",
-                ownerIdentity: "sol",
-                serverVersion: "test",
-                host: "journal.example.com",
-                port: 22
-            )
-        )
+        let appConfig = AppConfig()
+        appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
 
-        let pairingClient = MockPairingClient()
         let tunnelManager = TunnelManager(transport: MockSSHTransport())
         let diagnosticLog = DiagnosticLog()
         let brainStatusMonitor = BrainStatusMonitor()
@@ -53,8 +36,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 localPort: 7071,
                 via: .lan,
                 connectedSince: .now,
-                navigateToDiagnostics: .constant(false),
-                pairingClient: pairingClient
+                navigateToDiagnostics: .constant(false)
             )
             .environment(appConfig)
             .environment(OnboardingFlow())
@@ -79,7 +61,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
         try self.assertHosted(
-            DayZeroOverlayView(pairingClient: pairingClient, onBrowseJournal: {})
+            DayZeroOverlayView(localPort: 7071, onBrowseJournal: {})
                 .environment(appConfig)
                 .environment(\.dynamicTypeSize, .accessibility3)
         )

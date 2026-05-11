@@ -15,8 +15,8 @@ struct ContentView: View {
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PushNotificationManager.self) private var pushManager
-    let pairingClient: any PairingClient
     @State private var showSettings = false
+    @State private var showRepairing = false
     @State private var hasConnected = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
@@ -43,12 +43,11 @@ struct ContentView: View {
     var body: some View {
         Group {
             if !self.appConfig.isPaired || !self.onboardingFlow.isCompleted {
-                OnboardingRootView(pairingClient: self.pairingClient)
+                OnboardingRootView()
             } else if self.shouldShowMainTab {
                 MainTabView(
                     localPort: self.effectivePort,
                     via: self.effectiveVia,
-                    pairingClient: self.pairingClient,
                     onOpenSettings: { self.showSettings = true }
                 )
             } else {
@@ -91,6 +90,19 @@ struct ContentView: View {
                     }
             }
         }
+        .sheet(isPresented: self.$showRepairing) {
+            NavigationStack {
+                PairFlowView(
+                    onBack: {
+                        self.showRepairing = false
+                    },
+                    onComplete: {
+                        self.showRepairing = false
+                        self.onboardingFlow.completePairing()
+                    }
+                )
+            }
+        }
         .onChange(of: self.tunnelManager.state) { _, newState in
             if case .connected(let port, let via) = newState {
                 self.hasConnected = true
@@ -120,7 +132,10 @@ struct ContentView: View {
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
-            case .error:
+            case .error(let error):
+                if error == .revoked {
+                    self.showRepairing = true
+                }
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }

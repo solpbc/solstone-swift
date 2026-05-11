@@ -12,7 +12,6 @@ struct MoreView: View {
     let via: ConnectionEndpoint
     let connectedSince: Date
     @Binding var navigateToDiagnostics: Bool
-    let pairingClient: any PairingClient
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager

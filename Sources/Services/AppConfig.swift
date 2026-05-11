@@ -68,32 +68,6 @@ final class AppConfig {
         appConfigLog.info("pairing applied for \(pairing.homeLabel, privacy: .public)")
     }
 
-    // TEMP: removed in commit 7 with the legacy PairScreen.
-    func applyPairConfirm(_ response: PairConfirmResponse) throws {
-        let pairing = StoredPairing(
-            instanceID: response.deviceID,
-            homeLabel: response.ownerIdentity.isEmpty ? "solstone" : response.ownerIdentity,
-            relayEndpoint: Self.defaultRelayEndpoint,
-            fingerprint: Self.syntheticFingerprint,
-            clientCertPEM: Self.syntheticCertificatePEM,
-            clientKeyPEM: Self.syntheticPrivateKeyPEM,
-            caChainPEM: Self.syntheticCertificatePEM,
-            deviceToken: response.sessionKey,
-            localEndpoints: [
-                LocalEndpoint(host: response.host, port: response.port, scope: "")
-            ],
-            pairedAt: Date()
-        )
-        try self.applyPairing(pairing)
-        self.journalRoot = response.journalRoot
-        self.host = response.host
-        self.port = response.port
-        self.loopbackPort = response.port
-        self.deviceID = response.deviceID
-        self.serverVersion = response.serverVersion ?? ""
-        appConfigLog.info("temporary legacy pairing applied for host \(response.host, privacy: .public)")
-    }
-
     func clearPairing() {
         do {
             try self.deletePairing()
@@ -190,7 +164,6 @@ final class AppConfig {
         return url.port
     }
 
-    private static let defaultRelayEndpoint = "https://spl-relay-staging.jer-3f2.workers.dev"
     private static let syntheticFingerprint = String(repeating: "a", count: 64)
     private static let syntheticCertificatePEM = """
     -----BEGIN CERTIFICATE-----

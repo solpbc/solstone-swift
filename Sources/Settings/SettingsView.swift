@@ -1,108 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-import Crypto
-import NIOSSH
 import SwiftUI
-import UIKit
 
 struct SettingsView: View {
     @Environment(AppConfig.self) private var appConfig
-    var keyManager: any KeyManaging = KeyManager()
+    @Environment(OnboardingFlow.self) private var onboardingFlow
+    @Environment(TunnelManager.self) private var tunnelManager
 
-    @State private var publicKeyString = ""
-    @State private var hostKeyFingerprint = ""
-    @State private var showRegenerateAlert = false
-    @State private var showRegenerateError = false
-    @State private var regenerateErrorMessage = ""
-    @State private var justCopied = false
-    @State private var copyTask: Task<Void, Never>?
+    @State private var showingForgetConfirm = false
+    @State private var showingPairNewConfirm = false
+    @State private var showingPairFlow = false
 
     var body: some View {
         Form {
-            Section("identity key") {
-                LabeledContent("public key") {
-                    Group {
-                        if self.publicKeyString.isEmpty {
-                            Text("unavailable")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(self.publicKeyString)
-                                .font(.footnote.monospaced())
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-                .accessibilityLabel("ssh public key")
-                .accessibilityHint("tap copy public key to transfer to your server")
+            Section("your solstone") {
+                LabeledContent("label", value: self.appConfig.homeLabel.isEmpty ? "unpaired" : self.appConfig.homeLabel)
+                LabeledContent("fingerprint", value: self.shortFingerprint)
+                LabeledContent("paired", value: self.pairedAtText)
 
-                Button {
-                    UIPasteboard.general.string = self.publicKeyString
-                    if UserSettings.haptics {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                    self.copyTask?.cancel()
-                    withAnimation(.easeInOut) {
-                        self.justCopied = true
-                    }
-                    self.copyTask = Task {
-                        try? await Task.sleep(for: .seconds(2))
-                        if !Task.isCancelled {
-                            withAnimation(.easeInOut) {
-                                self.justCopied = false
-                            }
-                        }
-                    }
-                } label: {
-                    if self.justCopied {
-                        Label("copied", systemImage: "checkmark")
-                    } else {
-                        Text("copy public key")
-                    }
+                Button("forget this solstone", role: .destructive) {
+                    self.showingForgetConfirm = true
                 }
-                .disabled(self.publicKeyString.isEmpty)
-                .accessibilityHint("copies ssh public key to clipboard")
-            }
+                .disabled(!self.appConfig.isPaired)
 
-            Section("known host") {
-                Group {
-                    if self.hostKeyFingerprint.isEmpty {
-                        Text("none stored")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(self.hostKeyFingerprint)
-                            .font(.footnote.monospaced())
-                    }
+                Button("pair a new solstone") {
+                    self.showingPairNewConfirm = true
                 }
-                Button("forget") {
-                    try? self.keyManager.deleteHostKey()
-                    self.loadHostKeyFingerprint()
-                }
-                .accessibilityHint("removes the saved server key")
-            }
-
-            Section("connection") {
-                LabeledContent("host") {
-                    Text("\(self.appConfig.host):\(self.appConfig.port)")
-                        .font(.footnote.monospaced())
-                }
-                LabeledContent("journal root") {
-                    Text(self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot)
-                        .font(.footnote.monospaced())
-                }
-                LabeledContent("identity") {
-                    Text(self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity)
-                        .font(.footnote.monospaced())
-                }
-            }
-
-            Section("advanced") {
-                Button("regenerate key", role: .destructive) {
-                    self.showRegenerateAlert = true
-                }
-                .accessibilityHint("creates a new ssh key, invalidating server authorization")
             }
 
             Section("diagnostics") {
@@ -119,75 +43,74 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("settings")
-        .onAppear {
-            self.loadPublicKeyString()
-            self.loadHostKeyFingerprint()
-        }
-        .onDisappear {
-            self.copyTask?.cancel()
-        }
-        .alert("regenerate SSH key", isPresented: self.$showRegenerateAlert) {
+        .alert("forget this solstone?", isPresented: self.$showingForgetConfirm) {
             Button("cancel", role: .cancel) {}
-            Button("regenerate", role: .destructive) {
-                self.regenerateKey()
+            Button("forget", role: .destructive) {
+                Task {
+                    await self.clearPairingAndReturnToOnboarding()
+                }
             }
         } message: {
-            Text("existing server authorization for this device will stop working until the new public key is installed.")
+            Text("this removes the pairing from this phone.")
         }
-        .alert("error", isPresented: self.$showRegenerateError) {
-            Button("ok", role: .cancel) {}
+        .alert("pair a new solstone?", isPresented: self.$showingPairNewConfirm) {
+            Button("cancel", role: .cancel) {}
+            Button("continue", role: .destructive) {
+                Task {
+                    await self.clearPairingForNewPair()
+                }
+            }
         } message: {
-            Text(self.regenerateErrorMessage)
+            Text("this forgets the current solstone before pairing another one.")
+        }
+        .sheet(isPresented: self.$showingPairFlow) {
+            NavigationStack {
+                PairFlowView(
+                    onBack: {
+                        self.showingPairFlow = false
+                    },
+                    onComplete: {
+                        self.showingPairFlow = false
+                        self.onboardingFlow.completePairing()
+                    }
+                )
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("cancel") {
+                            self.showingPairFlow = false
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 private extension SettingsView {
-    func regenerateKey() {
-        do {
-            try self.keyManager.deleteIdentityKey()
-            try self.keyManager.deleteHostKey()
-            _ = try self.keyManager.loadOrCreateIdentityKey()
-            if UserSettings.haptics {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            }
-        } catch {
-            self.regenerateErrorMessage = "key regeneration failed — your previous key may have been deleted, check settings"
-            self.showRegenerateError = true
+    var shortFingerprint: String {
+        guard !self.appConfig.caFingerprintHex.isEmpty else {
+            return "unpaired"
         }
-        self.loadPublicKeyString()
-        self.loadHostKeyFingerprint()
+        return String(self.appConfig.caFingerprintHex.prefix(8))
     }
 
-    func loadPublicKeyString() {
-        do {
-            let identityKey = try self.keyManager.loadOrCreateIdentityKey()
-
-            let publicKey = NIOSSHPrivateKey(ed25519Key: identityKey).publicKey
-            self.publicKeyString = "\(String(openSSHPublicKey: publicKey)) solstone-swift"
-        } catch {
-            self.publicKeyString = ""
+    var pairedAtText: String {
+        guard let pairedAt = self.appConfig.pairedAt else {
+            return "unpaired"
         }
+        return pairedAt.formatted(date: .abbreviated, time: .shortened)
     }
 
-    func loadHostKeyFingerprint() {
-        do {
-            guard let hostKey = try self.keyManager.loadHostKey() else {
-                self.hostKeyFingerprint = ""
-                return
-            }
+    func clearPairingAndReturnToOnboarding() async {
+        self.appConfig.clearPairing()
+        self.onboardingFlow.reset()
+        await self.tunnelManager.disconnect()
+    }
 
-            let components = String(openSSHPublicKey: hostKey).split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-            guard components.count == 2 else {
-                self.hostKeyFingerprint = "stored"
-                return
-            }
-
-            let base64 = String(components[1])
-            let prefix = base64.prefix(20)
-            self.hostKeyFingerprint = "\(components[0]) \(prefix)..."
-        } catch {
-            self.hostKeyFingerprint = "unavailable"
-        }
+    func clearPairingForNewPair() async {
+        self.appConfig.clearPairing()
+        self.onboardingFlow.reset()
+        await self.tunnelManager.disconnect()
+        self.showingPairFlow = true
     }
 }

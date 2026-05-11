@@ -10,7 +10,6 @@ private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
 struct MainTabView: View {
     let localPort: Int
     let via: ConnectionEndpoint
-    let pairingClient: any PairingClient
     let onOpenSettings: () -> Void
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
@@ -132,8 +131,7 @@ struct MainTabView: View {
                     localPort: self.localPort,
                     via: self.via,
                     connectedSince: self.connectedSince,
-                    navigateToDiagnostics: self.$navigateToDiagnostics,
-                    pairingClient: self.pairingClient
+                    navigateToDiagnostics: self.$navigateToDiagnostics
                 )
             }
             .tag(AppTab.more)
@@ -165,7 +163,6 @@ struct MainTabView: View {
         .overlay(alignment: .top) {
             if self.selectedTab == .today && self.tunnelManager.state.isConnected {
                 DayZeroOverlayView(
-                    pairingClient: self.pairingClient,
                     localPort: self.localPort,
                     onBrowseJournal: {
                         self.selectedTab = .today

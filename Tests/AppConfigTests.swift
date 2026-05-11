@@ -2,138 +2,113 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
-import Foundation
+import SPLTunnel
 import XCTest
 
 private final class PairingState: @unchecked Sendable {
     private let lock = NSLock()
-    private var storedSessionKey: String?
-    private var pairIdentityDeleted = false
+    private var storedPairing: StoredPairing?
+    private var didDelete = false
 
-    func sessionKey() -> String? {
+    func load() -> StoredPairing? {
         self.lock.lock()
         defer { self.lock.unlock() }
-        return self.storedSessionKey
+        return self.storedPairing
     }
 
-    func save(sessionKey: String) {
+    func save(_ pairing: StoredPairing) {
         self.lock.lock()
         defer { self.lock.unlock() }
-        self.storedSessionKey = sessionKey
+        self.storedPairing = pairing
     }
 
-    func clearSessionKey() {
+    func delete() {
         self.lock.lock()
         defer { self.lock.unlock() }
-        self.storedSessionKey = nil
+        self.storedPairing = nil
+        self.didDelete = true
     }
 
-    func markPairIdentityDeleted() {
+    func deleted() -> Bool {
         self.lock.lock()
         defer { self.lock.unlock() }
-        self.pairIdentityDeleted = true
-    }
-
-    func didDeletePairIdentity() -> Bool {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.pairIdentityDeleted
+        return self.didDelete
     }
 }
 
 nonisolated final class AppConfigTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var suiteName: String!
     private var pairingState: PairingState!
 
     override func setUp() {
         super.setUp()
-        self.suiteName = "AppConfigTests.\(UUID().uuidString)"
-        self.defaults = UserDefaults(suiteName: self.suiteName)
-        self.defaults.removePersistentDomain(forName: self.suiteName)
         self.pairingState = PairingState()
     }
 
     override func tearDown() {
-        self.defaults.removePersistentDomain(forName: self.suiteName)
-        self.defaults = nil
-        self.suiteName = nil
         self.pairingState = nil
         super.tearDown()
     }
 
     @MainActor
-    func testApplyPairConfirmPersistsState() throws {
+    func testApplyPairingPersistsState() throws {
         let config = self.makeConfig()
+        let pairing = Self.fixturePairing()
 
-        try config.applyPairConfirm(
-            PairConfirmResponse(
-                sessionKey: "session-123",
-                deviceID: "device-123",
-                journalRoot: "https://journal.example.com",
-                ownerIdentity: "sol",
-                serverVersion: "2026.04.20",
-                host: "journal.example.com",
-                port: 22
-            )
-        )
+        try config.applyPairing(pairing)
 
         XCTAssertTrue(config.isPaired)
-        XCTAssertEqual(config.host, "journal.example.com")
-        XCTAssertEqual(config.port, 22)
-        XCTAssertEqual(config.journalRoot, "https://journal.example.com")
-        XCTAssertEqual(config.ownerIdentity, "sol")
-        XCTAssertEqual(config.deviceID, "device-123")
-        XCTAssertEqual(config.serverVersion, "2026.04.20")
-        XCTAssertEqual(self.pairingState.sessionKey(), "session-123")
+        XCTAssertEqual(config.homeLabel, "sol")
+        XCTAssertEqual(config.caFingerprintHex, String(repeating: "a", count: 64))
+        XCTAssertEqual(config.deviceID, "instance-123")
+        XCTAssertEqual(self.pairingState.load(), pairing)
     }
 
     @MainActor
     func testClearPairingWipesState() throws {
         let config = self.makeConfig()
-        try config.applyPairConfirm(
-            PairConfirmResponse(
-                sessionKey: "session-123",
-                deviceID: "device-123",
-                journalRoot: "https://journal.example.com",
-                ownerIdentity: "sol",
-                serverVersion: "2026.04.20",
-                host: "journal.example.com",
-                port: 22
-            )
-        )
+        try config.applyPairing(Self.fixturePairing())
 
         config.clearPairing()
 
         XCTAssertFalse(config.isPaired)
         XCTAssertEqual(config.host, "")
         XCTAssertEqual(config.port, 22)
-        XCTAssertNil(self.pairingState.sessionKey())
-        XCTAssertTrue(self.pairingState.didDeletePairIdentity())
+        XCTAssertTrue(self.pairingState.deleted())
     }
 
     @MainActor
-    func testSeedUITestPairingProvidesCurrentSessionKey() {
+    func testSeedUITestPairingProvidesStoredPairing() {
         let config = self.makeConfig()
 
-        config.seedUITestPairing(
-            journalRoot: "http://127.0.0.1:8676",
-            deviceID: "device-123",
-            sessionKey: "pair-session-test"
-        )
+        config.seedUITestPairing(journalRoot: "http://127.0.0.1:8676")
 
-        XCTAssertEqual(config.currentSessionKey(), "pair-session-test")
-        XCTAssertEqual(self.pairingState.sessionKey(), "pair-session-test")
+        XCTAssertTrue(config.isPaired)
+        XCTAssertEqual(config.loopbackPort, 8676)
+        XCTAssertEqual(self.pairingState.load()?.homeLabel, "ui-test-solstone")
+        XCTAssertNil(config.currentSessionKey())
     }
 
     @MainActor private func makeConfig() -> AppConfig {
         let pairingState = self.pairingState!
         return AppConfig(
-            defaults: self.defaults,
-            loadPairSession: { pairingState.sessionKey() },
-            savePairSession: { pairingState.save(sessionKey: $0) },
-            deletePairSession: { pairingState.clearSessionKey() },
-            deletePairIdentity: { pairingState.markPairIdentityDeleted() }
+            loadPairing: { pairingState.load() },
+            savePairing: { pairingState.save($0) },
+            deletePairing: { pairingState.delete() }
+        )
+    }
+
+    private static func fixturePairing() -> StoredPairing {
+        StoredPairing(
+            instanceID: "instance-123",
+            homeLabel: "sol",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+            clientCertPEM: "cert",
+            clientKeyPEM: "key",
+            caChainPEM: "ca",
+            deviceToken: "device-token",
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
     }
 }

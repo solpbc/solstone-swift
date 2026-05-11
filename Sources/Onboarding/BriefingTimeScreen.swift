@@ -9,7 +9,6 @@ private let onboardingBriefingLog = Logger(subsystem: "app.solstone.swift", cate
 struct BriefingTimeScreen: View {
     @Environment(AppConfig.self) private var appConfig
 
-    let pairingClient: any PairingClient
     let onBack: () -> Void
     let onComplete: () -> Void
 
@@ -107,7 +106,7 @@ private extension BriefingTimeScreen {
             self.errorMessage = nil
             onboardingBriefingLog.info("onboarding briefing time saved")
             self.onComplete()
-        } catch let error as PairingClientError {
+        } catch let error as HomeAPIError {
             onboardingBriefingLog.error("onboarding briefing save failed: \(String(describing: error), privacy: .public)")
             switch error {
             case .server(_, let body):

@@ -10,7 +10,6 @@ struct DayZeroOverlayView: View {
     @Environment(AppConfig.self) private var appConfig
     @AppStorage("briefing.firstSeen") private var hasSeenFirstBriefing = false
 
-    let pairingClient: any PairingClient
     let localPort: Int
     let onBrowseJournal: () -> Void
 

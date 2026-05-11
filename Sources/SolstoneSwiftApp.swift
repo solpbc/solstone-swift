@@ -2,7 +2,10 @@
 // Copyright (c) 2026 sol pbc
 
 import UIKit
+import Security
 import SwiftUI
+import SPLTunnel
+import os
 
 @main
 struct SolstoneSwiftApp: App {
@@ -17,9 +20,9 @@ struct SolstoneSwiftApp: App {
     @State private var observerUploader: ObserverUploader
     @State private var observerManager: ObserverManager
     @State private var pendingObserverCommand = PendingObserverCommandState()
+    @State private var pairingHandoff = PairingHandoffState()
     @State private var voiceManager: VoiceManager
     @State private var bannerPresenter: BannerPresenter
-    @State private var pairingClient: LivePairingClient
     @State private var backgroundDisconnectTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -80,6 +83,8 @@ struct SolstoneSwiftApp: App {
     }
 
     init() {
+        Self.purgeLegacyKeychainEntries()
+        InnerTLS.purgeOrphanedIdentities()
         if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
             Self.resetOnboardingIntegrationState()
         }
@@ -95,9 +100,6 @@ struct SolstoneSwiftApp: App {
         let portal = PortalPage(
             tunnelManager: tunnel,
             brainStatusMonitor: brain
-        )
-        let pairingClient = LivePairingClient(
-            journalRootProvider: { appConfig.journalRoot }
         )
         let observerRegistration = ObserverRegistration()
         if Self.shouldResetIntegrationObserverRegistration {
@@ -138,7 +140,6 @@ struct SolstoneSwiftApp: App {
         self._observerUploader = State(initialValue: observerUploader)
         self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
-        self._pairingClient = State(initialValue: pairingClient)
         self._bannerPresenter = State(initialValue: BannerPresenter(
             diagnosticLog: log,
             voiceManager: voice,
@@ -149,7 +150,7 @@ struct SolstoneSwiftApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(pairingClient: self.pairingClient)
+            ContentView()
                 .environment(self.appConfig)
                 .environment(self.onboardingFlow)
                 .environment(self.tunnelManager)
@@ -158,6 +159,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.observerUploader)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
+                .environment(self.pairingHandoff)
                 .environment(self.brainStatusMonitor)
                 .environment(self.portalPage)
                 .environment(self.diagnosticLog)
@@ -165,6 +167,13 @@ struct SolstoneSwiftApp: App {
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
                 .onOpenURL { url in
+                    if let pairURL = UniversalLinkRouter.route(url) {
+                        self.pairingHandoff.pairURL = pairURL
+                        if !self.onboardingFlow.isCompleted {
+                            self.onboardingFlow.step = .pair
+                        }
+                        return
+                    }
                     guard url.scheme == "solstone",
                           url.host == "observer",
                           url.path == "/stop"
@@ -321,11 +330,31 @@ struct SolstoneSwiftApp: App {
 }
 
 private extension SolstoneSwiftApp {
+    static func purgeLegacyKeychainEntries() {
+        for account in [
+            "solstone-swift-identity-key",
+            "solstone-swift-host-key",
+            "solstone-swift-pair-identity",
+            "solstone-swift-pair-session",
+        ] {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "app.solstone.swift",
+                kSecAttrAccount as String: account,
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+        Logger(subsystem: "app.solstone.swift", category: "app-config").debug("legacy SSH keychain entries purged")
+    }
+
     static func resetOnboardingIntegrationState() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: "onboarding.step")
         defaults.removeObject(forKey: "onboarding.completed")
         defaults.removeObject(forKey: "briefing.firstSeen")
+        defaults.removeObject(forKey: "push.pendingRegistrationToken")
+        defaults.removeObject(forKey: "push.lastRegisteredToken")
+        defaults.removeObject(forKey: "push.lastRegisteredEnvironment")
         AppConfig().clearPairing()
     }
 

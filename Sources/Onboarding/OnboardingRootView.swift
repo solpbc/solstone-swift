@@ -11,8 +11,6 @@ struct OnboardingRootView: View {
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(PushNotificationManager.self) private var pushManager
 
-    let pairingClient: any PairingClient
-
     var body: some View {
         NavigationStack {
             switch self.onboardingFlow.step {
@@ -21,10 +19,9 @@ struct OnboardingRootView: View {
                     self.onboardingFlow.advanceFromWelcome()
                 }
             case .pair:
-                PairScreen(
-                    pairingClient: self.pairingClient,
+                PairFlowView(
                     onBack: { self.onboardingFlow.goBack() },
-                    onPaired: {
+                    onComplete: {
                         self.onboardingFlow.completePairing()
                     }
                 )
@@ -38,7 +35,6 @@ struct OnboardingRootView: View {
                 .environment(self.pushManager)
             case .briefingTime:
                 BriefingTimeScreen(
-                    pairingClient: self.pairingClient,
                     onBack: { self.onboardingFlow.goBack() },
                     onComplete: {
                         self.onboardingFlow.completeBriefingTime()
