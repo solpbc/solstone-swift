@@ -16,6 +16,9 @@ settings:
     SWIFT_APPROACHABLE_CONCURRENCY: YES
 
 packages:
+  SwiftCrypto:
+    url: https://github.com/apple/swift-crypto.git
+    from: "3.0.0"
   swift-nio-ssh:
     url: https://github.com/apple/swift-nio-ssh
     from: "0.12.0"
@@ -27,11 +30,29 @@ packages:
     from: "147.0.0"
 
 targets:
+  SPLTunnel:
+    type: framework.static
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - Sources/SPLTunnel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.spltunnel
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
+    dependencies:
+      - package: SwiftCrypto
+        product: Crypto
   solstone-swift:
     type: application
     platform: iOS
     sources:
-      - Sources
+      - path: Sources
+        excludes:
+          - SPLTunnel
     entitlements:
       path: Sources/solstone-swift.entitlements
       properties:
@@ -65,6 +86,7 @@ targets:
           UIColorName: systemBackground
           UIImageRespectsSafeAreaInsets: true
     dependencies:
+      - target: SPLTunnel
       - target: SolstoneNotificationContent
         embed: true
       - target: SolstoneLiveActivityWidget
