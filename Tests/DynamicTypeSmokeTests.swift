@@ -11,7 +11,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let appConfig = AppConfig()
         appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
 
-        let tunnelManager = TunnelManager(transport: MockSSHTransport())
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
         let diagnosticLog = DiagnosticLog()
         let brainStatusMonitor = BrainStatusMonitor()
         let observerRegistration = ObserverRegistration(

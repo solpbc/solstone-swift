@@ -14,6 +14,8 @@ final class TunnelManager {
     @ObservationIgnored private let transport: any Transporting
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let pathMonitor: PathMonitor
+    @ObservationIgnored private let loadPairing: @Sendable () throws -> StoredPairing?
+    @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: TimeInterval
@@ -33,6 +35,8 @@ final class TunnelManager {
         transport: (any Transporting)? = nil,
         endpointCache: EndpointCache = EndpointCache(),
         pathMonitor: PathMonitor = PathMonitor(),
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
+        deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
         initialRetryDelay: TimeInterval = 2.0,
         jitterRange: ClosedRange<Double> = 0.75...1.25,
         diagnosticLog: DiagnosticLog? = nil
@@ -40,6 +44,8 @@ final class TunnelManager {
         self.transport = transport ?? CFTunnelTransport()
         self.endpointCache = endpointCache
         self.pathMonitor = pathMonitor
+        self.loadPairing = loadPairing
+        self.deletePairing = deletePairing
         self.initialRetryDelay = initialRetryDelay
         self.retryDelay = initialRetryDelay
         self.jitterRange = jitterRange
@@ -178,7 +184,7 @@ final class TunnelManager {
                     detail: tunnelError.userMessage
                 )
                 if tunnelError == .revoked {
-                    try? SPLKeychain.delete()
+                    try? self.deletePairing()
                     await self.endpointCache.wipe()
                 }
                 self.scheduleReconnect(for: tunnelError)
@@ -306,7 +312,7 @@ final class TunnelManager {
     }
 
     private func candidateList() async throws -> [TransportEndpoint] {
-        guard let pairing = try SPLKeychain.load() else {
+        guard let pairing = try self.loadPairing() else {
             throw TunnelError.revoked
         }
 

@@ -4,31 +4,57 @@
 import Foundation
 import Network
 
-@MainActor
-public final class PathMonitor: Sendable {
+protocol PathMonitoringSource: AnyObject, Sendable {
+    func start(onPathChange: @Sendable @escaping () -> Void)
+    func stop()
+}
+
+private final class NWPathMonitoringSource: PathMonitoringSource, @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.solstone.swift.path-monitor")
     private var monitor: NWPathMonitor?
-    private var debounceTask: Task<Void, Never>?
 
-    public init() {}
-
-    public func start(onPathChange: @Sendable @escaping () -> Void) {
+    func start(onPathChange: @Sendable @escaping () -> Void) {
         stop()
         let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { [weak self] _ in
-            Task { @MainActor in
-                self?.schedulePathChange(onPathChange)
-            }
+        monitor.pathUpdateHandler = { _ in
+            onPathChange()
         }
         self.monitor = monitor
         monitor.start(queue: queue)
     }
 
+    func stop() {
+        monitor?.cancel()
+        monitor = nil
+    }
+}
+
+@MainActor
+public final class PathMonitor: Sendable {
+    private let source: PathMonitoringSource
+    private var debounceTask: Task<Void, Never>?
+
+    public init() {
+        self.source = NWPathMonitoringSource()
+    }
+
+    init(source: PathMonitoringSource) {
+        self.source = source
+    }
+
+    public func start(onPathChange: @Sendable @escaping () -> Void) {
+        stop()
+        source.start { [weak self] in
+            Task { @MainActor in
+                self?.schedulePathChange(onPathChange)
+            }
+        }
+    }
+
     public func stop() {
         debounceTask?.cancel()
         debounceTask = nil
-        monitor?.cancel()
-        monitor = nil
+        source.stop()
     }
 
     private func schedulePathChange(_ onPathChange: @Sendable @escaping () -> Void) {

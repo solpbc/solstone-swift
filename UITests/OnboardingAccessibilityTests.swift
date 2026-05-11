@@ -42,8 +42,9 @@ private extension OnboardingAccessibilityTests {
         self.assertMetadata(for: getStarted, in: app)
         getStarted.tap()
 
-        self.assertMetadata(for: app.buttons["scan pairing code"], in: app)
-        self.assertMetadata(for: app.textFields["Pairing URL"], in: app)
+        self.assertMetadata(for: app.staticTexts["pair your solstone"], in: app)
+        self.assertMetadata(for: app.buttons["paste"], in: app)
+        app.buttons["paste"].tap()
         self.assertMetadata(for: app.buttons["pair this device"], in: app)
         self.assertMetadata(for: app.buttons["back"], in: app)
     }

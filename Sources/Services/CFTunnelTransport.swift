@@ -12,13 +12,18 @@ enum CFTunnelTransportError: Error, Sendable, Equatable {
 final class CFTunnelTransport: Transporting {
     public private(set) var connectionMode: ConnectionMode?
     private let appConfig: AppConfig?
+    private let loadPairing: @Sendable () throws -> StoredPairing?
 
     private var session: TunnelSession?
     private var proxy: LoopbackProxy?
     private var stateTask: Task<Void, Never>?
 
-    init(appConfig: AppConfig? = nil) {
+    init(
+        appConfig: AppConfig? = nil,
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() }
+    ) {
         self.appConfig = appConfig
+        self.loadPairing = loadPairing
     }
 
     public func connect(
@@ -27,7 +32,7 @@ final class CFTunnelTransport: Transporting {
         onStageChange: @Sendable @escaping (TransportStage) -> Void
     ) async throws -> Int {
         onStageChange(.preparingCandidates)
-        guard let pairing = try SPLKeychain.load() else {
+        guard let pairing = try loadPairing() else {
             onStageChange(.failed("missing pairing"))
             throw CFTunnelTransportError.missingPairing
         }

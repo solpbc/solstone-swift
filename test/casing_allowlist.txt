@@ -35,6 +35,9 @@ PairScreen.swift|solstone://
 *|UI_TEST_
 *|SOLSTONE_
 *|OfferToReceiveAudio
+CertChain.swift|CERTIFICATE
+CryptoCSR.swift|CERTIFICATE REQUEST
+CryptoCSR.swift|PRIVATE KEY
 
 # Internal logger/type names
 *|OnboardingRootView

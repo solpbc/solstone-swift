@@ -37,12 +37,14 @@ public actor EndpointCache {
 
     private let fileURL: URL
     private let ttl: TimeInterval
+    private let session: URLSession
     private var entries: [Entry] = []
     private var loaded = false
 
-    public init(fileURL: URL = EndpointCache.defaultFileURL, ttl: TimeInterval = 24 * 60 * 60) {
+    public init(fileURL: URL = EndpointCache.defaultFileURL, ttl: TimeInterval = 24 * 60 * 60, session: URLSession = .shared) {
         self.fileURL = fileURL
         self.ttl = ttl
+        self.session = session
     }
 
     public func bootstrap(from pairing: StoredPairing) async {
@@ -57,7 +59,7 @@ public actor EndpointCache {
     public func refresh(viaLoopbackPort port: Int) async throws {
         try loadIfNeeded()
         let url = URL(string: "http://127.0.0.1:\(port)/app/link/local-endpoints")!
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             throw URLError(.badServerResponse)
         }

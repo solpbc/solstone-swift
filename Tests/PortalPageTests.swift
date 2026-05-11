@@ -6,10 +6,10 @@ import WebKit
 @testable import solstone_swift
 
 nonisolated final class PortalPageTests: XCTestCase {
-    private lazy var mockSSH = MockSSHTransport()
+    @MainActor private lazy var mockTransport = MockCFTunnelTransport()
     private lazy var cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    @MainActor private lazy var tunnelManager = TunnelManager(transport: self.mockSSH)
+    @MainActor private lazy var tunnelManager = TunnelManager(transport: self.mockTransport)
     @MainActor private lazy var brainStatusMonitor = BrainStatusMonitor()
     @MainActor private lazy var mockEngine = MockPortalWebEngine()
     @MainActor private lazy var portalPage = PortalPage(
