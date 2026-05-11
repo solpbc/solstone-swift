@@ -33,6 +33,7 @@ playground.xcworkspace
 build/
 DerivedData/
 *.xcodeproj
+Sources/Info.plist
 
 # CocoaPods
 #
