@@ -66,14 +66,14 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     }
 
     func requestPermission() async -> Bool {
-        switch self.session.recordPermission {
+        switch AVAudioApplication.shared.recordPermission {
         case .granted:
             return true
         case .denied:
             return false
         case .undetermined:
             return await withCheckedContinuation { continuation in
-                self.session.requestRecordPermission { granted in
+                AVAudioApplication.requestRecordPermission { granted in
                     continuation.resume(returning: granted)
                 }
             }
@@ -221,13 +221,13 @@ private extension LiveObserverRecorder {
             guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue)
             else { return }
-            let handler = self?.onInterruption
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let handler = self?.onInterruption else { return }
                 switch type {
                 case .began:
-                    handler?(.began)
+                    handler(.began)
                 case .ended:
-                    handler?(.ended)
+                    handler(.ended)
                 @unknown default:
                     break
                 }

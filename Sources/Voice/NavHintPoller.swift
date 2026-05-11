@@ -4,7 +4,7 @@
 import Foundation
 import os
 
-private struct NavHintResponse: Decodable {
+private nonisolated struct NavHintResponse: Decodable {
     let hints: [String]
     let consumed: Bool
 }

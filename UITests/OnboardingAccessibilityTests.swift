@@ -3,29 +3,35 @@
 
 import XCTest
 
-final class OnboardingAccessibilityTests: XCTestCase {
+nonisolated final class OnboardingAccessibilityTests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
 
+    @MainActor
     func testWelcomeAndPairScreenExposeAccessibilityMetadata() {
         self.assertWelcomeAndPairScreen()
     }
 
+    @MainActor
     func testNotificationsScreenExposesAccessibilityMetadata() {
         self.assertNotificationsScreen()
     }
 
+    @MainActor
     func testBriefingTimeScreenExposesAccessibilityMetadata() {
         self.assertBriefingTimeScreen()
     }
 
+    @MainActor
     func testMoreViewExposesAccessibilityMetadata() {
         self.assertMoreViewAccessibility()
     }
 }
 
+
+@MainActor
 private extension OnboardingAccessibilityTests {
     func assertWelcomeAndPairScreen() {
         let app = XCUIApplication()

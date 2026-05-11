@@ -4,8 +4,8 @@
 @testable import solstone_swift
 import XCTest
 
-@MainActor
-final class MockPairingClientTests: XCTestCase {
+nonisolated final class MockPairingClientTests: XCTestCase {
+    @MainActor
     func testMockPairingClientRoundTrip() async throws {
         let client = MockPairingClient()
 

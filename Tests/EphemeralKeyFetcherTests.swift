@@ -5,7 +5,8 @@
 import Foundation
 import XCTest
 
-final class EphemeralKeyFetcherTests: XCTestCase {
+nonisolated final class EphemeralKeyFetcherTests: XCTestCase {
+    @MainActor
     func testDecodesEphemeralKeyResponse() throws {
         let data = Data(#"{"ephemeral_key": "ek_test123"}"#.utf8)
 

@@ -41,8 +41,7 @@ private final class PairingState: @unchecked Sendable {
     }
 }
 
-@MainActor
-final class AppConfigTests: XCTestCase {
+nonisolated final class AppConfigTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
     private var pairingState: PairingState!
@@ -63,6 +62,7 @@ final class AppConfigTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor
     func testApplyPairConfirmPersistsState() throws {
         let config = self.makeConfig()
 
@@ -88,6 +88,7 @@ final class AppConfigTests: XCTestCase {
         XCTAssertEqual(self.pairingState.sessionKey(), "session-123")
     }
 
+    @MainActor
     func testClearPairingWipesState() throws {
         let config = self.makeConfig()
         try config.applyPairConfirm(
@@ -111,6 +112,7 @@ final class AppConfigTests: XCTestCase {
         XCTAssertTrue(self.pairingState.didDeletePairIdentity())
     }
 
+    @MainActor
     func testSeedUITestPairingProvidesCurrentSessionKey() {
         let config = self.makeConfig()
 
@@ -124,7 +126,7 @@ final class AppConfigTests: XCTestCase {
         XCTAssertEqual(self.pairingState.sessionKey(), "pair-session-test")
     }
 
-    private func makeConfig() -> AppConfig {
+    @MainActor private func makeConfig() -> AppConfig {
         let pairingState = self.pairingState!
         return AppConfig(
             defaults: self.defaults,

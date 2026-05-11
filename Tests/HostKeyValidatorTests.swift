@@ -5,10 +5,11 @@ import Crypto
 import NIOCore
 import NIOSSH
 import NIOTransportServices
+import os
 import XCTest
 @testable import solstone_swift
 
-final class HostKeyValidatorTests: XCTestCase {
+nonisolated final class HostKeyValidatorTests: XCTestCase {
     private var group: NIOTSEventLoopGroup!
     private var eventLoop: (any EventLoop)!
     private var mock: MockKeyManager!
@@ -23,6 +24,7 @@ final class HostKeyValidatorTests: XCTestCase {
         try! self.group.syncShutdownGracefully()
     }
 
+    @MainActor
     func testFirstConnection_SavesAndAccepts() throws {
         self.mock.hostKey = nil
         let key = NIOSSHPrivateKey(ed25519Key: Curve25519.Signing.PrivateKey()).publicKey
@@ -36,6 +38,7 @@ final class HostKeyValidatorTests: XCTestCase {
         XCTAssertEqual(self.mock.hostKey, key)
     }
 
+    @MainActor
     func testKnownHost_MatchingKey_Accepts() throws {
         let key = NIOSSHPrivateKey(ed25519Key: Curve25519.Signing.PrivateKey()).publicKey
         self.mock.hostKey = key
@@ -48,13 +51,14 @@ final class HostKeyValidatorTests: XCTestCase {
         XCTAssertFalse(self.mock.saveHostKeyCalled)
     }
 
+    @MainActor
     func testKnownHost_MismatchedKey_Rejects() {
         let storedKey = NIOSSHPrivateKey(ed25519Key: Curve25519.Signing.PrivateKey()).publicKey
         let presentedKey = NIOSSHPrivateKey(ed25519Key: Curve25519.Signing.PrivateKey()).publicKey
         self.mock.hostKey = storedKey
-        var mismatchKey: NIOSSHPublicKey?
+        let mismatchKey = OSAllocatedUnfairLock<NIOSSHPublicKey?>(initialState: nil)
         let validator = HostKeyValidator(keyManager: self.mock) { key in
-            mismatchKey = key
+            mismatchKey.withLock { $0 = key }
         }
         let promise = self.eventLoop.makePromise(of: Void.self)
 
@@ -63,9 +67,10 @@ final class HostKeyValidatorTests: XCTestCase {
         XCTAssertThrowsError(try promise.futureResult.wait()) { error in
             XCTAssertTrue(error is HostKeyError)
         }
-        XCTAssertEqual(mismatchKey, presentedKey)
+        XCTAssertEqual(mismatchKey.withLock { $0 }, presentedKey)
     }
 
+    @MainActor
     func testKeychainError_Propagates() {
         self.mock.shouldThrow = true
         let key = NIOSSHPrivateKey(ed25519Key: Curve25519.Signing.PrivateKey()).publicKey

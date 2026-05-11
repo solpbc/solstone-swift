@@ -71,17 +71,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     nonisolated func application(
         _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,
-        completionHandler: @escaping () -> Void
+        completionHandler: @escaping @Sendable () -> Void
     ) {
         guard identifier == ObserverUploader.backgroundSessionIdentifier else {
             completionHandler()
             return
         }
 
+        let completion: @MainActor @Sendable () -> Void = {
+            completionHandler()
+        }
         Task { @MainActor [weak self] in
-            self?.observerUploader?.handleBackgroundURLSessionEvents {
-                completionHandler()
-            }
+            self?.observerUploader?.handleBackgroundURLSessionEvents(completionHandler: completion)
         }
     }
 }

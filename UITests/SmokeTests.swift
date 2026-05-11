@@ -3,12 +3,14 @@
 
 import XCTest
 
-final class SmokeTests: XCTestCase {
+nonisolated final class SmokeTests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
 
+    
+    @MainActor
     func testAppLaunches() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]

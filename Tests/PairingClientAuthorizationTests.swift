@@ -3,11 +3,13 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
 private final class PairingAuthorizationURLProtocol: URLProtocol, @unchecked Sendable {
-    static let lock = NSLock()
-    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -18,9 +20,7 @@ private final class PairingAuthorizationURLProtocol: URLProtocol, @unchecked Sen
     }
 
     override func startLoading() {
-        Self.lock.lock()
-        let handler = Self.handler
-        Self.lock.unlock()
+        let handler = Self.handlerBox.withLock { $0 }
 
         guard let handler else {
             self.client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
@@ -57,42 +57,40 @@ private final class PairingHeaderStore: @unchecked Sendable {
     }
 }
 
-@MainActor
-final class PairingClientAuthorizationTests: XCTestCase {
+nonisolated final class PairingClientAuthorizationTests: XCTestCase {
     override func tearDown() {
-        PairingAuthorizationURLProtocol.lock.lock()
-        PairingAuthorizationURLProtocol.handler = nil
-        PairingAuthorizationURLProtocol.lock.unlock()
+        PairingAuthorizationURLProtocol.handlerBox.withLock { $0 = nil }
         super.tearDown()
     }
 
+    @MainActor
     func testAuthenticatedEndpointsIncludeBearerHeader() async throws {
         let headerStore = PairingHeaderStore()
-        PairingAuthorizationURLProtocol.lock.lock()
-        PairingAuthorizationURLProtocol.handler = { request in
-            let path = request.url?.path ?? ""
-            headerStore.store(path: path, authorization: request.value(forHTTPHeaderField: "Authorization"))
+        PairingAuthorizationURLProtocol.handlerBox.withLock { handler in
+            handler = { request in
+                let path = request.url?.path ?? ""
+                headerStore.store(path: path, authorization: request.value(forHTTPHeaderField: "Authorization"))
 
-            let statusCode: Int
-            let body: Data
-            switch path {
-            case "/api/settings/briefing-time":
-                statusCode = 200
-                body = Data("{}".utf8)
-            case "/api/home/progress-today":
-                statusCode = 200
-                body = Data(#"{"segments_observed":1,"meetings_detected":2,"entities_identified":3,"percent":4,"briefing_ready":false}"#.utf8)
-            case "/api/pairing/devices/device-123":
-                statusCode = 204
-                body = Data()
-            default:
-                statusCode = 404
-                body = Data()
+                let statusCode: Int
+                let body: Data
+                switch path {
+                case "/api/settings/briefing-time":
+                    statusCode = 200
+                    body = Data("{}".utf8)
+                case "/api/home/progress-today":
+                    statusCode = 200
+                    body = Data(#"{"segments_observed":1,"meetings_detected":2,"entities_identified":3,"percent":4,"briefing_ready":false}"#.utf8)
+                case "/api/pairing/devices/device-123":
+                    statusCode = 204
+                    body = Data()
+                default:
+                    statusCode = 404
+                    body = Data()
+                }
+                let response = HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
+                return (response, body)
             }
-            let response = HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
-            return (response, body)
         }
-        PairingAuthorizationURLProtocol.lock.unlock()
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PairingAuthorizationURLProtocol.self]

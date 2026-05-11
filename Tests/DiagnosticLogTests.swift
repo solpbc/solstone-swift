@@ -4,13 +4,10 @@
 @testable import solstone_swift
 import XCTest
 
-final class DiagnosticLogTests: XCTestCase {
-    private var log = DiagnosticLog()
+nonisolated final class DiagnosticLogTests: XCTestCase {
+    @MainActor private var log = DiagnosticLog()
 
-    override func setUp() {
-        self.log = DiagnosticLog()
-    }
-
+    @MainActor
     func testAppendAddsEvent() {
         self.log.append(category: .tunnel, message: "connected")
         XCTAssertEqual(self.log.events.count, 1)
@@ -18,6 +15,7 @@ final class DiagnosticLogTests: XCTestCase {
         XCTAssertEqual(self.log.events[0].category, .tunnel)
     }
 
+    @MainActor
     func testRingBufferOverflow() {
         let log = DiagnosticLog(capacity: 5)
         for i in 0..<10 {
@@ -28,6 +26,7 @@ final class DiagnosticLogTests: XCTestCase {
         XCTAssertEqual(log.events[4].message, "event 9")
     }
 
+    @MainActor
     func testRingBufferOverflowDefaultCapacity() {
         for i in 0..<210 {
             self.log.append(category: .tunnel, message: "event \(i)")
@@ -37,6 +36,7 @@ final class DiagnosticLogTests: XCTestCase {
         XCTAssertEqual(self.log.events[199].message, "event 209")
     }
 
+    @MainActor
     func testFilterByCategory() {
         self.log.append(category: .tunnel, message: "tunnel event")
         self.log.append(category: .voice, message: "voice event")
@@ -54,6 +54,7 @@ final class DiagnosticLogTests: XCTestCase {
         XCTAssertEqual(all.count, 4)
     }
 
+    @MainActor
     func testClear() {
         self.log.append(category: .tunnel, message: "event")
         XCTAssertEqual(self.log.events.count, 1)
@@ -61,6 +62,7 @@ final class DiagnosticLogTests: XCTestCase {
         XCTAssertEqual(self.log.events.count, 0)
     }
 
+    @MainActor
     func testEventProperties() {
         self.log.append(
             category: .voice,

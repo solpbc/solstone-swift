@@ -4,7 +4,8 @@
 @testable import solstone_swift
 import XCTest
 
-final class NotificationTapRouterTests: XCTestCase {
+nonisolated final class NotificationTapRouterTests: XCTestCase {
+    @MainActor
     func testDailyBriefingRoutesToToday() {
         let route = NotificationTapRouter.route(
             from: .init(
@@ -17,6 +18,7 @@ final class NotificationTapRouterTests: XCTestCase {
         XCTAssertEqual(route.portalHash, "today")
     }
 
+    @MainActor
     func testCommitmentRoutesToCommitmentHash() {
         let route = NotificationTapRouter.route(
             from: .init(
@@ -29,6 +31,7 @@ final class NotificationTapRouterTests: XCTestCase {
         XCTAssertEqual(route.portalHash, "today/commitment/commitment-123")
     }
 
+    @MainActor
     func testPreMeetingRoutesToPrepHash() {
         let route = NotificationTapRouter.route(
             from: .init(
@@ -41,6 +44,7 @@ final class NotificationTapRouterTests: XCTestCase {
         XCTAssertEqual(route.portalHash, "today/prep/event-123")
     }
 
+    @MainActor
     func testAgentAlertRejectsJavascriptCustomPath() {
         let route = NotificationTapRouter.route(
             from: .init(
@@ -53,6 +57,7 @@ final class NotificationTapRouterTests: XCTestCase {
         XCTAssertEqual(route.portalHash, "today")
     }
 
+    @MainActor
     func testAgentAlertStripsLeadingHash() {
         let route = NotificationTapRouter.route(
             from: .init(
@@ -65,6 +70,7 @@ final class NotificationTapRouterTests: XCTestCase {
         XCTAssertEqual(route.portalHash, "today/whatever")
     }
 
+    @MainActor
     func testMissingCommitmentIdFallsBackToToday() {
         let route = NotificationTapRouter.route(
             from: .init(

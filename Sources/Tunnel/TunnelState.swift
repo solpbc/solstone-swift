@@ -3,7 +3,7 @@
 
 import Foundation
 
-enum ConnectionEndpoint: Sendable {
+nonisolated enum ConnectionEndpoint: Sendable {
     case lan
     case remote
 }

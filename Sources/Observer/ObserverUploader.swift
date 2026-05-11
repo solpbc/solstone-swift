@@ -29,23 +29,34 @@ struct ChunkSidecar: Codable, Equatable, Sendable {
 }
 
 final class ObserverUploaderSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
-    weak var owner: ObserverUploader?
+    private struct WeakOwner: Sendable {
+        weak var value: ObserverUploader?
+    }
+
+    private let ownerBox = OSAllocatedUnfairLock<WeakOwner>(initialState: WeakOwner())
+
+    func setOwner(_ owner: ObserverUploader?) {
+        self.ownerBox.withLock { $0.value = owner }
+    }
 
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         Task { @MainActor [weak self] in
-            self?.owner?.appendResponseData(data, for: dataTask.taskIdentifier)
+            guard let owner = self?.ownerBox.withLock({ $0.value }) else { return }
+            owner.appendResponseData(data, for: dataTask.taskIdentifier)
         }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
         Task { @MainActor [weak self] in
-            await self?.owner?.handleCompletion(for: task, error: error)
+            guard let owner = self?.ownerBox.withLock({ $0.value }) else { return }
+            await owner.handleCompletion(for: task, error: error)
         }
     }
 
     nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         Task { @MainActor [weak self] in
-            self?.owner?.finishBackgroundEvents()
+            guard let owner = self?.ownerBox.withLock({ $0.value }) else { return }
+            owner.finishBackgroundEvents()
         }
     }
 }
@@ -53,7 +64,7 @@ final class ObserverUploaderSessionDelegate: NSObject, URLSessionDelegate, URLSe
 @MainActor
 @Observable
 final class ObserverUploader {
-    static let backgroundSessionIdentifier = "app.solstone.swift.observer-upload"
+    nonisolated static let backgroundSessionIdentifier = "app.solstone.swift.observer-upload"
 
     var pendingCount = 0
     var failedCount = 0
@@ -72,7 +83,7 @@ final class ObserverUploader {
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let encoder: JSONEncoder
     @ObservationIgnored private let decoder: JSONDecoder
-    @ObservationIgnored private var backgroundCompletionHandler: (@MainActor () -> Void)?
+    @ObservationIgnored private var backgroundCompletionHandler: (@MainActor @Sendable () -> Void)?
     @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
     @ObservationIgnored private var activeTaskIDByChunkID: [String: Int] = [:]
@@ -124,7 +135,7 @@ final class ObserverUploader {
             return config
         }()
         self.session = URLSession(configuration: configuration, delegate: self.sessionDelegate, delegateQueue: nil)
-        self.sessionDelegate.owner = self
+        self.sessionDelegate.setOwner(self)
 
         try? self.fileManager.createDirectory(at: self.cacheRootURL, withIntermediateDirectories: true)
         self.refreshCounts()
@@ -184,7 +195,7 @@ final class ObserverUploader {
         self.refreshCounts()
     }
 
-    func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor () -> Void) {
+    func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {
         self.backgroundCompletionHandler = completionHandler
     }
 

@@ -3,23 +3,33 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
-final class VoiceManagerTests: XCTestCase {
+nonisolated final class VoiceManagerTests: XCTestCase {
     private var mockKeyFetcher = MockEphemeralKeyFetcher()
     private var mockWebRTC = MockWebRTCConnector()
     private var mockSideband = MockSidebandNotifier()
     private var mockNavHintPoller = MockNavHintPoller()
     private var mockObserverActionPoller = MockObserverActionPoller()
-    @MainActor private var appliedNavHints: [String] = []
-    @MainActor private var appliedObserverActions: [ObserverAction] = []
-    private var manager = VoiceManager(
-        keyFetcher: MockEphemeralKeyFetcher(),
-        sidebandNotifier: MockSidebandNotifier(),
-        navHintPoller: MockNavHintPoller(),
-        observerActionPoller: MockObserverActionPoller(),
-        webrtc: MockWebRTCConnector()
-    )
+    private let appliedNavHints = OSAllocatedUnfairLock<[String]>(initialState: [])
+    private let appliedObserverActions = OSAllocatedUnfairLock<[ObserverAction]>(initialState: [])
+    @MainActor private lazy var manager: VoiceManager = {
+        let manager = VoiceManager(
+            keyFetcher: self.mockKeyFetcher,
+            sidebandNotifier: self.mockSideband,
+            navHintPoller: self.mockNavHintPoller,
+            observerActionPoller: self.mockObserverActionPoller,
+            webrtc: self.mockWebRTC,
+            onNavHint: { @MainActor [appliedNavHints] hint in
+                appliedNavHints.withLock { $0.append(hint) }
+            }
+        )
+        manager.onObserverAction = { @MainActor [appliedObserverActions] action in
+            appliedObserverActions.withLock { $0.append(action) }
+        }
+        return manager
+    }()
 
     override func setUp() {
         UserDefaults.standard.removeObject(forKey: "verboseErrors")
@@ -29,21 +39,8 @@ final class VoiceManagerTests: XCTestCase {
         self.mockSideband = MockSidebandNotifier()
         self.mockNavHintPoller = MockNavHintPoller()
         self.mockObserverActionPoller = MockObserverActionPoller()
-        self.appliedNavHints = []
-        self.appliedObserverActions = []
-        self.manager = VoiceManager(
-            keyFetcher: self.mockKeyFetcher,
-            sidebandNotifier: self.mockSideband,
-            navHintPoller: self.mockNavHintPoller,
-            observerActionPoller: self.mockObserverActionPoller,
-            webrtc: self.mockWebRTC,
-            onNavHint: { @MainActor [weak self] hint in
-                self?.appliedNavHints.append(hint)
-            }
-        )
-        self.manager.onObserverAction = { @MainActor [weak self] action in
-            self?.appliedObserverActions.append(action)
-        }
+        self.appliedNavHints.withLock { $0 = [] }
+        self.appliedObserverActions.withLock { $0 = [] }
     }
 
     override func tearDown() {
@@ -51,10 +48,12 @@ final class VoiceManagerTests: XCTestCase {
         VoiceSession.clearDefaults()
     }
 
+    @MainActor
     func testInitialState() {
         XCTAssertEqual(self.manager.state, .idle)
     }
 
+    @MainActor
     func testVoiceErrorUserMessages() {
         UserDefaults.standard.set(false, forKey: "verboseErrors")
         XCTAssertEqual(VoiceError.microphoneDenied.userMessage, "microphone access is required for voice conversations — enable it in Settings")
@@ -64,6 +63,7 @@ final class VoiceManagerTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "verboseErrors")
     }
 
+    @MainActor
     func testStartSessionKeyFetchFails() async {
         self.mockKeyFetcher.result = .failure(NSError(domain: "VoiceManagerTests", code: 1))
 
@@ -77,6 +77,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.mockWebRTC.connectCallCount, 0)
     }
 
+    @MainActor
     func testStartSessionSuccessSetsConnectingBeforeFetchCompletes() async {
         self.mockKeyFetcher.delay = .milliseconds(200)
 
@@ -99,6 +100,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .idle)
     }
 
+    @MainActor
     func testEndSessionCleansUp() {
         self.manager.endSession()
 
@@ -106,6 +108,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.mockWebRTC.disconnectCallCount, 1)
     }
 
+    @MainActor
     func testStartSessionGuardNotIdle() async {
         self.manager.state = .connecting
 
@@ -115,6 +118,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .connecting)
     }
 
+    @MainActor
     func testStartSessionConnectsWebRTC() async {
         await self.manager.startSession(localPort: 7071)
 
@@ -122,6 +126,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .listening)
     }
 
+    @MainActor
     func testStartSessionNotifiesSideband() async {
         await self.manager.startSession(localPort: 7071)
 
@@ -134,6 +139,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.mockSideband.lastLocalPort, 7071)
     }
 
+    @MainActor
     func testWebRTCConnectFails() async {
         self.mockWebRTC.connectError = NSError(
             domain: "test",
@@ -149,6 +155,7 @@ final class VoiceManagerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testLastSessionPopulatedAfterSession() async {
         await self.manager.startSession(localPort: 7071)
         XCTAssertNotNil(self.manager.lastSession)
@@ -161,6 +168,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertTrue(self.manager.lastSession?.endedNormally == true)
     }
 
+    @MainActor
     func testLastSessionPopulatedOnError() async {
         self.mockKeyFetcher.result = .failure(NSError(domain: "test", code: 1))
 
@@ -172,6 +180,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertFalse(self.manager.lastSession?.endedNormally == true)
     }
 
+    @MainActor
     func testVerboseErrorMessages() {
         UserDefaults.standard.set(true, forKey: "verboseErrors")
         XCTAssertTrue(VoiceError.connectionFailed("timeout").userMessage.contains("timeout"))
@@ -184,6 +193,7 @@ final class VoiceManagerTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "verboseErrors")
     }
 
+    @MainActor
     func testVoiceSessionPersistenceRoundTrip() {
         var session = VoiceSession(startTime: Date())
         session.endTime = Date()
@@ -202,6 +212,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertNil(VoiceSession.loadFromDefaults())
     }
 
+    @MainActor
     func testTunnelErrorVerboseMessages() {
         UserDefaults.standard.set(true, forKey: "verboseErrors")
         XCTAssertTrue(TunnelError.unknown("socket reset").userMessage.contains("socket reset"))
@@ -212,6 +223,7 @@ final class VoiceManagerTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "verboseErrors")
     }
 
+    @MainActor
     func testModelSpeakingEvents() async {
         await self.manager.startSession(localPort: 7071)
         XCTAssertEqual(self.manager.state, .listening)
@@ -229,6 +241,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .listening)
     }
 
+    @MainActor
     func testModelSpeakingStoppedDoesNotEndSession() async {
         await self.manager.startSession(localPort: 7071)
         XCTAssertEqual(self.manager.state, .listening)
@@ -247,6 +260,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.mockWebRTC.disconnectCallCount, 0)
     }
 
+    @MainActor
     func testToolCallCompletedFetchesAndAppliesHints() async {
         self.mockNavHintPoller.hints = ["today", "ask"]
 
@@ -256,18 +270,19 @@ final class VoiceManagerTests: XCTestCase {
         for _ in 0..<40 where self.mockNavHintPoller.fetchCallCount == 0 {
             try? await Task.sleep(for: .milliseconds(10))
         }
-        for _ in 0..<60 where await MainActor.run(body: { self.appliedNavHints.count }) != 2 {
+        for _ in 0..<60 where self.appliedNavHints.withLock({ $0.count }) != 2 {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
         XCTAssertEqual(self.mockNavHintPoller.fetchCallCount, 1)
         XCTAssertEqual(self.mockNavHintPoller.lastLocalPort, 7071)
         XCTAssertEqual(self.mockNavHintPoller.lastCallId, "test-call-id")
-        let appliedHints = await MainActor.run { self.appliedNavHints }
+        let appliedHints = self.appliedNavHints.withLock { $0 }
         XCTAssertEqual(appliedHints, ["today", "ask"])
         XCTAssertEqual(self.mockObserverActionPoller.fetchCallCount, 1)
     }
 
+    @MainActor
     func testToolCallCompletedDispatchesObserverActions() async {
         self.mockObserverActionPoller.actions = [.startObserver(mode: .voiceMemo)]
 
@@ -277,17 +292,18 @@ final class VoiceManagerTests: XCTestCase {
         for _ in 0..<40 where self.mockObserverActionPoller.fetchCallCount == 0 {
             try? await Task.sleep(for: .milliseconds(10))
         }
-        for _ in 0..<40 where await MainActor.run(body: { self.appliedObserverActions.count }) != 1 {
+        for _ in 0..<40 where self.appliedObserverActions.withLock({ $0.count }) != 1 {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
         XCTAssertEqual(self.mockObserverActionPoller.fetchCallCount, 1)
         XCTAssertEqual(self.mockObserverActionPoller.lastLocalPort, 7071)
         XCTAssertEqual(self.mockObserverActionPoller.lastCallId, "test-call-id")
-        let appliedActions = await MainActor.run { self.appliedObserverActions }
+        let appliedActions = self.appliedObserverActions.withLock { $0 }
         XCTAssertEqual(appliedActions, [.startObserver(mode: .voiceMemo)])
     }
 
+    @MainActor
     func testToolCallCompletedSkipsFetchWhenCallIdMissing() async {
         self.mockWebRTC.callId = ""
 
@@ -297,12 +313,13 @@ final class VoiceManagerTests: XCTestCase {
 
         XCTAssertEqual(self.mockNavHintPoller.fetchCallCount, 0)
         XCTAssertEqual(self.mockObserverActionPoller.fetchCallCount, 0)
-        let appliedHints = await MainActor.run { self.appliedNavHints }
+        let appliedHints = self.appliedNavHints.withLock { $0 }
         XCTAssertEqual(appliedHints, [])
-        let appliedActions = await MainActor.run { self.appliedObserverActions }
+        let appliedActions = self.appliedObserverActions.withLock { $0 }
         XCTAssertEqual(appliedActions, [])
     }
 
+    @MainActor
     func testIdleTimerEndsSessionWithoutEvents() async {
         let manager = VoiceManager(
             keyFetcher: self.mockKeyFetcher,
@@ -323,6 +340,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .idle)
     }
 
+    @MainActor
     func testIdleTimerRearmsWhenEventsArrive() async {
         let manager = VoiceManager(
             keyFetcher: self.mockKeyFetcher,
@@ -348,6 +366,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .idle)
     }
 
+    @MainActor
     func testDisconnectedEvent() async {
         await self.manager.startSession(localPort: 7071)
         XCTAssertEqual(self.manager.state, .listening)
@@ -360,6 +379,7 @@ final class VoiceManagerTests: XCTestCase {
         XCTAssertEqual(self.mockWebRTC.disconnectCallCount, 1)
     }
 
+    @MainActor
     func testEndSessionStopsEventObservation() async {
         await self.manager.startSession(localPort: 7071)
         XCTAssertEqual(self.manager.state, .listening)

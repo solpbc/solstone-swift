@@ -127,16 +127,16 @@ extension ScannerViewController: AVCaptureMetadataOutputObjectsDelegate {
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
+        guard let scanned = (metadataObjects.first as? AVMetadataMachineReadableCodeObject)?.stringValue,
+              !scanned.isEmpty
+        else { return }
+
         Task { @MainActor [weak self] in
             guard let self, !self.hasDeliveredCode else { return }
-            guard let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-                  let value = object.stringValue,
-                  !value.isEmpty
-            else { return }
 
             self.hasDeliveredCode = true
             self.session.stopRunning()
-            self.delegate?.scannerViewController(self, didScan: value)
+            self.delegate?.scannerViewController(self, didScan: scanned)
         }
     }
 }

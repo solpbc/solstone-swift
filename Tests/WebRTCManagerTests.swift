@@ -4,7 +4,8 @@
 @testable import solstone_swift
 import XCTest
 
-final class WebRTCManagerTests: XCTestCase {
+nonisolated final class WebRTCManagerTests: XCTestCase {
+    @MainActor
     func testDisconnectWithoutConnect() {
         let manager = WebRTCManager()
         manager.disconnect()

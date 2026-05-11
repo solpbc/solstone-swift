@@ -3,9 +3,10 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
-final class ObserverActionPollerTests: XCTestCase {
+nonisolated final class ObserverActionPollerTests: XCTestCase {
     override func setUp() {
         super.setUp()
         URLProtocol.registerClass(ObserverActionURLProtocol.self)
@@ -18,6 +19,7 @@ final class ObserverActionPollerTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor
     func testFetchActionsDecodesStartObserver() async {
         ObserverActionURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/api/voice/observer-actions")
@@ -35,6 +37,7 @@ final class ObserverActionPollerTests: XCTestCase {
         XCTAssertEqual(actions, [.startObserver(mode: .meeting)])
     }
 
+    @MainActor
     func testFetchActionsReturnsEmptyArrayForEmptyActions() async {
         ObserverActionURLProtocol.handler = { request in
             (
@@ -48,6 +51,7 @@ final class ObserverActionPollerTests: XCTestCase {
         XCTAssertEqual(actions, [])
     }
 
+    @MainActor
     func testFetchActionsReturnsEmptyArrayOn4xx() async {
         ObserverActionURLProtocol.handler = { request in
             (
@@ -61,6 +65,7 @@ final class ObserverActionPollerTests: XCTestCase {
         XCTAssertEqual(actions, [])
     }
 
+    @MainActor
     func testFetchActionsReturnsEmptyArrayOnMalformedJSON() async {
         ObserverActionURLProtocol.handler = { request in
             (
@@ -74,6 +79,7 @@ final class ObserverActionPollerTests: XCTestCase {
         XCTAssertEqual(actions, [])
     }
 
+    @MainActor
     func testFetchActionsReturnsEmptyArrayOnTimeout() async {
         ObserverActionURLProtocol.handler = { _ in
             throw URLError(.timedOut)
@@ -84,6 +90,7 @@ final class ObserverActionPollerTests: XCTestCase {
         XCTAssertEqual(actions, [])
     }
 
+    @MainActor
     func testFetchActionsDropsUnknownActionType() async {
         ObserverActionURLProtocol.handler = { request in
             (
@@ -99,7 +106,13 @@ final class ObserverActionPollerTests: XCTestCase {
 }
 
 private final class ObserverActionURLProtocol: URLProtocol, @unchecked Sendable {
-    static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         request.url?.host == "127.0.0.1"

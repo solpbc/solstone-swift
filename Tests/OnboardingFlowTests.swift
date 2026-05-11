@@ -5,8 +5,7 @@
 import Foundation
 import XCTest
 
-@MainActor
-final class OnboardingFlowTests: XCTestCase {
+nonisolated final class OnboardingFlowTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
 
@@ -24,6 +23,7 @@ final class OnboardingFlowTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor
     func testFlowTransitionsToDone() {
         let flow = OnboardingFlow(defaults: self.defaults)
 
@@ -42,6 +42,7 @@ final class OnboardingFlowTests: XCTestCase {
         XCTAssertTrue(flow.isCompleted)
     }
 
+    @MainActor
     func testFlowRestoreReadsPersistedState() {
         self.defaults.set("notifications", forKey: "onboarding.step")
         self.defaults.set(false, forKey: "onboarding.completed")
@@ -52,6 +53,7 @@ final class OnboardingFlowTests: XCTestCase {
         XCTAssertFalse(flow.isCompleted)
     }
 
+    @MainActor
     func testCompletedRestoreWinsOverStep() {
         self.defaults.set("pair", forKey: "onboarding.step")
         self.defaults.set(true, forKey: "onboarding.completed")

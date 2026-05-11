@@ -4,26 +4,20 @@
 @testable import solstone_swift
 import XCTest
 
-final class TunnelManagerTests: XCTestCase {
-    private var mock: MockSSHTransport!
-    private var manager: TunnelManager!
+nonisolated final class TunnelManagerTests: XCTestCase {
+    private lazy var mock = MockSSHTransport()
+    @MainActor private lazy var manager = TunnelManager(transport: self.mock)
 
     private func settleStageCallbacks() async {
         await Task.yield()
         try? await Task.sleep(for: .milliseconds(10))
     }
 
-    override func setUp() {
-        self.mock = MockSSHTransport()
-        self.manager = TunnelManager(transport: self.mock)
-    }
-
-    override func tearDown() async throws {
+    @MainActor override func tearDown() async throws {
         await self.manager.disconnect()
-        self.mock = nil
-        self.manager = nil
     }
 
+    @MainActor
     func testConnectLANSuccess() async {
         self.mock.probeLANResult = true
         self.mock.connectLocalPort = 8080
@@ -34,6 +28,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.mock.lastConnectEndpoint, .lan)
     }
 
+    @MainActor
     func testConnectRemoteFallback() async {
         self.mock.probeLANResult = false
         self.mock.connectLocalPort = 9090
@@ -44,6 +39,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.mock.lastConnectEndpoint, .remote)
     }
 
+    @MainActor
     func testConnectFailure() async {
         self.mock.connectError = .connectionTimeout
 
@@ -53,6 +49,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(self.mock.disconnectCalled)
     }
 
+    @MainActor
     func testAlreadyConnectedGuard() async {
         self.mock.connectLocalPort = 8080
         await self.manager.connect()
@@ -65,6 +62,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .connected(localPort: 8080, via: .lan))
     }
 
+    @MainActor
     func testDisconnectCleanup() async {
         self.mock.connectLocalPort = 8080
         await self.manager.connect()
@@ -75,6 +73,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(self.mock.disconnectCalled)
     }
 
+    @MainActor
     func testCancelConnectResetsState() async {
         self.mock.connectDelay = .seconds(1)
         self.mock.connectLocalPort = 8080
@@ -97,6 +96,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertGreaterThan(self.mock.connectCallCount, 0)
     }
 
+    @MainActor
     func testHostKeyMismatch() async {
         self.mock.triggerHostKeyMismatch = true
 
@@ -107,6 +107,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(self.manager.hasHostKeyMismatch)
     }
 
+    @MainActor
     func testAcceptNewKeyReconnect() async {
         self.mock.triggerHostKeyMismatch = true
         await self.manager.connect()
@@ -124,6 +125,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .connected(localPort: 8080, via: .lan))
     }
 
+    @MainActor
     func testAutoReconnectOnFailure() async {
         let manager = TunnelManager(transport: self.mock, initialRetryDelay: 0.1)
         self.mock.connectError = .connectionTimeout
@@ -136,6 +138,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testRetryNowCancelsBackoff() async {
         let manager = TunnelManager(transport: self.mock, initialRetryDelay: 10)
         self.mock.connectError = .connectionTimeout
@@ -156,6 +159,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testNoReconnectOnHostKeyMismatch() async {
         self.mock.triggerHostKeyMismatch = true
 
@@ -166,6 +170,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertNil(self.manager.reconnectCountdown)
     }
 
+    @MainActor
     func testNoReconnectOnAuthFailure() async {
         self.mock.connectError = .authenticationFailed
 
@@ -175,6 +180,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertNil(self.manager.reconnectCountdown)
     }
 
+    @MainActor
     func testDisconnectCancelsReconnect() async {
         let manager = TunnelManager(transport: self.mock, initialRetryDelay: 10)
         self.mock.connectError = .connectionTimeout
@@ -187,6 +193,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .disconnected)
     }
 
+    @MainActor
     func testBackoffResetsOnSuccess() async {
         let manager = TunnelManager(transport: self.mock, initialRetryDelay: 0.1)
         self.mock.connectError = .connectionTimeout
@@ -210,6 +217,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testOnDisconnectTriggersReconnect() async {
         let manager = TunnelManager(transport: self.mock, initialRetryDelay: 10)
         self.mock.connectLocalPort = 8080
@@ -228,6 +236,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testHandleTunnelFailureTriggersReconnect() async {
         let manager = TunnelManager(transport: self.mock, initialRetryDelay: 10)
         self.mock.connectLocalPort = 8080
@@ -244,6 +253,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testHandleTunnelFailureIgnoredWhenNotConnected() async {
         await self.manager.handleTunnelFailure()
         XCTAssertEqual(self.manager.state, .disconnected)
@@ -258,6 +268,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertFalse(self.mock.disconnectCalled)
     }
 
+    @MainActor
     func testConsecutiveWiFiFailuresTracking() async {
         self.mock.connectError = .connectionTimeout
 
@@ -287,6 +298,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.consecutiveWiFiFailures, 0)
     }
 
+    @MainActor
     func testProbeConnection_MockReturnsConfiguredResult() async {
         self.mock.probeConnectionResult = true
         let alive = await self.mock.probeConnection()
@@ -299,12 +311,14 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.mock.probeConnectionCallCount, 2)
     }
 
+    @MainActor
     func testShutdown_MockTracksCall() async {
         XCTAssertFalse(self.mock.shutdownCalled)
         await self.mock.shutdown()
         XCTAssertTrue(self.mock.shutdownCalled)
     }
 
+    @MainActor
     func testConnectionHealthDerivedCorrectly() async {
         XCTAssertEqual(self.manager.connectionHealth, .unknown)
 
@@ -321,6 +335,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.connectionHealth, .unknown)
     }
 
+    @MainActor
     func testReconnectCountLifecycle() async {
         XCTAssertEqual(self.manager.reconnectCount, 0)
 
@@ -343,6 +358,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.reconnectCount, 0)
     }
 
+    @MainActor
     func testKeepaliveResultCallback() async {
         await self.manager.connect()
         XCTAssertNil(self.manager.lastProbeAlive)
@@ -361,6 +377,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.consecutiveKeepaliveFailures, 1)
     }
 
+    @MainActor
     func testProbeConnectionSurfacesResult() async {
         self.mock.probeConnectionResult = true
         await self.manager.connect()
@@ -372,12 +389,14 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.mock.probeConnectionCallCount, 1)
     }
 
+    @MainActor
     func testProbeConnectionWhenDisconnectedReturnsNil() async {
         let result = await self.manager.probeConnection()
         XCTAssertNil(result)
         XCTAssertEqual(self.mock.probeConnectionCallCount, 0)
     }
 
+    @MainActor
     func testConnectionStagesPopulatedOnSuccess() async {
         self.mock.probeLANResult = true
         self.mock.connectLocalPort = 8080
@@ -399,6 +418,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.connectionStages[4].status, .done)
     }
 
+    @MainActor
     func testConnectionStagesShowLANFailure() async {
         self.mock.probeLANResult = false
         self.mock.connectLocalPort = 9090
@@ -418,6 +438,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.connectionStages[0].detail, "LAN unavailable")
     }
 
+    @MainActor
     func testConnectionStagesResetOnRetry() async {
         self.mock.connectError = .connectionTimeout
         await self.manager.connect()
@@ -440,6 +461,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.connectionStages[0].kind, .lanProbe)
     }
 
+    @MainActor
     func testConnectionStagesPreservedOnFailure() async {
         self.mock.connectError = .connectionTimeout
         self.mock.stageEventsToEmit = [.sshConnecting]
@@ -452,6 +474,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.connectionStages[0].kind, .lanProbe)
     }
 
+    @MainActor
     func testConnectionStagesClearedOnDisconnect() async {
         self.mock.connectLocalPort = 8080
         await self.manager.connect()
@@ -462,6 +485,7 @@ final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(self.manager.connectionStages.isEmpty)
     }
 
+    @MainActor
     func testExecOutputLoggedToDiagnostics() async {
         let diagLog = DiagnosticLog()
         let manager = TunnelManager(transport: self.mock, diagnosticLog: diagLog)
@@ -484,6 +508,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testExecStderrLoggedAsWarning() async {
         let diagLog = DiagnosticLog()
         let manager = TunnelManager(transport: self.mock, diagnosticLog: diagLog)
@@ -505,6 +530,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testHubPhoneStartFailedSurfacesStderrInStageDetail() async {
         let diagLog = DiagnosticLog()
         let manager = TunnelManager(transport: self.mock, diagnosticLog: diagLog)
@@ -530,6 +556,7 @@ final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    @MainActor
     func testExecFailedLoggedAsDiagnosticError() async {
         let diagLog = DiagnosticLog()
         let manager = TunnelManager(transport: self.mock, diagnosticLog: diagLog)

@@ -6,8 +6,8 @@ import SwiftUI
 import UIKit
 import XCTest
 
-@MainActor
-final class BrandColorTests: XCTestCase {
+nonisolated final class BrandColorTests: XCTestCase {
+    @MainActor
     func testSolOrangeMatchesBrandSpec() throws {
         try self.assertMatchesBrandSpec(
             Color.solOrange,
@@ -17,6 +17,7 @@ final class BrandColorTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testSolGoldMatchesBrandSpec() throws {
         try self.assertMatchesBrandSpec(
             Color.solGold,
@@ -26,6 +27,7 @@ final class BrandColorTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testSolOrangeAccessibleMatchesBrandSpec() throws {
         try self.assertMatchesBrandSpec(
             Color.solOrangeAccessible,
@@ -35,6 +37,7 @@ final class BrandColorTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testAccentColorLightMatchesSolOrangeAccessible() throws {
         let bundle = Bundle(for: AppDelegate.self)
         let traits = UITraitCollection(userInterfaceStyle: .light)

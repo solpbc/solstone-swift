@@ -10,7 +10,7 @@ struct ObserverManifestItem: Identifiable, Equatable, Sendable {
     let subtitle: String
 }
 
-private struct ObserverManifestResponse: Decodable {
+private nonisolated struct ObserverManifestResponse: Decodable {
     let segments: [Segment]
 
     init(from decoder: any Decoder) throws {

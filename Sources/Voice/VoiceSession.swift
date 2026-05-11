@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct VoiceSession: Codable, Sendable {
+nonisolated struct VoiceSession: Codable, Sendable {
     let startTime: Date
     var endTime: Date? = nil
     var callId: String? = nil

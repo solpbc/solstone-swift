@@ -3,13 +3,14 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
-final class ObserverRegistrationTests: XCTestCase {
+nonisolated final class ObserverRegistrationTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
     private var session: URLSession!
-    private var storedKey: String?
+    private let storedKeyBox = OSAllocatedUnfairLock<String?>(initialState: nil)
 
     override func setUp() {
         super.setUp()
@@ -21,7 +22,7 @@ final class ObserverRegistrationTests: XCTestCase {
         configuration.protocolClasses = [ObserverRegistrationURLProtocol.self]
         self.session = URLSession(configuration: configuration)
 
-        self.storedKey = nil
+        self.storedKeyBox.withLock { $0 = nil }
         ObserverRegistrationURLProtocol.handler = nil
         ObserverRegistrationURLProtocol.callCount = 0
     }
@@ -32,12 +33,13 @@ final class ObserverRegistrationTests: XCTestCase {
         self.defaults.removePersistentDomain(forName: self.suiteName)
         self.defaults = nil
         self.suiteName = nil
-        self.storedKey = nil
+        self.storedKeyBox.withLock { $0 = nil }
         ObserverRegistrationURLProtocol.handler = nil
         ObserverRegistrationURLProtocol.callCount = 0
         try await super.tearDown()
     }
 
+    @MainActor
     func testEnsureRegisteredSuccessPersistsKey() async throws {
         ObserverRegistrationURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -60,14 +62,15 @@ final class ObserverRegistrationTests: XCTestCase {
         let key = try await registration.ensureRegistered()
 
         XCTAssertEqual(key, "observer-key-123")
-        XCTAssertEqual(self.storedKey, "observer-key-123")
+        XCTAssertEqual(self.storedKeyBox.withLock { $0 }, "observer-key-123")
         let state = await MainActor.run { registration.state }
         XCTAssertEqual(state, .registered)
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
     }
 
+    @MainActor
     func testEnsureRegisteredSkipsNetworkWhenKeyExists() async throws {
-        self.storedKey = "existing-key"
+        self.storedKeyBox.withLock { $0 = "existing-key" }
         let registration = self.makeRegistration()
 
         let key = try await registration.ensureRegistered()
@@ -78,6 +81,7 @@ final class ObserverRegistrationTests: XCTestCase {
         XCTAssertEqual(state, .registered)
     }
 
+    @MainActor
     func testEnsureRegisteredRetriesAndSucceeds() async throws {
         let sleepRecorder = DelayRecorder()
         ObserverRegistrationURLProtocol.handler = { request in
@@ -109,6 +113,7 @@ final class ObserverRegistrationTests: XCTestCase {
         XCTAssertEqual(recordedSleeps, [2])
     }
 
+    @MainActor
     func testEnsureRegisteredHardFailureSetsFailedState() async {
         ObserverRegistrationURLProtocol.handler = { request in
             (
@@ -131,20 +136,21 @@ final class ObserverRegistrationTests: XCTestCase {
         XCTAssertEqual(state, .failed(reason: "HTTP 503"))
     }
 
+    @MainActor
     func testResetClearsKeyAndState() async throws {
-        self.storedKey = "existing-key"
+        self.storedKeyBox.withLock { $0 = "existing-key" }
         let registration = self.makeRegistration()
 
         await MainActor.run {
             registration.reset()
         }
 
-        XCTAssertNil(self.storedKey)
+        XCTAssertNil(self.storedKeyBox.withLock { $0 })
         let state = await MainActor.run { registration.state }
         XCTAssertEqual(state, .idle)
     }
 
-    private func makeRegistration(
+    @MainActor private func makeRegistration(
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
     ) -> ObserverRegistration {
@@ -152,16 +158,26 @@ final class ObserverRegistrationTests: XCTestCase {
             session: self.session,
             retryDelays: retryDelays,
             sleep: sleep,
-            loadKey: { [weak self] in self?.storedKey },
-            saveKey: { [weak self] key in self?.storedKey = key },
-            deleteKey: { [weak self] in self?.storedKey = nil }
+            loadKey: { [storedKeyBox] in storedKeyBox.withLock { $0 } },
+            saveKey: { [storedKeyBox] key in storedKeyBox.withLock { $0 = key } },
+            deleteKey: { [storedKeyBox] in storedKeyBox.withLock { $0 = nil } }
         )
     }
 }
 
 private final class ObserverRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
-    static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
-    static var callCount = 0
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var callCount: Int {
+        get { self.callCountBox.withLock { $0 } }
+        set { self.callCountBox.withLock { $0 = newValue } }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         request.url?.host == "127.0.0.1"
@@ -172,7 +188,7 @@ private final class ObserverRegistrationURLProtocol: URLProtocol, @unchecked Sen
     }
 
     override func startLoading() {
-        Self.callCount += 1
+        Self.callCountBox.withLock { $0 += 1 }
         guard let handler = Self.handler else {
             XCTFail("ObserverRegistrationURLProtocol handler not set")
             return

@@ -3,11 +3,11 @@
 
 import Foundation
 
-private struct EphemeralKeyResponse: Decodable {
+private nonisolated struct EphemeralKeyResponse: Decodable {
     let ephemeralKey: String
 }
 
-private struct ServerErrorResponse: Decodable {
+private nonisolated struct ServerErrorResponse: Decodable {
     let error: String
 }
 

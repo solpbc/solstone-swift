@@ -6,13 +6,14 @@ import NIOSSH
 @testable import solstone_swift
 import XCTest
 
-final class KeychainStoreTests: XCTestCase {
+nonisolated final class KeychainStoreTests: XCTestCase {
     override func tearDown() {
         try? KeychainStore.deleteIdentityKey()
         try? KeychainStore.deleteHostKey()
         try? KeychainStore.deleteObserverIngestKey()
     }
 
+    @MainActor
     func testIdentityKeyRoundTrip() throws {
         let key = Curve25519.Signing.PrivateKey()
         try KeychainStore.saveIdentityKey(key)
@@ -22,6 +23,7 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertEqual(loaded?.rawRepresentation, key.rawRepresentation)
     }
 
+    @MainActor
     func testHostKeyRoundTrip() throws {
         let privateKey = Curve25519.Signing.PrivateKey()
         let hostKey = NIOSSHPrivateKey(ed25519Key: privateKey).publicKey
@@ -32,6 +34,7 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertEqual(loaded, hostKey)
     }
 
+    @MainActor
     func testDeleteIdentityKey() throws {
         let key = Curve25519.Signing.PrivateKey()
         try KeychainStore.saveIdentityKey(key)
@@ -41,6 +44,7 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertNil(loaded)
     }
 
+    @MainActor
     func testOverwriteIdentityKey() throws {
         let key1 = Curve25519.Signing.PrivateKey()
         let key2 = Curve25519.Signing.PrivateKey()
@@ -52,6 +56,7 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertEqual(loaded?.rawRepresentation, key2.rawRepresentation)
     }
 
+    @MainActor
     func testObserverIngestKeyRoundTrip() throws {
         try KeychainStore.saveObserverIngestKey("observer-key-123")
 
@@ -60,6 +65,7 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertEqual(loaded, "observer-key-123")
     }
 
+    @MainActor
     func testDeleteObserverIngestKey() throws {
         try KeychainStore.saveObserverIngestKey("observer-key-123")
         try KeychainStore.deleteObserverIngestKey()

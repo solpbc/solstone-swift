@@ -151,14 +151,14 @@ final class LivePairingClient: PairingClient {
     private let session: URLSession
     private let retryDelays: [UInt64]
     private let sleep: @Sendable (UInt64) async -> Void
-    private let journalRootProvider: @Sendable () -> String
+    private let journalRootProvider: @MainActor @Sendable () -> String
     private var pairingHost: URL?
 
     init(
         session: URLSession = .shared,
         retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000, 8_000_000_000],
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in try? await Task.sleep(nanoseconds: delay) },
-        journalRootProvider: @escaping @Sendable () -> String
+        journalRootProvider: @escaping @MainActor @Sendable () -> String
     ) {
         self.session = session
         self.retryDelays = retryDelays
@@ -247,8 +247,9 @@ final class LivePairingClient: PairingClient {
         }
     }
 
-    private func requireJournalRoot() throws -> URL {
-        guard let url = URL(string: self.journalRootProvider()), !self.journalRootProvider().isEmpty else {
+    @MainActor private func requireJournalRoot() throws -> URL {
+        let journalRoot = self.journalRootProvider()
+        guard let url = URL(string: journalRoot), !journalRoot.isEmpty else {
             throw PairingClientError.missingJournalRoot
         }
         return url

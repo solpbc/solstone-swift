@@ -3,12 +3,13 @@
 
 import XCTest
 
-final class UnpairFlowTests: XCTestCase {
+nonisolated final class UnpairFlowTests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
 
+    @MainActor
     func testUnpairReturnsToOnboarding() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
@@ -38,6 +39,8 @@ final class UnpairFlowTests: XCTestCase {
     }
 }
 
+
+@MainActor
 private extension UnpairFlowTests {
     func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
         if element.waitForExistence(timeout: 2) {

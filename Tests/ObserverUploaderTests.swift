@@ -3,9 +3,10 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
-final class ObserverUploaderTests: XCTestCase {
+nonisolated final class ObserverUploaderTests: XCTestCase {
     private var tempDirectory: URL!
 
     override func setUp() {
@@ -25,6 +26,7 @@ final class ObserverUploaderTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor
     func testEnqueueUploadsAndCleansPendingFiles() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -53,6 +55,7 @@ final class ObserverUploaderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: "chunk-1").path))
     }
 
+    @MainActor
     func testRepeatedFailuresMoveChunkToFailedDirectory() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -82,6 +85,7 @@ final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: failedSidecar.path))
     }
 
+    @MainActor
     func testReachabilitySatisfiedTriggersDrain() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -105,6 +109,7 @@ final class ObserverUploaderTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testResumeFromDiskUploadsPendingChunk() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -128,6 +133,7 @@ final class ObserverUploaderTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testBackgroundCompletionHandlerIsInvoked() async throws {
         let uploader = self.makeUploader()
         let expectation = expectation(description: "background completion")
@@ -140,7 +146,7 @@ final class ObserverUploaderTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 1)
     }
 
-    private func makeUploader(retryDelays: [UInt64] = [0]) -> ObserverUploader {
+    @MainActor private func makeUploader(retryDelays: [UInt64] = [0]) -> ObserverUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverUploaderURLProtocol.self]
         return ObserverUploader(
@@ -200,7 +206,7 @@ final class ObserverUploaderTests: XCTestCase {
             .appendingPathComponent("failed", isDirectory: true)
     }
 
-    private func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @Sendable () -> Bool) async throws {
+    @MainActor private func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if condition() {
@@ -213,8 +219,18 @@ final class ObserverUploaderTests: XCTestCase {
 }
 
 private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendable {
-    static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
-    static var callCount = 0
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var callCount: Int {
+        get { self.callCountBox.withLock { $0 } }
+        set { self.callCountBox.withLock { $0 = newValue } }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         request.url?.host == "127.0.0.1"
@@ -225,7 +241,7 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     }
 
     override func startLoading() {
-        Self.callCount += 1
+        Self.callCountBox.withLock { $0 += 1 }
         guard let handler = Self.handler else {
             XCTFail("ObserverUploaderURLProtocol handler not set")
             return

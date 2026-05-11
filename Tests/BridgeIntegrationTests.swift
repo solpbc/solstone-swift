@@ -20,14 +20,14 @@ final class TestBridgeReceiver: NSObject, WKScriptMessageHandler {
     }
 }
 
-final class BridgeIntegrationTests: XCTestCase {
-    private func makeWebView(receiver: TestBridgeReceiver) -> WKWebView {
+nonisolated final class BridgeIntegrationTests: XCTestCase {
+    @MainActor private func makeWebView(receiver: TestBridgeReceiver) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(receiver, name: "solstone")
         return WKWebView(frame: .zero, configuration: config)
     }
 
-    private func loadHTML(_ html: String, in webView: WKWebView) async {
+    @MainActor private func loadHTML(_ html: String, in webView: WKWebView) async {
         let loaded = expectation(description: "html loaded")
         webView.loadHTMLString(html, baseURL: URL(string: "http://localhost/"))
 
@@ -42,6 +42,7 @@ final class BridgeIntegrationTests: XCTestCase {
         await fulfillment(of: [loaded], timeout: 0.1)
     }
 
+    @MainActor
     func testReadyMessageDelivered() async throws {
         let receiver = TestBridgeReceiver()
         let webView = self.makeWebView(receiver: receiver)
@@ -67,6 +68,7 @@ final class BridgeIntegrationTests: XCTestCase {
         XCTAssertNil(delivered["data"])
     }
 
+    @MainActor
     func testRouteMessageDelivered() async throws {
         let receiver = TestBridgeReceiver()
         let webView = self.makeWebView(receiver: receiver)
@@ -93,6 +95,7 @@ final class BridgeIntegrationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(data["route"] as? String), "ask")
     }
 
+    @MainActor
     func testBrainMessageDelivered() async throws {
         let receiver = TestBridgeReceiver()
         let webView = self.makeWebView(receiver: receiver)
@@ -119,6 +122,7 @@ final class BridgeIntegrationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(data["status"] as? String), "refreshing")
     }
 
+    @MainActor
     func testUnknownMessageTypeDelivered() async throws {
         let receiver = TestBridgeReceiver()
         let webView = self.makeWebView(receiver: receiver)
@@ -145,6 +149,7 @@ final class BridgeIntegrationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(data["foo"] as? String), "bar")
     }
 
+    @MainActor
     func testMultipleMessagesInOrder() async {
         let receiver = TestBridgeReceiver()
         let webView = self.makeWebView(receiver: receiver)
@@ -170,6 +175,7 @@ final class BridgeIntegrationTests: XCTestCase {
         XCTAssertEqual(receiver.messages.compactMap { $0["type"] as? String }, ["ready", "route", "brain"])
     }
 
+    @MainActor
     func testMalformedMessageDoesNotCrash() async {
         let receiver = TestBridgeReceiver()
         let webView = self.makeWebView(receiver: receiver)

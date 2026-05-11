@@ -4,88 +4,91 @@
 @testable import solstone_swift
 import XCTest
 
-final class BannerPresenterTests: XCTestCase {
-    private var log: DiagnosticLog!
-    private var voiceManager: VoiceManager!
-    private var tunnelManager: TunnelManager!
-    private var presenter: BannerPresenter!
+nonisolated final class BannerPresenterTests: XCTestCase {
+    @MainActor private lazy var log = DiagnosticLog()
+    @MainActor private lazy var voiceManager = VoiceManager()
+    @MainActor private lazy var tunnelManager: TunnelManager = {
+        let manager = TunnelManager()
+        manager.state = .connected(localPort: 8080, via: .lan)
+        return manager
+    }()
+    @MainActor private lazy var presenter = BannerPresenter(
+        diagnosticLog: self.log,
+        voiceManager: self.voiceManager,
+        tunnelManager: self.tunnelManager
+    )
 
-    override func setUp() {
-        self.log = DiagnosticLog()
-        self.voiceManager = VoiceManager()
-        self.tunnelManager = TunnelManager()
-        self.tunnelManager.state = .connected(localPort: 8080, via: .lan)
-        self.presenter = BannerPresenter(
-            diagnosticLog: self.log,
-            voiceManager: self.voiceManager,
-            tunnelManager: self.tunnelManager
-        )
-    }
-
-    override func tearDown() {
-        self.presenter?.clearAll()
-        self.presenter = nil
-        self.tunnelManager = nil
-        self.voiceManager = nil
-        self.log = nil
-    }
-
+    @MainActor
     func testInfoNetworkEventIsBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.network, .info, "interface changed to wifi")))
     }
 
+    @MainActor
     func testInfoNetworkStatusIsBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.network, .info, "network satisfied")))
     }
 
+    @MainActor
     func testInfoTunnelConnectedIsBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.tunnel, .info, "connected via local network on port 8080")))
     }
 
+    @MainActor
     func testInfoTunnelStageNotBannerWorthy() {
         XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.tunnel, .info, "stage: sshConnect started")))
     }
 
+    @MainActor
     func testInfoTunnelLanProbeNotBannerWorthy() {
         XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.tunnel, .info, "lan probe: reachable")))
     }
 
+    @MainActor
     func testInfoUploadBatchIsBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.upload, .info, "3 files sent")))
     }
 
+    @MainActor
     func testInfoUploadPerFileNotBannerWorthy() {
         XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.upload, .info, "sent photo.jpg")))
     }
 
+    @MainActor
     func testInfoUploadProcessingNotBannerWorthy() {
         XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.upload, .info, "processing 3 files")))
     }
 
+    @MainActor
     func testInfoVoiceSessionIsBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.voice, .info, "session starting on port 8080")))
     }
 
+    @MainActor
     func testInfoVoiceListeningNotBannerWorthy() {
         XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.voice, .info, "listening")))
     }
 
+    @MainActor
     func testInfoVoiceKeyNotBannerWorthy() {
         XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.voice, .info, "ephemeral key fetched")))
     }
 
+    @MainActor
     func testInfoBrainIsBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.brain, .info, "brain: idle → refreshing")))
     }
 
+    @MainActor
     func testWarningAlwaysBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.tunnel, .warning, "anything")))
     }
 
+    @MainActor
     func testErrorAlwaysBannerWorthy() {
         XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.voice, .error, "anything")))
     }
 
+    @MainActor
     func testProcessNewEventsShowsBanner() {
         self.append(.network, .info, "network satisfied")
 
@@ -94,6 +97,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "network satisfied")
     }
 
+    @MainActor
     func testCoalescingSameCategoryWithin1s() {
         self.append(.network, .info, "network satisfied")
         self.append(.network, .info, "interface changed to wifi")
@@ -105,6 +109,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testNoCoalescingDifferentCategory() {
         self.append(.network, .info, "network satisfied")
         self.append(.tunnel, .info, "connected via local network on port 8080")
@@ -116,6 +121,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "connected via local network on port 8080")
     }
 
+    @MainActor
     func testQueueMaxDepth3() {
         self.append(.network, .info, "network satisfied")
         self.append(.tunnel, .info, "connected via local network on port 8080")
@@ -139,6 +145,7 @@ final class BannerPresenterTests: XCTestCase {
         ])
     }
 
+    @MainActor
     func testVoiceSuppressionDropsInfo() {
         self.voiceManager.state = .listening
         self.append(.network, .info, "network satisfied")
@@ -148,6 +155,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testVoiceSuppressionAllowsWarning() {
         self.voiceManager.state = .listening
         self.append(.network, .warning, "network unsatisfied")
@@ -157,6 +165,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "network unsatisfied")
     }
 
+    @MainActor
     func testVoiceSuppressionAllowsError() {
         self.voiceManager.state = .speaking
         self.append(.voice, .error, "connection failed")
@@ -166,6 +175,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "connection failed")
     }
 
+    @MainActor
     func testDismissInfoIfVoiceActiveRemovesVisibleInfoBanner() {
         self.append(.network, .info, "network satisfied")
         self.presenter.processNewEvents()
@@ -176,6 +186,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testDismissInfoIfVoiceActiveDropsQueuedInfoBanners() {
         self.append(.network, .info, "network satisfied")
         self.append(.brain, .info, "brain: idle → refreshing")
@@ -190,6 +201,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testDisconnectedSuppressesAll() {
         self.tunnelManager.state = .disconnected
         self.append(.network, .warning, "network unsatisfied")
@@ -200,6 +212,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testResolutionDismissesError() {
         self.append(.tunnel, .error, "connection failed")
         self.presenter.processNewEvents()
@@ -211,6 +224,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.severity, .info)
     }
 
+    @MainActor
     func testResolutionOnlySameCategory() {
         self.append(.tunnel, .error, "connection failed")
         self.presenter.processNewEvents()
@@ -222,21 +236,25 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.severity, .error)
     }
 
+    @MainActor
     func testAutoDismissInfoIs3Seconds() {
         let item = BannerPresenter.BannerItem(event: self.makeEvent(.network, .info, "network satisfied"))
         XCTAssertEqual(item.autoDismissSeconds, 3)
     }
 
+    @MainActor
     func testAutoDismissWarningIs5Seconds() {
         let item = BannerPresenter.BannerItem(event: self.makeEvent(.network, .warning, "network unsatisfied"))
         XCTAssertEqual(item.autoDismissSeconds, 5)
     }
 
+    @MainActor
     func testAutoDismissErrorIsNil() {
         let item = BannerPresenter.BannerItem(event: self.makeEvent(.network, .error, "network failed"))
         XCTAssertNil(item.autoDismissSeconds)
     }
 
+    @MainActor
     func testDismissAdvancesQueue() {
         self.append(.network, .info, "network satisfied")
         self.append(.tunnel, .info, "connected via local network on port 8080")
@@ -247,6 +265,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "connected via local network on port 8080")
     }
 
+    @MainActor
     func testTapSetsDiagnosticsFlag() {
         self.append(.network, .info, "network satisfied")
         self.presenter.processNewEvents()
@@ -257,6 +276,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testClearAllRemovesEverything() {
         self.append(.network, .info, "network satisfied")
         self.append(.tunnel, .info, "connected via local network on port 8080")
@@ -269,6 +289,7 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertNil(self.presenter.currentBanner)
     }
 
+    @MainActor
     func testRingBufferShrinkageRecovery() {
         self.append(.network, .info, "network satisfied")
         self.presenter.processNewEvents()
@@ -283,11 +304,12 @@ final class BannerPresenterTests: XCTestCase {
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "2 files sent")
     }
 
-    private func append(_ category: DiagnosticCategory, _ severity: DiagnosticSeverity, _ message: String) {
+    @MainActor private func append(_ category: DiagnosticCategory, _ severity: DiagnosticSeverity, _ message: String) {
+        _ = self.presenter
         self.log.append(self.makeEvent(category, severity, message))
     }
 
-    private func makeEvent(_ category: DiagnosticCategory, _ severity: DiagnosticSeverity, _ message: String) -> DiagnosticEvent {
+    @MainActor private func makeEvent(_ category: DiagnosticCategory, _ severity: DiagnosticSeverity, _ message: String) -> DiagnosticEvent {
         DiagnosticEvent(category: category, severity: severity, message: message)
     }
 }

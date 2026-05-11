@@ -3,25 +3,17 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
-@MainActor
-final class ObserverManagerTests: XCTestCase {
-    private var recorder: MockObserverRecorder!
-    private var uploader: ObserverUploader!
-    private var clock: MockObserverClock!
-    private var liveActivity: MockObserverLiveActivity!
-    private var tempDirectory: URL!
-    private var manager: ObserverManager!
-
-    override func setUp() {
-        super.setUp()
-        self.tempDirectory = FileManager.default.temporaryDirectory
+nonisolated final class ObserverManagerTests: XCTestCase {
+    @MainActor private lazy var recorder = MockObserverRecorder()
+    @MainActor private lazy var clock = MockObserverClock()
+    @MainActor private lazy var liveActivity = MockObserverLiveActivity()
+    private lazy var tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObserverManagerTests-\(UUID().uuidString)", isDirectory: true)
+    @MainActor private lazy var uploader: ObserverUploader = {
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
-        self.recorder = MockObserverRecorder()
-        self.clock = MockObserverClock()
-        self.liveActivity = MockObserverLiveActivity()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverManagerURLProtocol.self]
         ObserverManagerURLProtocol.handler = { request in
@@ -30,7 +22,7 @@ final class ObserverManagerTests: XCTestCase {
                 Data("ok".utf8)
             )
         }
-        self.uploader = ObserverUploader(
+        return ObserverUploader(
             cacheRootURL: self.tempDirectory,
             sessionConfiguration: configuration,
             ensureRegistered: { "test-observer-key-abc" },
@@ -39,26 +31,21 @@ final class ObserverManagerTests: XCTestCase {
             sleep: { _ in },
             startPathMonitor: false
         )
-        self.manager = ObserverManager(
-            recorder: self.recorder,
-            uploader: self.uploader,
-            clock: self.clock,
-            liveActivity: self.liveActivity
-        )
-    }
+    }()
+    @MainActor private lazy var manager = ObserverManager(
+        recorder: self.recorder,
+        uploader: self.uploader,
+        clock: self.clock,
+        liveActivity: self.liveActivity
+    )
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: self.tempDirectory)
-        self.manager = nil
-        self.uploader = nil
-        self.recorder = nil
-        self.clock = nil
-        self.liveActivity = nil
-        self.tempDirectory = nil
         ObserverManagerURLProtocol.handler = nil
         super.tearDown()
     }
 
+    @MainActor
     func testStartSessionTransitionsToActive() async {
         await self.manager.startSession(mode: .meeting)
 
@@ -70,6 +57,7 @@ final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.recorder.startCallCount, 1)
     }
 
+    @MainActor
     func testPermissionDeniedTransitionsToError() async {
         self.recorder.permissionGranted = false
 
@@ -78,6 +66,7 @@ final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .error(.permissionDenied))
     }
 
+    @MainActor
     func testClockDrivenSegmentationRotatesChunk() async {
         await self.manager.startSession(mode: .meeting)
         try? await Task.sleep(for: .milliseconds(20))
@@ -92,6 +81,7 @@ final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.recorder.rotateCallCount, 1)
     }
 
+    @MainActor
     func testVoiceMemoSilenceStopsSession() async {
         await self.manager.startSession(mode: .voiceMemo)
 
@@ -103,6 +93,7 @@ final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.recorder.stopCallCount, 1)
     }
 
+    @MainActor
     func testMeetingModeIgnoresSilence() async {
         await self.manager.startSession(mode: .meeting)
 
@@ -115,6 +106,7 @@ final class ObserverManagerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testShortInterruptionResumes() async {
         await self.manager.startSession(mode: .meeting)
 
@@ -132,6 +124,7 @@ final class ObserverManagerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testLongInterruptionStopsWithConflictError() async {
         await self.manager.startSession(mode: .meeting)
 
@@ -144,6 +137,7 @@ final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
     }
 
+    @MainActor
     func testTapToCancelDuringStarting() async {
         self.recorder.permissionDelay = .milliseconds(100)
         let task = Task {
@@ -157,6 +151,7 @@ final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .idle)
     }
 
+    @MainActor
     func testStartSessionIsIdempotentWhenAlreadyActive() async {
         await self.manager.startSession(mode: .meeting)
         await self.manager.startSession(mode: .meeting)
@@ -166,7 +161,13 @@ final class ObserverManagerTests: XCTestCase {
 }
 
 private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable {
-    static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         request.url?.host == "127.0.0.1"

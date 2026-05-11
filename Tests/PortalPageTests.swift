@@ -5,41 +5,22 @@ import XCTest
 import WebKit
 @testable import solstone_swift
 
-@MainActor
-final class PortalPageTests: XCTestCase {
-    private var mockSSH: MockSSHTransport!
-    private var tunnelManager: TunnelManager!
-    private var brainStatusMonitor: BrainStatusMonitor!
-    private var mockEngine: MockPortalWebEngine!
-    private var portalPage: PortalPage!
-    private var cacheDirectory: URL!
-
-    override func setUp() {
-        super.setUp()
-        self.mockSSH = MockSSHTransport()
-        self.tunnelManager = TunnelManager(transport: self.mockSSH)
-        self.brainStatusMonitor = BrainStatusMonitor()
-        self.mockEngine = MockPortalWebEngine()
-        self.cacheDirectory = FileManager.default.temporaryDirectory
+nonisolated final class PortalPageTests: XCTestCase {
+    private lazy var mockSSH = MockSSHTransport()
+    private lazy var cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        self.portalPage = PortalPage(
-            tunnelManager: self.tunnelManager,
-            brainStatusMonitor: self.brainStatusMonitor,
-            cache: PortalCache(cacheDirectory: self.cacheDirectory),
-            webEngine: self.mockEngine
-        )
-    }
+    @MainActor private lazy var tunnelManager = TunnelManager(transport: self.mockSSH)
+    @MainActor private lazy var brainStatusMonitor = BrainStatusMonitor()
+    @MainActor private lazy var mockEngine = MockPortalWebEngine()
+    @MainActor private lazy var portalPage = PortalPage(
+        tunnelManager: self.tunnelManager,
+        brainStatusMonitor: self.brainStatusMonitor,
+        cache: PortalCache(cacheDirectory: self.cacheDirectory),
+        webEngine: self.mockEngine
+    )
 
     override func tearDown() async throws {
-        if let cacheDirectory {
-            try? FileManager.default.removeItem(at: cacheDirectory)
-        }
-        self.cacheDirectory = nil
-        self.portalPage = nil
-        self.mockEngine = nil
-        self.brainStatusMonitor = nil
-        self.tunnelManager = nil
-        self.mockSSH = nil
+        try? FileManager.default.removeItem(at: self.cacheDirectory)
         try await super.tearDown()
     }
 
@@ -50,6 +31,7 @@ final class PortalPageTests: XCTestCase {
 
     // Bridge-message handling (route/ready/brain) is covered in BridgeIntegrationTests.
 
+    @MainActor
     func test_load_requestsExpectedURL() {
         self.portalPage.load(port: 7071)
 
@@ -57,6 +39,7 @@ final class PortalPageTests: XCTestCase {
         XCTAssertEqual(self.mockEngine.lastLoadedURL, URL(string: "http://127.0.0.1:7071/dev/mock-portal"))
     }
 
+    @MainActor
     func test_load_resetsReadyAndCurrentRoute() {
         self.portalPage.isReady = true
         self.portalPage.currentRoute = "/old"
@@ -67,6 +50,7 @@ final class PortalPageTests: XCTestCase {
         XCTAssertEqual(self.portalPage.currentRoute, "")
     }
 
+    @MainActor
     func test_load_samePortIsIdempotent() {
         self.portalPage.load(port: 7071)
         self.portalPage.load(port: 7071)
@@ -74,12 +58,14 @@ final class PortalPageTests: XCTestCase {
         XCTAssertEqual(self.mockEngine.loadCallCount, 1)
     }
 
+    @MainActor
     func test_load_zeroPortIsNoop() {
         self.portalPage.load(port: 0)
 
         XCTAssertEqual(self.mockEngine.loadCallCount, 0)
     }
 
+    @MainActor
     func test_navigate_emitsHashJSAndUpdatesRoute() {
         self.portalPage.navigate(to: "/foo")
 
@@ -88,12 +74,14 @@ final class PortalPageTests: XCTestCase {
         XCTAssertEqual(self.mockEngine.evaluateJavaScriptCallCount, 1)
     }
 
+    @MainActor
     func test_navigate_escapesBackslashAndSingleQuote() {
         self.portalPage.navigate(to: "a'b\\c")
 
         XCTAssertEqual(self.mockEngine.lastEvaluatedScript, "window.location.hash = 'a\\'b\\\\c'")
     }
 
+    @MainActor
     func test_navigate_sameRouteIsIdempotent() {
         self.portalPage.navigate(to: "/foo")
         self.portalPage.navigate(to: "/foo")
@@ -101,6 +89,7 @@ final class PortalPageTests: XCTestCase {
         XCTAssertEqual(self.mockEngine.evaluateJavaScriptCallCount, 1)
     }
 
+    @MainActor
     func test_handleNavigationFailure_loadsErrorPageForNonTunnelError() {
         self.portalPage.load(port: 7071)
         let initialLoadHTMLStringCallCount = self.mockEngine.loadHTMLStringCallCount
@@ -117,6 +106,7 @@ final class PortalPageTests: XCTestCase {
         XCTAssertTrue(self.mockEngine.lastLoadedHTML!.contains("Custom 'error' &amp; &lt;msg&gt;"))
     }
 
+    @MainActor
     func test_load_usesCachedHTMLWhenOffline() throws {
         let cache = PortalCache(cacheDirectory: self.cacheDirectory)
         try cache.storeHTML("<html><body>cached</body></html>", path: "/dev/mock-portal")

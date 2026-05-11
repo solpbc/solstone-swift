@@ -3,13 +3,16 @@
 
 import XCTest
 import Foundation
+import os
 
-final class PostPairStateTests: XCTestCase {
+nonisolated final class PostPairStateTests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
 
+    
+    @MainActor
     func testDayZeroOverlayShowsProgressCounts() throws {
         let app = try self.makeApp()
         app.launch()
@@ -22,6 +25,8 @@ final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.buttons["browse your journal"].waitForExistence(timeout: 5))
     }
 
+    
+    @MainActor
     func testDayOneAcknowledgmentDismissesOnce() throws {
         let app = try self.makeApp()
         app.launch()
@@ -41,6 +46,8 @@ final class PostPairStateTests: XCTestCase {
         XCTAssertFalse(title.waitForExistence(timeout: 5))
     }
 
+    
+    @MainActor
     func testOfflineShellShowsBannerAndVoiceButton() throws {
         let app = try self.makeApp(extraArguments: ["--ui-test-shell-disconnected", "--ui-test-network-unsatisfied"])
         app.launch()
@@ -56,6 +63,8 @@ final class PostPairStateTests: XCTestCase {
     }
 }
 
+
+@MainActor
 private extension PostPairStateTests {
     func makeApp(extraArguments: [String] = []) throws -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
@@ -93,18 +102,18 @@ private extension PostPairStateTests {
         defer { session.invalidateAndCancel() }
 
         let semaphore = DispatchSemaphore(value: 0)
-        var isAvailable = false
+        let isAvailable = OSAllocatedUnfairLock<Bool>(initialState: false)
 
         let task = session.dataTask(with: url) { _, response, _ in
             if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                isAvailable = true
+            isAvailable.withLock { $0 = true }
             }
             semaphore.signal()
         }
         task.resume()
 
         _ = semaphore.wait(timeout: .now() + 2)
-        return isAvailable
+        return isAvailable.withLock { $0 }
     }
 
     func openTodayTabIfNeeded(in app: XCUIApplication) {

@@ -3,9 +3,10 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
-final class PushNotificationManagerTests: XCTestCase {
+nonisolated final class PushNotificationManagerTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
     private var session: URLSession!
@@ -35,6 +36,7 @@ final class PushNotificationManagerTests: XCTestCase {
         try await super.tearDown()
     }
 
+    @MainActor
     func testHexEncodeOfFourByteTokenRegistersHexValue() async {
         PushManagerURLProtocol.handler = { request in
             (
@@ -54,6 +56,7 @@ final class PushNotificationManagerTests: XCTestCase {
         XCTAssertEqual(manager.registrationState, .registered(token: "deadbeef"))
     }
 
+    @MainActor
     func testRegisterBodyMatchesContract() async throws {
         PushManagerURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
@@ -78,6 +81,7 @@ final class PushNotificationManagerTests: XCTestCase {
         await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
     }
 
+    @MainActor
     func testRetryBackoffTriggersThreeAttemptsOnServerFailure() async {
         let sleepRecorder = DelayRecorder()
         PushManagerURLProtocol.handler = { request in
@@ -103,6 +107,7 @@ final class PushNotificationManagerTests: XCTestCase {
         XCTAssertEqual(manager.registrationState, .failed(reason: "HTTP 503"))
     }
 
+    @MainActor
     func testPendingTokenPersistedOnFailure() async {
         PushManagerURLProtocol.handler = { request in
             (
@@ -121,6 +126,7 @@ final class PushNotificationManagerTests: XCTestCase {
         XCTAssertEqual(self.defaults.string(forKey: "push.pendingRegistrationToken"), "aabbccdd")
     }
 
+    @MainActor
     func testSameTokenSkipsNetworkRegistration() async {
         self.defaults.set("deadbeef", forKey: "push.lastRegisteredToken")
         self.defaults.set("development", forKey: "push.lastRegisteredEnvironment")
@@ -143,7 +149,7 @@ final class PushNotificationManagerTests: XCTestCase {
         XCTAssertEqual(manager.registrationState, .registered(token: "deadbeef"))
     }
 
-    private func makeManager(
+    @MainActor private func makeManager(
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
     ) -> PushNotificationManager {
@@ -159,8 +165,18 @@ final class PushNotificationManagerTests: XCTestCase {
 }
 
 private final class PushManagerURLProtocol: URLProtocol, @unchecked Sendable {
-    static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
-    static var callCount = 0
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var callCount: Int {
+        get { self.callCountBox.withLock { $0 } }
+        set { self.callCountBox.withLock { $0 = newValue } }
+    }
 
     nonisolated override class func canInit(with request: URLRequest) -> Bool {
         request.url?.host == "127.0.0.1"
@@ -171,7 +187,7 @@ private final class PushManagerURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     nonisolated override func startLoading() {
-        Self.callCount += 1
+        Self.callCountBox.withLock { $0 += 1 }
         guard let handler = Self.handler else {
             XCTFail("PushManagerURLProtocol handler not set")
             return

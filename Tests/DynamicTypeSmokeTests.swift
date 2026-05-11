@@ -5,8 +5,8 @@
 import SwiftUI
 import XCTest
 
-@MainActor
-final class DynamicTypeSmokeTests: XCTestCase {
+nonisolated final class DynamicTypeSmokeTests: XCTestCase {
+    @MainActor
     func testOnboardingTodayMoreAndSenseRenderAtAccessibilityXXXL() throws {
         let appConfig = AppConfig(
             defaults: UserDefaults(suiteName: "DynamicTypeSmokeTests.\(UUID().uuidString)")!,
@@ -87,11 +87,10 @@ final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(senseView.environment(\.dynamicTypeSize, .accessibility3))
     }
 
-    private func assertHosted<V: View>(_ view: V) throws {
+    @MainActor private func assertHosted<V: View>(_ view: V) throws {
         let controller = UIHostingController(rootView: view)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
         XCTAssertGreaterThan(controller.view.systemLayoutSizeFitting(CGSize(width: 393, height: 852)).height, 0)

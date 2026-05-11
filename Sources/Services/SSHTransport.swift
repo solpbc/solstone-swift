@@ -10,11 +10,11 @@ import NIOSSH
 import NIOTransportServices
 import os
 
-private let log = Logger(subsystem: "app.solstone.swift", category: "ssh-transport")
+nonisolated private let log = Logger(subsystem: "app.solstone.swift", category: "ssh-transport")
 // Server-side spawn command (path + flags) is owned by the journal server
 // repo, not solstone-swift. This is a placeholder stub; the real value will
 // be wired in once the server exposes the solstone-hub interface.
-private let remoteHubSpawnCommand = "exec solstone-hub --port 0"
+nonisolated private let remoteHubSpawnCommand = "exec solstone-hub --port 0"
 
 nonisolated protocol SSHTransporting: Sendable {
     func probeLAN() async -> Bool

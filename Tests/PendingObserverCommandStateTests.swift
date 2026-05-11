@@ -4,7 +4,8 @@
 @testable import solstone_swift
 import XCTest
 
-final class PendingObserverCommandStateTests: XCTestCase {
+nonisolated final class PendingObserverCommandStateTests: XCTestCase {
+    @MainActor
     func testSetAndClearCommand() {
         let state = PendingObserverCommandState()
 

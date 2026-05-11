@@ -4,7 +4,7 @@
 import Foundation
 import os
 
-private struct ObserverActionResponse: Decodable {
+private nonisolated struct ObserverActionResponse: Decodable {
     let actions: [Payload]
     let consumed: Bool
 

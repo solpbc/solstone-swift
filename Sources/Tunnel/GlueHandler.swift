@@ -29,7 +29,7 @@ nonisolated final class GlueHandler: @unchecked Sendable {
 }
 
 extension GlueHandler {
-    static func matchedPair() -> (GlueHandler, GlueHandler) {
+    nonisolated static func matchedPair() -> (GlueHandler, GlueHandler) {
         let first = GlueHandler()
         let second = GlueHandler()
 
@@ -41,40 +41,40 @@ extension GlueHandler {
 }
 
 extension GlueHandler {
-    private func partnerWrite(_ data: NIOAny) {
+    nonisolated private func partnerWrite(_ data: NIOAny) {
         self.context?.write(data, promise: nil)
     }
 
-    private func partnerFlush() {
+    nonisolated private func partnerFlush() {
         self.context?.flush()
     }
 
-    private func partnerWriteEOF() {
+    nonisolated private func partnerWriteEOF() {
         self.context?.close(mode: .output, promise: nil)
     }
 
-    private func partnerCloseFull() {
+    nonisolated private func partnerCloseFull() {
         self.context?.close(promise: nil)
     }
 
-    private func partnerBecameWritable() {
+    nonisolated private func partnerBecameWritable() {
         if self.pendingRead {
             self.pendingRead = false
             self.context?.read()
         }
     }
 
-    private var partnerWritable: Bool {
+    nonisolated private var partnerWritable: Bool {
         self.context?.channel.isWritable ?? false
     }
 }
 
-extension GlueHandler: ChannelDuplexHandler {
+nonisolated extension GlueHandler: ChannelDuplexHandler {
     typealias InboundIn = NIOAny
     typealias OutboundIn = NIOAny
     typealias OutboundOut = NIOAny
 
-    func handlerAdded(context: ChannelHandlerContext) {
+    nonisolated func handlerAdded(context: ChannelHandlerContext) {
         self.context = context
 
         if context.channel.isWritable {
@@ -82,40 +82,40 @@ extension GlueHandler: ChannelDuplexHandler {
         }
     }
 
-    func handlerRemoved(context: ChannelHandlerContext) {
+    nonisolated func handlerRemoved(context: ChannelHandlerContext) {
         self.context = nil
         self.partner = nil
     }
 
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+    nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         self.partner?.partnerWrite(data)
     }
 
-    func channelReadComplete(context: ChannelHandlerContext) {
+    nonisolated func channelReadComplete(context: ChannelHandlerContext) {
         self.partner?.partnerFlush()
     }
 
-    func channelInactive(context: ChannelHandlerContext) {
+    nonisolated func channelInactive(context: ChannelHandlerContext) {
         self.partner?.partnerCloseFull()
     }
 
-    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+    nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if let event = event as? ChannelEvent, case .inputClosed = event {
             self.partner?.partnerWriteEOF()
         }
     }
 
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
+    nonisolated func errorCaught(context: ChannelHandlerContext, error: Error) {
         self.partner?.partnerCloseFull()
     }
 
-    func channelWritabilityChanged(context: ChannelHandlerContext) {
+    nonisolated func channelWritabilityChanged(context: ChannelHandlerContext) {
         if context.channel.isWritable {
             self.partner?.partnerBecameWritable()
         }
     }
 
-    func read(context: ChannelHandlerContext) {
+    nonisolated func read(context: ChannelHandlerContext) {
         if let partner = self.partner, partner.partnerWritable {
             context.read()
         } else {
