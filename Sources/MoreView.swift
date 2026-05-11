@@ -401,18 +401,14 @@ struct MoreView: View {
     }
 
     private func saveBriefingTime() async {
-        guard let sessionKey = self.appConfig.currentSessionKey() else {
-            self.briefingError = "missing pairing session."
-            return
-        }
         let components = Calendar.current.dateComponents([.hour, .minute], from: self.selectedBriefingTime)
         do {
-            try await self.pairingClient.setBriefingTime(
+            let client = HomeAPIClient(loopbackPort: self.localPort)
+            try await client.setBriefingTime(BriefingTime(
                 hour: components.hour ?? 7,
                 minute: components.minute ?? 0,
-                tzIdentifier: TimeZone.current.identifier,
-                sessionKey: sessionKey
-            )
+                tzIdentifier: TimeZone.current.identifier
+            ))
             self.briefingError = nil
         } catch {
             self.briefingError = "unable to save briefing time."
@@ -420,17 +416,7 @@ struct MoreView: View {
     }
 
     private func unpairDevice() async {
-        if let sessionKey = self.appConfig.currentSessionKey(), !self.appConfig.deviceID.isEmpty {
-            do {
-                moreLog.info("unpair starting for device \(self.appConfig.deviceID, privacy: .public)")
-                try await self.pairingClient.unpair(deviceID: self.appConfig.deviceID, sessionKey: sessionKey)
-                moreLog.info("unpair request completed")
-            } catch {
-                moreLog.error("unpair request failed: \(String(describing: error), privacy: .public)")
-            }
-        } else {
-            moreLog.error("unpair skipped: missing session or device id")
-        }
+        moreLog.info("unpair clearing local SPL pairing")
         self.appConfig.clearPairing()
         self.onboardingFlow.reset()
         await self.tunnelManager.disconnect()

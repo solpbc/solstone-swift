@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import SPLTunnel
 import os
 
 private let appConfigLog = Logger(subsystem: "app.solstone.swift", category: "app-config")
@@ -10,16 +11,6 @@ private let appConfigLog = Logger(subsystem: "app.solstone.swift", category: "ap
 @MainActor
 @Observable
 final class AppConfig {
-    private enum DefaultsKey {
-        static let host = "pairing.host"
-        static let port = "pairing.port"
-        static let journalRoot = "pairing.journalRoot"
-        static let ownerIdentity = "pairing.ownerIdentity"
-        static let deviceID = "pairing.deviceID"
-        static let serverVersion = "pairing.serverVersion"
-        static let seededPairSession = "pairing.seededPairSession"
-    }
-
     var host: String
     var port: Int
     var journalRoot: String
@@ -27,65 +18,26 @@ final class AppConfig {
     var deviceID: String
     var serverVersion: String
     var isPaired: Bool
+    var homeLabel: String
+    var caFingerprintHex: String
+    var pairedAt: Date?
+    var loopbackPort: Int?
 
-    @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let loadPairSession: @Sendable () throws -> String?
-    @ObservationIgnored private let savePairSession: @Sendable (String) throws -> Void
-    @ObservationIgnored private let deletePairSession: @Sendable () throws -> Void
-    @ObservationIgnored private let deletePairIdentity: @Sendable () throws -> Void
-    @ObservationIgnored private var seededPairSession: String?
+    @ObservationIgnored private let loadPairing: @Sendable () throws -> StoredPairing?
+    @ObservationIgnored private let savePairing: @Sendable (StoredPairing) throws -> Void
+    @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
+    @ObservationIgnored private let endpointCache: EndpointCache
 
     init(
-        defaults: UserDefaults = .standard,
-        loadPairSession: @escaping @Sendable () throws -> String? = { try KeychainStore.loadPairSession() },
-        savePairSession: @escaping @Sendable (String) throws -> Void = { try KeychainStore.savePairSession($0) },
-        deletePairSession: @escaping @Sendable () throws -> Void = { try KeychainStore.deletePairSession() },
-        deletePairIdentity: @escaping @Sendable () throws -> Void = { try KeychainStore.deletePairIdentity() }
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
+        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLKeychain.save($0) },
+        deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
+        endpointCache: EndpointCache = EndpointCache()
     ) {
-        self.defaults = defaults
-        self.loadPairSession = loadPairSession
-        self.savePairSession = savePairSession
-        self.deletePairSession = deletePairSession
-        self.deletePairIdentity = deletePairIdentity
-        self.seededPairSession = nil
-        self.host = defaults.string(forKey: DefaultsKey.host) ?? ""
-        self.port = defaults.object(forKey: DefaultsKey.port) as? Int ?? 22
-        self.journalRoot = defaults.string(forKey: DefaultsKey.journalRoot) ?? ""
-        self.ownerIdentity = defaults.string(forKey: DefaultsKey.ownerIdentity) ?? ""
-        self.deviceID = defaults.string(forKey: DefaultsKey.deviceID) ?? ""
-        self.serverVersion = defaults.string(forKey: DefaultsKey.serverVersion) ?? ""
-        let existingSession = try? loadPairSession()
-        switch existingSession {
-        case .some(let session):
-            self.isPaired = !session.isEmpty
-        default:
-            self.isPaired = false
-        }
-    }
-
-    func applyPairConfirm(_ response: PairConfirmResponse) throws {
-        try self.savePairSession(response.sessionKey)
-        self.seededPairSession = response.sessionKey
-        self.host = response.host
-        self.port = response.port
-        self.journalRoot = response.journalRoot
-        self.ownerIdentity = response.ownerIdentity
-        self.deviceID = response.deviceID
-        self.serverVersion = response.serverVersion ?? ""
-        self.isPaired = true
-        self.defaults.removeObject(forKey: DefaultsKey.seededPairSession)
-        self.persist()
-        appConfigLog.info("pairing applied for host \(response.host, privacy: .public)")
-    }
-
-    func clearPairing() {
-        do {
-            try self.deletePairSession()
-            try self.deletePairIdentity()
-        } catch {
-            appConfigLog.error("clear pairing keychain failed: \(String(describing: error), privacy: .public)")
-        }
-
+        self.loadPairing = loadPairing
+        self.savePairing = savePairing
+        self.deletePairing = deletePairing
+        self.endpointCache = endpointCache
         self.host = ""
         self.port = 22
         self.journalRoot = ""
@@ -93,27 +45,81 @@ final class AppConfig {
         self.deviceID = ""
         self.serverVersion = ""
         self.isPaired = false
-        self.seededPairSession = nil
-        self.defaults.removeObject(forKey: DefaultsKey.host)
-        self.defaults.removeObject(forKey: DefaultsKey.port)
-        self.defaults.removeObject(forKey: DefaultsKey.journalRoot)
-        self.defaults.removeObject(forKey: DefaultsKey.ownerIdentity)
-        self.defaults.removeObject(forKey: DefaultsKey.deviceID)
-        self.defaults.removeObject(forKey: DefaultsKey.serverVersion)
-        self.defaults.removeObject(forKey: DefaultsKey.seededPairSession)
+        self.homeLabel = ""
+        self.caFingerprintHex = ""
+        self.pairedAt = nil
+        self.loopbackPort = nil
+
+        do {
+            if let pairing = try loadPairing() {
+                self.applyDerivedState(from: pairing)
+            }
+        } catch {
+            appConfigLog.error("load stored pairing failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    func applyPairing(_ pairing: StoredPairing) throws {
+        try self.savePairing(pairing)
+        self.applyDerivedState(from: pairing)
+        Task {
+            await self.endpointCache.bootstrap(from: pairing)
+        }
+        appConfigLog.info("pairing applied for \(pairing.homeLabel, privacy: .public)")
+    }
+
+    // TEMP: removed in commit 7 with the legacy PairScreen.
+    func applyPairConfirm(_ response: PairConfirmResponse) throws {
+        let pairing = StoredPairing(
+            instanceID: response.deviceID,
+            homeLabel: response.ownerIdentity.isEmpty ? "solstone" : response.ownerIdentity,
+            relayEndpoint: Self.defaultRelayEndpoint,
+            fingerprint: Self.syntheticFingerprint,
+            clientCertPEM: Self.syntheticCertificatePEM,
+            clientKeyPEM: Self.syntheticPrivateKeyPEM,
+            caChainPEM: Self.syntheticCertificatePEM,
+            deviceToken: response.sessionKey,
+            localEndpoints: [
+                LocalEndpoint(host: response.host, port: response.port, scope: "")
+            ],
+            pairedAt: Date()
+        )
+        try self.applyPairing(pairing)
+        self.journalRoot = response.journalRoot
+        self.host = response.host
+        self.port = response.port
+        self.loopbackPort = response.port
+        self.deviceID = response.deviceID
+        self.serverVersion = response.serverVersion ?? ""
+        appConfigLog.info("temporary legacy pairing applied for host \(response.host, privacy: .public)")
+    }
+
+    func clearPairing() {
+        do {
+            try self.deletePairing()
+        } catch {
+            appConfigLog.error("clear pairing keychain failed: \(String(describing: error), privacy: .public)")
+        }
+
+        Task {
+            await self.endpointCache.wipe()
+        }
+        self.host = ""
+        self.port = 22
+        self.journalRoot = ""
+        self.ownerIdentity = ""
+        self.deviceID = ""
+        self.serverVersion = ""
+        self.isPaired = false
+        self.homeLabel = ""
+        self.caFingerprintHex = ""
+        self.pairedAt = nil
+        self.loopbackPort = nil
         appConfigLog.info("pairing cleared")
     }
 
     func currentSessionKey() -> String? {
-        if let seededPairSession, !seededPairSession.isEmpty {
-            return seededPairSession
-        }
-        switch try? self.loadPairSession() {
-        case .some(let session):
-            return session
-        default:
-            return self.defaults.string(forKey: DefaultsKey.seededPairSession)
-        }
+        nil
     }
 
     func seedUITestPairing(
@@ -123,30 +129,88 @@ final class AppConfig {
         deviceID: String = "ui-test-device",
         sessionKey: String? = nil
     ) {
-        self.host = host
-        self.port = port
+        let endpointPort = Self.endpointPort(from: journalRoot)
+            ?? Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "")
+            ?? port
+        let endpointHost = URL(string: journalRoot)?.host ?? host
+        let pairing = StoredPairing(
+            instanceID: "ui-test-instance",
+            homeLabel: "ui-test-solstone",
+            relayEndpoint: "ws://127.0.0.1:\(endpointPort)",
+            fingerprint: Self.syntheticFingerprint,
+            clientCertPEM: Self.syntheticCertificatePEM,
+            clientKeyPEM: Self.syntheticPrivateKeyPEM,
+            caChainPEM: Self.syntheticCertificatePEM,
+            deviceToken: sessionKey ?? "ui-test-device-token",
+            localEndpoints: [
+                LocalEndpoint(host: endpointHost, port: endpointPort, scope: "")
+            ],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
+
+        do {
+            try self.applyPairing(pairing)
+        } catch {
+            appConfigLog.error("ui-test pairing seed save failed: \(String(describing: error), privacy: .public)")
+            self.applyDerivedState(from: pairing)
+        }
         self.journalRoot = journalRoot
-        self.ownerIdentity = "sol"
+        self.host = host
+        self.port = endpointPort
+        self.loopbackPort = endpointPort
         self.deviceID = deviceID
         self.serverVersion = "ui-test"
-        self.isPaired = true
-        if let sessionKey {
-            self.seededPairSession = sessionKey
-            self.defaults.set(sessionKey, forKey: DefaultsKey.seededPairSession)
-            try? self.savePairSession(sessionKey)
-        } else {
-            self.seededPairSession = nil
-            self.defaults.removeObject(forKey: DefaultsKey.seededPairSession)
-        }
-        self.persist()
     }
 
-    private func persist() {
-        self.defaults.set(self.host, forKey: DefaultsKey.host)
-        self.defaults.set(self.port, forKey: DefaultsKey.port)
-        self.defaults.set(self.journalRoot, forKey: DefaultsKey.journalRoot)
-        self.defaults.set(self.ownerIdentity, forKey: DefaultsKey.ownerIdentity)
-        self.defaults.set(self.deviceID, forKey: DefaultsKey.deviceID)
-        self.defaults.set(self.serverVersion, forKey: DefaultsKey.serverVersion)
+    private func applyDerivedState(from pairing: StoredPairing) {
+        let firstEndpoint = pairing.localEndpoints.first
+        self.host = firstEndpoint?.host ?? URL(string: pairing.relayEndpoint)?.host ?? ""
+        self.port = firstEndpoint?.port ?? URL(string: pairing.relayEndpoint)?.port ?? 443
+        self.journalRoot = firstEndpoint.map { "http://127.0.0.1:\($0.port)" } ?? ""
+        self.ownerIdentity = pairing.homeLabel
+        self.deviceID = pairing.instanceID
+        self.serverVersion = ""
+        self.isPaired = true
+        self.homeLabel = pairing.homeLabel
+        self.caFingerprintHex = Self.normalizedFingerprint(pairing.fingerprint)
+        self.pairedAt = pairing.pairedAt
+        self.loopbackPort = firstEndpoint?.port
     }
+
+    private static func normalizedFingerprint(_ fingerprint: String) -> String {
+        let lower = fingerprint.lowercased()
+        if lower.hasPrefix("sha256:") {
+            return String(lower.dropFirst("sha256:".count))
+        }
+        return lower
+    }
+
+    private static func endpointPort(from journalRoot: String) -> Int? {
+        guard let url = URL(string: journalRoot) else { return nil }
+        return url.port
+    }
+
+    private static let defaultRelayEndpoint = "https://spl-relay-staging.jer-3f2.workers.dev"
+    private static let syntheticFingerprint = String(repeating: "a", count: 64)
+    private static let syntheticCertificatePEM = """
+    -----BEGIN CERTIFICATE-----
+    MIIBsjCCAVigAwIBAgIJAO0AAAAAAAAAMAoGCCqGSM49BAMCMBcxFTATBgNVBAMM
+    DHVpLXRlc3QtY2VydDAeFw0yNjAxMDEwMDAwMDBaFw0yNzAxMDEwMDAwMDBaMBcx
+    FTATBgNVBAMMDHVpLXRlc3QtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
+    BAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaajUzBRMB0G
+    A1UdDgQWBBSaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAfBgNVHSMEGDAWgBSa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAPBgNVHRMBAf8EBTADAQH/MAoGCCqG
+    SM49BAMCA0gAMEUCIQDaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaIgIgDaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
+    -----END CERTIFICATE-----
+    """
+    private static let syntheticPrivateKeyPEM = """
+    -----BEGIN PRIVATE KEY-----
+    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaahRANCAASaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    -----END PRIVATE KEY-----
+    """
 }

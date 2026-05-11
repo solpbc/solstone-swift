@@ -172,6 +172,7 @@ struct MainTabView: View {
             if self.selectedTab == .today && self.tunnelManager.state.isConnected {
                 DayZeroOverlayView(
                     pairingClient: self.pairingClient,
+                    localPort: self.localPort,
                     onBrowseJournal: {
                         self.selectedTab = .today
                         self.portalPage.navigate(to: AppTab.today.route)

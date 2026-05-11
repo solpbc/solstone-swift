@@ -325,7 +325,7 @@ private extension SolstoneSwiftApp {
         defaults.removeObject(forKey: "onboarding.step")
         defaults.removeObject(forKey: "onboarding.completed")
         defaults.removeObject(forKey: "briefing.firstSeen")
-        AppConfig(defaults: defaults).clearPairing()
+        AppConfig().clearPairing()
     }
 
     static func makeObserverRecorder() -> any ObserverRecording {

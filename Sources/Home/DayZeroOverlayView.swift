@@ -11,6 +11,7 @@ struct DayZeroOverlayView: View {
     @AppStorage("briefing.firstSeen") private var hasSeenFirstBriefing = false
 
     let pairingClient: any PairingClient
+    let localPort: Int
     let onBrowseJournal: () -> Void
 
     @State private var snapshot: ProgressSnapshot?
@@ -111,17 +112,14 @@ private extension DayZeroOverlayView {
 
     func startPolling() async {
         homeLog.info("day-zero startPolling invoked")
-        guard let sessionKey = self.appConfig.currentSessionKey() else {
-            homeLog.error("day-zero polling skipped: missing pair session")
-            return
-        }
         homeLog.info("day-zero polling started")
         self.isLoading = true
         defer { self.isLoading = false }
+        let client = HomeAPIClient(loopbackPort: self.localPort)
 
         while !Task.isCancelled && !self.hasSeenFirstBriefing {
             do {
-                self.snapshot = try await self.pairingClient.progressToday(sessionKey: sessionKey)
+                self.snapshot = try await client.progressToday()
             } catch {
                 self.snapshot = nil
                 homeLog.error("day-zero progress poll failed: \(String(describing: error), privacy: .public)")

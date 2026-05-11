@@ -86,9 +86,9 @@ struct BriefingTimeScreen: View {
 
 private extension BriefingTimeScreen {
     func saveSelectedTime() async {
-        guard let sessionKey = self.appConfig.currentSessionKey() else {
-            self.errorMessage = "missing pairing session."
-            onboardingBriefingLog.error("onboarding briefing save missing session")
+        guard let port = self.appConfig.loopbackPort else {
+            self.errorMessage = "missing local connection."
+            onboardingBriefingLog.error("onboarding briefing save missing loopback port")
             return
         }
 
@@ -98,12 +98,12 @@ private extension BriefingTimeScreen {
         let components = Calendar.current.dateComponents([.hour, .minute], from: self.selectedTime)
 
         do {
-            try await self.pairingClient.setBriefingTime(
+            let client = HomeAPIClient(loopbackPort: port)
+            try await client.setBriefingTime(BriefingTime(
                 hour: components.hour ?? 7,
                 minute: components.minute ?? 0,
-                tzIdentifier: TimeZone.current.identifier,
-                sessionKey: sessionKey
-            )
+                tzIdentifier: TimeZone.current.identifier
+            ))
             self.errorMessage = nil
             onboardingBriefingLog.info("onboarding briefing time saved")
             self.onComplete()
