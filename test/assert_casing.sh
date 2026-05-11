@@ -13,7 +13,10 @@ RAW_MATCHES="$("${SCAN_CMD[@]}" || true)"
 STRUCTURAL_SKIP_REGEX='accessibilityHint\(|accessibilityLabel\(|accessibilityIdentifier\(|Logger\(|Image\("|Color\("|font\(\.custom\("|subsystem:|category:'
 FILTERED="$(printf '%s\n' "$RAW_MATCHES" | grep -Ev "$STRUCTURAL_SKIP_REGEX" || true)"
 
-mapfile -t ALLOWLIST < <(grep -Ev '^\s*(#|$)' "$ALLOWLIST_FILE")
+ALLOWLIST=()
+while IFS= read -r entry; do
+  ALLOWLIST+=("$entry")
+done < <(grep -Ev '^\s*(#|$)' "$ALLOWLIST_FILE")
 
 failures=()
 while IFS= read -r match; do
