@@ -19,12 +19,6 @@ packages:
   SwiftCrypto:
     url: https://github.com/apple/swift-crypto.git
     from: "3.0.0"
-  swift-nio-ssh:
-    url: https://github.com/apple/swift-nio-ssh
-    from: "0.12.0"
-  swift-nio-transport-services:
-    url: https://github.com/apple/swift-nio-transport-services
-    from: "1.21.0"
   WebRTC:
     url: https://github.com/stasel/WebRTC
     from: "147.0.0"
@@ -53,10 +47,6 @@ targets:
       - path: Sources
         excludes:
           - SPLTunnel
-          - Services/SSHTransport.swift
-          - Tunnel/GlueHandler.swift
-          - Tunnel/HostKeyValidator.swift
-          - Tunnel/PortForwardingServer.swift
     entitlements:
       path: Sources/solstone-swift.entitlements
       properties:
@@ -98,10 +88,6 @@ targets:
         embed: true
       - target: SolstoneLiveActivityWidget
         embed: true
-      - package: swift-nio-ssh
-        product: NIOSSH
-      - package: swift-nio-transport-services
-        product: NIOTransportServices
       - package: WebRTC
         product: WebRTC
   SolstoneNotificationContent:

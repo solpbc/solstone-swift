@@ -44,9 +44,9 @@ final class ObserverRegistration {
         urlBuilder: @escaping @Sendable (Int) -> URL? = { ObserverServerURL.registrationURL(localPort: $0) },
         retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000, 8_000_000_000, 16_000_000_000],
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in try? await Task.sleep(nanoseconds: delay) },
-        loadKey: @escaping @Sendable () throws -> String? = { try KeychainStore.loadObserverIngestKey() },
-        saveKey: @escaping @Sendable (String) throws -> Void = { try KeychainStore.saveObserverIngestKey($0) },
-        deleteKey: @escaping @Sendable () throws -> Void = { try KeychainStore.deleteObserverIngestKey() }
+        loadKey: @escaping @Sendable () throws -> String? = { try ObserverKeychain.loadObserverIngestKey() },
+        saveKey: @escaping @Sendable (String) throws -> Void = { try ObserverKeychain.saveObserverIngestKey($0) },
+        deleteKey: @escaping @Sendable () throws -> Void = { try ObserverKeychain.deleteObserverIngestKey() }
     ) {
         self.session = session
         self.urlBuilder = urlBuilder
