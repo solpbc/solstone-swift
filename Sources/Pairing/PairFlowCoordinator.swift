@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import Foundation
+import Observation
+import SPLTunnel
+import UIKit
+import os
+
+private let pairFlowLog = Logger(subsystem: "app.solstone.swift", category: "pair-flow")
+
+enum SPLPairingConstants {
+    static let relayEndpoint = URL(string: "https://spl-relay-staging.jer-3f2.workers.dev")!
+}
+
+enum PairFlowState: Equatable, Sendable {
+    case idle
+    case scanning
+    case entering
+    case pairing
+    case failed(error: String)
+    case success
+}
+
+@MainActor
+@Observable
+final class PairFlowCoordinator {
+    var state: PairFlowState = .idle
+
+    private let pairClient: PairClient
+    private let endpointCache: EndpointCache
+
+    init(
+        pairClient: PairClient = PairClient(),
+        endpointCache: EndpointCache = EndpointCache()
+    ) {
+        self.pairClient = pairClient
+        self.endpointCache = endpointCache
+    }
+
+    func handlePairURL(_ pairURL: PairURL) async throws {
+        state = .pairing
+        do {
+            let pairing = try await pairClient.pair(
+                pairURL: pairURL,
+                deviceLabel: Self.deviceLabel(),
+                relayEndpoint: SPLPairingConstants.relayEndpoint
+            )
+            try SPLKeychain.save(pairing)
+            await endpointCache.bootstrap(from: pairing)
+            state = .success
+            pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
+        } catch {
+            let message = Self.message(for: error)
+            state = .failed(error: message)
+            pairFlowLog.error("pairing failed: \(String(describing: error), privacy: .public)")
+            throw error
+        }
+    }
+
+    func unpair() async {
+        do {
+            try SPLKeychain.delete()
+        } catch {
+            pairFlowLog.error("unpair keychain delete failed: \(String(describing: error), privacy: .public)")
+        }
+        await endpointCache.wipe()
+        state = .idle
+    }
+
+    private static func deviceLabel() -> String {
+        "\(UIDevice.current.name)'s \(UIDevice.current.model)"
+    }
+
+    private static func message(for error: Error) -> String {
+        switch error {
+        case PairError.lanCAFingerprintMismatch:
+            "this isn't your solstone — re-pair if you intended to."
+        case PairError.nonceExpired:
+            "this pairing code has expired."
+        default:
+            "pairing failed. Try again."
+        }
+    }
+}

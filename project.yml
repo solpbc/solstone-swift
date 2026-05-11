@@ -59,6 +59,8 @@ targets:
         com.apple.security.application-groups:
           - group.app.solstone.swift
         aps-environment: development
+        com.apple.developer.associated-domains:
+          - applinks:link.solpbc.org
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -67,6 +69,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start, storing them in your private journal. Nothing is shared with sol pbc."
+        INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your solstone's pairing code"
         INFOPLIST_KEY_UIBackgroundModes:
           - audio
           - fetch
