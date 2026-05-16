@@ -155,8 +155,8 @@ struct MoreView: View {
             }
 
             Section {
-                LabeledContent("method", value: self.via == .lan ? "local network" : "remote server")
-                LabeledContent("server", value: self.serverHost)
+                LabeledContent("method", value: self.via == .lan ? "local network" : "remote journal")
+                LabeledContent("journal", value: self.serverHost)
                 LabeledContent("uptime") {
                     Text(self.connectedSince, style: .timer)
                 }
@@ -330,10 +330,10 @@ struct MoreView: View {
                 } label: {
                     Text("about solstone")
                 }
-                .accessibilityHint("Opens an about screen with version, server, and credits")
+                .accessibilityHint("Opens an about screen with app, journal, and credits")
 
                 LabeledContent("version", value: self.versionString)
-                LabeledContent("server", value: self.appConfig.serverVersion.isEmpty ? "unknown" : self.appConfig.serverVersion)
+                LabeledContent("journal", value: self.appConfig.serverVersion.isEmpty ? "unknown" : self.appConfig.serverVersion)
                 LabeledContent("journal root", value: self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot)
             }
 

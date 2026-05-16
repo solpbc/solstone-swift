@@ -53,7 +53,7 @@ struct AboutView: View {
                 Section {
                     LabeledContent("version", value: self.version)
                     LabeledContent("build", value: self.build)
-                    LabeledContent("server", value: self.server)
+                    LabeledContent("journal", value: self.server)
                     LabeledContent("owner", value: self.owner)
                     LabeledContent("device", value: self.device)
                     LabeledContent("journal root", value: self.journalRoot)

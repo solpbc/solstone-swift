@@ -161,7 +161,7 @@ final class TunnelManager {
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,
-                    message: "connected via \(endpoint == .lan ? "local network" : "remote server") on port \(localPort)"
+                    message: "connected via \(endpoint == .lan ? "local network" : "remote journal") on port \(localPort)"
                 )
                 self.retryDelay = self.initialRetryDelay
                 self.cancelReconnect()

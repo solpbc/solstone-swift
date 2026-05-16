@@ -116,9 +116,9 @@ struct ContentView: View {
             }
             let message: String? = switch newState {
             case .connecting(let via):
-                via == .lan ? "connecting via local network" : "connecting via remote server"
+                via == .lan ? "connecting via local network" : "connecting via remote journal"
             case .connected(_, let via):
-                via == .lan ? "connected via local network" : "connected via remote server"
+                via == .lan ? "connected via local network" : "connected via remote journal"
             case .error(let error):
                 "connection error, \(error.userMessage)"
             case .disconnected:
@@ -468,7 +468,7 @@ struct ConnectingView: View {
                     switch self.state {
                     case .connecting(let via):
                         ProgressView()
-                            .accessibilityLabel("connecting to server")
+                            .accessibilityLabel("connecting to your journal")
                         Text(via == .lan ? "connecting (LAN)…" : "connecting (remote)…")
                             .foregroundStyle(.secondary)
                         Button {
@@ -533,7 +533,7 @@ struct ConnectingView: View {
                         }
                         Button("try again", action: self.onRetry)
                             .buttonStyle(.borderedProminent)
-                        .accessibilityHint("attempts to reconnect to the server")
+                        .accessibilityHint("attempts to reconnect to your journal")
                         Button("settings", action: self.onOpenSettings)
                             .buttonStyle(.bordered)
                             .accessibilityHint("opens app settings")
@@ -542,7 +542,7 @@ struct ConnectingView: View {
                             .foregroundStyle(.secondary)
                         Button("try again", action: self.onRetry)
                             .buttonStyle(.borderedProminent)
-                            .accessibilityHint("attempts to reconnect to the server")
+                            .accessibilityHint("attempts to reconnect to your journal")
                         Button("settings", action: self.onOpenSettings)
                             .buttonStyle(.bordered)
                             .accessibilityHint("opens app settings")
