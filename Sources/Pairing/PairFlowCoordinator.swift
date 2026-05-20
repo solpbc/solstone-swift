@@ -74,6 +74,20 @@ final class PairFlowCoordinator {
 
     private static func message(for error: Error) -> String {
         switch error {
+        // These PairURL parse cases are latent while UniversalLinkRouter.route swallows parser errors via try?.
+        case PairURLError.wrongScheme,
+             PairURLError.wrongHost,
+             PairURLError.wrongPath,
+             PairURLError.missingFragment,
+             PairURLError.malformedOuterURL:
+            "this link doesn't look like a pair link."
+        case PairURLError.invalidBase32,
+             PairURLError.invalidLength:
+            "pair link is damaged."
+        case PairURLError.invalidVersion:
+            "this pair link is from a newer version of solstone."
+        case PairURLError.unsupportedAddrType:
+            "pair link uses an address type this device doesn't support."
         case PairError.lanCAFingerprintMismatch:
             "this isn't your solstone — re-pair if you intended to."
         case PairError.nonceExpired:

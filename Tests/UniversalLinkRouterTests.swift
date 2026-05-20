@@ -7,74 +7,33 @@ import XCTest
 
 nonisolated final class UniversalLinkRouterTests: XCTestCase {
     @MainActor
-    func testValidFragmentParses() throws {
-        let url = Self.validURL()
-        let pairURL = try XCTUnwrap(UniversalLinkRouter.route(url))
+    func testValidV2FragmentParses() throws {
+        let pairURL = try XCTUnwrap(UniversalLinkRouter.route(Self.canonicalURL()))
 
-        XCTAssertEqual(pairURL.homeURL.absoluteString, "https://home.example.com:8443")
-        XCTAssertEqual(pairURL.token, "token-123")
-        XCTAssertEqual(pairURL.caFingerprintHex, String(repeating: "a", count: 64))
-        XCTAssertEqual(pairURL.label, "home one")
-        XCTAssertEqual(pairURL.version, 1)
+        XCTAssertEqual(pairURL.version, 2)
+        XCTAssertEqual(pairURL.addressBytes, [192, 0, 2, 42])
+        XCTAssertEqual(pairURL.addressString, "192.0.2.42")
+        XCTAssertEqual(pairURL.port, 7070)
+        XCTAssertEqual(pairURL.nonceBytes, [0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18])
+        XCTAssertEqual(pairURL.caFingerprintBytes, [
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+        ])
     }
 
     @MainActor
     func testUnrelatedURLReturnsNil() {
-        XCTAssertNil(UniversalLinkRouter.route(URL(string: "https://example.com/p#h=x")!))
+        XCTAssertNil(UniversalLinkRouter.route(URL(string: "https://example.com/p#\(Self.canonicalBlob)")!))
     }
 
     @MainActor
-    func testMissingFieldsThrowSpecificErrors() {
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "t=token&f=\(Self.fingerprint)&l=home&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .missingField("h"))
-        }
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&f=\(Self.fingerprint)&l=home&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .missingField("t"))
-        }
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&l=home&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .missingField("f"))
-        }
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&f=\(Self.fingerprint)&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .missingField("l"))
-        }
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&f=\(Self.fingerprint)&l=home"))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidVersion)
-        }
+    func testBadBlobReturnsNil() {
+        XCTAssertNil(UniversalLinkRouter.route(URL(string: "https://link.solpbc.org/p#?")!))
     }
 
-    @MainActor
-    func testInvalidFingerprintLengthThrows() {
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&f=abc&l=home&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidFingerprint)
-        }
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&f=\(String(repeating: "a", count: 65))&l=home&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidFingerprint)
-        }
-    }
+    private static let canonicalBlob = "080W000258DSX8DJRFAEBXG733FAVFQFSBZBNFG14D2PF2DBSQQG"
 
-    @MainActor
-    func testNonHTTPSHomeAndBadVersionThrow() {
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=http%3A%2F%2Fhome.example.com&t=token&f=\(Self.fingerprint)&l=home&v=1"))) {
-            XCTAssertEqual($0 as? PairURLError, .nonHTTPSHomeURL)
-        }
-        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&f=\(Self.fingerprint)&l=home&v=2"))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidVersion)
-        }
-    }
-
-    @MainActor
-    func testExtraFragmentFieldsAreIgnored() throws {
-        let pairURL = try PairURL.parse(Self.url(fragment: "h=https%3A%2F%2Fhome.example.com&t=token&f=\(Self.fingerprint)&l=home&v=1&x=ignored"))
-        XCTAssertEqual(pairURL.token, "token")
-    }
-
-    private static let fingerprint = String(repeating: "a", count: 64)
-
-    private static func validURL() -> URL {
-        url(fragment: "h=https%3A%2F%2Fhome.example.com%3A8443&t=token-123&f=\(fingerprint)&l=home%20one&v=1")
-    }
-
-    private static func url(fragment: String) -> URL {
-        URL(string: "https://link.solpbc.org/p#\(fragment)")!
+    private static func canonicalURL() -> URL {
+        URL(string: "https://link.solpbc.org/p#\(canonicalBlob)")!
     }
 }
