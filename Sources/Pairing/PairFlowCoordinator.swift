@@ -72,28 +72,37 @@ final class PairFlowCoordinator {
         "\(UIDevice.current.name)'s \(UIDevice.current.model)"
     }
 
-    private static func message(for error: Error) -> String {
+    internal static func message(for error: Error) -> String {
         switch error {
-        // These PairURL parse cases are latent while UniversalLinkRouter.route swallows parser errors via try?.
+        // PairURLError surface cases — router pre-validation makes these unreachable
+        // via UniversalLinkRouter; reachable only if PairURL.parse is called directly.
         case PairURLError.wrongScheme,
              PairURLError.wrongHost,
              PairURLError.wrongPath,
              PairURLError.missingFragment,
              PairURLError.malformedOuterURL:
-            "this link doesn't look like a pair link."
+            "this doesn't look like a pairing link."
+
+        // Blob-level parse failures — these are the cases this lode is wiring up
+        // through UniversalLinkRouter.
         case PairURLError.invalidBase32,
              PairURLError.invalidLength:
-            "pair link is damaged."
+            "this pairing link is damaged."
         case PairURLError.invalidVersion:
-            "this pair link is from a newer version of solstone."
+            "this pairing link is from a newer version of solstone."
         case PairURLError.unsupportedAddrType:
-            "pair link uses an address type this device doesn't support."
+            "this pairing link uses an unsupported address format."
+
+        // Existing live cases — unchanged.
         case PairError.lanCAFingerprintMismatch:
             "this isn't your solstone — re-pair if you intended to."
         case PairError.nonceExpired:
             "this pairing code has expired."
+
+        // Default catch-all — lowercase fix folded into this lode for voice
+        // consistency (was "Try again.").
         default:
-            "pairing failed. Try again."
+            "pairing failed. try again."
         }
     }
 }

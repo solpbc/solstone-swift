@@ -167,8 +167,15 @@ struct SolstoneSwiftApp: App {
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
                 .onOpenURL { url in
-                    if let pairURL = UniversalLinkRouter.route(url) {
-                        self.pairingHandoff.pairURL = pairURL
+                    if let result = UniversalLinkRouter.route(url) {
+                        switch result {
+                        case .success(let pairURL):
+                            self.pairingHandoff.pairURL = pairURL
+                            self.pairingHandoff.pairURLError = nil
+                        case .failure(let error):
+                            self.pairingHandoff.pairURL = nil
+                            self.pairingHandoff.pairURLError = error
+                        }
                         if !self.onboardingFlow.isCompleted {
                             self.onboardingFlow.step = .pair
                         }

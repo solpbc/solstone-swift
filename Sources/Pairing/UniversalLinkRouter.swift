@@ -4,14 +4,20 @@
 import Foundation
 import SPLTunnel
 
-@MainActor
 public enum UniversalLinkRouter {
-    public static func route(_ url: URL) -> PairURL? {
+    // nil = not a pair link (caller falls through). .failure = pair link by host/path but body failed to parse (caller shows variant-specific message).
+    public nonisolated static func route(_ url: URL) -> Result<PairURL, PairURLError>? {
         guard url.scheme?.lowercased() == "https",
               url.host?.lowercased() == "link.solpbc.org",
               url.path == "/p" else {
             return nil
         }
-        return try? PairURL.parse(url)
+        do {
+            return .success(try PairURL.parse(url))
+        } catch let error as PairURLError {
+            return .failure(error)
+        } catch {
+            preconditionFailure("PairURL.parse threw non-PairURLError: \(error)")
+        }
     }
 }

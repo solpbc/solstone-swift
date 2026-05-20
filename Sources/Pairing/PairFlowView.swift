@@ -13,6 +13,7 @@ private let pairFlowViewLog = Logger(subsystem: "app.solstone.swift", category: 
 @Observable
 final class PairingHandoffState {
     var pairURL: PairURL?
+    var pairURLError: PairURLError?
 }
 
 @MainActor
@@ -161,6 +162,10 @@ struct PairFlowView: View {
                 Task {
                     await self.completeIntegrationPairing()
                 }
+            } else if let pairURLError = self.handoff.pairURLError {
+                self.fallbackTimer.cancel()
+                self.errorMessage = PairFlowCoordinator.message(for: pairURLError)
+                self.handoff.pairURLError = nil
             } else if let pairURL = self.handoff.pairURL {
                 self.fallbackTimer.cancel()
                 self.didAutoPair = true
@@ -182,6 +187,12 @@ struct PairFlowView: View {
             Task {
                 await self.handle(pairURL)
             }
+        }
+        .onChange(of: self.handoff.pairURLError) { _, pairURLError in
+            guard let pairURLError else { return }
+            self.fallbackTimer.cancel()
+            self.errorMessage = PairFlowCoordinator.message(for: pairURLError)
+            self.handoff.pairURLError = nil
         }
         .onChange(of: self.mode) { _, mode in
             if mode == .scan {
@@ -214,11 +225,16 @@ struct PairFlowView: View {
 
     private func handle(_ url: URL) async {
         self.fallbackTimer.cancel()
-        guard let pairURL = UniversalLinkRouter.route(url) else {
+        guard let result = UniversalLinkRouter.route(url) else {
             self.errorMessage = "enter a valid pairing link."
             return
         }
-        await self.handle(pairURL)
+        switch result {
+        case .success(let pairURL):
+            await self.handle(pairURL)
+        case .failure(let error):
+            self.errorMessage = PairFlowCoordinator.message(for: error)
+        }
     }
 
     private func handle(_ pairURL: PairURL) async {
@@ -231,7 +247,7 @@ struct PairFlowView: View {
             self.errorMessage = nil
             self.onComplete()
         } catch {
-            self.errorMessage = self.message(for: error)
+            self.errorMessage = PairFlowCoordinator.message(for: error)
         }
     }
 
@@ -265,22 +281,12 @@ struct PairFlowView: View {
         }
     }
 
-    private func message(for error: Error) -> String {
-        switch error {
-        case PairError.lanCAFingerprintMismatch:
-            return "this isn't your solstone — re-pair if you intended to."
-        case PairError.nonceExpired:
-            return "this pairing code has expired."
-        default:
-            return "pairing failed. Try again."
-        }
-    }
-
     private func startFallbackTimerIfNeeded() {
         guard self.mode == .scan,
               self.coordinator.state == .idle,
               !self.didAutoPair,
-              self.handoff.pairURL == nil
+              self.handoff.pairURL == nil,
+              self.handoff.pairURLError == nil
         else { return }
         self.fallbackTimer.start()
     }

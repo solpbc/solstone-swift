@@ -9,10 +9,6 @@ cd "$ROOT"
 
 required_hints=(
   'Sources/Onboarding/WelcomeScreen.swift:Opens the pairing step'
-  'Sources/Onboarding/PairScreen.swift:Opens the camera to scan a pairing code'
-  'Sources/Onboarding/PairScreen.swift:Paste the pairing URL from your desktop'
-  'Sources/Onboarding/PairScreen.swift:Pairs this phone with your journal using the pasted URL'
-  'Sources/Onboarding/PairScreen.swift:Returns to the welcome screen'
   'Sources/Onboarding/NotificationsScreen.swift:Requests iOS notification permission'
   'Sources/Onboarding/NotificationsScreen.swift:Continues without enabling notifications'
   'Sources/Onboarding/NotificationsScreen.swift:Returns to the pairing step'

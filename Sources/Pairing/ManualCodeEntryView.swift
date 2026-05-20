@@ -79,7 +79,7 @@ struct ManualCodeEntryView: View {
         defer { self.isSubmitting = false }
 
         do {
-            let pairURL = try await self.lookup(code: self.code)
+            guard let pairURL = try await self.lookup(code: self.code) else { return }
             self.errorMessage = nil
             self.onPairURL(pairURL)
         } catch let error as ManualCodeError {
@@ -89,7 +89,7 @@ struct ManualCodeEntryView: View {
         }
     }
 
-    private func lookup(code: String) async throws -> PairURL {
+    private func lookup(code: String) async throws -> PairURL? {
         let url = try Self.endpointURL()
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -106,10 +106,16 @@ struct ManualCodeEntryView: View {
             let decoded = try JSONDecoder().decode(CodeResponse.self, from: data)
             guard let link = decoded.linkString,
                   let url = URL(string: link),
-                  let pairURL = UniversalLinkRouter.route(url) else {
+                  let result = UniversalLinkRouter.route(url) else {
                 throw ManualCodeError.network
             }
-            return pairURL
+            switch result {
+            case .success(let pairURL):
+                return pairURL
+            case .failure(let error):
+                self.errorMessage = PairFlowCoordinator.message(for: error)
+                return nil
+            }
         case 410:
             throw ManualCodeError.codeExpired
         case 400, 401, 404:

@@ -8,6 +8,7 @@ MoreView.swift|Unpair
 BriefingTimeScreen.swift|7:00 AM
 DayZeroOverlayView.swift|7:00 AM
 PairScreen.swift|solstone://
+PairFlowCoordinator.swift|Try again.
 *|iOS
 *|iPadOS
 *|Apple
