@@ -618,6 +618,7 @@ integration-test-onboarding: sim
 		tail -n 20 "$$GRANT_APP_LOG"
 
 ci:
+	bash test/assert_brand_canon.sh
 	bash test/assert_terminology.sh
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh

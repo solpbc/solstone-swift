@@ -8,6 +8,7 @@ import os
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
     let pushManager = PushNotificationManager()
+    lazy var pushEnablement = PushEnablement(pushManager: self.pushManager)
     let pendingRoute = PendingNotificationRouteState()
     weak var observerUploader: ObserverUploader?
     lazy var tapRouter = NotificationTapRouter { [weak self] route in

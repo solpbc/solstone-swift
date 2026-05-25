@@ -43,6 +43,7 @@ final class PushNotificationManager {
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let bundleIdentifierOverride: String?
     @ObservationIgnored private let environmentOverride: String?
+    @ObservationIgnored private var tokenContinuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
     init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
         self.defaults = defaults
@@ -132,6 +133,9 @@ final class PushNotificationManager {
     func submitToken(_ token: Data) async {
         let hexToken = Self.hexEncode(token)
         self.deviceToken = hexToken
+        if !hexToken.isEmpty {
+            self.yieldDeviceToken(hexToken)
+        }
 
         guard !hexToken.isEmpty else {
             self.registrationState = .failed(reason: "empty device token")
@@ -243,6 +247,21 @@ final class PushNotificationManager {
         let detail = error.localizedDescription
         self.registrationState = .failed(reason: detail)
         log.error("remote registration failed: \(detail, privacy: .public)")
+    }
+
+    func deviceTokenStream() -> AsyncStream<String> {
+        AsyncStream { continuation in
+            let id = UUID()
+            self.tokenContinuations[id] = continuation
+            if let deviceToken = self.deviceToken, !deviceToken.isEmpty {
+                continuation.yield(deviceToken)
+            }
+            continuation.onTermination = { @Sendable _ in
+                Task { @MainActor [weak self] in
+                    self?.tokenContinuations.removeValue(forKey: id)
+                }
+            }
+        }
     }
 }
 
@@ -367,6 +386,12 @@ private extension PushNotificationManager {
 
     static func hexEncode(_ token: Data) -> String {
         token.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func yieldDeviceToken(_ token: String) {
+        for continuation in self.tokenContinuations.values {
+            continuation.yield(token)
+        }
     }
 }
 

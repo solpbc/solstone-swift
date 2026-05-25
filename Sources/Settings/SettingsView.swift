@@ -7,10 +7,12 @@ struct SettingsView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(PushEnablement.self) private var pushEnablement
 
     @State private var showingForgetConfirm = false
     @State private var showingPairNewConfirm = false
     @State private var showingPairFlow = false
+    @State private var enablePushTask: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -26,6 +28,27 @@ struct SettingsView: View {
 
                 Button("pair a new solstone") {
                     self.showingPairNewConfirm = true
+                }
+            }
+
+            Section("notifications") {
+                if self.pushEnablement.isPushEnabled() {
+                    Label("solstone push is on.", systemImage: "checkmark")
+
+                    Button("disable solstone push", role: .destructive) {
+                        self.disableSolstonePush()
+                    }
+                    .disabled(self.pushEnablement.state.isWorking)
+                } else {
+                    if let statusText = self.pushStatusText {
+                        Text(statusText)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("enable solstone push") {
+                        self.enableSolstonePush()
+                    }
+                    .disabled(self.pushEnablement.state.isWorking)
                 }
             }
 
@@ -83,6 +106,10 @@ struct SettingsView: View {
                 }
             }
         }
+        .onDisappear {
+            self.enablePushTask?.cancel()
+            self.enablePushTask = nil
+        }
     }
 }
 
@@ -112,5 +139,41 @@ private extension SettingsView {
         self.onboardingFlow.reset()
         await self.tunnelManager.disconnect()
         self.showingPairFlow = true
+    }
+
+    var pushStatusText: String? {
+        switch self.pushEnablement.state {
+        case .requestingPermission, .registeringAPNs:
+            "opening..."
+        case .mintingNonce, .openingWebAuthSession:
+            "opening..."
+        case .polling:
+            "waiting for portal..."
+        case .failed(let message):
+            message
+        case .idle, .enabled:
+            nil
+        }
+    }
+
+    func enableSolstonePush() {
+        self.enablePushTask?.cancel()
+        self.enablePushTask = Task {
+            do {
+                try await self.pushEnablement.enablePush()
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+    }
+
+    func disableSolstonePush() {
+        do {
+            try self.pushEnablement.disablePush()
+        } catch {
+            return
+        }
     }
 }
