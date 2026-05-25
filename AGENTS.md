@@ -1,8 +1,6 @@
 # solstone-swift
 
-Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Private repo. Bundle ID: `app.solstone.swift`.
-
-*Build conventions and engineering philosophy follow sol pbc's internal standards.*
+Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Bundle ID: `app.solstone.swift`.
 
 > **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates the shell behind native onboarding, persists pair/session state, surfaces Day-0/Day-1 states, and adds a single offline banner plus file-backed portal cache metadata. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
 
@@ -30,8 +28,6 @@ Three-layer design:
 
 **Tunnel** — NIOSSH with Ed25519 keychain keys, LAN-first / WAN-fallback, host-key pinning, keepalive + reconnect. Self-hosted journals go through the tunnel; hosted tier is direct HTTPS.
 
-See sol pbc's internal mobile UX spec (approved 2026-04-19) for the full system picture.
-
 ## Build
 
 Uses Makefile targets only. Never invoke `xcodebuild` directly.
@@ -55,8 +51,6 @@ make clean         # remove build artifacts
 
 **xcsift** — `brew install xcsift`. `make sim-json` pipes build output through it for structured errors.
 
-**Signing** — Team `7QCG8V4M6H` (Individual, Jeremie Miller). Device builds require keychain unlock + partition-list one-time on the Mac (`security set-key-partition-list`). A persistent `hopper:build-solstone-swift` tmux window on the build host keeps the unlock state across commands. Restore after reboot by running `ensure-build-windows` on the build host.
-
 ## Dependencies
 
 - `swift-nio-ssh` (Apple) — SSH protocol
@@ -79,7 +73,7 @@ make clean         # remove build artifacts
 
 ## Safety rails
 
-- **Never run `security` keychain commands without founder approval.** `make signing-check` and `make unlock` are approved read-only targets. No `set-key-partition-list`, `delete-*`, or `dump-keychain` without asking.
+- **Never run `security` keychain commands without operator approval.** `make signing-check` and `make unlock` are approved read-only targets. No `set-key-partition-list`, `delete-*`, or `dump-keychain` without asking.
 - **Never force-push a branch someone else might be working on.**
 - **Never reintroduce the URL scheme handler bridge** — cross-origin policy blocks it from `http://127.0.0.1`. `WKScriptMessageHandler` is the contract.
 - **Don't delete `DerivedData/`** — breaks SPM cache resolution.
@@ -88,7 +82,7 @@ make clean         # remove build artifacts
 ## Known exceptions
 
 - `Sources/Services/SSHTransport.swift` `remoteHubSpawnCommand` is currently a generic stub. The real spawn command (path + flags) is owned by the journal server repo, not the iOS app, and will be wired in once the server exposes the `solstone-hub` interface.
-- Owner-visible copy must avoid surveillance verbs (capture / record / recording / watch / monitor / track / collect) and the sol-pbc-internal labels keeper / assistant / server / service. Non-UI Apple framework names and internal implementation identifiers (e.g. `AVAudioSession.Category.record`, `requestRecordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `recordingID`) are fine — keep them out of user-visible strings. Brand voice canon lives in extro at `cmo/brand/voice-terminology.md`.
+- Owner-visible copy must avoid surveillance verbs (capture / record / recording / watch / monitor / track / collect) and the labels keeper / assistant / server / service. Non-UI Apple framework names and internal implementation identifiers (e.g. `AVAudioSession.Category.record`, `requestRecordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `recordingID`) are fine — keep them out of user-visible strings.
 
 ## Agent skills (install on the Mac)
 
@@ -96,10 +90,6 @@ make clean         # remove build artifacts
 - **AXe** — `brew tap cameroncooke/axe && brew install axe` then `axe init --client claude`
 - **Swift Concurrency** — `AvdLee/Swift-Concurrency-Agent-Skill`
 - **SwiftUI Pro** — `twostraws/swiftui-agent-skill`
-
-## References
-
-The approved mobile UX spec, master plan, wave tracking, and remote-dev playbook live in sol pbc's internal engineering tree.
 
 ## Brand
 
