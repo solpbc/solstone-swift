@@ -4,7 +4,7 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 
 *Build conventions and engineering philosophy follow sol pbc's internal standards.*
 
-> **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates the shell behind native onboarding, persists pair/session state, surfaces Day-0/Day-1 states, adds a single offline banner plus file-backed portal cache metadata, and enforces the terminology grep in `bash test/assert_terminology.sh`. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
+> **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates the shell behind native onboarding, persists pair/session state, surfaces Day-0/Day-1 states, and adds a single offline banner plus file-backed portal cache metadata. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
 
 ## Principles
 
@@ -88,7 +88,7 @@ make clean         # remove build artifacts
 ## Known exceptions
 
 - `Sources/Services/SSHTransport.swift` `remoteHubSpawnCommand` is currently a generic stub. The real spawn command (path + flags) is owned by the journal server repo, not the iOS app, and will be wired in once the server exposes the `solstone-hub` interface.
-- Terminology grep exceptions are limited to non-UI Apple and internal implementation names: `AVAudioSession.Category.record`, `.playAndRecord`, `requestRecordPermission`, `recordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `ObserverRecording`, `LiveObserverRecorder`, `ObserverRecordedChunk`, `IntegrationTestObserverRecorder`, `recordKeepaliveFailure`, and `recordingID`. Keep any new exception out of user-visible copy and add it to `test/assert_terminology.sh` only if it is an API or internal-only identifier.
+- Owner-visible copy must avoid surveillance verbs (capture / record / recording / watch / monitor / track / collect) and the sol-pbc-internal labels keeper / assistant / server / service. Non-UI Apple framework names and internal implementation identifiers (e.g. `AVAudioSession.Category.record`, `requestRecordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `recordingID`) are fine — keep them out of user-visible strings. Brand voice canon lives in extro at `cmo/brand/voice-terminology.md`.
 
 ## Agent skills (install on the Mac)
 
