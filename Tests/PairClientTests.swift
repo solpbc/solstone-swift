@@ -33,6 +33,6 @@ nonisolated final class PairClientTests: XCTestCase {
     }
 
     private static func canonicalURL() -> URL {
-        URL(string: "https://link.solpbc.org/p#080W000258DSX8DJRFAEBXG733FAVFQFSBZBNFG14D2PF2DBSQQG")!
+        URL(string: "https://link.solpbc.org/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
     }
 }

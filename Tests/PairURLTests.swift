@@ -8,11 +8,14 @@ nonisolated final class PairURLTests: XCTestCase {
     func testCanonicalReferenceVectorParses() throws {
         let pairURL = try PairURL.parse(Self.url(fragment: Self.canonicalBlob))
 
-        XCTAssertEqual(pairURL.version, 0x02)
+        XCTAssertEqual(pairURL.version, 0x04)
         XCTAssertEqual(pairURL.addressBytes, [0xC0, 0x00, 0x02, 0x2A])
         XCTAssertEqual(pairURL.addressString, "192.0.2.42")
         XCTAssertEqual(pairURL.port, 0x1B9E)
-        XCTAssertEqual(pairURL.nonceBytes, [0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18])
+        XCTAssertEqual(pairURL.nonceBytes, [
+            0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88
+        ])
         XCTAssertEqual(pairURL.caFingerprintBytes, [
             0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
@@ -58,21 +61,34 @@ nonisolated final class PairURLTests: XCTestCase {
         }
     }
 
-    func testIPv4AddressTypeWithLength31ThrowsInvalidLength() {
+    func testLegacyDirectFragmentThrowsInvalidVersion() {
+        let legacyBytes: [UInt8] = [
+            0x02, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
+            0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+        ]
+
+        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(legacyBytes)))) {
+            XCTAssertEqual($0 as? PairURLError, .invalidVersion(0x02))
+        }
+    }
+
+    func testIPv4AddressTypeWithLength39ThrowsInvalidLength() {
         var bytes = Self.canonicalBytes
         bytes.removeLast()
 
         XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidLength(31))
+            XCTAssertEqual($0 as? PairURLError, .invalidLength(39))
         }
     }
 
-    func testIPv4AddressTypeWithLength33ThrowsInvalidLength() {
+    func testIPv4AddressTypeWithLength41ThrowsInvalidLength() {
         var bytes = Self.canonicalBytes
         bytes.append(0x00)
 
         XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidLength(33))
+            XCTAssertEqual($0 as? PairURLError, .invalidLength(41))
         }
     }
 
@@ -94,10 +110,11 @@ nonisolated final class PairURLTests: XCTestCase {
         }
     }
 
-    private static let canonicalBlob = "080W000258DSX8DJRFAEBXG733FAVFQFSBZBNFG14D2PF2DBSQQG"
+    private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
     private static let canonicalBytes: [UInt8] = [
-        0x02, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
+        0x04, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
         0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
         0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
     ]

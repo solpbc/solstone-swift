@@ -7,7 +7,7 @@ import XCTest
 
 nonisolated final class UniversalLinkRouterTests: XCTestCase {
     @MainActor
-    func testValidV2FragmentParses() throws {
+    func testValidDirectFragmentParses() throws {
         let result = try XCTUnwrap(UniversalLinkRouter.route(Self.canonicalURL()))
         guard case .success(let pairURL) = result else {
             return XCTFail("expected successful pair URL parse, got \(result)")
@@ -17,8 +17,8 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
         XCTAssertEqual(pairURL.addressBytes, Array(Self.canonicalBytes[2..<6]))
         XCTAssertEqual(pairURL.addressString, "192.0.2.42")
         XCTAssertEqual(pairURL.port, UInt16(Self.canonicalBytes[6]) << 8 | UInt16(Self.canonicalBytes[7]))
-        XCTAssertEqual(pairURL.nonceBytes, Array(Self.canonicalBytes[8..<16]))
-        XCTAssertEqual(pairURL.caFingerprintBytes, Array(Self.canonicalBytes[16..<32]))
+        XCTAssertEqual(pairURL.nonceBytes, Array(Self.canonicalBytes[8..<24]))
+        XCTAssertEqual(pairURL.caFingerprintBytes, Array(Self.canonicalBytes[24..<40]))
     }
 
     @MainActor
@@ -35,7 +35,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testShortBlobReturnsFailure_invalidLength() throws {
-        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x02, 0x01]))))
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x04, 0x01]))))
 
         guard case .failure(.invalidLength(_)) = result else {
             return XCTFail("expected invalidLength failure, got \(result)")
@@ -53,7 +53,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testUnsupportedAddressTypeReturnsFailure() throws {
-        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x02, 0x02]))))
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x04, 0x02]))))
 
         guard case .failure(.unsupportedAddrType(_)) = result else {
             return XCTFail("expected unsupportedAddrType failure, got \(result)")
@@ -62,7 +62,8 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testNonCanonicalPadBitsReturnsFailure_invalidBase32() throws {
-        let nonCanonical = String(Self.canonicalBlob.dropLast()) + "H"
+        let canonicalWithPadBits = Self.encode(Array(Self.canonicalBytes.dropLast()))
+        let nonCanonical = String(canonicalWithPadBits.dropLast()) + "H"
         let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: nonCanonical)))
 
         XCTAssertEqual(result, .failure(.invalidBase32(.nonCanonicalPadBits)))
@@ -73,10 +74,11 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
         XCTAssertNil(UniversalLinkRouter.route(URL(string: "http://link.solpbc.org/p#\(Self.canonicalBlob)")!))
     }
 
-    private static let canonicalBlob = "080W000258DSX8DJRFAEBXG733FAVFQFSBZBNFG14D2PF2DBSQQG"
+    private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
     private static let canonicalBytes: [UInt8] = [
-        0x02, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
+        0x04, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
         0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
         0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
     ]
