@@ -16,6 +16,10 @@ nonisolated enum ObserverServerURL {
         self.url(localPort: localPort, path: "/app/observer/ingest/\(key)/manifest/\(day)")
     }
 
+    static func deleteSourceURL(localPort: Int, stream: String, key: String) -> URL? {
+        self.url(localPort: localPort, path: "/app/observer/source/\(stream)/\(key)")
+    }
+
     static func url(localPort: Int, path: String, queryItems: [URLQueryItem] = []) -> URL? {
         guard var components = URLComponents(url: self.baseURL(localPort: localPort), resolvingAgainstBaseURL: false) else {
             return nil

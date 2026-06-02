@@ -7,6 +7,9 @@ struct ImporterSourceDetailView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var refreshToken = UUID()
+    @State private var showingDeleteConfirm = false
+    @State private var isDeleting = false
+    @State private var deleteResult: DeleteShareSourceResult?
 
     let source: Source
     private let appGroupMirror = AppGroupMirror()
@@ -47,13 +50,13 @@ struct ImporterSourceDetailView: View {
 
                 SourceDetailBlock(title: SourceVocabulary.delete) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Button(SourceVocabulary.delete) {}
+                        Button(SourceVocabulary.deleteConfirmButton, role: .destructive) {
+                            self.showingDeleteConfirm = true
+                        }
                             .buttonStyle(.bordered)
-                            .disabled(true)
+                            .disabled(self.isDeleting)
 
-                        Text(SourceVocabulary.deleteSeam)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        self.deleteResultBlock
                     }
                 }
             }
@@ -63,6 +66,16 @@ struct ImporterSourceDetailView: View {
         }
         .navigationTitle(self.source.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .alert(SourceVocabulary.deleteConfirmButton, isPresented: self.$showingDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button(SourceVocabulary.deleteConfirmButton, role: .destructive) {
+                Task {
+                    await self.runDelete()
+                }
+            }
+        } message: {
+            Text(SourceVocabulary.deleteConfirmBody)
+        }
         .onAppear {
             self.refreshToken = UUID()
         }
@@ -111,6 +124,43 @@ private extension ImporterSourceDetailView {
         }
     }
 
+    @ViewBuilder
+    var deleteResultBlock: some View {
+        if let deleteResult {
+            switch deleteResult {
+            case .confirmed(let receipt, _):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(SourceVocabulary.deleteReceiptHeadline(originals: receipt.removed.originals))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Text(SourceVocabulary.deleteSourceOffLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(deleteResult.notRemovedIssues, id: \.self) { issue in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(issue.what)
+                            Text(issue.plainReason)
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(deleteResult.notConfirmedIssues, id: \.self) { issue in
+                        Text(issue.plainReason)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .notConfirmed, .unreachable:
+                Text(SourceVocabulary.deleteJournalUnreachableLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     var currentState: SourceState {
         importerSourceState(shareState: self.currentShareSourceState, failedCount: self.importQueue.failedCount)
     }
@@ -140,6 +190,21 @@ private extension ImporterSourceDetailView {
         case .active, .needsAttention, .enrolling:
             self.appGroupMirror.setSharePaused(true)
         }
+        self.refreshToken = UUID()
+    }
+
+    func runDelete() async {
+        self.isDeleting = true
+        defer {
+            self.isDeleting = false
+        }
+
+        let result = await self.importQueue.deleteShareSource()
+        if result.shouldFlipOff {
+            self.appGroupMirror.setShareActivated(false)
+            self.appGroupMirror.setSharePaused(false)
+        }
+        self.deleteResult = result
         self.refreshToken = UUID()
     }
 }

@@ -62,6 +62,7 @@ final class ImportQueue {
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: ImportQueueSessionDelegate
     @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private let deleteSession: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
     @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
@@ -75,8 +76,10 @@ final class ImportQueue {
     @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
     @ObservationIgnored private var activeTaskIDByItemID: [String: Int] = [:]
+    @ObservationIgnored private var uploadTaskByItemID: [String: URLSessionTask] = [:]
     @ObservationIgnored private var attemptCountByItemID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByItemID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var isDeletingShareSource = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.import-queue")
 
@@ -84,6 +87,7 @@ final class ImportQueue {
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
         sessionConfiguration: URLSessionConfiguration? = nil,
+        deleteSessionConfiguration: URLSessionConfiguration? = nil,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw ImportQueueError.registrationUnavailable
         },
@@ -116,6 +120,7 @@ final class ImportQueue {
         self.sessionDelegate = ImportQueueSessionDelegate()
         let configuration = sessionConfiguration ?? Self.makeBackgroundConfiguration()
         self.session = URLSession(configuration: configuration, delegate: self.sessionDelegate, delegateQueue: nil)
+        self.deleteSession = URLSession(configuration: deleteSessionConfiguration ?? .ephemeral)
         self.sessionDelegate.setOwner(self)
 
         try? self.ensureRootDirectories()
@@ -197,6 +202,8 @@ final class ImportQueue {
     }
 
     func resumeFromDisk() async {
+        guard !self.isDeletingShareSource else { return }
+
         do {
             try self.ensureRootDirectories()
             let ledger = try self.loadLedger()
@@ -236,6 +243,8 @@ final class ImportQueue {
     }
 
     func requeueFailedItem(itemID: UUID) async throws {
+        guard !self.isDeletingShareSource else { return }
+
         let itemIDString = Self.itemIDString(itemID)
         let failedURL = self.failedItemDirectoryURL(itemID: itemIDString)
         let pendingURL = self.pendingItemDirectoryURL(itemID: itemIDString)
@@ -266,6 +275,7 @@ final class ImportQueue {
         }
         try? self.fileManager.removeItem(at: self.pendingItemDirectoryURL(itemID: itemIDString))
         try? self.fileManager.removeItem(at: self.failedItemDirectoryURL(itemID: itemIDString))
+        self.uploadTaskByItemID.removeValue(forKey: itemIDString)
         self.refreshCounts()
         importQueueLog.info("import item dropped \(itemIDString, privacy: .public)")
     }
@@ -323,6 +333,14 @@ final class ImportQueue {
 
     func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {
         self.backgroundCompletionHandler = completionHandler
+    }
+
+    func deleteShareSource() async -> DeleteShareSourceResult {
+        let result = await self.deleteShareSourceWhileQuiesced()
+        if !result.shouldFlipOff {
+            await self.resumeFromDisk()
+        }
+        return result
     }
 
     func handlePathStatus(_ status: NWPath.Status) {
@@ -465,7 +483,137 @@ private extension ImportQueue {
         self.pathMonitor = monitor
     }
 
+    func deleteShareSourceWhileQuiesced() async -> DeleteShareSourceResult {
+        self.isDeletingShareSource = true
+        defer {
+            self.isDeletingShareSource = false
+        }
+
+        self.cancelImportShareWorkForDelete()
+
+        let key: String
+        do {
+            key = try await self.ensureRegistered()
+        } catch {
+            let detail = String(describing: error)
+            importQueueLog.error("share source delete unavailable: registration failed \(detail, privacy: .public)")
+            return .unreachable(reason: detail)
+        }
+
+        guard let localPort = self.localPortProvider() else {
+            let detail = "share source delete unavailable: missing local port"
+            importQueueLog.error("\(detail, privacy: .public)")
+            return .unreachable(reason: detail)
+        }
+
+        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, stream: "import.share", key: key) else {
+            let detail = "share source delete unavailable: invalid url"
+            importQueueLog.error("\(detail, privacy: .public)")
+            return .unreachable(reason: detail)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 10
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await self.deleteSession.data(for: request)
+        } catch {
+            let detail = String(describing: error)
+            importQueueLog.error("share source delete failed: \(detail, privacy: .public)")
+            return .unreachable(reason: detail)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            let detail = "share source delete failed: invalid response"
+            importQueueLog.error("\(detail, privacy: .public)")
+            return .unreachable(reason: detail)
+        }
+
+        guard 200..<300 ~= http.statusCode else {
+            let detail = "HTTP \(http.statusCode)"
+            importQueueLog.error("share source delete failed: \(detail, privacy: .public)")
+            return .unreachable(reason: detail)
+        }
+
+        guard !data.isEmpty,
+              let receipt = try? self.decoder.decode(DeleteSourceReceipt.self, from: data)
+        else {
+            importQueueLog.error("share source delete not confirmed: missing receipt")
+            return .notConfirmed
+        }
+
+        let localNotRemoved = self.clearImportShareLocalState()
+        importQueueLog.info("share source delete confirmed")
+        return .confirmed(receipt: receipt, localNotRemoved: localNotRemoved)
+    }
+
+    func cancelImportShareWorkForDelete() {
+        for task in self.uploadTaskByItemID.values {
+            task.cancel()
+        }
+        for task in self.retryTasksByItemID.values {
+            task.cancel()
+        }
+
+        self.uploadTaskByItemID.removeAll()
+        self.activeTaskIDByItemID.removeAll()
+        self.taskInfoByTaskID.removeAll()
+        self.responseDataByTaskID.removeAll()
+        self.retryTasksByItemID.removeAll()
+        self.attemptCountByItemID.removeAll()
+    }
+
+    func clearImportShareLocalState() -> [DeleteSourceReceipt.Issue] {
+        var issues: [DeleteSourceReceipt.Issue] = []
+        issues.append(contentsOf: self.clearItemDirectories(at: self.pendingDirectoryURL(), surface: "pending"))
+        issues.append(contentsOf: self.clearItemDirectories(at: self.failedDirectoryURL(), surface: "failed"))
+
+        do {
+            let ledger = try self.loadLedger()
+            let filtered = ledger.filter { _, entry in
+                entry.stream != "import.share"
+            }
+            try self.saveLedger(filtered)
+        } catch {
+            issues.append(Self.deleteIssue(what: "ledger", error: error))
+        }
+
+        self.refreshCounts()
+        return issues
+    }
+
+    func clearItemDirectories(at url: URL, surface: String) -> [DeleteSourceReceipt.Issue] {
+        let entries: [URL]
+        do {
+            entries = try self.fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            return [Self.deleteIssue(what: surface, error: error)]
+        }
+
+        var issues: [DeleteSourceReceipt.Issue] = []
+        for entry in entries where self.isDirectory(entry) {
+            do {
+                try self.fileManager.removeItem(at: entry)
+            } catch {
+                issues.append(Self.deleteIssue(what: "\(surface)/\(entry.lastPathComponent)", error: error))
+            }
+        }
+        return issues
+    }
+
+    static func deleteIssue(what: String, error: any Error) -> DeleteSourceReceipt.Issue {
+        DeleteSourceReceipt.Issue(what: what, plainReason: String(describing: error))
+    }
+
     func scheduleUpload(itemID: String) async {
+        guard !self.isDeletingShareSource else { return }
         guard self.activeTaskIDByItemID[itemID] == nil else { return }
         guard self.requiredFilesExist(itemID: itemID, status: .pending) else { return }
 
@@ -514,6 +662,7 @@ private extension ImportQueue {
             )
             self.activeTaskIDByItemID[itemID] = task.taskIdentifier
             task.resume()
+            self.uploadTaskByItemID[itemID] = task
         } catch {
             await self.handleUploadFailure(itemID: itemID, reason: String(describing: error))
             try? self.fileManager.removeItem(at: self.bodyURL(itemID: itemID, status: .pending))
@@ -527,6 +676,7 @@ private extension ImportQueue {
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
         self.activeTaskIDByItemID.removeValue(forKey: info.itemID)
+        self.uploadTaskByItemID.removeValue(forKey: info.itemID)
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
 
         if let error {
@@ -550,6 +700,12 @@ private extension ImportQueue {
     }
 
     func handleDeliverySuccess(info: TaskInfo, responseData: Data) async {
+        if self.isDeletingShareSource && info.ledgerStub.stream == "import.share" {
+            try? self.fileManager.removeItem(at: info.bodyURL)
+            self.refreshCounts()
+            return
+        }
+
         let response = try? self.decoder.decode(IngestResponse.self, from: responseData)
         let serverSegment: String?
         if response?.status == "duplicate" {
@@ -591,6 +747,8 @@ private extension ImportQueue {
     }
 
     func handleUploadFailure(itemID: String, reason: String) async {
+        guard !self.isDeletingShareSource else { return }
+
         let nextAttempt = self.attemptCountByItemID[itemID, default: 0] + 1
         self.attemptCountByItemID[itemID] = nextAttempt
         self.lastError = reason
@@ -616,6 +774,7 @@ private extension ImportQueue {
             guard let self else { return }
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
+            guard !self.isDeletingShareSource else { return }
             await self.scheduleUpload(itemID: itemID)
         }
         self.refreshCounts()

@@ -134,6 +134,7 @@ targets:
     sources:
       - SolstoneShareExtension
       - Sources/ImportQueue/ImportQueue.swift
+      - Sources/ImportQueue/DeleteShareSourceResult.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift
       - Sources/Observer/ObserverServerURL.swift

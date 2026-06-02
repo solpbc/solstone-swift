@@ -18,6 +18,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ImportQueueURLProtocol.handler = nil
         ImportQueueURLProtocol.callCount = 0
         ImportQueueURLProtocol.capturedBodies = []
+        ImportQueueURLProtocol.cancelledCount = 0
     }
 
     override func tearDown() {
@@ -26,6 +27,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ImportQueueURLProtocol.handler = nil
         ImportQueueURLProtocol.callCount = 0
         ImportQueueURLProtocol.capturedBodies = []
+        ImportQueueURLProtocol.cancelledCount = 0
         super.tearDown()
     }
 
@@ -519,6 +521,186 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testDeleteShareSourceCleanReceiptClearsLocalState() async throws {
+        let pendingID = try self.writeLocalItem(status: "pending")
+        let failedID = try self.writeLocalItem(status: "failed")
+        try self.writeLedger([
+            UUID().uuidString.lowercased(): Self.ledgerEntry(stream: "import.share"),
+        ])
+        ImportQueueURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/app/observer/source/import.share/test-observer-key-abc")
+            return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 3))
+        }
+        let queue = self.makeQueue()
+
+        let result = await queue.deleteShareSource()
+
+        guard case .confirmed(let receipt, let localNotRemoved) = result else {
+            XCTFail("Expected confirmed result")
+            return
+        }
+        XCTAssertEqual(receipt.removed.originals, 3)
+        XCTAssertTrue(localNotRemoved.isEmpty)
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: pendingID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failedItemDirectory(itemID: failedID).path))
+        XCTAssertEqual(try self.readLedger(), [:])
+        XCTAssertEqual(queue.onThisPhoneSnapshot(), .loadedEmpty)
+    }
+
+    @MainActor
+    func testDeleteShareSourceNotRemovedIsPartialAndStillClearsLocalState() async throws {
+        let pendingID = try self.writeLocalItem(status: "pending")
+        try self.writeLedger([
+            UUID().uuidString.lowercased(): Self.ledgerEntry(stream: "import.share"),
+        ])
+        ImportQueueURLProtocol.handler = { request in
+            (
+                Self.response(for: request, statusCode: 200),
+                Self.deleteReceipt(
+                    originals: 1,
+                    notRemoved: #"{"what":"history","plain_reason":"history rows stayed"}"#
+                )
+            )
+        }
+        let queue = self.makeQueue()
+
+        let result = await queue.deleteShareSource()
+
+        XCTAssertTrue(result.isPartial)
+        XCTAssertEqual(result.notRemovedIssues.map(\.plainReason), ["history rows stayed"])
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: pendingID).path))
+        XCTAssertEqual(try self.readLedger(), [:])
+    }
+
+    @MainActor
+    func testDeleteShareSourceNotConfirmedIssuesDoNotDowngradeConfirmed() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                Self.response(for: request, statusCode: 200),
+                Self.deleteReceipt(
+                    originals: 2,
+                    notConfirmed: #"{"what":"backups","plain_reason":"can't confirm backups"}"#
+                )
+            )
+        }
+        let queue = self.makeQueue()
+
+        let result = await queue.deleteShareSource()
+
+        XCTAssertFalse(result.isPartial)
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertEqual(result.notConfirmedIssues.map(\.plainReason), ["can't confirm backups"])
+    }
+
+    @MainActor
+    func testDeleteShareSourceUnreachableDoesNotClearLedger() async throws {
+        try await self.assertUnreachablePreservesLedger(
+            queue: self.makeQueue(localPortProvider: { nil }),
+            handler: { request in
+                (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 1))
+            }
+        )
+
+        try await self.assertUnreachablePreservesLedger(
+            queue: self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable }),
+            handler: { request in
+                (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 1))
+            }
+        )
+
+        try await self.assertUnreachablePreservesLedger(
+            queue: self.makeQueue(),
+            handler: { _ in throw DeleteSourceTestError.transport }
+        )
+
+        try await self.assertUnreachablePreservesLedger(
+            queue: self.makeQueue(),
+            handler: { request in
+                (Self.response(for: request, statusCode: 500), Data("failed".utf8))
+            }
+        )
+    }
+
+    @MainActor
+    func testDeleteShareSourceNotConfirmedBodiesDoNotClearLedger() async throws {
+        try await self.assertNotConfirmedPreservesLedger(body: Data())
+        try await self.assertNotConfirmedPreservesLedger(body: Data("ok".utf8))
+    }
+
+    @MainActor
+    func testDeleteShareSourcePreservesOtherLedgerStreams() async throws {
+        let importID = UUID().uuidString.lowercased()
+        let otherID = UUID().uuidString.lowercased()
+        let otherEntry = Self.ledgerEntry(stream: "observer.audio")
+        try self.writeLedger([
+            importID: Self.ledgerEntry(stream: "import.share"),
+            otherID: otherEntry,
+        ])
+        ImportQueueURLProtocol.handler = { request in
+            (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 1))
+        }
+        let queue = self.makeQueue()
+
+        let result = await queue.deleteShareSource()
+
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertEqual(try self.readLedger(), [otherID: otherEntry])
+    }
+
+    @MainActor
+    func testDeleteShareSourceLocalClearFailureReturnsIssue() async throws {
+        _ = try self.writeLocalItem(status: "pending")
+        ImportQueueURLProtocol.handler = { request in
+            (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 1))
+        }
+        let queue = self.makeQueue(fileManager: RemoveFailingFileManager())
+
+        let result = await queue.deleteShareSource()
+
+        XCTAssertTrue(result.isPartial)
+        XCTAssertTrue(result.notRemovedIssues.contains { $0.what.hasPrefix("pending/") })
+    }
+
+    @MainActor
+    func testDeleteShareSourceCancelsInFlightUploadAndBlocksLateLedgerWrite() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.handler = { request in
+            if request.httpMethod == "DELETE" {
+                return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 1))
+            }
+
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"status":"ok","segment":"120000_0"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        let result = await queue.deleteShareSource()
+        uploadRelease.signal()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertGreaterThanOrEqual(ImportQueueURLProtocol.cancelledCount, 1)
+        XCTAssertNil(try self.readLedger()[itemID])
+    }
+
+    @MainActor
     private func makeQueue(
         fileManager: FileManager = .default,
         retryDelays: [UInt64] = [0],
@@ -529,10 +711,13 @@ nonisolated final class ImportQueueTests: XCTestCase {
     ) -> ImportQueue {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ImportQueueURLProtocol.self]
+        let deleteConfiguration = URLSessionConfiguration.ephemeral
+        deleteConfiguration.protocolClasses = [ImportQueueURLProtocol.self]
         return ImportQueue(
             cacheRootURL: self.tempDirectory,
             fileManager: fileManager,
             sessionConfiguration: configuration,
+            deleteSessionConfiguration: deleteConfiguration,
             ensureRegistered: ensureRegistered,
             localPortProvider: localPortProvider,
             retryDelays: retryDelays,
@@ -591,10 +776,63 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertEqual(entry.serverDay.count, 8)
     }
 
+    @MainActor
+    private func assertUnreachablePreservesLedger(
+        queue: ImportQueue,
+        handler: @escaping ImportQueueURLProtocol.Handler
+    ) async throws {
+        let itemID = UUID().uuidString.lowercased()
+        let entry = Self.ledgerEntry(stream: "import.share")
+        try self.writeLedger([itemID: entry])
+        ImportQueueURLProtocol.handler = handler
+
+        let result = await queue.deleteShareSource()
+
+        guard case .unreachable = result else {
+            XCTFail("Expected unreachable result")
+            return
+        }
+        XCTAssertFalse(result.shouldFlipOff)
+        XCTAssertEqual(try self.readLedger(), [itemID: entry])
+    }
+
+    @MainActor
+    private func assertNotConfirmedPreservesLedger(body: Data) async throws {
+        try? FileManager.default.removeItem(at: self.tempDirectory)
+        try FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
+        let itemID = UUID().uuidString.lowercased()
+        let entry = Self.ledgerEntry(stream: "import.share")
+        try self.writeLedger([itemID: entry])
+        ImportQueueURLProtocol.handler = { request in
+            (Self.response(for: request, statusCode: 200), body)
+        }
+        let queue = self.makeQueue()
+
+        let result = await queue.deleteShareSource()
+
+        XCTAssertEqual(result, .notConfirmed)
+        XCTAssertFalse(result.shouldFlipOff)
+        XCTAssertEqual(try self.readLedger(), [itemID: entry])
+    }
+
     private func makeSourceFile(named name: String, data: Data) throws -> URL {
         let url = self.tempDirectory.appendingPathComponent(name)
         try data.write(to: url)
         return url
+    }
+
+    private func writeLocalItem(status: String) throws -> String {
+        let itemID = UUID().uuidString.lowercased()
+        let directory = self.tempDirectory
+            .appendingPathComponent(status, isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("raw".utf8).write(to: self.rawURL(itemID: itemID, status: status))
+        let note = #"{"schema":"solstone.source.item/1","source":"share","origin_app":null,"content_type":"com.adobe.pdf","filename":"source.pdf","bytes":3,"basis":"sent","item_time":"2026-06-02T00:00:00.000Z","target_journal":"home","kind":"raw","item_id":"\#(itemID)"}"#
+        try Data(note.utf8).write(to: self.noteURL(itemID: itemID, status: status))
+        let request = #"{"day":"20260602","segment":"120000_0","stream":"import.share","filename":"document.pdf","content_type":"application/pdf"}"#
+        try Data(request.utf8).write(to: self.descriptorURL(itemID: itemID, status: status))
+        return itemID
     }
 
     private func pendingItemDirectory(itemID: String) -> URL {
@@ -671,6 +909,37 @@ nonisolated final class ImportQueueTests: XCTestCase {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
     }
+
+    private static func response(for request: URLRequest, statusCode: Int) -> HTTPURLResponse {
+        HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
+    }
+
+    private static func deleteReceipt(
+        originals: Int,
+        notConfirmed: String? = nil,
+        notRemoved: String? = nil
+    ) -> Data {
+        let notConfirmedJSON = notConfirmed.map { "[\($0)]" } ?? "[]"
+        let notRemovedJSON = notRemoved.map { "[\($0)]" } ?? "[]"
+        return Data(
+            """
+            {"target":"import.share","removed":{"originals":\(originals),"segments":0,"in_segment_derived":0,"index_chunks":0,"stream_identity":0,"history_rows":0},"not_confirmed":\(notConfirmedJSON),"not_removed":\(notRemovedJSON),"backup_hosted":"not confirmed"}
+            """.utf8
+        )
+    }
+
+    private static func ledgerEntry(stream: String) -> TestLedgerEntry {
+        TestLedgerEntry(
+            itemID: UUID().uuidString.lowercased(),
+            stream: stream,
+            basis: "sent",
+            contentType: "com.adobe.pdf",
+            targetJournal: "home",
+            serverDay: "20260602",
+            serverSegment: nil,
+            deliveredAt: Date(timeIntervalSince1970: 1)
+        )
+    }
 }
 
 private struct TestRequestDescriptor: Decodable {
@@ -689,7 +958,7 @@ private struct TestRequestDescriptor: Decodable {
     }
 }
 
-private struct TestLedgerEntry: Codable {
+private struct TestLedgerEntry: Codable, Equatable {
     let itemID: String
     let stream: String
     let basis: String
@@ -752,6 +1021,20 @@ private final class NoteWriteFailingFileManager: FileManager, @unchecked Sendabl
     }
 }
 
+private final class RemoveFailingFileManager: FileManager, @unchecked Sendable {
+    override func removeItem(at URL: URL) throws {
+        if URL.lastPathComponent != "body.upload" {
+            throw DeleteSourceTestError.remove
+        }
+        try super.removeItem(at: URL)
+    }
+}
+
+private enum DeleteSourceTestError: Error {
+    case transport
+    case remove
+}
+
 private final class AttributeFileManager: FileManager, @unchecked Sendable {
     let attributes: [FileAttributeKey: Any]
 
@@ -788,6 +1071,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
+    private static let cancelledCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
         set { self.handlerBox.withLock { $0 = newValue } }
@@ -799,6 +1083,10 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     static var capturedBodies: [Data] {
         get { self.bodiesBox.withLock { $0 } }
         set { self.bodiesBox.withLock { $0 = newValue } }
+    }
+    static var cancelledCount: Int {
+        get { self.cancelledCountBox.withLock { $0 } }
+        set { self.cancelledCountBox.withLock { $0 = newValue } }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -828,7 +1116,9 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.cancelledCountBox.withLock { $0 += 1 }
+    }
 
     private static func bodyData(from request: URLRequest) -> Data {
         guard let stream = request.httpBodyStream else { return Data() }
