@@ -146,6 +146,45 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testShareItemSchemaAndImportShareRequest() async throws {
+        let modifiedAt = Date(timeIntervalSince1970: 1_713_624_000.125)
+        let fileManager = AttributeFileManager(attributes: [
+            .modificationDate: modifiedAt,
+            .size: NSNumber(value: 5),
+        ])
+        let queue = self.makeQueue(
+            fileManager: fileManager,
+            ensureRegistered: { throw ImportQueueError.registrationUnavailable }
+        )
+        let source = try self.makeSourceFile(named: "share.pdf", data: Data("abcde".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share",
+            stream: "import.share",
+            targetJournal: "sol",
+            contentType: "com.adobe.pdf",
+            originalFilename: "share.pdf"
+        ).uuidString.lowercased()
+
+        let noteData = try Data(contentsOf: self.noteURL(itemID: itemID, status: "pending"))
+        let note = try XCTUnwrap(JSONSerialization.jsonObject(with: noteData) as? [String: Any])
+        XCTAssertEqual(note["schema"] as? String, "solstone.source.item/1")
+        XCTAssertEqual(note["source"] as? String, "share")
+        XCTAssertTrue(note["origin_app"] is NSNull)
+        XCTAssertEqual(note["content_type"] as? String, "com.adobe.pdf")
+        XCTAssertEqual(note["filename"] as? String, "share.pdf")
+        XCTAssertEqual(note["bytes"] as? Int, 5)
+        XCTAssertTrue(["modified", "created", "sent"].contains(try XCTUnwrap(note["basis"] as? String)))
+        XCTAssertEqual(note["target_journal"] as? String, "sol")
+
+        let descriptor = try self.readDescriptor(itemID: itemID)
+        XCTAssertEqual(descriptor.stream, "import.share")
+        XCTAssertEqual(descriptor.filename, "document.pdf")
+        XCTAssertEqual(descriptor.contentType, "application/pdf")
+    }
+
+    @MainActor
     func testPlacementBasisModifiedCreatedAndSent() async throws {
         let modifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
         let createdAt = Date(timeIntervalSince1970: 1_713_625_000)
@@ -228,8 +267,73 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertTrue(body.contains("name=\"segment\""))
         XCTAssertTrue(body.contains("name=\"platform\""))
         XCTAssertTrue(body.contains("name=\"meta\""))
+        XCTAssertTrue(body.contains(#"{"stream":"import.share"}"#))
         XCTAssertTrue(body.contains("filename=\"document.pdf\""))
         XCTAssertTrue(body.contains("filename=\"item.json\""))
+    }
+
+    @MainActor
+    func testShareUploadSuccessFinalizesLedgerAndBackgroundCompletion() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok","segment":"120000_0"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+        let completionCounter = ImportQueueCompletionCounter()
+        queue.handleBackgroundURLSessionEvents {
+            completionCounter.increment()
+        }
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("share delivery") {
+            queue.pendingCount == 0 && queue.lastDeliveredAt != nil
+        }
+        let ledger = try self.readLedger()
+        XCTAssertEqual(ledger[itemID]?.stream, "import.share")
+        let body = String(decoding: try XCTUnwrap(ImportQueueURLProtocol.capturedBodies.first), as: UTF8.self)
+        XCTAssertTrue(body.contains(#"{"stream":"import.share"}"#))
+        queue.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 1)
+    }
+
+    @MainActor
+    func testShareUploadFailureMovesToFailedAndBackgroundCompletion() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("service unavailable".utf8)
+            )
+        }
+        let queue = self.makeQueue(retryDelays: [0], maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+        let completionCounter = ImportQueueCompletionCounter()
+        queue.handleBackgroundURLSessionEvents {
+            completionCounter.increment()
+        }
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("share failed") {
+            queue.failedCount == 1
+        }
+        queue.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 1)
     }
 
     @MainActor
@@ -413,6 +517,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
     private func makeQueue(
         fileManager: FileManager = .default,
         retryDelays: [UInt64] = [0],
+        maxAttempts: Int = 5,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_713_624_000) }
@@ -426,6 +531,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
             ensureRegistered: ensureRegistered,
             localPortProvider: localPortProvider,
             retryDelays: retryDelays,
+            maxAttempts: maxAttempts,
             sleep: { _ in },
             startPathMonitor: false,
             now: now
@@ -619,6 +725,23 @@ private final class AttributeFileManager: FileManager, @unchecked Sendable {
 
     override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
         self.attributes
+    }
+}
+
+private final class ImportQueueCompletionCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        self.lock.lock()
+        self.count += 1
+        self.lock.unlock()
+    }
+
+    func value() -> Int {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.count
     }
 }
 

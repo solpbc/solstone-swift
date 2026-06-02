@@ -16,6 +16,35 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(sourceState(for: .idle, paused: true), .paused)
     }
 
+    func testImporterSourceStateMapping() {
+        XCTAssertEqual(
+            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: false, isPaused: false), failedCount: 0),
+            .off
+        )
+        XCTAssertEqual(
+            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: false), failedCount: 0),
+            .active
+        )
+        XCTAssertEqual(
+            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: true), failedCount: 0),
+            .paused
+        )
+        XCTAssertEqual(
+            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: false), failedCount: 1),
+            .needsAttention
+        )
+        XCTAssertEqual(
+            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: true), failedCount: 1),
+            .paused
+        )
+    }
+
+    func testImporterActiveSubtextMapping() {
+        XCTAssertEqual(importerActiveSubtext(pendingCount: 1, lastDeliveredAt: nil), SourceVocabulary.shareSendingProgress)
+        XCTAssertEqual(importerActiveSubtext(pendingCount: 0, lastDeliveredAt: Date()), SourceVocabulary.shareDeliveredProgress)
+        XCTAssertEqual(importerActiveSubtext(pendingCount: 0, lastDeliveredAt: nil), SourceVocabulary.importerActiveSubtext)
+    }
+
     private static func session() -> ObserverSession {
         ObserverSession(
             sessionID: UUID(),

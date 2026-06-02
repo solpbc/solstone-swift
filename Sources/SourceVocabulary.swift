@@ -87,6 +87,9 @@ nonisolated enum SourceVocabulary {
 
     static let observerActiveSubtext = "listening"
     static let importerActiveSubtext = "sending to your journal as you share."
+    static let shareSheetDisplayName = "share sheet"
+    static let shareSendingProgress = "sending to your journal…"
+    static let shareDeliveredProgress = "in your journal"
 
     static let experiencingAlongsideYouHeader = "experiencing alongside you"
     static let bringingInYourselfHeader = "bringing in yourself"
@@ -100,4 +103,12 @@ nonisolated enum SourceVocabulary {
     static let whatItAdds = "adds what you say and nearby sound while this is on."
     static let pendingSeam = "nothing pending right now."
     static let removeSeam = "removing audio is coming later."
+    static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
+    static let turnOn = "turn on"
+    static let pause = "pause"
+    static let resume = "resume"
+    static let validate = "validate"
+    static let delete = "delete"
+    static let validateSeam = "checking shared items is coming later."
+    static let deleteSeam = "deleting shared items is coming later."
 }

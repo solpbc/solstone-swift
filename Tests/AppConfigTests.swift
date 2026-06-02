@@ -38,13 +38,21 @@ private final class PairingState: @unchecked Sendable {
 
 nonisolated final class AppConfigTests: XCTestCase {
     private var pairingState: PairingState!
+    private var suiteName: String!
+    private var defaults: UserDefaults!
 
     override func setUp() {
         super.setUp()
         self.pairingState = PairingState()
+        self.suiteName = "AppConfigTests.\(UUID().uuidString)"
+        self.defaults = UserDefaults(suiteName: self.suiteName)
+        self.defaults.removePersistentDomain(forName: self.suiteName)
     }
 
     override func tearDown() {
+        self.defaults.removePersistentDomain(forName: self.suiteName)
+        self.defaults = nil
+        self.suiteName = nil
         self.pairingState = nil
         super.tearDown()
     }
@@ -61,6 +69,10 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(config.caFingerprintHex, String(repeating: "a", count: 64))
         XCTAssertEqual(config.deviceID, "instance-123")
         XCTAssertEqual(self.pairingState.load(), pairing)
+        XCTAssertEqual(
+            AppGroupMirror(defaults: self.defaults).pairingSnapshot(),
+            AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
+        )
     }
 
     @MainActor
@@ -74,6 +86,10 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(config.host, "")
         XCTAssertEqual(config.port, 22)
         XCTAssertTrue(self.pairingState.deleted())
+        XCTAssertEqual(
+            AppGroupMirror(defaults: self.defaults).pairingSnapshot(),
+            AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false)
+        )
     }
 
     @MainActor
@@ -86,6 +102,20 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(config.loopbackPort, 8676)
         XCTAssertEqual(self.pairingState.load()?.homeLabel, "ui-test-solstone")
         XCTAssertNil(config.currentSessionKey())
+        XCTAssertEqual(
+            AppGroupMirror(defaults: self.defaults).pairingSnapshot(),
+            AppGroupMirror.PairingSnapshot(journalName: "ui-test-solstone", isPaired: true)
+        )
+    }
+
+    @MainActor
+    func testInitWithNoPairingClearsStaleMirror() {
+        let mirror = AppGroupMirror(defaults: self.defaults)
+        mirror.writePairing(journalName: "stale")
+
+        _ = self.makeConfig()
+
+        XCTAssertEqual(mirror.pairingSnapshot(), AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false))
     }
 
     @MainActor private func makeConfig() -> AppConfig {
@@ -93,7 +123,8 @@ nonisolated final class AppConfigTests: XCTestCase {
         return AppConfig(
             loadPairing: { pairingState.load() },
             savePairing: { pairingState.save($0) },
-            deletePairing: { pairingState.delete() }
+            deletePairing: { pairingState.delete() },
+            appGroupMirror: AppGroupMirror(defaults: self.defaults)
         )
     }
 

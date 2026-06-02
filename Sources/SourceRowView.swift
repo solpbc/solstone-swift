@@ -8,7 +8,12 @@ struct SourceRowView: View {
 
     var body: some View {
         NavigationLink {
-            SourceDetailView()
+            switch self.source.kind {
+            case .observer:
+                SourceDetailView()
+            case .importer:
+                ImporterSourceDetailView(source: self.source)
+            }
         } label: {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: self.source.state.symbol)

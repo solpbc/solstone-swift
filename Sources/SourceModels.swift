@@ -62,3 +62,32 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
 final class ObserverSourcePauseState {
     var isPaused = false
 }
+
+nonisolated func importerSourceState(
+    shareState: AppGroupMirror.ShareSourceState,
+    failedCount: Int
+) -> SourceState {
+    if !shareState.isActivated {
+        return .off
+    }
+    if shareState.isPaused {
+        return .paused
+    }
+    if failedCount > 0 {
+        return .needsAttention
+    }
+    return .active
+}
+
+nonisolated func importerActiveSubtext(
+    pendingCount: Int,
+    lastDeliveredAt: Date?
+) -> String {
+    if pendingCount > 0 {
+        return SourceVocabulary.shareSendingProgress
+    }
+    if lastDeliveredAt != nil {
+        return SourceVocabulary.shareDeliveredProgress
+    }
+    return SourceVocabulary.importerActiveSubtext
+}

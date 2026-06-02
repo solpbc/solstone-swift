@@ -7,9 +7,12 @@ import XCTest
 nonisolated final class BrandCanonGrepTests: XCTestCase {
     func testSourceCopyAvoidsAccountSurfaceTerms() throws {
         let root = Self.worktreeRoot()
-        let sourceRoot = root.appendingPathComponent("Sources")
+        let scanRoots = [
+            root.appendingPathComponent("Sources"),
+            root.appendingPathComponent("SolstoneShareExtension"),
+        ]
         let regex = try NSRegularExpression(pattern: Self.pattern, options: [.caseInsensitive])
-        let files = try Self.swiftFiles(under: sourceRoot)
+        let files = try scanRoots.flatMap { try Self.swiftFiles(under: $0) }
 
         for file in files {
             let text = try String(contentsOf: file, encoding: .utf8)

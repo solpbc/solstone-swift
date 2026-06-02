@@ -7,7 +7,10 @@ struct SourcesView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
+    @Environment(ImportQueue.self) private var importQueue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private let appGroupMirror = AppGroupMirror()
 
     var body: some View {
         ScrollView {
@@ -23,6 +26,13 @@ struct SourcesView: View {
                         .font(.custom("Comfortaa-Bold", size: 18))
 
                     SourceRowView(source: self.audioSource)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(SourceGroup.bringingInYourself.header)
+                        .font(.custom("Comfortaa-Bold", size: 18))
+
+                    SourceRowView(source: self.shareSource)
                 }
 
                 Text(SourceVocabulary.trustLine)
@@ -69,11 +79,31 @@ private extension SourcesView {
     }
 
     var showsZeroActiveSummary: Bool {
-        switch self.audioSource.state {
-        case .active, .enrolling, .needsAttention:
+        switch (self.audioSource.state, self.shareSource.state) {
+        case (.active, _), (.enrolling, _), (.needsAttention, _),
+             (_, .active), (_, .enrolling), (_, .needsAttention):
             false
-        case .off, .paused:
+        case (.off, .off), (.off, .paused), (.paused, .off), (.paused, .paused):
             true
         }
+    }
+
+    var shareSource: Source {
+        let shareState = self.appGroupMirror.shareSourceState()
+        let pairing = self.appGroupMirror.pairingSnapshot()
+        return Source(
+            id: "share-sheet",
+            displayName: SourceVocabulary.shareSheetDisplayName,
+            kind: .importer,
+            group: .bringingInYourself,
+            state: importerSourceState(shareState: shareState, failedCount: self.importQueue.failedCount),
+            activeSubtext: importerActiveSubtext(
+                pendingCount: self.importQueue.pendingCount,
+                lastDeliveredAt: self.importQueue.lastDeliveredAt
+            ),
+            attention: self.importQueue.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil,
+            pendingStatus: .nonePending,
+            isJournalConnected: pairing.isPaired
+        )
     }
 }

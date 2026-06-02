@@ -86,6 +86,8 @@ targets:
       - target: SPLTunnel
       - target: SolstoneNotificationContent
         embed: true
+      - target: SolstoneShareExtension
+        embed: true
       - target: SolstoneLiveActivityWidget
         embed: true
       - package: WebRTC
@@ -125,6 +127,41 @@ targets:
               - SOLSTONE_AGENT_ALERT
             UNNotificationExtensionInitialContentSizeRatio: 1.0
             UNNotificationExtensionDefaultContentHidden: false
+  SolstoneShareExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - SolstoneShareExtension
+      - Sources/ImportQueue/ImportQueue.swift
+      - Sources/Services/AppGroupContainer.swift
+      - Sources/Observer/ObserverServerURL.swift
+      - Sources/SourceVocabulary.swift
+      - Sources/Design/Colors.swift
+      - Sources/Services/AppGroupMirror.swift
+      - Sources/ShareImport/ShareImportCoordinator.swift
+    entitlements:
+      path: SolstoneShareExtension/SolstoneShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.solstone.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.share
+        INFOPLIST_KEY_CFBundleDisplayName: SolstoneShareExtension
+        CODE_SIGN_ENTITLEMENTS: SolstoneShareExtension/SolstoneShareExtension.entitlements
+        DEVELOPMENT_TEAM: 7QCG8V4M6H
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
+    info:
+      path: SolstoneShareExtension/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule: SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att, (ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $att.registeredTypeIdentifiers == "public.m4a-audio" OR ANY $att.registeredTypeIdentifiers == "public.jpg" OR ANY $att.registeredTypeIdentifiers == "public.webp")).@count == $item.attachments.@count).@count == extensionItems.@count
   SolstoneLiveActivityWidget:
     type: app-extension
     platform: iOS

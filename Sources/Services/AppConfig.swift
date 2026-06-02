@@ -27,17 +27,20 @@ final class AppConfig {
     @ObservationIgnored private let savePairing: @Sendable (StoredPairing) throws -> Void
     @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
     @ObservationIgnored private let endpointCache: EndpointCache
+    @ObservationIgnored private let appGroupMirror: AppGroupMirror
 
     init(
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLKeychain.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
-        endpointCache: EndpointCache = EndpointCache()
+        endpointCache: EndpointCache = EndpointCache(),
+        appGroupMirror: AppGroupMirror = AppGroupMirror()
     ) {
         self.loadPairing = loadPairing
         self.savePairing = savePairing
         self.deletePairing = deletePairing
         self.endpointCache = endpointCache
+        self.appGroupMirror = appGroupMirror
         self.host = ""
         self.port = 22
         self.journalRoot = ""
@@ -53,9 +56,12 @@ final class AppConfig {
         do {
             if let pairing = try loadPairing() {
                 self.applyDerivedState(from: pairing)
+            } else {
+                self.appGroupMirror.clearPairing()
             }
         } catch {
             appConfigLog.error("load stored pairing failed: \(String(describing: error), privacy: .public)")
+            self.appGroupMirror.clearPairing()
         }
     }
 
@@ -89,6 +95,7 @@ final class AppConfig {
         self.caFingerprintHex = ""
         self.pairedAt = nil
         self.loopbackPort = nil
+        self.appGroupMirror.clearPairing()
         appConfigLog.info("pairing cleared")
     }
 
@@ -149,6 +156,7 @@ final class AppConfig {
         self.caFingerprintHex = Self.normalizedFingerprint(pairing.fingerprint)
         self.pairedAt = pairing.pairedAt
         self.loopbackPort = firstEndpoint?.port
+        self.appGroupMirror.writePairing(journalName: pairing.homeLabel)
     }
 
     private static func normalizedFingerprint(_ fingerprint: String) -> String {

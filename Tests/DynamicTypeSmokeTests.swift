@@ -27,6 +27,14 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             recorder: MockObserverRecorder(),
             uploader: observerUploader
         )
+        let importQueueRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: importQueueRoot) }
+        let importQueue = ImportQueue(
+            cacheRootURL: importQueueRoot,
+            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
+            startPathMonitor: false
+        )
         let voiceManager = VoiceManager(
             webrtc: MockWebRTCConnector(),
             diagnosticLog: diagnosticLog
@@ -55,6 +63,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerManager)
                 .environment(observerRegistration)
                 .environment(ObserverSourcePauseState())
+                .environment(importQueue)
         }
 
         try self.assertHosted(

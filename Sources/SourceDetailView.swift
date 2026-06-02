@@ -18,27 +18,27 @@ struct SourceDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                DetailBlock(title: "state") {
+                SourceDetailBlock(title: "state") {
                     self.stateBlock
                 }
 
-                DetailBlock(title: "what it adds") {
+                SourceDetailBlock(title: "what it adds") {
                     Text(SourceVocabulary.whatItAdds)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
-                DetailBlock(title: "recent") {
+                SourceDetailBlock(title: "recent") {
                     self.recentBlock
                 }
 
-                DetailBlock(title: "pending & gaps") {
+                SourceDetailBlock(title: "pending & gaps") {
                     Text(SourceVocabulary.pendingSeam)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
-                DetailBlock(title: "remove") {
+                SourceDetailBlock(title: "remove") {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("remove") {}
                             .buttonStyle(.bordered)
@@ -335,28 +335,5 @@ private extension SourceDetailView {
         }
 
         self.manifestResult = await self.manifestClient.fetchToday(localPort: localPort, key: key)
-    }
-}
-
-private struct DetailBlock<Content: View>: View {
-    let title: String
-    private let content: Content
-
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(self.title)
-                .font(.custom("Comfortaa-Bold", size: 18))
-
-            self.content
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
