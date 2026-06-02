@@ -18,6 +18,7 @@ struct SolstoneSwiftApp: App {
     @State private var diagnosticLog: DiagnosticLog
     @State private var observerRegistration: ObserverRegistration
     @State private var observerUploader: ObserverUploader
+    @State private var importQueue: ImportQueue
     @State private var observerManager: ObserverManager
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pairingHandoff = PairingHandoffState()
@@ -113,6 +114,14 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
+        let importQueue = ImportQueue(
+            ensureRegistered: {
+                try await observerRegistration.ensureRegistered()
+            },
+            localPortProvider: {
+                observerRegistration.activeLocalPort
+            }
+        )
         let observerRecorder = Self.makeObserverRecorder()
         let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
         let voice = VoiceManager(
@@ -138,6 +147,7 @@ struct SolstoneSwiftApp: App {
         self._tunnelManager = State(initialValue: tunnel)
         self._observerRegistration = State(initialValue: observerRegistration)
         self._observerUploader = State(initialValue: observerUploader)
+        self._importQueue = State(initialValue: importQueue)
         self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
         self._bannerPresenter = State(initialValue: BannerPresenter(
@@ -146,6 +156,7 @@ struct SolstoneSwiftApp: App {
             tunnelManager: tunnel
         ))
         self.appDelegate.observerUploader = observerUploader
+        self.appDelegate.importQueue = importQueue
     }
 
     var body: some Scene {
@@ -157,6 +168,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.voiceManager)
                 .environment(self.observerRegistration)
                 .environment(self.observerUploader)
+                .environment(self.importQueue)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
@@ -194,6 +206,9 @@ struct SolstoneSwiftApp: App {
                     Task {
                         await self.observerManager.stopSession()
                     }
+                }
+                .task {
+                    await self.importQueue.resumeFromDisk()
                 }
         }
         .commands {
@@ -277,6 +292,9 @@ struct SolstoneSwiftApp: App {
                 self.brainStatusMonitor.startPolling(localPort: port)
                 Task {
                     await self.observerUploader.resumeFromDisk()
+                }
+                Task {
+                    await self.importQueue.resumeFromDisk()
                 }
 
                 if Self.isIntegrationMode,

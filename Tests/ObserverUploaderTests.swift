@@ -16,6 +16,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
         ObserverUploaderURLProtocol.handler = nil
         ObserverUploaderURLProtocol.callCount = 0
+        ObserverUploaderURLProtocol.capturedBodies = []
     }
 
     override func tearDown() {
@@ -23,6 +24,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         self.tempDirectory = nil
         ObserverUploaderURLProtocol.handler = nil
         ObserverUploaderURLProtocol.callCount = 0
+        ObserverUploaderURLProtocol.capturedBodies = []
         super.tearDown()
     }
 
@@ -146,6 +148,72 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 1)
     }
 
+    func testBackgroundSessionIdentifierInvariant() {
+        XCTAssertEqual(ObserverUploader.backgroundSessionIdentifier, "app.solstone.swift.observer-upload")
+    }
+
+    @MainActor
+    func testDefaultCacheRootInvariant() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ObserverUploaderURLProtocol.self]
+        _ = ObserverUploader(
+            sessionConfiguration: configuration,
+            ensureRegistered: { "test-observer-key-abc" },
+            localPortProvider: { 7071 },
+            startPathMonitor: false
+        )
+        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Observer", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    @MainActor
+    func testMultipartShapeInvariant() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        let uploader = self.makeUploader()
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-shape")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("multipart capture") {
+            !ObserverUploaderURLProtocol.capturedBodies.isEmpty
+        }
+
+        let body = String(decoding: try XCTUnwrap(ObserverUploaderURLProtocol.capturedBodies.first), as: UTF8.self)
+        XCTAssertTrue(body.contains(#"name="segment""#))
+        XCTAssertTrue(body.contains(#"name="day""#))
+        XCTAssertTrue(body.contains(#"name="platform""#))
+        XCTAssertTrue(body.contains(#"name="meta""#))
+        XCTAssertTrue(body.contains(#"name="files[]"; filename="audio.m4a""#))
+        let metaHeader = try XCTUnwrap(body.range(of: #"Content-Disposition: form-data; name="meta""#))
+        let afterMetaHeader = body[metaHeader.upperBound...]
+        let separator = try XCTUnwrap(afterMetaHeader.range(of: "\r\n\r\n"))
+        let metaStart = separator.upperBound
+        let metaEnd = try XCTUnwrap(afterMetaHeader[metaStart...].range(of: "\r\n--")?.lowerBound)
+        let meta = String(afterMetaHeader[metaStart..<metaEnd])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), [
+            "segment",
+            "day",
+            "chunk_index",
+            "started_at",
+            "duration_s",
+            "session_id",
+            "mode",
+        ])
+    }
+
     @MainActor private func makeUploader(retryDelays: [UInt64] = [0]) -> ObserverUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverUploaderURLProtocol.self]
@@ -223,6 +291,7 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
         set { self.handlerBox.withLock { $0 = newValue } }
@@ -230,6 +299,10 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     static var callCount: Int {
         get { self.callCountBox.withLock { $0 } }
         set { self.callCountBox.withLock { $0 = newValue } }
+    }
+    static var capturedBodies: [Data] {
+        get { self.bodiesBox.withLock { $0 } }
+        set { self.bodiesBox.withLock { $0 = newValue } }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -242,6 +315,8 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
 
     override func startLoading() {
         Self.callCountBox.withLock { $0 += 1 }
+        let body = Self.bodyData(from: self.request)
+        Self.bodiesBox.withLock { $0.append(body) }
         guard let handler = Self.handler else {
             XCTFail("ObserverUploaderURLProtocol handler not set")
             return
@@ -258,4 +333,24 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     }
 
     override func stopLoading() {}
+
+    private static func bodyData(from request: URLRequest) -> Data {
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+
+        var output = Data()
+        let bufferSize = 4_096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            if read <= 0 {
+                break
+            }
+            output.append(buffer, count: read)
+        }
+        return output
+    }
 }

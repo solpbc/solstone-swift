@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     lazy var pushEnablement = PushEnablement(pushManager: self.pushManager)
     let pendingRoute = PendingNotificationRouteState()
     weak var observerUploader: ObserverUploader?
+    weak var importQueue: ImportQueue?
     lazy var tapRouter = NotificationTapRouter { [weak self] route in
         self?.pendingRoute.route = route
     }
@@ -74,17 +75,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping @Sendable () -> Void
     ) {
-        guard identifier == ObserverUploader.backgroundSessionIdentifier else {
-            completionHandler()
-            return
-        }
-
         let completion: @MainActor @Sendable () -> Void = {
             completionHandler()
         }
-        Task { @MainActor [weak self] in
-            self?.observerUploader?.handleBackgroundURLSessionEvents(completionHandler: completion)
+
+        if identifier == ObserverUploader.backgroundSessionIdentifier {
+            Task { @MainActor [weak self] in
+                self?.observerUploader?.handleBackgroundURLSessionEvents(completionHandler: completion)
+            }
+            return
         }
+
+        if identifier == ImportQueue.backgroundSessionIdentifier {
+            Task { @MainActor [weak self] in
+                self?.importQueue?.handleBackgroundURLSessionEvents(completionHandler: completion)
+            }
+            return
+        }
+
+        completionHandler()
     }
 }
 

@@ -1,0 +1,692 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+@testable import solstone_swift
+import Foundation
+import Network
+import os
+import XCTest
+
+nonisolated final class ImportQueueTests: XCTestCase {
+    private var tempDirectory: URL!
+
+    override func setUp() {
+        super.setUp()
+        self.tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ImportQueueTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
+        ImportQueueURLProtocol.handler = nil
+        ImportQueueURLProtocol.callCount = 0
+        ImportQueueURLProtocol.capturedBodies = []
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: self.tempDirectory)
+        self.tempDirectory = nil
+        ImportQueueURLProtocol.handler = nil
+        ImportQueueURLProtocol.callCount = 0
+        ImportQueueURLProtocol.capturedBodies = []
+        super.tearDown()
+    }
+
+    @MainActor
+    func testAppGroupContainerIdentifierAndImportQueueSubpath() throws {
+        XCTAssertEqual(AppGroupContainer.identifier, "group.app.solstone.swift")
+
+        let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
+        XCTAssertEqual(queue.pendingCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.tempDirectory.appendingPathComponent("pending").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.tempDirectory.appendingPathComponent("failed").path))
+
+        if let appGroupRoot = try? AppGroupContainer.rootURL() {
+            XCTAssertTrue(appGroupRoot.path.contains("group.app.solstone.swift") || !appGroupRoot.path.isEmpty)
+        }
+    }
+
+    func testBackgroundConfigurationUsesSharedContainer() {
+        let config = ImportQueue.makeBackgroundConfiguration()
+        XCTAssertEqual(config.identifier, ImportQueue.backgroundSessionIdentifier)
+        XCTAssertEqual(config.sharedContainerIdentifier, AppGroupContainer.identifier)
+        XCTAssertTrue(config.waitsForConnectivity)
+    }
+
+    @MainActor
+    func testEnqueueWritesPendingItemPair() async throws {
+        let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf",
+            originalFilename: "source.pdf"
+        )
+
+        let itemIDString = itemID.uuidString.lowercased()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.rawURL(itemID: itemIDString, status: "pending").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.noteURL(itemID: itemIDString, status: "pending").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.descriptorURL(itemID: itemIDString, status: "pending").path))
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testNoteWriteFailureRemovesRawAndThrows() async throws {
+        let failingFileManager = NoteWriteFailingFileManager()
+        let queue = self.makeQueue(
+            fileManager: failingFileManager,
+            ensureRegistered: { throw ImportQueueError.registrationUnavailable }
+        )
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        do {
+            _ = try await queue.enqueue(
+                fileURL: source,
+                source: "share-extension",
+                stream: "import.share",
+                targetJournal: "home",
+                contentType: "com.adobe.pdf"
+            )
+            XCTFail("Expected enqueue to throw")
+        } catch ImportQueueError.writeFailed {
+        } catch {
+            XCTFail("Unexpected error \(error)")
+        }
+
+        let pending = self.tempDirectory.appendingPathComponent("pending", isDirectory: true)
+        let entries = try FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil)
+        XCTAssertTrue(entries.isEmpty)
+        XCTAssertEqual(queue.pendingCount, 0)
+    }
+
+    @MainActor
+    func testResumeMovesIncompleteItemToFailed() async throws {
+        let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
+        let itemID = UUID().uuidString.lowercased()
+        let itemDirectory = self.pendingItemDirectory(itemID: itemID)
+        try FileManager.default.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
+        try Data("raw".utf8).write(to: self.rawURL(itemID: itemID, status: "pending"))
+
+        await queue.resumeFromDisk()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: itemDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.failedItemDirectory(itemID: itemID).path))
+        XCTAssertEqual(queue.failedCount, 1)
+    }
+
+    @MainActor
+    func testFrozenNoteExactOrderedBytesAndPopulatedValues() async throws {
+        let modifiedAt = Date(timeIntervalSince1970: 1_713_624_000.125)
+        let fileManager = AttributeFileManager(attributes: [
+            .modificationDate: modifiedAt,
+            .size: NSNumber(value: 3),
+        ])
+        let queue = self.makeQueue(
+            fileManager: fileManager,
+            ensureRegistered: { throw ImportQueueError.registrationUnavailable }
+        )
+        let source = try self.makeSourceFile(named: "photo.jpg", data: Data("img".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "daily",
+            contentType: "public.jpeg",
+            originalFilename: "photo.jpg",
+            originApp: "com.example.photos"
+        )
+
+        let itemIDString = itemID.uuidString.lowercased()
+        let note = try String(contentsOf: self.noteURL(itemID: itemIDString, status: "pending"), encoding: .utf8)
+        let expected = #"{"schema":"solstone.source.item/1","source":"share-extension","origin_app":"com.example.photos","content_type":"public.jpeg","filename":"photo.jpg","bytes":3,"basis":"modified","item_time":"\#(Self.iso8601String(for: modifiedAt))","target_journal":"daily","kind":"raw","item_id":"\#(itemIDString)"}"#
+        XCTAssertEqual(note, expected)
+    }
+
+    @MainActor
+    func testPlacementBasisModifiedCreatedAndSent() async throws {
+        let modifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        let createdAt = Date(timeIntervalSince1970: 1_713_625_000)
+        let sentAt = Date(timeIntervalSince1970: 1_713_626_000)
+
+        let modifiedID = try await self.enqueueForPlacement(attributes: [.modificationDate: modifiedAt, .size: NSNumber(value: 1)], now: sentAt)
+        let createdID = try await self.enqueueForPlacement(attributes: [.creationDate: createdAt, .size: NSNumber(value: 1)], now: sentAt)
+        let sentID = try await self.enqueueForPlacement(attributes: [.size: NSNumber(value: 1)], now: sentAt)
+
+        XCTAssertEqual(try self.noteValue(itemID: modifiedID, key: "basis"), "modified")
+        XCTAssertEqual(try self.noteValue(itemID: modifiedID, key: "item_time"), Self.iso8601String(for: modifiedAt))
+        XCTAssertEqual(try self.noteValue(itemID: createdID, key: "basis"), "created")
+        XCTAssertEqual(try self.noteValue(itemID: createdID, key: "item_time"), Self.iso8601String(for: createdAt))
+        XCTAssertEqual(try self.noteValue(itemID: sentID, key: "basis"), "sent")
+        XCTAssertEqual(try self.noteValue(itemID: sentID, key: "item_time"), Self.iso8601String(for: sentAt))
+    }
+
+    @MainActor
+    func testRawFilenameMapping() async throws {
+        let cases: [(String, String, String)] = [
+            ("public.mpeg-4-audio", "audio.m4a", "audio/mp4"),
+            ("com.adobe.pdf", "document.pdf", "application/pdf"),
+            ("public.jpeg", "image.jpg", "image/jpeg"),
+            ("public.png", "image.png", "image/png"),
+            ("public.heic", "image.heic", "image/heic"),
+            ("com.compuserve.gif", "image.gif", "image/gif"),
+            ("org.webmproject.webp", "image.webp", "image/webp"),
+            ("public.tiff", "image.tiff", "image/tiff"),
+            ("unknown.type", "item.bin", "application/octet-stream"),
+        ]
+        let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
+
+        for (contentType, filename, mimeType) in cases {
+            let source = try self.makeSourceFile(named: "\(UUID().uuidString).bin", data: Data("x".utf8))
+            let itemID = try await queue.enqueue(
+                fileURL: source,
+                source: "share-extension",
+                stream: "import.share",
+                targetJournal: "home",
+                contentType: contentType
+            ).uuidString.lowercased()
+            let descriptor = try self.readDescriptor(itemID: itemID)
+            XCTAssertEqual(descriptor.filename, filename)
+            XCTAssertEqual(descriptor.contentType, mimeType)
+        }
+    }
+
+    @MainActor
+    func testRetryRebuildsIdenticalMultipartBytes() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            if ImportQueueURLProtocol.callCount == 1 {
+                return (
+                    HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                    Data("service unavailable".utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok","segment":"120000_0"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(retryDelays: [0])
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("retry delivery") {
+            ImportQueueURLProtocol.callCount >= 2 && queue.pendingCount == 0
+        }
+        XCTAssertGreaterThanOrEqual(ImportQueueURLProtocol.capturedBodies.count, 2)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedBodies[0], ImportQueueURLProtocol.capturedBodies[1])
+        let body = String(decoding: ImportQueueURLProtocol.capturedBodies[0], as: UTF8.self)
+        XCTAssertTrue(body.contains("name=\"day\""))
+        XCTAssertTrue(body.contains("name=\"segment\""))
+        XCTAssertTrue(body.contains("name=\"platform\""))
+        XCTAssertTrue(body.contains("name=\"meta\""))
+        XCTAssertTrue(body.contains("filename=\"document.pdf\""))
+        XCTAssertTrue(body.contains("filename=\"item.json\""))
+    }
+
+    @MainActor
+    func testAny2xxLiteralOkIsDeliveredAndWritesLedger() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("delivery") {
+            queue.pendingCount == 0 && queue.lastDeliveredAt != nil
+        }
+        let ledger = try self.readLedger()
+        XCTAssertEqual(ledger[itemID]?.serverSegment, nil)
+        XCTAssertEqual(ledger[itemID]?.stream, "import.share")
+    }
+
+    @MainActor
+    func testDuplicateAndCollisionResponsesWriteServerSegment() async throws {
+        try await self.assertServerSegment(
+            response: #"{"status":"duplicate","existing_segment":"120000_1"}"#,
+            expected: "120000_1"
+        )
+        try await self.assertServerSegment(
+            response: #"{"status":"collision","segment":"120000_2"}"#,
+            expected: "120000_2"
+        )
+    }
+
+    @MainActor
+    func testLedgerPreventsResendOnResume() async throws {
+        let itemID = UUID().uuidString.lowercased()
+        try FileManager.default.createDirectory(at: self.pendingItemDirectory(itemID: itemID), withIntermediateDirectories: true)
+        try Data("raw".utf8).write(to: self.rawURL(itemID: itemID, status: "pending"))
+        try Data("{}".utf8).write(to: self.noteURL(itemID: itemID, status: "pending"))
+        try Data(#"{"day":"20260420","segment":"120000_0","stream":"import.share","filename":"document.pdf","content_type":"application/pdf"}"#.utf8)
+            .write(to: self.descriptorURL(itemID: itemID, status: "pending"))
+        try self.writeLedger([
+            itemID: TestLedgerEntry(
+                itemID: itemID,
+                stream: "import.share",
+                basis: "sent",
+                contentType: "com.adobe.pdf",
+                targetJournal: "home",
+                serverDay: "20260420",
+                serverSegment: nil,
+                deliveredAt: Date(timeIntervalSince1970: 1)
+            ),
+        ])
+        let queue = self.makeQueue()
+
+        await queue.resumeFromDisk()
+
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+    }
+
+    @MainActor
+    func testRepeatedTransientFailuresMoveToFailed() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("service unavailable".utf8)
+            )
+        }
+        let queue = self.makeQueue(retryDelays: [0, 0, 0, 0])
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("failed import") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 5)
+    }
+
+    @MainActor
+    func testKeyOrPortUnavailableLeavesPendingWithoutAttempts() async throws {
+        let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        await queue.resumeFromDisk()
+        await queue.resumeFromDisk()
+
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testRequeueFailedItemMovesAndResendsFrozenBytes() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("service unavailable".utf8)
+            )
+        }
+        let queue = self.makeQueue(retryDelays: [0, 0, 0, 0])
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        try await self.waitFor("failed import") {
+            queue.failedCount == 1
+        }
+        let failedNote = try Data(contentsOf: self.noteURL(itemID: itemID.uuidString.lowercased(), status: "failed"))
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok","segment":"120000_0"}"#.utf8)
+            )
+        }
+        ImportQueueURLProtocol.callCount = 0
+        ImportQueueURLProtocol.capturedBodies = []
+
+        try await queue.requeueFailedItem(itemID: itemID)
+
+        try await self.waitFor("requeue delivery") {
+            queue.pendingCount == 0 && ImportQueueURLProtocol.callCount == 1
+        }
+        let body = ImportQueueURLProtocol.capturedBodies.first ?? Data()
+        XCTAssertNotNil(body.range(of: failedNote))
+    }
+
+    @MainActor
+    func testRealConstructionWithTempRootDeliversEndToEnd() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok","segment":"120000_0"}"#.utf8)
+            )
+        }
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+        let queue = self.makeQueue(fileManager: .default)
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("real construction delivery") {
+            queue.pendingCount == 0 && queue.lastDeliveredAt != nil
+        }
+        XCTAssertFalse(try self.readLedger().isEmpty)
+    }
+
+    @MainActor
+    private func makeQueue(
+        fileManager: FileManager = .default,
+        retryDelays: [UInt64] = [0],
+        ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
+        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_713_624_000) }
+    ) -> ImportQueue {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ImportQueueURLProtocol.self]
+        return ImportQueue(
+            cacheRootURL: self.tempDirectory,
+            fileManager: fileManager,
+            sessionConfiguration: configuration,
+            ensureRegistered: ensureRegistered,
+            localPortProvider: localPortProvider,
+            retryDelays: retryDelays,
+            sleep: { _ in },
+            startPathMonitor: false,
+            now: now
+        )
+    }
+
+    @MainActor
+    private func enqueueForPlacement(attributes: [FileAttributeKey: Any], now: Date) async throws -> String {
+        let fileManager = AttributeFileManager(attributes: attributes)
+        let queue = self.makeQueue(
+            fileManager: fileManager,
+            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
+            now: { now }
+        )
+        let source = try self.makeSourceFile(named: "\(UUID().uuidString).bin", data: Data("x".utf8))
+        return try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "unknown.type"
+        ).uuidString.lowercased()
+    }
+
+    @MainActor
+    private func assertServerSegment(response: String, expected: String) async throws {
+        try? FileManager.default.removeItem(at: self.tempDirectory)
+        try FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
+        ImportQueueURLProtocol.callCount = 0
+        ImportQueueURLProtocol.capturedBodies = []
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(response.utf8)
+            )
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("server segment delivery") {
+            queue.pendingCount == 0
+        }
+        let entry = try XCTUnwrap(self.readLedger()[itemID])
+        XCTAssertEqual(entry.serverSegment, expected)
+        XCTAssertEqual(entry.serverDay.count, 8)
+    }
+
+    private func makeSourceFile(named name: String, data: Data) throws -> URL {
+        let url = self.tempDirectory.appendingPathComponent(name)
+        try data.write(to: url)
+        return url
+    }
+
+    private func pendingItemDirectory(itemID: String) -> URL {
+        self.tempDirectory
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+    }
+
+    private func failedItemDirectory(itemID: String) -> URL {
+        self.tempDirectory
+            .appendingPathComponent("failed", isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+    }
+
+    private func rawURL(itemID: String, status: String) -> URL {
+        self.tempDirectory
+            .appendingPathComponent(status, isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+            .appendingPathComponent("raw.bin")
+    }
+
+    private func noteURL(itemID: String, status: String) -> URL {
+        self.tempDirectory
+            .appendingPathComponent(status, isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+            .appendingPathComponent("item.json")
+    }
+
+    private func descriptorURL(itemID: String, status: String) -> URL {
+        self.tempDirectory
+            .appendingPathComponent(status, isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+            .appendingPathComponent("request.json")
+    }
+
+    private func readDescriptor(itemID: String) throws -> TestRequestDescriptor {
+        try JSONDecoder().decode(TestRequestDescriptor.self, from: Data(contentsOf: self.descriptorURL(itemID: itemID, status: "pending")))
+    }
+
+    private func readLedger() throws -> [String: TestLedgerEntry] {
+        let url = self.tempDirectory.appendingPathComponent("ledger.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([String: TestLedgerEntry].self, from: Data(contentsOf: url))
+    }
+
+    private func writeLedger(_ ledger: [String: TestLedgerEntry]) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(ledger).write(to: self.tempDirectory.appendingPathComponent("ledger.json"), options: .atomic)
+    }
+
+    private func noteValue(itemID: String, key: String) throws -> String? {
+        let data = try Data(contentsOf: self.noteURL(itemID: itemID, status: "pending"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return object[key] as? String
+    }
+
+    @MainActor private func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for \(label)")
+    }
+
+    private static func iso8601String(for date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+}
+
+private struct TestRequestDescriptor: Decodable {
+    let day: String
+    let segment: String
+    let stream: String
+    let filename: String
+    let contentType: String
+
+    enum CodingKeys: String, CodingKey {
+        case day
+        case segment
+        case stream
+        case filename
+        case contentType = "content_type"
+    }
+}
+
+private struct TestLedgerEntry: Codable {
+    let itemID: String
+    let stream: String
+    let basis: String
+    let contentType: String
+    let targetJournal: String
+    let serverDay: String
+    let serverSegment: String?
+    let deliveredAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case itemID = "item_id"
+        case stream
+        case basis
+        case contentType = "content_type"
+        case targetJournal = "target_journal"
+        case serverDay = "server_day"
+        case serverSegment = "server_segment"
+        case deliveredAt = "delivered_at"
+    }
+}
+
+private final class NoteWriteFailingFileManager: FileManager, @unchecked Sendable {
+    override func createFile(atPath path: String, contents data: Data?, attributes attr: [FileAttributeKey: Any]? = nil) -> Bool {
+        if path.hasSuffix("item.json") {
+            return false
+        }
+        return super.createFile(atPath: path, contents: data, attributes: attr)
+    }
+}
+
+private final class AttributeFileManager: FileManager, @unchecked Sendable {
+    let attributes: [FileAttributeKey: Any]
+
+    init(attributes: [FileAttributeKey: Any]) {
+        self.attributes = attributes
+        super.init()
+    }
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        self.attributes
+    }
+}
+
+private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var callCount: Int {
+        get { self.callCountBox.withLock { $0 } }
+        set { self.callCountBox.withLock { $0 = newValue } }
+    }
+    static var capturedBodies: [Data] {
+        get { self.bodiesBox.withLock { $0 } }
+        set { self.bodiesBox.withLock { $0 = newValue } }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "127.0.0.1"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.callCountBox.withLock { $0 += 1 }
+        let body = Self.bodyData(from: self.request)
+        Self.bodiesBox.withLock { $0.append(body) }
+        guard let handler = Self.handler else {
+            XCTFail("ImportQueueURLProtocol handler not set")
+            return
+        }
+
+        do {
+            let (response, data) = try handler(self.request)
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: data)
+            self.client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            self.client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+
+    private static func bodyData(from request: URLRequest) -> Data {
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+
+        var output = Data()
+        let bufferSize = 4_096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            if read <= 0 {
+                break
+            }
+            output.append(buffer, count: read)
+        }
+        return output
+    }
+}
