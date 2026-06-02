@@ -311,6 +311,7 @@ struct SolstoneSwiftApp: App {
                 }
 
                 if Self.isIntegrationMode,
+                   // Internal compatibility arg for automation; not owner-facing UI vocabulary.
                    Self.integrationObserverTapKind == "sense",
                    !self.didAutoStartIntegrationObserver
                 {

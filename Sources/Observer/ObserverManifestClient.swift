@@ -4,10 +4,16 @@
 import Foundation
 import os
 
-struct ObserverManifestItem: Identifiable, Equatable, Sendable {
+nonisolated struct ObserverManifestItem: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     let subtitle: String
+}
+
+nonisolated enum ObserverManifestResult: Equatable, Sendable {
+    case loaded([ObserverManifestItem])
+    case loadedEmpty
+    case failed
 }
 
 private nonisolated struct ObserverManifestResponse: Decodable {
@@ -49,32 +55,43 @@ private struct SegmentFile: Decodable {
 }
 
 nonisolated struct ObserverManifestClient: Sendable {
-    func fetchToday(localPort: Int, key: String) async -> [ObserverManifestItem] {
+    private let session: URLSession
+
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    func fetchToday(localPort: Int, key: String) async -> ObserverManifestResult {
         let day = Self.dayString(for: Date())
         guard let url = ObserverServerURL.manifestURL(localPort: localPort, key: key, day: day) else {
-            return []
+            let log = Logger(subsystem: "app.solstone.swift", category: "observer")
+            log.debug("observer manifest unavailable: invalid url")
+            return .failed
         }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await self.session.data(for: request)
             guard let response = response as? HTTPURLResponse, 200..<300 ~= response.statusCode else {
-                return []
+                let log = Logger(subsystem: "app.solstone.swift", category: "observer")
+                log.debug("observer manifest unavailable: non-success response")
+                return .failed
             }
 
             let payload = try JSONDecoder().decode(ObserverManifestResponse.self, from: data)
-            return payload.segments.map { segment in
+            let items = payload.segments.map { segment in
                 let title = segment.key ?? segment.originalKey ?? "observation"
                 let fileCount = segment.files.count
                 let subtitle = segment.observed ?? "\(fileCount) file\(fileCount == 1 ? "" : "s")"
                 return ObserverManifestItem(id: title, title: title, subtitle: subtitle)
             }
+            return items.isEmpty ? .loadedEmpty : .loaded(items)
         } catch {
             let log = Logger(subsystem: "app.solstone.swift", category: "observer")
             log.debug("observer manifest unavailable: \(String(describing: error), privacy: .public)")
-            return []
+            return .failed
         }
     }
 

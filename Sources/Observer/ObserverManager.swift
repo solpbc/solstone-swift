@@ -26,7 +26,7 @@ enum ObserverError: Equatable, Sendable {
     var message: String {
         switch self {
         case .permissionDenied:
-            "microphone access is required for sense"
+            "microphone access is required to listen"
         case .audioSessionConflict:
             "audio session changed while listening"
         case .diskFull:

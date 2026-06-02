@@ -7,7 +7,7 @@ import XCTest
 
 nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     @MainActor
-    func testOnboardingTodayMoreAndSenseRenderAtAccessibilityXXXL() throws {
+    func testOnboardingTodayMoreAndSourcesRenderAtAccessibilityXXXL() throws {
         let appConfig = AppConfig()
         appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
 
@@ -50,10 +50,11 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(observerManager)
         }
 
-        let senseView = NavigationStack {
-            SenseView()
+        let sourcesView = NavigationStack {
+            SourcesView()
                 .environment(observerManager)
                 .environment(observerRegistration)
+                .environment(ObserverSourcePauseState())
         }
 
         try self.assertHosted(
@@ -66,7 +67,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(senseView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
     }
 
     @MainActor private func assertHosted<V: View>(_ view: V) throws {

@@ -24,15 +24,16 @@ struct MainTabView: View {
     @State private var debugCycleCount = 0
     @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
+    @State private var observerSourcePauseState = ObserverSourcePauseState()
 
     enum AppTab: Hashable {
-        case today, ask, sense, more
+        case today, ask, sources, more
 
         var route: String {
             switch self {
             case .today: "today"
             case .ask: "ask"
-            case .sense, .more: ""
+            case .sources, .more: ""
             }
         }
 
@@ -40,7 +41,7 @@ struct MainTabView: View {
             switch self {
             case .today: "sun.max"
             case .ask: "bubble.left.and.questionmark"
-            case .sense: "ear"
+            case .sources: "square.stack.3d.up"
             case .more: "ellipsis.circle"
             }
         }
@@ -49,7 +50,7 @@ struct MainTabView: View {
             switch self {
             case .today: "today"
             case .ask: "ask"
-            case .sense: "sense"
+            case .sources: "sources"
             case .more: "more"
             }
         }
@@ -58,7 +59,7 @@ struct MainTabView: View {
             switch self {
             case .today: "1"
             case .ask: "2"
-            case .sense: "3"
+            case .sources: "3"
             case .more: "4"
             }
         }
@@ -117,14 +118,15 @@ struct MainTabView: View {
                 .keyboardShortcut(KeyEquivalent(AppTab.ask.shortcutKey), modifiers: .command)
 
             NavigationStack {
-                SenseView()
+                SourcesView()
+                    .environment(self.observerSourcePauseState)
             }
-            .tag(AppTab.sense)
+            .tag(AppTab.sources)
             .tabItem {
-                Label(AppTab.sense.label, systemImage: AppTab.sense.iconName)
+                Label(AppTab.sources.label, systemImage: AppTab.sources.iconName)
             }
-            .badge(self.observerBadgeVisible ? " " : nil)
-            .keyboardShortcut(KeyEquivalent(AppTab.sense.shortcutKey), modifiers: .command)
+            .badge(self.sourcesBadgeVisible ? " " : nil)
+            .keyboardShortcut(KeyEquivalent(AppTab.sources.shortcutKey), modifiers: .command)
 
             NavigationStack {
                 MoreView(
@@ -246,11 +248,11 @@ struct MainTabView: View {
         .accessibilityLabel("loading portal")
     }
 
-    private var observerBadgeVisible: Bool {
-        switch self.observerManager.state {
-        case .starting, .active:
+    private var sourcesBadgeVisible: Bool {
+        switch sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused) {
+        case .enrolling, .active, .needsAttention:
             true
-        case .idle, .stopping, .error:
+        case .off, .paused:
             false
         }
     }
@@ -269,7 +271,7 @@ struct MainTabView: View {
             if !self.portalPage.currentRoute.hasPrefix(tab.route) {
                 self.portalPage.navigate(to: tab.route)
             }
-        case .sense, .more:
+        case .sources, .more:
             break
         }
     }
@@ -284,7 +286,7 @@ struct MainTabView: View {
             if matchedTab != self.selectedTab {
                 self.selectedTab = matchedTab
             }
-        case .sense, .more:
+        case .sources, .more:
             break
         }
     }
