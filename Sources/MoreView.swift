@@ -19,6 +19,7 @@ struct MoreView: View {
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(PushNotificationManager.self) private var pushManager
+    @Environment(\.openURL) private var openURL
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(ObserverManager.self) private var observerManager
@@ -176,6 +177,24 @@ struct MoreView: View {
                         self.copySnapshot()
                     }
                     .accessibilityHint("long press to copy diagnostic snapshot")
+            }
+
+            Section {
+                let conveyURL = ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
+                Button(SourceVocabulary.openJournalInConvey) {
+                    if let conveyURL {
+                        self.openURL(conveyURL)
+                    }
+                }
+                .disabled(conveyURL == nil)
+                .hoverEffect(.highlight)
+                .accessibilityLabel(SourceVocabulary.openJournalInConvey)
+
+                if conveyURL == nil {
+                    Text(SourceVocabulary.notConnectedRowAffordance)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("diagnostics") {

@@ -5,8 +5,10 @@ import SwiftUI
 
 struct OnThisPhoneItemDetailView: View {
     @Environment(ImportQueue.self) private var importQueue
+    @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(ObserverRegistration.self) private var observerRegistration
 
     let item: OnThisPhoneItem
 
@@ -100,9 +102,28 @@ private extension OnThisPhoneItemDetailView {
     @ViewBuilder
     var derivedBlock: some View {
         if self.item.sendState == .inYourJournal {
-            Button(SourceVocabulary.derivedOpenInConvey) {}
+            // Opens the connected journal's convey day view in system Safari via the
+            // openURL seam — never embedded. Relies on the existing 20s
+            // `backgroundDisconnectTask` grace (SolstoneSwiftApp) to keep the loopback
+            // alive across the Safari handoff; longer browsing-session survival is
+            // validated VPE-direct (AD-10), not here.
+            let conveyURL = ConveyURL.dayURL(
+                activeLocalPort: self.observerRegistration.activeLocalPort,
+                day: self.item.day
+            )
+            Button(SourceVocabulary.derivedOpenInConvey) {
+                if let conveyURL {
+                    self.openURL(conveyURL)
+                }
+            }
                 .buttonStyle(.bordered)
-                .disabled(true)
+                .disabled(conveyURL == nil)
+
+            if conveyURL == nil {
+                Text(SourceVocabulary.notConnectedRowAffordance)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         } else {
             Text(SourceVocabulary.derivedNotInJournalYet)
                 .font(.subheadline)
