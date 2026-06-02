@@ -21,7 +21,7 @@ nonisolated enum SourceState: Equatable, Sendable {
         case .paused:
             "paused"
         case .needsAttention:
-            "needs attention"
+            SourceVocabulary.needsAttention
         }
     }
 
@@ -70,7 +70,7 @@ nonisolated enum SourceState: Equatable, Sendable {
         case .paused:
             "paused. \(SourceVocabulary.pausedSubtext)"
         case .needsAttention:
-            "needs attention. \(SourceVocabulary.needsAttentionSubtext)"
+            "\(SourceVocabulary.needsAttention). \(SourceVocabulary.needsAttentionSubtext)"
         }
     }
 
@@ -84,12 +84,15 @@ nonisolated enum SourceVocabulary {
     static let enrollingSubtext = "getting ready — connecting to your journal."
     static let pausedSubtext = "you paused this. resume to start sending again."
     static let needsAttentionSubtext = "something's not getting through — tap to see what."
+    static let needsAttention = "needs attention"
 
     static let observerActiveSubtext = "listening"
     static let importerActiveSubtext = "sending to your journal as you share."
     static let shareSheetDisplayName = "share sheet"
     static let shareSendingProgress = "sending to your journal…"
     static let shareDeliveredProgress = "in your journal"
+    static let sendStateSaved = "saved on this phone"
+    static let sendStateSending = "sending"
 
     static let experiencingAlongsideYouHeader = "experiencing alongside you"
     static let bringingInYourselfHeader = "bringing in yourself"
@@ -104,11 +107,28 @@ nonisolated enum SourceVocabulary {
     static let pendingSeam = "nothing pending right now."
     static let removeSeam = "removing audio is coming later."
     static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
+    static let onThisPhone = "on this phone"
+    static let onThisPhoneScope = "shows things this phone saved from the share sheet and whether they reached your journal."
+    static let onThisPhoneEmpty = "nothing here yet. things you send to your journal show up here so you can check they arrived."
+    static let onThisPhoneFailed = "couldn't load what's on this phone"
+    static let onThisPhoneSource = "source"
+    static let onThisPhonePlacement = "placement"
+    static let onThisPhoneDerived = "what sol made from it"
+    static let failedImportSubtext = "this didn't reach your journal. you can retry or drop it."
+    static let notProvided = "not provided"
+    static let originAppNotProvided = "origin app not provided"
+    static let rawOriginalUnavailable = "raw original is no longer on this phone."
+    static let derivedNotInJournalYet = "not in your journal yet"
+    static let derivedOpenInConvey = "open in convey ↗"
+    static let filenameLabel = "filename"
+    static let originAppLabel = "origin app"
+    static let sendStateLabel = "send state"
+    static let deliveredAtLabel = "delivered at"
+    static let retry = "retry"
+    static let drop = "drop"
     static let turnOn = "turn on"
     static let pause = "pause"
     static let resume = "resume"
-    static let validate = "validate"
     static let delete = "delete"
-    static let validateSeam = "checking shared items is coming later."
     static let deleteSeam = "deleting shared items is coming later."
 }

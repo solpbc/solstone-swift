@@ -255,6 +255,72 @@ final class ImportQueue {
         await self.scheduleUpload(itemID: itemIDString)
     }
 
+    func dropItem(itemID: UUID) {
+        let itemIDString = Self.itemIDString(itemID)
+        self.retryTasksByItemID[itemIDString]?.cancel()
+        self.retryTasksByItemID.removeValue(forKey: itemIDString)
+        self.attemptCountByItemID.removeValue(forKey: itemIDString)
+        if let taskID = self.activeTaskIDByItemID.removeValue(forKey: itemIDString) {
+            self.taskInfoByTaskID.removeValue(forKey: taskID)
+            self.responseDataByTaskID.removeValue(forKey: taskID)
+        }
+        try? self.fileManager.removeItem(at: self.pendingItemDirectoryURL(itemID: itemIDString))
+        try? self.fileManager.removeItem(at: self.failedItemDirectoryURL(itemID: itemIDString))
+        self.refreshCounts()
+        importQueueLog.info("import item dropped \(itemIDString, privacy: .public)")
+    }
+
+    func onThisPhoneSnapshot() -> OnThisPhoneResult {
+        let ledger: [String: LedgerEntry]
+        do {
+            ledger = try self.loadLedger()
+        } catch {
+            return .failed
+        }
+
+        var items: [OnThisPhoneItem] = []
+        let pendingDirectories = (try? self.fileManager.contentsOfDirectory(
+            at: self.pendingDirectoryURL(),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for directory in pendingDirectories where self.isDirectory(directory) {
+            let itemID = directory.lastPathComponent
+            guard ledger[itemID] == nil else { continue }
+            items.append(self.localOnThisPhoneItem(
+                itemID: itemID,
+                status: .pending,
+                location: .pending,
+                isActivelyUploading: self.activeTaskIDByItemID[itemID] != nil
+            ))
+        }
+
+        let failedDirectories = (try? self.fileManager.contentsOfDirectory(
+            at: self.failedDirectoryURL(),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for directory in failedDirectories where self.isDirectory(directory) {
+            let itemID = directory.lastPathComponent
+            guard ledger[itemID] == nil else { continue }
+            items.append(self.localOnThisPhoneItem(
+                itemID: itemID,
+                status: .failed,
+                location: .failed,
+                isActivelyUploading: false
+            ))
+        }
+
+        for (itemID, entry) in ledger {
+            items.append(self.deliveredOnThisPhoneItem(itemID: itemID, entry: entry))
+        }
+
+        guard !items.isEmpty else { return .loadedEmpty }
+        return .loaded(items.sorted { lhs, rhs in
+            (lhs.deliveredAt ?? lhs.itemTime ?? .distantPast) > (rhs.deliveredAt ?? rhs.itemTime ?? .distantPast)
+        })
+    }
+
     func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {
         self.backgroundCompletionHandler = completionHandler
     }
@@ -330,6 +396,9 @@ private extension ImportQueue {
         let basis: String
         let contentType: String
         let targetJournal: String
+        let filename: String?
+        let originApp: String?
+        let itemTime: String?
     }
 
     struct LedgerEntry: Codable, Equatable, Sendable {
@@ -341,6 +410,9 @@ private extension ImportQueue {
         let serverDay: String
         let serverSegment: String?
         let deliveredAt: Date
+        let filename: String?
+        let originApp: String?
+        let itemTime: String?
 
         enum CodingKeys: String, CodingKey {
             case itemID = "item_id"
@@ -351,6 +423,9 @@ private extension ImportQueue {
             case serverDay = "server_day"
             case serverSegment = "server_segment"
             case deliveredAt = "delivered_at"
+            case filename
+            case originApp = "origin_app"
+            case itemTime = "item_time"
         }
     }
 
@@ -493,7 +568,10 @@ private extension ImportQueue {
                 targetJournal: info.ledgerStub.targetJournal,
                 serverDay: info.descriptor.day,
                 serverSegment: serverSegment,
-                deliveredAt: self.now()
+                deliveredAt: self.now(),
+                filename: info.ledgerStub.filename,
+                originApp: info.ledgerStub.originApp,
+                itemTime: info.ledgerStub.itemTime
             )
             try self.saveLedger(ledger)
             try? self.fileManager.removeItem(at: info.itemDirectoryURL)
@@ -590,6 +668,61 @@ private extension ImportQueue {
         Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8)
     }
 
+    func localOnThisPhoneItem(
+        itemID: String,
+        status: ItemStatus,
+        location: OnThisPhoneLocation,
+        isActivelyUploading: Bool
+    ) -> OnThisPhoneItem {
+        let object = self.readNoteObject(itemID: itemID, status: status)
+        let descriptor = try? self.loadDescriptor(itemID: itemID, status: status)
+        let rawURL = self.rawURL(itemID: itemID, status: status)
+        let rawFileURL = self.fileManager.fileExists(atPath: rawURL.path) ? rawURL : nil
+
+        return OnThisPhoneItem(
+            id: itemID,
+            sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
+            contentType: object?["content_type"] as? String,
+            filename: object?["filename"] as? String,
+            bytes: (object?["bytes"] as? NSNumber)?.int64Value,
+            originApp: object?["origin_app"] as? String,
+            basis: object?["basis"] as? String,
+            itemTime: Self.parseItemTime(object?["item_time"] as? String),
+            targetJournal: object?["target_journal"] as? String,
+            stream: descriptor?.stream,
+            day: descriptor?.day,
+            segment: descriptor?.segment,
+            deliveredAt: nil,
+            rawFileURL: rawFileURL
+        )
+    }
+
+    func deliveredOnThisPhoneItem(itemID: String, entry: LedgerEntry) -> OnThisPhoneItem {
+        OnThisPhoneItem(
+            id: itemID,
+            sendState: .inYourJournal,
+            contentType: entry.contentType,
+            filename: entry.filename,
+            bytes: nil,
+            originApp: entry.originApp,
+            basis: entry.basis,
+            itemTime: Self.parseItemTime(entry.itemTime),
+            targetJournal: entry.targetJournal,
+            stream: entry.stream,
+            day: entry.serverDay,
+            segment: entry.serverSegment,
+            deliveredAt: entry.deliveredAt,
+            rawFileURL: nil
+        )
+    }
+
+    func readNoteObject(itemID: String, status: ItemStatus) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: self.noteURL(itemID: itemID, status: status)) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     func boundary(for itemID: String) -> String {
         "Boundary-\(itemID)"
     }
@@ -674,6 +807,14 @@ private extension ImportQueue {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+
+    nonisolated static func parseItemTime(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.date(from: string)
     }
 
     nonisolated static func dayString(for date: Date) -> String {
@@ -765,7 +906,10 @@ private extension ImportQueue {
             stream: descriptor.stream,
             basis: basis,
             contentType: contentType,
-            targetJournal: targetJournal
+            targetJournal: targetJournal,
+            filename: object["filename"] as? String,
+            originApp: object["origin_app"] as? String,
+            itemTime: object["item_time"] as? String
         )
     }
 

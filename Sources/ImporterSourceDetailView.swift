@@ -32,15 +32,16 @@ struct ImporterSourceDetailView: View {
                     self.recentBlock
                 }
 
-                SourceDetailBlock(title: SourceVocabulary.validate) {
+                SourceDetailBlock(title: SourceVocabulary.onThisPhone) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Button(SourceVocabulary.validate) {}
-                            .buttonStyle(.bordered)
-                            .disabled(true)
-
-                        Text(SourceVocabulary.validateSeam)
+                        Text(SourceVocabulary.onThisPhoneScope)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+
+                        NavigationLink(SourceVocabulary.onThisPhone) {
+                            OnThisPhoneView()
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
 

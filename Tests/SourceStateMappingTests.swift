@@ -45,6 +45,22 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(importerActiveSubtext(pendingCount: 0, lastDeliveredAt: nil), SourceVocabulary.importerActiveSubtext)
     }
 
+    func testOnThisPhoneSendStateMapping() {
+        XCTAssertEqual(onThisPhoneSendState(location: .delivered, isActivelyUploading: false), .inYourJournal)
+        XCTAssertEqual(onThisPhoneSendState(location: .delivered, isActivelyUploading: true), .inYourJournal)
+        XCTAssertEqual(onThisPhoneSendState(location: .failed, isActivelyUploading: false), .needsAttention)
+        XCTAssertEqual(onThisPhoneSendState(location: .failed, isActivelyUploading: true), .needsAttention)
+        XCTAssertEqual(onThisPhoneSendState(location: .pending, isActivelyUploading: true), .sending)
+        XCTAssertEqual(onThisPhoneSendState(location: .pending, isActivelyUploading: false), .savedOnThisPhone)
+    }
+
+    func testOnThisPhoneSendStateLabels() {
+        XCTAssertEqual(OnThisPhoneSendState.savedOnThisPhone.label, SourceVocabulary.sendStateSaved)
+        XCTAssertEqual(OnThisPhoneSendState.sending.label, SourceVocabulary.sendStateSending)
+        XCTAssertEqual(OnThisPhoneSendState.inYourJournal.label, SourceVocabulary.shareDeliveredProgress)
+        XCTAssertEqual(OnThisPhoneSendState.needsAttention.label, SourceVocabulary.needsAttention)
+    }
+
     private static func session() -> ObserverSession {
         ObserverSession(
             sessionID: UUID(),

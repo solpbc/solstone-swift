@@ -292,7 +292,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
             source: "share",
             stream: "import.share",
             targetJournal: "home",
-            contentType: "com.adobe.pdf"
+            contentType: "com.adobe.pdf",
+            originalFilename: "source.pdf",
+            originApp: "com.example.files"
         ).uuidString.lowercased()
 
         try await self.waitFor("share delivery") {
@@ -300,6 +302,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
         }
         let ledger = try self.readLedger()
         XCTAssertEqual(ledger[itemID]?.stream, "import.share")
+        XCTAssertEqual(ledger[itemID]?.filename, "source.pdf")
+        XCTAssertEqual(ledger[itemID]?.originApp, "com.example.files")
+        XCTAssertNotNil(ledger[itemID]?.itemTime)
         let body = String(decoding: try XCTUnwrap(ImportQueueURLProtocol.capturedBodies.first), as: UTF8.self)
         XCTAssertTrue(body.contains(#"{"stream":"import.share"}"#))
         queue.finishBackgroundEvents()
@@ -693,6 +698,35 @@ private struct TestLedgerEntry: Codable {
     let serverDay: String
     let serverSegment: String?
     let deliveredAt: Date
+    let filename: String?
+    let originApp: String?
+    let itemTime: String?
+
+    init(
+        itemID: String,
+        stream: String,
+        basis: String,
+        contentType: String,
+        targetJournal: String,
+        serverDay: String,
+        serverSegment: String?,
+        deliveredAt: Date,
+        filename: String? = nil,
+        originApp: String? = nil,
+        itemTime: String? = nil
+    ) {
+        self.itemID = itemID
+        self.stream = stream
+        self.basis = basis
+        self.contentType = contentType
+        self.targetJournal = targetJournal
+        self.serverDay = serverDay
+        self.serverSegment = serverSegment
+        self.deliveredAt = deliveredAt
+        self.filename = filename
+        self.originApp = originApp
+        self.itemTime = itemTime
+    }
 
     enum CodingKeys: String, CodingKey {
         case itemID = "item_id"
@@ -703,6 +737,9 @@ private struct TestLedgerEntry: Codable {
         case serverDay = "server_day"
         case serverSegment = "server_segment"
         case deliveredAt = "delivered_at"
+        case filename
+        case originApp = "origin_app"
+        case itemTime = "item_time"
     }
 }
 
