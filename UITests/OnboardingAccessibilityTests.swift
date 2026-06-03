@@ -25,8 +25,7 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
     }
 
     @MainActor
-    func testMoreViewExposesAccessibilityMetadata() throws {
-        throw XCTSkip("flaky under simulator load: wedges the sim; deflake tracked separately")
+    func testMoreViewExposesAccessibilityMetadata() {
         self.assertMoreViewAccessibility()
     }
 }
@@ -85,6 +84,7 @@ private extension OnboardingAccessibilityTests {
         app.launch()
 
         app.tabBars.buttons["more"].tap()
+        XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 10))
 
         self.scrollToElement(app.buttons["save briefing time"], in: app)
         self.assertMetadata(for: app.buttons["save briefing time"], in: app)
@@ -102,12 +102,19 @@ private extension OnboardingAccessibilityTests {
     }
 
     func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
-        if element.waitForExistence(timeout: 2) {
+        if element.waitForExistence(timeout: 5) {
             return
         }
-        for _ in 1...6 {
-            app.swipeUp()
-            if element.waitForExistence(timeout: 1) {
+        let scrollContainer = app.collectionViews.firstMatch.exists
+            ? app.collectionViews.firstMatch
+            : app.scrollViews.firstMatch
+        XCTAssertTrue(scrollContainer.waitForExistence(timeout: 10))
+
+        let start = scrollContainer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+        let end = scrollContainer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        for _ in 1...10 {
+            start.press(forDuration: 0.05, thenDragTo: end)
+            if element.waitForExistence(timeout: 2) {
                 return
             }
         }
