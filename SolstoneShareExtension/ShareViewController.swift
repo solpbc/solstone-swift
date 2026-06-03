@@ -17,7 +17,7 @@ final class ShareViewController: UIViewController {
         case paused
         case confirm(journalName: String)
         case saving
-        case message(String)
+        case failure(String)
     }
 
     private let mirror = AppGroupMirror()
@@ -131,28 +131,16 @@ final class ShareViewController: UIViewController {
             switch result {
             case .success:
                 self.mirror.activateShareSource()
-                if let savedMessage = result.savedMessage {
-                    self.render(.message(savedMessage))
-                }
-                self.coordinator.savedMessageShown()
-                await self.completeAfterDelay()
+                self.coordinator.saveCommitted()
+                self.complete()
             case .failure(let failure):
-                self.render(.message(failure.message))
-                await self.completeAfterDelay()
+                self.render(.failure(failure.message))
             }
         }
     }
 
     private func showFailure(_ failure: ShareImportFailure) {
-        self.render(.message(failure.message))
-        Task { @MainActor [weak self] in
-            await self?.completeAfterDelay()
-        }
-    }
-
-    private func completeAfterDelay() async {
-        try? await Task.sleep(for: .seconds(1))
-        self.complete()
+        self.render(.failure(failure.message))
     }
 
     private func complete() {
@@ -216,10 +204,12 @@ private struct ShareExtensionView: View {
                 Button("send to your journal", action: self.onSend)
                     .buttonStyle(.borderedProminent)
                     .tint(.solOrangeAccessible)
-            case .message(let message):
+            case .failure(let message):
                 Text(message)
                     .font(.body)
                     .multilineTextAlignment(.center)
+                Button(ShareImportCopy.dismiss, action: self.onCancel)
+                    .buttonStyle(.bordered)
             }
         }
         .padding(24)

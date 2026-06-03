@@ -22,7 +22,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testDurableSaveBeforeSavedCopySuccessOrdering() async throws {
+    func testDurableSaveBeforeCommitEventSuccessOrdering() async throws {
         let queueRoot = self.tempDirectory.appendingPathComponent("queue", isDirectory: true)
         let queue = ImportQueue(
             cacheRootURL: queueRoot,
@@ -37,12 +37,14 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         }
 
         let result = await coordinator.accept(provider: provider, journalName: "sol")
-        coordinator.savedMessageShown()
+        coordinator.saveCommitted()
 
         guard case .success(let itemID) = result else {
             XCTFail("Expected success")
             return
         }
+        // Success carries no owner-facing message API; failures remain message-bearing.
+        XCTAssertNil(result.failureMessage)
         let itemIDString = itemID.uuidString.lowercased()
         XCTAssertTrue(FileManager.default.fileExists(atPath: queueRoot.appendingPathComponent("pending/\(itemIDString)/raw.bin").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
@@ -51,7 +53,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             .precheckPassed,
             .enqueueStarted,
             .enqueueSucceeded(itemID),
-            .savedShown,
+            .saveCommitted,
         ])
     }
 
@@ -124,7 +126,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             .enqueueStarted,
             .failed(.unreadable),
         ])
-        XCTAssertFalse(recorder.events().contains(.savedShown))
+        XCTAssertFalse(recorder.events().contains(.saveCommitted))
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
         try self.assertQueueDirectoriesEmpty(root: queueRoot)
     }

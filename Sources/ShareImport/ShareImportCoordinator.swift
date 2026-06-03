@@ -27,7 +27,7 @@ protocol ShareImportQueueing: AnyObject {
 extension ImportQueue: ShareImportQueueing {}
 
 nonisolated enum ShareImportCopy {
-    static let savedMessage = "saved on this phone — it'll reach your journal when you're back online."
+    static let dismiss = "dismiss"
 
     static func failureMessage(plainReason: String) -> String {
         "couldn't save this — \(plainReason). nothing was added."
@@ -63,22 +63,13 @@ nonisolated enum ShareImportEvent: Equatable, Sendable {
     case precheckPassed
     case enqueueStarted
     case enqueueSucceeded(UUID)
-    case savedShown
+    case saveCommitted
     case failed(ShareImportFailure)
 }
 
 nonisolated enum ShareImportResult: Equatable, Sendable {
     case success(UUID)
     case failure(ShareImportFailure)
-
-    var savedMessage: String? {
-        switch self {
-        case .success:
-            ShareImportCopy.savedMessage
-        case .failure:
-            nil
-        }
-    }
 
     var failureMessage: String? {
         switch self {
@@ -166,8 +157,8 @@ final class ShareImportCoordinator {
         }
     }
 
-    func savedMessageShown() {
-        self.emit(.savedShown)
+    func saveCommitted() {
+        self.emit(.saveCommitted)
     }
 }
 
