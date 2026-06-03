@@ -7,7 +7,6 @@ MoreView.swift|Reset
 MoreView.swift|Unpair
 ImporterSourceDetailView.swift|Cancel
 LocationSourceDetailView.swift|Cancel
-BriefingTimeScreen.swift|7:00 AM
 DayZeroOverlayView.swift|7:00 AM
 PairScreen.swift|solstone://
 PairFlowCoordinator.swift|Try again.

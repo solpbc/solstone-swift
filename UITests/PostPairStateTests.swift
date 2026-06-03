@@ -54,12 +54,18 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.openTodayTabIfNeeded(in: app)
 
-        let bannerText = app.staticTexts["offline — showing cached data"]
-        let bannerElement = app.otherElements["Offline. Showing cached data."]
+        let bannerText = app.staticTexts["offline — safe on this phone · your journal will catch up"]
+        let bannerElement = app.otherElements["Offline. Safe on this phone; your journal will catch up."]
         XCTAssertTrue(
             bannerText.waitForExistence(timeout: 10) || bannerElement.waitForExistence(timeout: 10)
         )
+        XCTAssertTrue(app.staticTexts["portal.warmCard"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["voice"].waitForExistence(timeout: 5))
+
+        app.tabBars.buttons["sense"].tap()
+        XCTAssertTrue(app.navigationBars["sources"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["more"].tap()
+        XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 5))
     }
 }
 

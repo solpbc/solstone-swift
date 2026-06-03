@@ -10,18 +10,13 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
     }
 
     @MainActor
-    func testWelcomeAndPairScreenExposeAccessibilityMetadata() {
-        self.assertWelcomeAndPairScreen()
+    func testWelcomeAndFirstSourceScreensExposeAccessibilityMetadata() {
+        self.assertWelcomeAndFirstSourceScreens()
     }
 
     @MainActor
-    func testNotificationsScreenExposesAccessibilityMetadata() {
-        self.assertNotificationsScreen()
-    }
-
-    @MainActor
-    func testBriefingTimeScreenExposesAccessibilityMetadata() {
-        self.assertBriefingTimeScreen()
+    func testFirstSourceSeedExposesAccessibilityMetadata() {
+        self.assertFirstSourceSeed()
     }
 
     @MainActor
@@ -33,7 +28,7 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
 
 @MainActor
 private extension OnboardingAccessibilityTests {
-    func assertWelcomeAndPairScreen() {
+    func assertWelcomeAndFirstSourceScreens() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-onboarding-step=welcome"]
         app.launch()
@@ -42,39 +37,23 @@ private extension OnboardingAccessibilityTests {
         self.assertMetadata(for: getStarted, in: app)
         getStarted.tap()
 
-        self.assertMetadata(for: app.staticTexts["pair your solstone"], in: app)
-        self.assertMetadata(for: app.buttons["paste"], in: app)
-        app.buttons["paste"].tap()
-        self.assertMetadata(for: app.buttons["pair this device"], in: app)
+        self.assertMetadata(for: app.staticTexts["start with a source"], in: app)
+        self.assertMetadata(for: app.buttons["onboarding.firstSource.audio"], in: app)
+        self.assertMetadata(for: app.buttons["onboarding.firstSource.location"], in: app)
+        self.assertMetadata(for: app.buttons["look around first"], in: app)
         self.assertMetadata(for: app.buttons["back"], in: app)
     }
 
-    func assertNotificationsScreen() {
+    func assertFirstSourceSeed() {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",
-            "--ui-test-onboarding-step=notifications",
-            "--ui-test-pair-session=pair-session-test",
+            "--ui-test-onboarding-step=first_source",
         ]
         app.launch()
 
-        self.assertMetadata(for: app.buttons["allow notifications"], in: app)
-        self.assertMetadata(for: app.buttons["skip for now"], in: app)
-        self.assertMetadata(for: app.buttons["back"], in: app)
-    }
-
-    func assertBriefingTimeScreen() {
-        let app = XCUIApplication()
-        app.launchArguments = [
-            "--ui-test",
-            "--ui-test-onboarding-step=briefing_time",
-            "--ui-test-pair-session=pair-session-test",
-        ]
-        app.launch()
-
-        self.assertMetadata(for: app.datePickers.element(boundBy: 0), in: app)
-        self.assertMetadata(for: app.buttons["get started"], in: app)
-        self.assertMetadata(for: app.buttons["use 7:00 AM"], in: app)
+        self.assertMetadata(for: app.staticTexts["start with a source"], in: app)
+        self.assertMetadata(for: app.buttons["look around first"], in: app)
         self.assertMetadata(for: app.buttons["back"], in: app)
     }
 
@@ -86,6 +65,8 @@ private extension OnboardingAccessibilityTests {
         app.tabBars.buttons["more"].tap()
         XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 10))
 
+        self.scrollToElement(app.buttons["enable notifications"], in: app)
+        self.assertMetadata(for: app.buttons["enable notifications"], in: app)
         self.scrollToElement(app.buttons["save briefing time"], in: app)
         self.assertMetadata(for: app.buttons["save briefing time"], in: app)
         self.scrollToElement(app.switches["haptics"], in: app)

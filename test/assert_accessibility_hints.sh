@@ -8,14 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 required_hints=(
-  'Sources/Onboarding/WelcomeScreen.swift:Opens the pairing step'
-  'Sources/Onboarding/NotificationsScreen.swift:Requests iOS notification permission'
-  'Sources/Onboarding/NotificationsScreen.swift:Continues without enabling notifications'
-  'Sources/Onboarding/NotificationsScreen.swift:Returns to the pairing step'
-  'Sources/Onboarding/BriefingTimeScreen.swift:Morning briefing time'
-  'Sources/Onboarding/BriefingTimeScreen.swift:Saves your morning briefing time'
-  'Sources/Onboarding/BriefingTimeScreen.swift:Uses the default 7 AM briefing time'
-  'Sources/Onboarding/BriefingTimeScreen.swift:Returns to the notifications step'
+  'Sources/Onboarding/WelcomeScreen.swift:opens the first source step'
   'Sources/Home/DayZeroOverlayView.swift:Opens Today in your journal'
   'Sources/Home/DayZeroOverlayView.swift:Dismisses this first-briefing message'
   'Sources/Location/LocationSourceDetailView.swift:Opens iOS Settings for location access.'
