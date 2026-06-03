@@ -190,11 +190,11 @@ private extension ImporterSourceDetailView {
     var stateActionHint: String {
         switch self.currentState {
         case .off:
-            "Turns on share sheet."
+            "turns on share sheet."
         case .paused:
-            "Resumes share sheet."
+            "resumes share sheet."
         case .active, .needsAttention, .enrolling:
-            "Pauses share sheet."
+            "pauses share sheet."
         }
     }
 
