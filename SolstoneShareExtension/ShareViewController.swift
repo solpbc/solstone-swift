@@ -174,34 +174,34 @@ private struct ShareExtensionView: View {
             case .loading, .saving:
                 ProgressView()
             case .noJournal:
-                Text("connect your journal first — then you can send things to it.")
+                Text(ShareImportCopy.connectFirstBody)
                     .font(.body)
                     .multilineTextAlignment(.center)
-                Button("connect your journal", action: self.onConnect)
+                Button(ShareImportCopy.connectJournalButton, action: self.onConnect)
                     .buttonStyle(.borderedProminent)
                     .tint(.solOrangeAccessible)
             case .paused:
-                Text("share sheet is paused. resume it to send this, or cancel.")
+                Text(ShareImportCopy.pausedBody)
                     .font(.body)
                     .multilineTextAlignment(.center)
                 HStack(spacing: 12) {
-                    Button("cancel", action: self.onCancel)
+                    Button(ShareImportCopy.cancel, action: self.onCancel)
                         .buttonStyle(.bordered)
-                    Button("resume & send", action: self.onResumeAndSend)
+                    Button(ShareImportCopy.resumeAndSend, action: self.onResumeAndSend)
                         .buttonStyle(.borderedProminent)
                         .tint(.solOrangeAccessible)
                 }
             case .confirm(let journalName):
-                Text("send to your journal")
+                Text(ShareImportCopy.sendToYourJournal)
                     .font(.custom("Comfortaa-Bold", size: 22))
-                Text("sol can read it so you can find and ask about it later.")
+                Text(ShareImportCopy.solCanReadBody)
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Text("journal: \(journalName)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Button("send to your journal", action: self.onSend)
+                Button(ShareImportCopy.sendToYourJournal, action: self.onSend)
                     .buttonStyle(.borderedProminent)
                     .tint(.solOrangeAccessible)
             case .failure(let message):
