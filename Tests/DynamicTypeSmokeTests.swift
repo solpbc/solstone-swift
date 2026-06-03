@@ -23,13 +23,23 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             ensureRegistered: { "observer-key" },
             localPortProvider: { 7071 }
         )
+        let locationUploaderRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-LocationUploader-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: locationUploaderRoot) }
+        let locationUploader = LocationUploader(
+            cacheRootURL: locationUploaderRoot,
+            sessionConfiguration: .ephemeral,
+            ensureRegistered: { "location-key" },
+            localPortProvider: { 7071 },
+            startPathMonitor: false
+        )
         let observerManager = ObserverManager(
             recorder: MockObserverRecorder(),
             uploader: observerUploader
         )
         let locationManager = LocationManager(
             provider: MockLocationProvider(),
-            uploader: RecordingLocationUploader(),
+            uploader: locationUploader,
             clock: MockObserverClock(),
             defaults: nil
         )
@@ -75,6 +85,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
                 .environment(locationManager)
+                .environment(locationUploader)
+                .environment(observerRegistration)
         }
         let importerSourceDetailView = NavigationStack {
             ImporterSourceDetailView(source: Self.shareSource())

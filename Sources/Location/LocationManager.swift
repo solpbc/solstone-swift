@@ -205,7 +205,7 @@ private extension LocationManager {
     var sourcePresentation: (state: SourceState, attention: SourceAttention?) {
         switch self.state {
         case .idle:
-            return (.off, nil)
+            return self.paused ? (.paused, nil) : (.off, nil)
         case .starting:
             return (.enrolling, nil)
         case .active:

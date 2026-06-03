@@ -22,6 +22,15 @@ nonisolated enum LocationVocabulary {
     static let alwaysPrimerHeader = "before iOS asks"
     static let alwaysPrimerContinue = "continue"
     static let stateBlockTitle = "state"
+    static let tierBlockTitle = "detail level"
+    static let recentBlockTitle = "recent"
+    static let deliveryBlockTitle = "on its way"
+    static let tierChangeFraming = "changes apply from now on — nothing already in your journal is altered."
+    static let deliveryNeedsAttentionTemplate = "{N} location {update} {needs} attention."
+    static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
+    static let deliveryLastSavedTemplate = "last saved to your journal at {time}."
+    static let deliveryQuietLine = "nothing waiting right now."
+    static let deleteSeamLine = "removing location's contributions from your journal arrives in a later update."
     static let downgradeBodyTemplate = "you chose {tier}, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in."
     static let openSettingsAction = "open iOS Settings"
     static let matchToAllowedAction = "match it to what's allowed"
@@ -38,5 +47,26 @@ nonisolated enum LocationVocabulary {
 
     static func deleteReceiptHeadline(days: Int) -> String {
         self.deleteReceiptHeadlineTemplate.replacingOccurrences(of: "{N}", with: String(days))
+    }
+
+    static func deliveryNeedsAttention(count: Int) -> String {
+        self.deliveryNeedsAttentionTemplate
+            .replacingOccurrences(of: "{N}", with: String(count))
+            .replacingOccurrences(of: "{update}", with: self.updateNoun(count: count))
+            .replacingOccurrences(of: "{needs}", with: count == 1 ? "needs" : "need")
+    }
+
+    static func deliverySending(count: Int) -> String {
+        self.deliverySendingTemplate
+            .replacingOccurrences(of: "{N}", with: String(count))
+            .replacingOccurrences(of: "{update}", with: self.updateNoun(count: count))
+    }
+
+    static func deliveryLastSaved(time: String) -> String {
+        self.deliveryLastSavedTemplate.replacingOccurrences(of: "{time}", with: time)
+    }
+
+    private static func updateNoun(count: Int) -> String {
+        count == 1 ? "update" : "updates"
     }
 }

@@ -24,6 +24,15 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.alwaysPrimerHeader, "before iOS asks")
         XCTAssertEqual(LocationVocabulary.alwaysPrimerContinue, "continue")
         XCTAssertEqual(LocationVocabulary.stateBlockTitle, "state")
+        XCTAssertEqual(LocationVocabulary.tierBlockTitle, "detail level")
+        XCTAssertEqual(LocationVocabulary.recentBlockTitle, "recent")
+        XCTAssertEqual(LocationVocabulary.deliveryBlockTitle, "on its way")
+        XCTAssertEqual(LocationVocabulary.tierChangeFraming, "changes apply from now on — nothing already in your journal is altered.")
+        XCTAssertEqual(LocationVocabulary.deliveryNeedsAttentionTemplate, "{N} location {update} {needs} attention.")
+        XCTAssertEqual(LocationVocabulary.deliverySendingTemplate, "{N} location {update} on the way to your journal.")
+        XCTAssertEqual(LocationVocabulary.deliveryLastSavedTemplate, "last saved to your journal at {time}.")
+        XCTAssertEqual(LocationVocabulary.deliveryQuietLine, "nothing waiting right now.")
+        XCTAssertEqual(LocationVocabulary.deleteSeamLine, "removing location's contributions from your journal arrives in a later update.")
         XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in.")
         XCTAssertEqual(LocationVocabulary.openSettingsAction, "open iOS Settings")
         XCTAssertEqual(LocationVocabulary.matchToAllowedAction, "match it to what's allowed")
@@ -46,6 +55,17 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(
             LocationVocabulary.deleteReceiptHeadline(days: 4),
             "deleted. removed from your journal: where your day happened, across 4 days."
+        )
+    }
+
+    func testDeliverySummaryCopySubstitutesValues() {
+        XCTAssertEqual(LocationVocabulary.deliveryNeedsAttention(count: 1), "1 location update needs attention.")
+        XCTAssertEqual(LocationVocabulary.deliveryNeedsAttention(count: 2), "2 location updates need attention.")
+        XCTAssertEqual(LocationVocabulary.deliverySending(count: 1), "1 location update on the way to your journal.")
+        XCTAssertEqual(LocationVocabulary.deliverySending(count: 3), "3 location updates on the way to your journal.")
+        XCTAssertEqual(
+            LocationVocabulary.deliveryLastSaved(time: "3:42 PM"),
+            "last saved to your journal at 3:42 PM."
         )
     }
 }

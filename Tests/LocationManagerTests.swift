@@ -245,11 +245,11 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
-        let batchCountBefore = self.uploader.batchCount()
+        let batchesBefore = self.uploader.batches()
 
         await manager.changeTier(.full)
 
-        XCTAssertEqual(self.uploader.batchCount(), batchCountBefore)
+        XCTAssertEqual(self.uploader.batches(), batchesBefore)
         XCTAssertEqual(manager.tier, .full)
         XCTAssertEqual(self.defaults.string(forKey: "location.tier"), "full")
         XCTAssertEqual(self.provider.currentStartedModes, [.liveUpdates])
@@ -334,6 +334,13 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.stopCallCount, 1)
         XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
         XCTAssertEqual(self.uploader.batchCount(), 0)
+        XCTAssertEqual(manager.sourceState, .paused)
+        XCTAssertNil(manager.sourceAttention)
+        XCTAssertTrue(manager.recoveryActions.isEmpty)
+
+        await manager.resume()
+
+        XCTAssertEqual(manager.sourceState, .active)
     }
 
     @MainActor

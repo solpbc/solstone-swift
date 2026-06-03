@@ -184,6 +184,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.observerUploader)
                 .environment(self.importQueue)
                 .environment(self.locationManager)
+                .environment(self.locationUploader)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
