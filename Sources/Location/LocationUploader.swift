@@ -55,6 +55,7 @@ final class LocationUploader: LocationUploading {
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: LocationUploaderSessionDelegate
     @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private let deleteSession: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
     @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
@@ -67,8 +68,10 @@ final class LocationUploader: LocationUploading {
     @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
     @ObservationIgnored private var activeTaskIDByFileID: [String: Int] = [:]
+    @ObservationIgnored private var uploadTaskByFileID: [String: URLSessionUploadTask] = [:]
     @ObservationIgnored private var attemptCountByFileID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByFileID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var isDeleting = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.location-uploader")
 
@@ -76,6 +79,7 @@ final class LocationUploader: LocationUploading {
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
         sessionConfiguration: URLSessionConfiguration? = nil,
+        deleteSessionConfiguration: URLSessionConfiguration? = nil,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw LocationUploaderError.registrationUnavailable
         },
@@ -117,6 +121,7 @@ final class LocationUploader: LocationUploading {
             return config
         }()
         self.session = URLSession(configuration: configuration, delegate: self.sessionDelegate, delegateQueue: nil)
+        self.deleteSession = URLSession(configuration: deleteSessionConfiguration ?? .ephemeral)
         self.sessionDelegate.setOwner(self)
 
         try? self.ensureRootDirectories()
@@ -132,6 +137,11 @@ final class LocationUploader: LocationUploading {
     }
 
     private func enqueueOnMain(_ batch: LocationSegmentBatch) async {
+        guard !self.isDeleting else {
+            locationUploadLog.debug("location enqueue skipped during source delete")
+            return
+        }
+
         do {
             let frozen = try self.frozenSegment(for: batch)
             try self.ensureRootDirectories()
@@ -152,6 +162,11 @@ final class LocationUploader: LocationUploading {
     }
 
     func resumeFromDisk() async {
+        guard !self.isDeleting else {
+            locationUploadLog.debug("location resume skipped during source delete")
+            return
+        }
+
         do {
             try self.ensureRootDirectories()
             let entries = try self.fileManager.contentsOfDirectory(
@@ -184,6 +199,11 @@ final class LocationUploader: LocationUploading {
     }
 
     func retryFailed() async {
+        guard !self.isDeleting else {
+            locationUploadLog.debug("location retry skipped during source delete")
+            return
+        }
+
         do {
             try self.ensureRootDirectories()
             let entries = try self.fileManager.contentsOfDirectory(
@@ -218,9 +238,81 @@ final class LocationUploader: LocationUploading {
 
     func handlePathStatus(_ status: NWPath.Status) {
         guard status == .satisfied else { return }
+        guard !self.isDeleting else {
+            locationUploadLog.debug("location reachability drain skipped during source delete")
+            return
+        }
         Task { @MainActor [weak self] in
             await self?.resumeFromDisk()
         }
+    }
+
+    func deleteLocationSource() async -> DeleteShareSourceResult {
+        self.isDeleting = true
+        self.cancelLocationWorkForDelete()
+
+        let key: String
+        do {
+            key = try await self.ensureRegistered()
+        } catch {
+            let detail = String(describing: error)
+            locationUploadLog.error("location source delete unavailable: registration failed \(detail, privacy: .public)")
+            return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
+        }
+
+        guard let localPort = self.localPortProvider() else {
+            let detail = "location source delete unavailable: missing local port"
+            locationUploadLog.error("\(detail, privacy: .public)")
+            return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
+        }
+
+        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, stream: "location", key: key) else {
+            let detail = "location source delete unavailable: invalid url"
+            locationUploadLog.error("\(detail, privacy: .public)")
+            return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 10
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await self.deleteSession.data(for: request)
+        } catch {
+            let detail = String(describing: error)
+            locationUploadLog.error("location source delete failed: \(detail, privacy: .public)")
+            return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            let detail = "location source delete failed: invalid response"
+            locationUploadLog.error("\(detail, privacy: .public)")
+            return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
+        }
+
+        guard 200..<300 ~= http.statusCode else {
+            let detail = "HTTP \(http.statusCode)"
+            locationUploadLog.error("location source delete failed: \(detail, privacy: .public)")
+            return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
+        }
+
+        guard !data.isEmpty,
+              let receipt = try? JSONDecoder().decode(DeleteSourceReceipt.self, from: data)
+        else {
+            locationUploadLog.error("location source delete not confirmed: missing receipt")
+            return await self.resetDeleteAndResume(result: .notConfirmed)
+        }
+
+        let localNotRemoved = self.clearLocationLocalState()
+        locationUploadLog.info("location source delete confirmed")
+        return .confirmed(receipt: receipt, localNotRemoved: localNotRemoved)
+    }
+
+    func finishDelete() {
+        self.isDeleting = false
+        locationUploadLog.info("location source delete finished")
     }
 
     func finishBackgroundEvents() {
@@ -371,6 +463,63 @@ private extension LocationUploader {
         self.pathMonitor = monitor
     }
 
+    func resetDeleteAndResume(result: DeleteShareSourceResult) async -> DeleteShareSourceResult {
+        self.isDeleting = false
+        await self.resumeFromDisk()
+        return result
+    }
+
+    func cancelLocationWorkForDelete() {
+        for task in self.uploadTaskByFileID.values {
+            task.cancel()
+        }
+        for task in self.retryTasksByFileID.values {
+            task.cancel()
+        }
+
+        self.uploadTaskByFileID.removeAll()
+        self.activeTaskIDByFileID.removeAll()
+        self.taskInfoByTaskID.removeAll()
+        self.responseDataByTaskID.removeAll()
+        self.retryTasksByFileID.removeAll()
+        self.attemptCountByFileID.removeAll()
+    }
+
+    func clearLocationLocalState() -> [DeleteSourceReceipt.Issue] {
+        var issues: [DeleteSourceReceipt.Issue] = []
+        issues.append(contentsOf: self.clearFiles(at: self.pendingDirectoryURL(), surface: "pending"))
+        issues.append(contentsOf: self.clearFiles(at: self.failedDirectoryURL(), surface: "failed"))
+        self.refreshCounts()
+        return issues
+    }
+
+    func clearFiles(at url: URL, surface: String) -> [DeleteSourceReceipt.Issue] {
+        let entries: [URL]
+        do {
+            entries = try self.fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            return [Self.deleteIssue(what: surface, error: error)]
+        }
+
+        var issues: [DeleteSourceReceipt.Issue] = []
+        for entry in entries {
+            do {
+                try self.fileManager.removeItem(at: entry)
+            } catch {
+                issues.append(Self.deleteIssue(what: "\(surface)/\(entry.lastPathComponent)", error: error))
+            }
+        }
+        return issues
+    }
+
+    static func deleteIssue(what: String, error: any Error) -> DeleteSourceReceipt.Issue {
+        DeleteSourceReceipt.Issue(what: what, plainReason: String(describing: error))
+    }
+
     func frozenSegment(for batch: LocationSegmentBatch) throws -> FrozenSegment {
         let day = self.dayString(for: batch.segmentStart)
         let segment = "\(self.timeString(for: batch.segmentStart))_\(Int(Double(batch.coveredSeconds).rounded()))"
@@ -393,6 +542,10 @@ private extension LocationUploader {
     }
 
     func scheduleUpload(fileID: String) async {
+        guard !self.isDeleting else {
+            locationUploadLog.debug("location upload schedule skipped during source delete")
+            return
+        }
         guard self.activeTaskIDByFileID[fileID] == nil else { return }
 
         let segmentURL = self.pendingFileURL(fileID: fileID)
@@ -463,6 +616,7 @@ private extension LocationUploader {
             )
             self.activeTaskIDByFileID[fileID] = task.taskIdentifier
             task.resume()
+            self.uploadTaskByFileID[fileID] = task
         } catch {
             await self.handleUploadFailure(
                 fileID: fileID,
@@ -479,7 +633,13 @@ private extension LocationUploader {
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
         self.activeTaskIDByFileID.removeValue(forKey: info.fileID)
+        self.uploadTaskByFileID.removeValue(forKey: info.fileID)
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
+
+        if self.isDeleting {
+            locationUploadLog.debug("location upload completion dropped during source delete")
+            return
+        }
 
         if let error {
             await self.handleUploadFailure(
@@ -548,6 +708,7 @@ private extension LocationUploader {
             guard let self else { return }
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
+            guard !self.isDeleting else { return }
             await self.scheduleUpload(fileID: fileID)
         }
         self.refreshCounts()

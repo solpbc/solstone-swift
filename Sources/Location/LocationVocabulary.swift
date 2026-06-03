@@ -30,7 +30,6 @@ nonisolated enum LocationVocabulary {
     static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
     static let deliveryLastSavedTemplate = "last saved to your journal at {time}."
     static let deliveryQuietLine = "nothing waiting right now."
-    static let deleteSeamLine = "removing location's contributions from your journal arrives in a later update."
     static let downgradeBodyTemplate = "you chose {tier}, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in."
     static let openSettingsAction = "open iOS Settings"
     static let matchToAllowedAction = "match it to what's allowed"

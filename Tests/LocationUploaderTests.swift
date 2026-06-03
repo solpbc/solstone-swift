@@ -18,6 +18,7 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         LocationUploaderURLProtocol.handler = nil
         LocationUploaderURLProtocol.callCount = 0
         LocationUploaderURLProtocol.capturedBodies = []
+        LocationUploaderURLProtocol.cancelledCount = 0
     }
 
     override func tearDown() {
@@ -26,6 +27,7 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         LocationUploaderURLProtocol.handler = nil
         LocationUploaderURLProtocol.callCount = 0
         LocationUploaderURLProtocol.capturedBodies = []
+        LocationUploaderURLProtocol.cancelledCount = 0
         super.tearDown()
     }
 
@@ -358,18 +360,266 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         XCTAssertEqual(uploaded, original)
     }
 
+    @MainActor
+    func testDeleteLocationSourceConfirmedReceiptClearsLocalStateAndUsesLocationEndpoint() async throws {
+        try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.jsonl")
+        try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.upload", data: Data("body".utf8))
+        try self.writeLocationFile(status: "failed", filename: "20260601-120000_60.jsonl")
+        try self.writeLocationFile(status: "failed", filename: "20260601-120000_60.upload", data: Data("body".utf8))
+        LocationUploaderURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.url?.path, "/app/observer/source/location/test-location-key-abc")
+            return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 12))
+        }
+        let uploader = self.makeUploader()
+
+        let result = await uploader.deleteLocationSource()
+
+        guard case .confirmed(let receipt, let localNotRemoved) = result else {
+            XCTFail("Expected confirmed result")
+            return
+        }
+        XCTAssertEqual(receipt.removed.days, 12)
+        XCTAssertTrue(localNotRemoved.isEmpty)
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertTrue(try self.directoryEntries(status: "pending").isEmpty)
+        XCTAssertTrue(try self.directoryEntries(status: "failed").isEmpty)
+        uploader.finishDelete()
+    }
+
+    @MainActor
+    func testDeleteLocationSourceNotRemovedIssuesArePartial() async throws {
+        LocationUploaderURLProtocol.handler = { request in
+            (
+                Self.response(for: request, statusCode: 200),
+                Self.deleteReceipt(
+                    days: 3,
+                    notRemoved: #"{"what":"history","plain_reason":"history rows stayed"}"#
+                )
+            )
+        }
+        let uploader = self.makeUploader()
+
+        let result = await uploader.deleteLocationSource()
+
+        XCTAssertTrue(result.isPartial)
+        XCTAssertEqual(result.notRemovedIssues.map(\.plainReason), ["history rows stayed"])
+        uploader.finishDelete()
+    }
+
+    @MainActor
+    func testDeleteLocationSourceNotConfirmedResetsGuardAndPreservesPending() async throws {
+        let pendingURL = try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.jsonl")
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            return (Self.response(for: request, statusCode: 200), Data("garbage".utf8))
+        }
+        let uploader = self.makeUploader(
+            ensureRegistered: {
+                let call = registrationCalls.withLock { value in
+                    value += 1
+                    return value
+                }
+                if call == 1 {
+                    return "test-location-key-abc"
+                }
+                throw LocationUploaderError.registrationUnavailable
+            }
+        )
+
+        let result = await uploader.deleteLocationSource()
+
+        XCTAssertEqual(result, .notConfirmed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path))
+        XCTAssertEqual(uploader.pendingCount, 1)
+        await uploader.enqueue(self.makeBatch(segmentStart: Date(timeIntervalSince1970: 1_713_624_600)))
+        XCTAssertEqual(uploader.pendingCount, 2)
+    }
+
+    @MainActor
+    func testDeleteLocationSourceUnreachablePreservesLocalState() async throws {
+        let failedURL = try self.writeLocationFile(status: "failed", filename: "20260601-120000_60.jsonl")
+        LocationUploaderURLProtocol.handler = { _ in
+            throw LocationUploaderTestError.transport
+        }
+        let uploader = self.makeUploader()
+
+        let result = await uploader.deleteLocationSource()
+
+        guard case .unreachable = result else {
+            XCTFail("Expected unreachable result")
+            return
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedURL.path))
+        XCTAssertEqual(uploader.failedCount, 1)
+    }
+
+    @MainActor
+    func testDeleteLocationSourceNonSuccessStatusIsUnreachable() async throws {
+        let failedURL = try self.writeLocationFile(status: "failed", filename: "20260601-120000_60.jsonl")
+        LocationUploaderURLProtocol.handler = { request in
+            (Self.response(for: request, statusCode: 500), Data("failed".utf8))
+        }
+        let uploader = self.makeUploader()
+
+        let result = await uploader.deleteLocationSource()
+
+        guard case .unreachable(let reason) = result else {
+            XCTFail("Expected unreachable result")
+            return
+        }
+        XCTAssertEqual(reason, "HTTP 500")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedURL.path))
+        XCTAssertEqual(uploader.failedCount, 1)
+    }
+
+    @MainActor
+    func testDeleteLocationSourceCancelsInFlightUploadAndDropsLateCompletion() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            if request.httpMethod == "DELETE" {
+                return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 1))
+            }
+
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader()
+
+        await uploader.enqueue(self.makeBatch())
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        let result = await uploader.deleteLocationSource()
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertGreaterThanOrEqual(LocationUploaderURLProtocol.cancelledCount, 1)
+        uploadRelease.signal()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastUploadAt)
+        uploader.finishDelete()
+    }
+
+    @MainActor
+    func testDeleteGuardsBlockNewResumeAndRetryWorkUntilFinished() async throws {
+        LocationUploaderURLProtocol.handler = { request in
+            if request.httpMethod == "DELETE" {
+                return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 1))
+            }
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader()
+        let result = await uploader.deleteLocationSource()
+        XCTAssertTrue(result.shouldFlipOff)
+        let deleteCallCount = LocationUploaderURLProtocol.callCount
+
+        await uploader.enqueue(self.makeBatch())
+        XCTAssertTrue(try self.directoryEntries(status: "pending").isEmpty)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, deleteCallCount)
+
+        let pendingURL = try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.jsonl")
+        await uploader.resumeFromDisk()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path))
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, deleteCallCount)
+
+        let failedURL = try self.writeLocationFile(status: "failed", filename: "20260601-120000_60.jsonl")
+        await uploader.retryFailed()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedURL.path))
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, deleteCallCount)
+
+        try FileManager.default.removeItem(at: pendingURL)
+        try FileManager.default.removeItem(at: failedURL)
+        uploader.finishDelete()
+
+        await uploader.enqueue(self.makeBatch(segmentStart: Date(timeIntervalSince1970: 1_713_625_200)))
+        try await self.waitFor("post-delete enqueue") {
+            LocationUploaderURLProtocol.callCount > deleteCallCount && uploader.pendingCount == 0
+        }
+    }
+
+    @MainActor
+    func testDeleteLocationSourceClearsOnlyLocationRoot() async throws {
+        let locationRoot = self.tempDirectory.appendingPathComponent("location", isDirectory: true)
+        let siblingRoot = self.tempDirectory.appendingPathComponent("import-queue", isDirectory: true)
+        let siblingFile = siblingRoot
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent("sibling.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(at: siblingFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("sibling".utf8).write(to: siblingFile)
+        try self.writeLocationFile(root: locationRoot, status: "pending", filename: "20260602-235800_300.jsonl")
+        try self.writeLocationFile(root: locationRoot, status: "pending", filename: "20260602-235800_300.upload", data: Data("body".utf8))
+        try self.writeLocationFile(root: locationRoot, status: "failed", filename: "20260601-120000_60.jsonl")
+        try self.writeLocationFile(root: locationRoot, status: "failed", filename: "20260601-120000_60.upload", data: Data("body".utf8))
+        LocationUploaderURLProtocol.handler = { request in
+            (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 4))
+        }
+        let uploader = self.makeUploader(cacheRootURL: locationRoot)
+
+        let result = await uploader.deleteLocationSource()
+
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertTrue(try self.directoryEntries(root: locationRoot, status: "pending").isEmpty)
+        XCTAssertTrue(try self.directoryEntries(root: locationRoot, status: "failed").isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: siblingFile.path))
+        uploader.finishDelete()
+    }
+
+    @MainActor
+    func testDeleteGuardBlocksStopForDeleteFlush() async throws {
+        let provider = MockLocationProvider()
+        provider.capability = .whenInUse(accuracy: .full)
+        LocationUploaderURLProtocol.handler = { request in
+            if request.httpMethod == "DELETE" {
+                return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 1))
+            }
+            XCTFail("Flush should not upload during delete")
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader()
+        let manager = LocationManager(
+            provider: provider,
+            uploader: uploader,
+            clock: MockObserverClock(),
+            defaults: nil
+        )
+        await manager.start(tier: .light)
+        provider.emitFix(MockLocationProvider.fix())
+        try await Task.sleep(for: .milliseconds(20))
+
+        let result = await uploader.deleteLocationSource()
+        XCTAssertTrue(result.shouldFlipOff)
+        await manager.stopForDelete()
+
+        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 1)
+        uploader.finishDelete()
+    }
+
     @MainActor private func makeUploader(
         cacheRootURL: URL? = nil,
         retryDelays: [UInt64] = [0],
-        maxAttempts: Int = 5
+        maxAttempts: Int = 5,
+        ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-location-key-abc" },
+        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 }
     ) -> LocationUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LocationUploaderURLProtocol.self]
+        let deleteConfiguration = URLSessionConfiguration.ephemeral
+        deleteConfiguration.protocolClasses = [LocationUploaderURLProtocol.self]
         return LocationUploader(
             cacheRootURL: cacheRootURL ?? self.tempDirectory,
             sessionConfiguration: configuration,
-            ensureRegistered: { "test-location-key-abc" },
-            localPortProvider: { 7071 },
+            deleteSessionConfiguration: deleteConfiguration,
+            ensureRegistered: ensureRegistered,
+            localPortProvider: localPortProvider,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
             sleep: { _ in },
@@ -441,6 +691,48 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         return try XCTUnwrap(calendar.date(from: components))
     }
 
+    private func writeLocationFile(
+        root: URL? = nil,
+        status: String,
+        filename: String,
+        data: Data = Data(#"{"schema":"manual"}"#.utf8) + Data([0x0A])
+    ) throws -> URL {
+        let directory = (root ?? self.tempDirectory).appendingPathComponent(status, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(filename, isDirectory: false)
+        try data.write(to: url)
+        return url
+    }
+
+    private func directoryEntries(root: URL? = nil, status: String) throws -> [URL] {
+        let directory = (root ?? self.tempDirectory).appendingPathComponent(status, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+    }
+
+    private static func response(for request: URLRequest, statusCode: Int) -> HTTPURLResponse {
+        HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
+    }
+
+    private static func deleteReceipt(
+        days: Int? = nil,
+        notConfirmed: String? = nil,
+        notRemoved: String? = nil
+    ) -> Data {
+        let daysJSON = days.map { #","days":\#($0)"# } ?? ""
+        let notConfirmedJSON = notConfirmed.map { "[\($0)]" } ?? "[]"
+        let notRemovedJSON = notRemoved.map { "[\($0)]" } ?? "[]"
+        return Data(
+            """
+            {"target":{"stream":"location","journal":"test"},"removed":{"originals":0,"segments":0,"in_segment_derived":0,"index_chunks":0,"stream_identity":0,"history_rows":0\(daysJSON)},"not_confirmed":\(notConfirmedJSON),"not_removed":\(notRemovedJSON),"backup_hosted":"not confirmed"}
+            """.utf8
+        )
+    }
+
     @MainActor private func waitForCapturedBody() async throws -> Data {
         try await self.waitFor("captured body") {
             !LocationUploaderURLProtocol.capturedBodies.isEmpty
@@ -481,12 +773,17 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     }
 }
 
+private enum LocationUploaderTestError: Error {
+    case transport
+}
+
 private final class LocationUploaderURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
+    private static let cancelledCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
         set { self.handlerBox.withLock { $0 = newValue } }
@@ -498,6 +795,10 @@ private final class LocationUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     static var capturedBodies: [Data] {
         get { self.bodiesBox.withLock { $0 } }
         set { self.bodiesBox.withLock { $0 = newValue } }
+    }
+    static var cancelledCount: Int {
+        get { self.cancelledCountBox.withLock { $0 } }
+        set { self.cancelledCountBox.withLock { $0 = newValue } }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -528,7 +829,9 @@ private final class LocationUploaderURLProtocol: URLProtocol, @unchecked Sendabl
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.cancelledCountBox.withLock { $0 += 1 }
+    }
 
     private static func bodyData(from request: URLRequest) -> Data {
         guard let stream = request.httpBodyStream else { return Data() }

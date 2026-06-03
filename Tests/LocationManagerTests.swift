@@ -511,6 +511,19 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testStopForDeleteClearsPausedState() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await manager.pause()
+        XCTAssertEqual(manager.sourceState, .paused)
+
+        await manager.stopForDelete()
+
+        XCTAssertEqual(manager.sourceState, .off)
+    }
+
+    @MainActor
     private func makeManager(
         watchdogThreshold: Duration = .seconds(600),
         liveActivity: (any LocationLiveActivitying)? = nil

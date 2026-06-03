@@ -32,7 +32,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.deliverySendingTemplate, "{N} location {update} on the way to your journal.")
         XCTAssertEqual(LocationVocabulary.deliveryLastSavedTemplate, "last saved to your journal at {time}.")
         XCTAssertEqual(LocationVocabulary.deliveryQuietLine, "nothing waiting right now.")
-        XCTAssertEqual(LocationVocabulary.deleteSeamLine, "removing location's contributions from your journal arrives in a later update.")
         XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in.")
         XCTAssertEqual(LocationVocabulary.openSettingsAction, "open iOS Settings")
         XCTAssertEqual(LocationVocabulary.matchToAllowedAction, "match it to what's allowed")

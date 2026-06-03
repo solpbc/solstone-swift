@@ -11,6 +11,9 @@ struct LocationSourceDetailView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
+    @State private var showingDeleteConfirm = false
+    @State private var isDeleting = false
+    @State private var deleteResult: DeleteShareSourceResult?
 
     private let recentSource: any LocationRecentProviding = LocationRecentSource()
 
@@ -22,6 +25,8 @@ struct LocationSourceDetailView: View {
                 } else {
                     self.stateContent
                 }
+
+                self.deleteResultBlock
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -31,6 +36,16 @@ struct LocationSourceDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: self.observerRegistration.activeLocalPort) {
             await self.loadRecent()
+        }
+        .alert(LocationVocabulary.deleteConfirmButton, isPresented: self.$showingDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button(LocationVocabulary.deleteConfirmButton, role: .destructive) {
+                Task {
+                    await self.runDelete()
+                }
+            }
+        } message: {
+            Text(LocationVocabulary.deleteConfirmBody)
         }
     }
 }
@@ -179,13 +194,44 @@ private extension LocationSourceDetailView {
 
     var deleteBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(LocationVocabulary.deleteConfirmButton) {}
+            Button(LocationVocabulary.deleteConfirmButton, role: .destructive) {
+                self.showingDeleteConfirm = true
+            }
                 .buttonStyle(.bordered)
-                .disabled(true)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .disabled(self.isDeleting)
+        }
+    }
 
-            Text(LocationVocabulary.deleteSeamLine)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    var deleteResultBlock: some View {
+        if let deleteResult {
+            switch deleteResult {
+            case .confirmed(let receipt, _):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(LocationVocabulary.deleteReceiptHeadline(days: receipt.removed.days ?? 0))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(deleteResult.notRemovedIssues, id: \.self) { issue in
+                        Text(issue.plainReason)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(deleteResult.notConfirmedIssues, id: \.self) { issue in
+                        Text(issue.plainReason)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            case .notConfirmed, .unreachable:
+                Text(SourceVocabulary.deleteJournalUnreachableLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+            }
         }
     }
 
@@ -254,6 +300,19 @@ private extension LocationSourceDetailView {
         } else {
             await self.locationManager.pause()
         }
+    }
+
+    func runDelete() async {
+        self.isDeleting = true
+        let result = await self.locationUploader.deleteLocationSource()
+        if result.shouldFlipOff {
+            defer {
+                self.locationUploader.finishDelete()
+            }
+            await self.locationManager.stopForDelete()
+        }
+        self.deleteResult = result
+        self.isDeleting = false
     }
 
     func handleRecovery(_ recovery: LocationRecovery) {
