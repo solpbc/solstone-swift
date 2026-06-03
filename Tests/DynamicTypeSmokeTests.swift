@@ -182,6 +182,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     private static func onThisPhoneItem() -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: UUID().uuidString,
+            sourceKind: .share,
             sendState: .inYourJournal,
             contentType: "application/pdf",
             filename: "item.pdf",

@@ -239,6 +239,69 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testJournalUnconfiguredLeavesPendingSegmentWithoutAttemptsOrRetry() async throws {
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let uploader = self.makeUploader(
+            ensureRegistered: {
+                registrationCalls.withLock { $0 += 1 }
+                throw LocationUploaderError.registrationUnavailable
+            },
+            isJournalConfigured: { false },
+            localPortProvider: { 7071 },
+            sleep: { _ in sleepCalls.withLock { $0 += 1 } }
+        )
+        uploader.lastError = "stale"
+
+        await uploader.enqueue(self.makeBatch())
+        await uploader.resumeFromDisk()
+        await uploader.resumeFromDisk()
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
+        XCTAssertNil(uploader.lastError)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 0)
+        XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
+        XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+    }
+
+    @MainActor
+    func testNilPortHoldsThenFlushesWhenPortAppears() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: nil)
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(
+            isJournalConfigured: { true },
+            localPortProvider: { localPort.withLock { $0 } },
+            sleep: { _ in sleepCalls.withLock { $0 += 1 } }
+        )
+        uploader.lastError = "stale"
+
+        await uploader.enqueue(self.makeBatch())
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastError)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 0)
+        XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+
+        localPort.withLock { $0 = 7071 }
+        await uploader.resumeFromDisk()
+
+        try await self.waitFor("nil-port location flush") {
+            uploader.pendingCount == 0 && LocationUploaderURLProtocol.callCount == 1
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastError)
+    }
+
+    @MainActor
     func testResumeFromDiskUploadsOnceAndSecondResumeDoesNothing() async throws {
         LocationUploaderURLProtocol.handler = { request in
             (
@@ -608,7 +671,9 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         retryDelays: [UInt64] = [0],
         maxAttempts: Int = 5,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-location-key-abc" },
-        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 }
+        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
+        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
     ) -> LocationUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LocationUploaderURLProtocol.self]
@@ -619,10 +684,11 @@ nonisolated final class LocationUploaderTests: XCTestCase {
             sessionConfiguration: configuration,
             deleteSessionConfiguration: deleteConfiguration,
             ensureRegistered: ensureRegistered,
+            isJournalConfigured: isJournalConfigured,
             localPortProvider: localPortProvider,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
-            sleep: { _ in },
+            sleep: sleep,
             startPathMonitor: false,
             timeZone: self.fixedTimeZone
         )

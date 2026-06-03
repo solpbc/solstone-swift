@@ -110,6 +110,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
     private static func onThisPhoneItem(sendState: OnThisPhoneSendState) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: UUID().uuidString,
+            sourceKind: .share,
             sendState: sendState,
             contentType: "application/pdf",
             filename: "item.pdf",

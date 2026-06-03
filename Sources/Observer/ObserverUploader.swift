@@ -76,6 +76,7 @@ final class ObserverUploader {
     @ObservationIgnored private let sessionDelegate: ObserverUploaderSessionDelegate
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
+    @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
     @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
@@ -99,6 +100,7 @@ final class ObserverUploader {
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw ObserverUploaderError.registrationUnavailable
         },
+        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
         urlBuilder: @escaping @Sendable (Int, String) -> URL? = { localPort, key in
             ObserverServerURL.ingestURL(localPort: localPort, key: key)
@@ -115,6 +117,7 @@ final class ObserverUploader {
             ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("Observer", isDirectory: true)
         self.ensureRegistered = ensureRegistered
+        self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
         self.urlBuilder = urlBuilder
         self.retryDelays = retryDelays
@@ -195,6 +198,35 @@ final class ObserverUploader {
         self.refreshCounts()
     }
 
+    func onThisPhoneSnapshot() -> OnThisPhoneSourceResult {
+        do {
+            let sessionDirectories = try self.fileManager.contentsOfDirectory(
+                at: self.cacheRootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+
+            var items: [OnThisPhoneItem] = []
+            for sessionDirectory in sessionDirectories where self.isDirectory(sessionDirectory) {
+                guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
+                items.append(contentsOf: try self.onThisPhoneItems(
+                    sessionID: sessionID,
+                    directory: self.pendingDirectoryURL(sessionID: sessionID),
+                    location: .pending
+                ))
+                items.append(contentsOf: try self.onThisPhoneItems(
+                    sessionID: sessionID,
+                    directory: self.failedDirectoryURL(sessionID: sessionID),
+                    location: .failed
+                ))
+            }
+            return .loaded(items: OnThisPhoneItemSort.newestFirst(items))
+        } catch {
+            uploaderLog.error("observer on-this-phone snapshot failed: \(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
+
     func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {
         self.backgroundCompletionHandler = completionHandler
     }
@@ -226,6 +258,67 @@ private extension ObserverUploader {
         let audioURL: URL
         let sidecarURL: URL
         let requestBodyURL: URL
+    }
+
+    func onThisPhoneItems(
+        sessionID: UUID,
+        directory: URL,
+        location: OnThisPhoneLocation
+    ) throws -> [OnThisPhoneItem] {
+        guard self.fileManager.fileExists(atPath: directory.path) else {
+            return []
+        }
+        let entries = try self.fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        var items: [OnThisPhoneItem] = []
+        for sidecarURL in entries where sidecarURL.pathExtension == "json" {
+            let chunkID = sidecarURL.deletingPathExtension().lastPathComponent
+            let audioURL = directory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+            guard self.fileManager.fileExists(atPath: audioURL.path) else {
+                uploaderLog.debug("observer on-this-phone item skipped: missing audio")
+                continue
+            }
+
+            do {
+                let sidecar = try self.loadSidecar(from: sidecarURL)
+                let isActivelyUploading = location == .pending && self.activeTaskIDByChunkID[chunkID] != nil
+                items.append(OnThisPhoneItem(
+                    id: "audio:\(sessionID.uuidString):\(chunkID)",
+                    sourceKind: .audio,
+                    sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
+                    contentType: "audio/mp4",
+                    filename: audioURL.lastPathComponent,
+                    bytes: self.byteCountIfAvailable(at: audioURL),
+                    originApp: nil,
+                    basis: nil,
+                    itemTime: sidecar.startedAt,
+                    targetJournal: nil,
+                    stream: nil,
+                    day: sidecar.day,
+                    segment: sidecar.segment,
+                    deliveredAt: nil,
+                    rawFileURL: audioURL,
+                    audioDurationS: sidecar.durationS
+                ))
+            } catch {
+                uploaderLog.debug("observer on-this-phone item skipped: sidecar unavailable")
+            }
+        }
+        return items
+    }
+
+    func byteCountIfAvailable(at url: URL) -> Int64? {
+        guard let size = try? self.fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber else {
+            return nil
+        }
+        return size.int64Value
+    }
+
+    func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     func startPathMonitor() {
@@ -295,6 +388,20 @@ private extension ObserverUploader {
             return
         }
 
+        guard self.isJournalConfigured() else {
+            uploaderLog.debug("observer upload held: journal unavailable")
+            self.lastError = nil
+            self.refreshCounts()
+            return
+        }
+
+        guard let localPort = self.localPortProvider() else {
+            uploaderLog.debug("observer upload held: local port unavailable")
+            self.lastError = nil
+            self.refreshCounts()
+            return
+        }
+
         let key: String
         do {
             key = try await self.ensureRegistered()
@@ -305,17 +412,6 @@ private extension ObserverUploader {
                 audioURL: audioURL,
                 sidecarURL: sidecarURL,
                 reason: String(describing: error)
-            )
-            return
-        }
-
-        guard let localPort = self.localPortProvider() else {
-            await self.handleUploadFailure(
-                chunkID: chunkID,
-                sessionID: sessionID,
-                audioURL: audioURL,
-                sidecarURL: sidecarURL,
-                reason: "observer upload unavailable: missing local port"
             )
             return
         }

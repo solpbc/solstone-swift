@@ -113,6 +113,9 @@ struct SolstoneSwiftApp: App {
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
             },
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
             localPortProvider: {
                 observerRegistration.activeLocalPort
             }
@@ -121,6 +124,9 @@ struct SolstoneSwiftApp: App {
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
             },
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
             localPortProvider: {
                 observerRegistration.activeLocalPort
             }
@@ -128,6 +134,9 @@ struct SolstoneSwiftApp: App {
         let locationUploader = LocationUploader(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
+            },
+            isJournalConfigured: {
+                appConfig.isPaired
             },
             localPortProvider: {
                 observerRegistration.activeLocalPort

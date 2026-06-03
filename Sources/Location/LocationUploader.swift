@@ -57,6 +57,7 @@ final class LocationUploader: LocationUploading {
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let deleteSession: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
+    @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
     @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
@@ -83,6 +84,7 @@ final class LocationUploader: LocationUploading {
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw LocationUploaderError.registrationUnavailable
         },
+        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
         urlBuilder: @escaping @Sendable (Int, String) -> URL? = { localPort, key in
             ObserverServerURL.ingestURL(localPort: localPort, key: key)
@@ -101,6 +103,7 @@ final class LocationUploader: LocationUploading {
             ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("Location", isDirectory: true)
         self.ensureRegistered = ensureRegistered
+        self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
         self.urlBuilder = urlBuilder
         self.retryDelays = retryDelays
@@ -196,6 +199,24 @@ final class LocationUploader: LocationUploading {
         }
 
         self.refreshCounts()
+    }
+
+    func onThisPhoneSnapshot() -> OnThisPhoneSourceResult {
+        do {
+            var items: [OnThisPhoneItem] = []
+            items.append(contentsOf: try self.onThisPhoneItems(
+                directory: self.pendingDirectoryURL(),
+                location: .pending
+            ))
+            items.append(contentsOf: try self.onThisPhoneItems(
+                directory: self.failedDirectoryURL(),
+                location: .failed
+            ))
+            return .loaded(items: OnThisPhoneItemSort.newestFirst(items))
+        } catch {
+            locationUploadLog.error("location on-this-phone snapshot failed: \(String(describing: error), privacy: .public)")
+            return .failed
+        }
     }
 
     func retryFailed() async {
@@ -378,6 +399,14 @@ private extension LocationUploader {
         }
     }
 
+    struct SnapshotHeaderLine: Decodable {
+        let fixCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case fixCount = "fix_count"
+        }
+    }
+
     struct FixLine: Encodable {
         let fix: LocationFix
 
@@ -450,6 +479,107 @@ private extension LocationUploader {
             try container.encode(self.visit.lon, forKey: .lon)
             try container.encode(self.visit.hAcc, forKey: .hAcc)
         }
+    }
+
+    func onThisPhoneItems(directory: URL, location: OnThisPhoneLocation) throws -> [OnThisPhoneItem] {
+        guard self.fileManager.fileExists(atPath: directory.path) else {
+            return []
+        }
+        let entries = try self.fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        var items: [OnThisPhoneItem] = []
+        for entry in entries where entry.pathExtension == "jsonl" {
+            let fileID = entry.deletingPathExtension().lastPathComponent
+            do {
+                let parsed = try self.parseFrozenFileName(entry.lastPathComponent)
+                let segmentStart = try self.segmentStartDate(parsed: parsed)
+                let header = try self.loadSnapshotHeader(from: entry)
+                let isActivelyUploading = location == .pending && self.activeTaskIDByFileID[fileID] != nil
+                items.append(OnThisPhoneItem(
+                    id: "location:\(fileID)",
+                    sourceKind: .location,
+                    sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
+                    contentType: "application/jsonl",
+                    filename: entry.lastPathComponent,
+                    bytes: self.byteCountIfAvailable(at: entry),
+                    originApp: nil,
+                    basis: nil,
+                    itemTime: segmentStart,
+                    targetJournal: nil,
+                    stream: nil,
+                    day: parsed.day,
+                    segment: parsed.segment,
+                    deliveredAt: nil,
+                    rawFileURL: entry,
+                    locationFixCount: header.fixCount
+                ))
+            } catch {
+                locationUploadLog.debug("location on-this-phone item skipped: metadata unavailable")
+            }
+        }
+        return items
+    }
+
+    func loadSnapshotHeader(from url: URL) throws -> SnapshotHeaderLine {
+        let data = try Data(contentsOf: url)
+        let lineData: Data
+        if let newline = data.firstIndex(of: 0x0A) {
+            lineData = Data(data[..<newline])
+        } else {
+            lineData = data
+        }
+        return try JSONDecoder().decode(SnapshotHeaderLine.self, from: lineData)
+    }
+
+    func segmentStartDate(parsed: ParsedFileName) throws -> Date {
+        let parts = parsed.segment.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            throw LocationUploaderError.invalidFrozenFilename("\(parsed.day)-\(parsed.segment).jsonl")
+        }
+        let time = String(parts[0])
+        let coveredSeconds = String(parts[1])
+        guard parsed.day.count == 8,
+              time.count == 6,
+              !coveredSeconds.isEmpty,
+              let year = Int(parsed.day.prefix(4)),
+              let month = Int(parsed.day.dropFirst(4).prefix(2)),
+              let day = Int(parsed.day.suffix(2)),
+              let hour = Int(time.prefix(2)),
+              let minute = Int(time.dropFirst(2).prefix(2)),
+              let second = Int(time.suffix(2)),
+              coveredSeconds.allSatisfy(\.isNumber),
+              (1...12).contains(month),
+              (1...31).contains(day),
+              (0...23).contains(hour),
+              (0...59).contains(minute),
+              (0...59).contains(second)
+        else {
+            throw LocationUploaderError.invalidFrozenFilename("\(parsed.day)-\(parsed.segment).jsonl")
+        }
+
+        var components = DateComponents()
+        components.calendar = self.calendar
+        components.timeZone = self.calendar.timeZone
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        components.minute = minute
+        components.second = second
+        guard let date = self.calendar.date(from: components) else {
+            throw LocationUploaderError.invalidFrozenFilename("\(parsed.day)-\(parsed.segment).jsonl")
+        }
+        return date
+    }
+
+    func byteCountIfAvailable(at url: URL) -> Int64? {
+        guard let size = try? self.fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber else {
+            return nil
+        }
+        return size.int64Value
     }
 
     func startPathMonitor() {
@@ -551,6 +681,20 @@ private extension LocationUploader {
         let segmentURL = self.pendingFileURL(fileID: fileID)
         guard self.fileManager.fileExists(atPath: segmentURL.path) else { return }
 
+        guard self.isJournalConfigured() else {
+            locationUploadLog.debug("location upload held: journal unavailable")
+            self.lastError = nil
+            self.refreshCounts()
+            return
+        }
+
+        guard let localPort = self.localPortProvider() else {
+            locationUploadLog.debug("location upload held: local port unavailable")
+            self.lastError = nil
+            self.refreshCounts()
+            return
+        }
+
         let parsed: ParsedFileName
         do {
             parsed = try self.parseFrozenFileName(segmentURL.lastPathComponent)
@@ -576,15 +720,6 @@ private extension LocationUploader {
                 fileID: fileID,
                 segmentURL: segmentURL,
                 reason: String(describing: error)
-            )
-            return
-        }
-
-        guard let localPort = self.localPortProvider() else {
-            await self.handleUploadFailure(
-                fileID: fileID,
-                segmentURL: segmentURL,
-                reason: "location upload unavailable: missing local port"
             )
             return
         }

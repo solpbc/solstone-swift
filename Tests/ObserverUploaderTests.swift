@@ -88,6 +88,79 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testJournalUnconfiguredLeavesPendingChunkWithoutAttemptsOrRetry() async throws {
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let uploader = self.makeUploader(
+            ensureRegistered: {
+                registrationCalls.withLock { $0 += 1 }
+                throw ObserverUploaderError.registrationUnavailable
+            },
+            isJournalConfigured: { false },
+            localPortProvider: { 7071 },
+            sleep: { _ in sleepCalls.withLock { $0 += 1 } }
+        )
+        uploader.lastError = "stale"
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-unconfigured")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        await uploader.resumeFromDisk()
+        await uploader.resumeFromDisk()
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(try self.directoryEntries(at: self.failedDirectoryURL(sessionID: sessionID)), [])
+        XCTAssertNil(uploader.lastError)
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+        XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
+        XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+    }
+
+    @MainActor
+    func testNilPortHoldsThenFlushesWhenPortAppears() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: nil)
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(
+            isJournalConfigured: { true },
+            localPortProvider: { localPort.withLock { $0 } },
+            sleep: { _ in sleepCalls.withLock { $0 += 1 } }
+        )
+        uploader.lastError = "stale"
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-nil-port")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastError)
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+        XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+
+        localPort.withLock { $0 = 7071 }
+        await uploader.resumeFromDisk()
+
+        try await self.waitFor("nil-port observer flush") {
+            uploader.pendingCount == 0 && ObserverUploaderURLProtocol.callCount == 1
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastError)
+    }
+
+    @MainActor
     func testReachabilitySatisfiedTriggersDrain() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -214,16 +287,23 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         ])
     }
 
-    @MainActor private func makeUploader(retryDelays: [UInt64] = [0]) -> ObserverUploader {
+    @MainActor private func makeUploader(
+        retryDelays: [UInt64] = [0],
+        ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
+        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
+        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
+    ) -> ObserverUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverUploaderURLProtocol.self]
         return ObserverUploader(
             cacheRootURL: self.tempDirectory,
             sessionConfiguration: configuration,
-            ensureRegistered: { "test-observer-key-abc" },
-            localPortProvider: { 7071 },
+            ensureRegistered: ensureRegistered,
+            isJournalConfigured: isJournalConfigured,
+            localPortProvider: localPortProvider,
             retryDelays: retryDelays,
-            sleep: { _ in },
+            sleep: sleep,
             startPathMonitor: false
         )
     }
@@ -272,6 +352,15 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     private func failedDirectoryURL(sessionID: UUID) -> URL {
         self.sessionDirectoryURL(sessionID: sessionID)
             .appendingPathComponent("failed", isDirectory: true)
+    }
+
+    private func directoryEntries(at directory: URL) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
     }
 
     @MainActor private func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {

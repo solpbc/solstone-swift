@@ -452,7 +452,85 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
         XCTAssertEqual(queue.pendingCount, 1)
         XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNotNil(queue.lastError)
         XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testJournalUnconfiguredLeavesPendingWithoutAttemptsAndClearsLastError() async throws {
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let queue = self.makeQueue(
+            ensureRegistered: {
+                registrationCalls.withLock { $0 += 1 }
+                throw ImportQueueError.registrationUnavailable
+            },
+            isJournalConfigured: { false },
+            localPortProvider: { 7071 },
+            sleep: { _ in sleepCalls.withLock { $0 += 1 } }
+        )
+        queue.lastError = "stale"
+        let source = try self.makeSourceFile(named: "unconfigured.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        await queue.resumeFromDisk()
+        await queue.resumeFromDisk()
+
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+        XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
+        XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+    }
+
+    @MainActor
+    func testNilPortHoldsThenFlushesWhenPortAppears() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: nil)
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        ImportQueueURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let queue = self.makeQueue(
+            isJournalConfigured: { true },
+            localPortProvider: { localPort.withLock { $0 } },
+            sleep: { _ in sleepCalls.withLock { $0 += 1 } }
+        )
+        queue.lastError = "stale"
+        let source = try self.makeSourceFile(named: "nil-port.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "share-extension",
+            stream: "import.share",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+        XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+
+        localPort.withLock { $0 = 7071 }
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("nil-port import flush") {
+            queue.pendingCount == 0 && ImportQueueURLProtocol.callCount == 1
+        }
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNil(queue.lastError)
     }
 
     @MainActor
@@ -727,7 +805,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
         retryDelays: [UInt64] = [0],
         maxAttempts: Int = 5,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
+        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_713_624_000) }
     ) -> ImportQueue {
         let configuration = URLSessionConfiguration.ephemeral
@@ -740,10 +820,11 @@ nonisolated final class ImportQueueTests: XCTestCase {
             sessionConfiguration: configuration,
             deleteSessionConfiguration: deleteConfiguration,
             ensureRegistered: ensureRegistered,
+            isJournalConfigured: isJournalConfigured,
             localPortProvider: localPortProvider,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
-            sleep: { _ in },
+            sleep: sleep,
             startPathMonitor: false,
             now: now
         )
@@ -866,6 +947,16 @@ nonisolated final class ImportQueueTests: XCTestCase {
         self.tempDirectory
             .appendingPathComponent("failed", isDirectory: true)
             .appendingPathComponent(itemID, isDirectory: true)
+    }
+
+    private func directoryEntries(status: String) throws -> [URL] {
+        let directory = self.tempDirectory.appendingPathComponent(status, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
     }
 
     private func rawURL(itemID: String, status: String) -> URL {

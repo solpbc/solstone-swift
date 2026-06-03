@@ -64,6 +64,7 @@ final class ImportQueue {
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let deleteSession: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
+    @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
     @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
@@ -91,6 +92,7 @@ final class ImportQueue {
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw ImportQueueError.registrationUnavailable
         },
+        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
         urlBuilder: @escaping @Sendable (Int, String) -> URL? = { localPort, key in
             ObserverServerURL.ingestURL(localPort: localPort, key: key)
@@ -106,6 +108,7 @@ final class ImportQueue {
         self.fileManager = fileManager
         self.cacheRootURL = cacheRootURL ?? Self.defaultCacheRootURL(fileManager: fileManager)
         self.ensureRegistered = ensureRegistered
+        self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
         self.urlBuilder = urlBuilder
         self.retryDelays = retryDelays
@@ -329,6 +332,17 @@ final class ImportQueue {
         return .loaded(items.sorted { lhs, rhs in
             (lhs.deliveredAt ?? lhs.itemTime ?? .distantPast) > (rhs.deliveredAt ?? rhs.itemTime ?? .distantPast)
         })
+    }
+
+    func onThisPhoneSourceSnapshot() -> OnThisPhoneSourceResult {
+        switch self.onThisPhoneSnapshot() {
+        case .loaded(let items):
+            .loaded(items: items)
+        case .loadedEmpty:
+            .loaded(items: [])
+        case .failed:
+            .failed
+        }
     }
 
     func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {
@@ -617,20 +631,26 @@ private extension ImportQueue {
         guard self.activeTaskIDByItemID[itemID] == nil else { return }
         guard self.requiredFilesExist(itemID: itemID, status: .pending) else { return }
 
+        guard self.isJournalConfigured() else {
+            importQueueLog.debug("import upload held: journal unavailable")
+            self.lastError = nil
+            self.refreshCounts()
+            return
+        }
+
+        guard let localPort = self.localPortProvider() else {
+            importQueueLog.debug("import upload held: local port unavailable")
+            self.lastError = nil
+            self.refreshCounts()
+            return
+        }
+
         let key: String
         do {
             key = try await self.ensureRegistered()
         } catch {
             let detail = String(describing: error)
             importQueueLog.error("import upload pending \(itemID, privacy: .public): registration unavailable \(detail, privacy: .public)")
-            self.lastError = detail
-            self.refreshCounts()
-            return
-        }
-
-        guard let localPort = self.localPortProvider() else {
-            let detail = "import upload unavailable: missing local port"
-            importQueueLog.error("\(detail, privacy: .public)")
             self.lastError = detail
             self.refreshCounts()
             return
@@ -840,6 +860,7 @@ private extension ImportQueue {
 
         return OnThisPhoneItem(
             id: itemID,
+            sourceKind: .share,
             sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
             contentType: object?["content_type"] as? String,
             filename: object?["filename"] as? String,
@@ -859,6 +880,7 @@ private extension ImportQueue {
     func deliveredOnThisPhoneItem(itemID: String, entry: LedgerEntry) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: itemID,
+            sourceKind: .share,
             sendState: .inYourJournal,
             contentType: entry.contentType,
             filename: entry.filename,
