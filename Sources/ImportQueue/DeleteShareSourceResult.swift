@@ -11,6 +11,7 @@ nonisolated struct DeleteSourceReceipt: Decodable, Equatable, Sendable {
         let indexChunks: Int
         let streamIdentity: Int
         let historyRows: Int
+        let days: Int?
 
         enum CodingKeys: String, CodingKey {
             case originals
@@ -19,6 +20,7 @@ nonisolated struct DeleteSourceReceipt: Decodable, Equatable, Sendable {
             case indexChunks = "index_chunks"
             case streamIdentity = "stream_identity"
             case historyRows = "history_rows"
+            case days
         }
     }
 
@@ -32,14 +34,12 @@ nonisolated struct DeleteSourceReceipt: Decodable, Equatable, Sendable {
         }
     }
 
-    let target: String
     let removed: Removed
     let notConfirmed: [Issue]
     let notRemoved: [Issue]
     let backupHosted: String
 
     enum CodingKeys: String, CodingKey {
-        case target
         case removed
         case notConfirmed = "not_confirmed"
         case notRemoved = "not_removed"

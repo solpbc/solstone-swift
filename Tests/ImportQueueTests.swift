@@ -541,12 +541,33 @@ nonisolated final class ImportQueueTests: XCTestCase {
             return
         }
         XCTAssertEqual(receipt.removed.originals, 3)
+        XCTAssertNil(receipt.removed.days)
         XCTAssertTrue(localNotRemoved.isEmpty)
         XCTAssertTrue(result.shouldFlipOff)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: pendingID).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.failedItemDirectory(itemID: failedID).path))
         XCTAssertEqual(try self.readLedger(), [:])
         XCTAssertEqual(queue.onThisPhoneSnapshot(), .loadedEmpty)
+    }
+
+    @MainActor
+    func testDeleteShareSourceDictTargetReceiptDecodesAndConfirms() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            (
+                Self.response(for: request, statusCode: 200),
+                Self.deleteReceipt(originals: 4, days: 2)
+            )
+        }
+        let queue = self.makeQueue()
+
+        let result = await queue.deleteShareSource()
+
+        guard case .confirmed(let receipt, _) = result else {
+            XCTFail("Expected confirmed result")
+            return
+        }
+        XCTAssertEqual(receipt.removed.originals, 4)
+        XCTAssertEqual(receipt.removed.days, 2)
     }
 
     @MainActor
@@ -916,14 +937,16 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     private static func deleteReceipt(
         originals: Int,
+        days: Int? = nil,
         notConfirmed: String? = nil,
         notRemoved: String? = nil
     ) -> Data {
+        let daysJSON = days.map { #","days":\#($0)"# } ?? ""
         let notConfirmedJSON = notConfirmed.map { "[\($0)]" } ?? "[]"
         let notRemovedJSON = notRemoved.map { "[\($0)]" } ?? "[]"
         return Data(
             """
-            {"target":"import.share","removed":{"originals":\(originals),"segments":0,"in_segment_derived":0,"index_chunks":0,"stream_identity":0,"history_rows":0},"not_confirmed":\(notConfirmedJSON),"not_removed":\(notRemovedJSON),"backup_hosted":"not confirmed"}
+            {"target":{"stream":"import.share","journal":"test"},"removed":{"originals":\(originals),"segments":0,"in_segment_derived":0,"index_chunks":0,"stream_identity":0,"history_rows":0\(daysJSON)},"not_confirmed":\(notConfirmedJSON),"not_removed":\(notRemovedJSON),"backup_hosted":"not confirmed"}
             """.utf8
         )
     }
