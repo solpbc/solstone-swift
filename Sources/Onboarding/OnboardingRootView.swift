@@ -7,9 +7,7 @@ import os
 private let onboardingRootLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 struct OnboardingRootView: View {
-    @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
-    @Environment(PushNotificationManager.self) private var pushManager
 
     var body: some View {
         NavigationStack {
@@ -18,28 +16,8 @@ struct OnboardingRootView: View {
                 WelcomeScreen {
                     self.onboardingFlow.advanceFromWelcome()
                 }
-            case .pair:
-                PairFlowView(
-                    onBack: { self.onboardingFlow.goBack() },
-                    onComplete: {
-                        self.onboardingFlow.completePairing()
-                    }
-                )
-            case .notifications:
-                NotificationsScreen(
-                    onBack: { self.onboardingFlow.goBack() },
-                    onNext: { granted in
-                        self.onboardingFlow.completeNotifications(granted: granted)
-                    }
-                )
-                .environment(self.pushManager)
-            case .briefingTime:
-                BriefingTimeScreen(
-                    onBack: { self.onboardingFlow.goBack() },
-                    onComplete: {
-                        self.onboardingFlow.completeBriefingTime()
-                    }
-                )
+            case .firstSource:
+                FirstSourceScreen()
             case .done:
                 Color.clear
             }
@@ -57,14 +35,26 @@ struct OnboardingRootView: View {
 struct OnboardingScaffold<Content: View>: View {
     let title: String
     let subtitle: String
-    @ViewBuilder let content: Content
+    let titleAccessibilityIdentifier: String?
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        titleAccessibilityIdentifier: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.titleAccessibilityIdentifier = titleAccessibilityIdentifier
+        self.content = content()
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(self.title)
-                        .font(.largeTitle.weight(.bold))
+                    self.titleView
                     Text(self.subtitle)
                         .font(.body)
                         .foregroundStyle(.secondary)
@@ -76,5 +66,17 @@ struct OnboardingScaffold<Content: View>: View {
             .padding(24)
         }
         .background(Color(.systemGroupedBackground))
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        if let titleAccessibilityIdentifier {
+            Text(self.title)
+                .font(.largeTitle.weight(.bold))
+                .accessibilityIdentifier(titleAccessibilityIdentifier)
+        } else {
+            Text(self.title)
+                .font(.largeTitle.weight(.bold))
+        }
     }
 }

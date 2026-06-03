@@ -17,14 +17,9 @@ struct ContentView: View {
     @Environment(PushNotificationManager.self) private var pushManager
     @State private var showSettings = false
     @State private var showRepairing = false
-    @State private var hasConnected = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var shouldShowMainTab: Bool {
-        self.hasConnected || self.tunnelManager.state.isConnected
-    }
 
     private var effectivePort: Int {
         if case .connected(let port, _) = self.tunnelManager.state {
@@ -42,31 +37,15 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if !self.appConfig.isPaired || !self.onboardingFlow.isCompleted {
+            if !self.onboardingFlow.isCompleted {
                 OnboardingRootView()
-            } else if self.shouldShowMainTab {
+            } else {
                 MainTabView(
                     localPort: self.effectivePort,
                     via: self.effectiveVia,
-                    onOpenSettings: { self.showSettings = true }
+                    onOpenSettings: { self.showSettings = true },
+                    initialTab: self.onboardingFlow.choseFirstSource ? .sense : .today
                 )
-            } else {
-                ConnectingView(
-                    state: self.tunnelManager.state,
-                    onOpenSettings: {
-                        self.showSettings = true
-                    },
-                    onRetry: {
-                        Task {
-                            await self.tunnelManager.retryNow()
-                        }
-                    },
-                    reconnectCountdown: self.tunnelManager.reconnectCountdown,
-                    consecutiveWiFiFailures: self.tunnelManager.consecutiveWiFiFailures,
-                    currentInterfaceIsWiFi: self.tunnelManager.currentInterfaceIsWiFi ?? false,
-                    connectionStages: self.tunnelManager.connectionStages
-                )
-                .transition(.opacity)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -98,14 +77,12 @@ struct ContentView: View {
                     },
                     onComplete: {
                         self.showRepairing = false
-                        self.onboardingFlow.completePairing()
                     }
                 )
             }
         }
         .onChange(of: self.tunnelManager.state) { _, newState in
             if case .connected(let port, let via) = newState {
-                self.hasConnected = true
                 self.lastPort = port
                 self.lastVia = via
                 Task {
@@ -154,19 +131,29 @@ struct ContentView: View {
         .onChange(of: self.voiceManager.state) { _, _ in
             self.bannerPresenter.dismissInfoIfVoiceActive()
         }
+        .onChange(of: self.appConfig.pairedAt) { _, _ in
+            self.startTunnelIfPaired()
+        }
         .onAppear {
-            if ProcessInfo.processInfo.arguments.contains("--ui-test") {
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains("--ui-test") {
                 let port = Self.uiTestPort
                 let journalRoot = Self.uiTestJournalRoot(port: port)
                 let sessionKey = Self.uiTestPairSessionKey
                 let deviceID = Self.uiTestDeviceID
                 let onboardingStep = Self.uiTestOnboardingStep
+                let noJournal = arguments.contains("--ui-test-no-journal")
+                let shouldSeedPairing = !noJournal && (onboardingStep == nil || onboardingStep == .done)
                 log.info(
                     "ui-test seeding journalRoot=\(journalRoot, privacy: .public) deviceID=\(deviceID, privacy: .public) hasSession=\(sessionKey != nil)"
                 )
 
+                if !shouldSeedPairing {
+                    self.appConfig.clearPairing()
+                }
+
                 if let onboardingStep {
-                    if onboardingStep != .welcome {
+                    if shouldSeedPairing {
                         self.appConfig.seedUITestPairing(
                             journalRoot: journalRoot,
                             deviceID: deviceID,
@@ -175,28 +162,34 @@ struct ContentView: View {
                     }
                     self.onboardingFlow.seedUITest(step: onboardingStep)
                 } else {
-                    self.appConfig.seedUITestPairing(
-                        journalRoot: journalRoot,
-                        deviceID: deviceID,
-                        sessionKey: sessionKey
-                    )
+                    if shouldSeedPairing {
+                        self.appConfig.seedUITestPairing(
+                            journalRoot: journalRoot,
+                            deviceID: deviceID,
+                            sessionKey: sessionKey
+                        )
+                    }
                     self.onboardingFlow.markCompletedForUITest()
                 }
 
-                if ProcessInfo.processInfo.arguments.contains("--ui-test-shell-disconnected") {
-                    self.tunnelManager.forceDisconnectedForUITest()
-                    self.tunnelManager.forceNetworkStatus(
-                        isSatisfied: !ProcessInfo.processInfo.arguments.contains("--ui-test-network-unsatisfied"),
-                        isWiFi: true
-                    )
-                    self.hasConnected = true
-                } else {
-                    self.tunnelManager.forceConnected(port: port, via: .lan)
-                    self.tunnelManager.forceNetworkStatus(
-                        isSatisfied: !ProcessInfo.processInfo.arguments.contains("--ui-test-network-unsatisfied"),
-                        isWiFi: true
-                    )
-                    self.hasConnected = true
+                if shouldSeedPairing {
+                    if arguments.contains("--ui-test-shell-disconnected") {
+                        self.tunnelManager.forceDisconnectedForUITest()
+                        self.tunnelManager.forceNetworkStatus(
+                            isSatisfied: !arguments.contains("--ui-test-network-unsatisfied"),
+                            isWiFi: true
+                        )
+                    } else {
+                        self.tunnelManager.forceConnected(port: port, via: .lan)
+                        self.tunnelManager.forceNetworkStatus(
+                            isSatisfied: !arguments.contains("--ui-test-network-unsatisfied"),
+                            isWiFi: true
+                        )
+                    }
+                    self.lastPort = port
+                    self.lastVia = .lan
+                } else if arguments.contains("--ui-test-network-unsatisfied") {
+                    self.tunnelManager.forceNetworkStatus(isSatisfied: false, isWiFi: true)
                 }
                 if let reconnectDelay = Self.uiTestNetworkReconnectDelay {
                     Task {
@@ -204,8 +197,6 @@ struct ContentView: View {
                         self.tunnelManager.forceNetworkStatus(isSatisfied: true, isWiFi: true)
                     }
                 }
-                self.lastPort = port
-                self.lastVia = .lan
                 return
             }
 #if DEBUG
@@ -214,7 +205,6 @@ struct ContentView: View {
                 self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(mockPort)")
                 self.onboardingFlow.markCompletedForUITest()
                 self.tunnelManager.forceConnected(port: mockPort, via: .lan)
-                self.hasConnected = true
                 self.lastPort = mockPort
                 self.lastVia = .lan
                 Task {
@@ -227,7 +217,6 @@ struct ContentView: View {
                 self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(livePort)")
                 self.onboardingFlow.markCompletedForUITest()
                 self.tunnelManager.forceConnected(port: livePort, via: .lan)
-                self.hasConnected = true
                 self.lastPort = livePort
                 self.lastVia = .lan
                 Task {
@@ -236,23 +225,35 @@ struct ContentView: View {
                 return
             }
 #endif
-            guard self.appConfig.isPaired else {
-                log.info("ContentView: onboarding active, skipping tunnel start")
-                return
-            }
-            self.tunnelManager.startNetworkMonitoring()
-            log.info("[solstone-swift] onAppear state=\(self.tunnelManager.state)")
-            if case .disconnected = self.tunnelManager.state {
-                log.info("[solstone-swift] launching connect task")
-                Task {
-                    await self.tunnelManager.connect()
-                }
-            }
+            self.startTunnelIfPaired()
         }
     }
 }
 
 private extension ContentView {
+    func startTunnelIfPaired() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard !arguments.contains("--ui-test"),
+              !arguments.contains("--integration-test"),
+              !arguments.contains("--integration-test-live")
+        else { return }
+        guard self.appConfig.isPaired else {
+            log.info("ContentView: unpaired shell, skipping tunnel start")
+            return
+        }
+        self.tunnelManager.startNetworkMonitoring()
+        log.info("[solstone-swift] tunnel start check state=\(self.tunnelManager.state)")
+        switch self.tunnelManager.state {
+        case .disconnected, .error(.revoked):
+            log.info("[solstone-swift] launching connect task")
+            Task {
+                await self.tunnelManager.connect()
+            }
+        case .connecting, .connected, .error:
+            break
+        }
+    }
+
     static var uiTestPort: Int {
         if let raw = ProcessInfo.processInfo.environment["UI_TEST_PORT"],
            let value = Int(raw)
@@ -324,27 +325,20 @@ private struct BannerOverlay: View {
 }
 
 struct ConnectingView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isPulsing = false
-    @ScaledMetric(relativeTo: .body) private var stackSpacing: CGFloat = 24
     let state: TunnelState
-    let onOpenSettings: () -> Void
     let onRetry: () -> Void
     let reconnectCountdown: Int?
     let consecutiveWiFiFailures: Int
     let currentInterfaceIsWiFi: Bool
     let connectionStages: [ConnectionStage]
-    @ScaledMetric(relativeTo: .title) private var solRingSize: CGFloat = 72
-    @AppStorage("connectionDetailsExpanded") private var detailsExpanded = false
-
-    private var isConnecting: Bool {
-        if case .connecting = state { return true }
-        return false
-    }
 
     @ViewBuilder
     private var stageListView: some View {
-        if !self.connectionStages.isEmpty {
+        if self.connectionStages.isEmpty {
+            Text("no connection stages yet")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(self.connectionStages) { stage in
                     HStack(spacing: 8) {
@@ -392,7 +386,35 @@ struct ConnectingView: View {
                     }
                 }
             }
-            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private var retryButton: some View {
+        switch self.state {
+        case .disconnected:
+            Button("try again", action: self.onRetry)
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint("attempts to reconnect to your journal")
+        case .error(let error) where error.isRetryable:
+            Button("try again", action: self.onRetry)
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint("attempts to reconnect to your journal")
+        case .connecting, .connected, .error:
+            EmptyView()
+        }
+    }
+
+    private var summaryText: String {
+        switch self.state {
+        case .connecting(let via):
+            via == .lan ? "connecting via local network" : "connecting via remote journal"
+        case .connected:
+            "connected"
+        case .disconnected:
+            "waiting for a network"
+        case .error(let error):
+            error.userMessage
         }
     }
 
@@ -431,128 +453,37 @@ struct ConnectingView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: self.stackSpacing) {
-                    HStack(spacing: 12) {
-                        Image("SolRing")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: solRingSize, height: solRingSize)
-                            .opacity(self.isPulsing && !self.reduceMotion ? 0.5 : 1.0)
-                            .animation(
-                                self.isConnecting && !self.reduceMotion
-                                    ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true)
-                                    : nil,
-                                value: self.isPulsing
-                            )
-                            .onAppear {
-                                if self.isConnecting && !self.reduceMotion {
-                                    self.isPulsing = true
-                                }
-                            }
-                            .onChange(of: self.isConnecting) { _, connecting in
-                                if connecting && !self.reduceMotion {
-                                    self.isPulsing = true
-                                } else {
-                                    self.isPulsing = false
-                                }
-                            }
-                        Text("solstone")
-                            .font(.custom("Comfortaa-Bold", size: 28))
-                            .foregroundStyle(Color.solOrangeAccessible)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("solstone by sol pbc")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("connection details")
+                    .font(.headline)
 
-                    switch self.state {
-                    case .connecting(let via):
-                        ProgressView()
-                            .accessibilityLabel("connecting to your journal")
-                        Text(via == .lan ? "connecting (LAN)…" : "connecting (remote)…")
-                            .foregroundStyle(.secondary)
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                self.detailsExpanded.toggle()
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("details")
-                                    .font(.footnote)
-                                Image(systemName: self.detailsExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.caption2)
-                            }
-                            .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(self.detailsExpanded ? "hide connection details" : "show connection details")
-                        .accessibilityHint("toggles stage-by-stage connection progress")
-                        if self.detailsExpanded {
-                            self.stageListView
-                        }
-                    case .error(let error):
-                        VStack(spacing: 8) {
-                            Image(systemName: error.iconName)
-                                .font(.title)
-                                .foregroundStyle(Color.solOrange)
-                            Text(error.userMessage)
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.secondary)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("connection error, \(error.userMessage.lowercased())")
-                        if self.detailsExpanded {
-                            self.stageListView
-                        }
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                self.detailsExpanded.toggle()
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("details")
-                                    .font(.footnote)
-                                Image(systemName: self.detailsExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.caption2)
-                            }
-                            .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(self.detailsExpanded ? "hide connection details" : "show connection details")
-                        if let countdown = self.reconnectCountdown {
-                            Text("reconnecting in \(countdown)s")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .accessibilityLabel("reconnecting in \(countdown) seconds")
-                        }
-                        if error.isRetryable && self.currentInterfaceIsWiFi && self.consecutiveWiFiFailures >= 2 {
-                            Text("your WiFi network may require sign-in — try opening your browser to complete any captive portal login")
-                                .font(.footnote)
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.secondary)
-                        }
-                        Button("try again", action: self.onRetry)
-                            .buttonStyle(.borderedProminent)
-                        .accessibilityHint("attempts to reconnect to your journal")
-                        Button("settings", action: self.onOpenSettings)
-                            .buttonStyle(.bordered)
-                            .accessibilityHint("opens app settings")
-                    case .disconnected:
-                        Text("disconnected")
-                            .foregroundStyle(.secondary)
-                        Button("try again", action: self.onRetry)
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityHint("attempts to reconnect to your journal")
-                        Button("settings", action: self.onOpenSettings)
-                            .buttonStyle(.bordered)
-                            .accessibilityHint("opens app settings")
-                    case .connected:
-                        EmptyView()
-                    }
+                Text(self.summaryText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                if let countdown = self.reconnectCountdown {
+                    Text("reconnecting in \(countdown)s")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("reconnecting in \(countdown) seconds")
                 }
-                .padding()
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+
+                if case .error(let error) = self.state,
+                   error.isRetryable,
+                   self.currentInterfaceIsWiFi,
+                   self.consecutiveWiFiFailures >= 2
+                {
+                    Text("your WiFi network may require sign-in — try opening your browser to complete any captive portal login")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                self.stageListView
+                self.retryButton
             }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

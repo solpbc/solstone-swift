@@ -10,7 +10,7 @@ struct OfflineBanner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "wifi.slash")
-            Text("offline — showing cached data")
+            Text("offline — safe on this phone · your journal will catch up")
                 .font(.body.weight(.semibold))
             Spacer()
         }
@@ -19,7 +19,7 @@ struct OfflineBanner: View {
         .background(Color.yellow.opacity(0.18))
         .foregroundStyle(.primary)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Offline. Showing cached data.")
+        .accessibilityLabel("Offline. Safe on this phone; your journal will catch up.")
         .onAppear {
             offlineLog.info("offline banner visible")
         }

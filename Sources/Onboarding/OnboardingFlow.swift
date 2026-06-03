@@ -12,9 +12,7 @@ private let onboardingFlowLog = Logger(subsystem: "app.solstone.swift", category
 final class OnboardingFlow {
     enum Step: String, Sendable {
         case welcome
-        case pair
-        case notifications
-        case briefingTime = "briefing_time"
+        case firstSource = "first_source"
         case done
     }
 
@@ -25,7 +23,7 @@ final class OnboardingFlow {
 
     var step: Step = .welcome
     var isCompleted = false
-    var notificationsGranted: Bool?
+    var choseFirstSource = false
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -40,17 +38,31 @@ final class OnboardingFlow {
             self.step = .done
             return
         }
-        if let rawStep = self.defaults.string(forKey: DefaultsKey.step),
-           let restoredStep = Step(rawValue: rawStep)
-        {
-            self.step = restoredStep
-        } else {
-            self.step = .welcome
+
+        if let rawStep = self.defaults.string(forKey: DefaultsKey.step) {
+            switch rawStep {
+            case "pair":
+                self.step = .welcome
+                self.persist()
+                return
+            case "notifications", "briefing_time":
+                self.step = .done
+                self.isCompleted = true
+                self.persist()
+                return
+            default:
+                if let restoredStep = Step(rawValue: rawStep) {
+                    self.step = restoredStep
+                    return
+                }
+            }
         }
+
+        self.step = .welcome
     }
 
     func reset() {
-        self.notificationsGranted = nil
+        self.choseFirstSource = false
         self.isCompleted = false
         self.step = .welcome
         onboardingFlowLog.info("onboarding reset")
@@ -58,22 +70,12 @@ final class OnboardingFlow {
     }
 
     func advanceFromWelcome() {
-        self.step = .pair
+        self.step = .firstSource
         self.persist()
     }
 
-    func completePairing() {
-        self.step = .notifications
-        self.persist()
-    }
-
-    func completeNotifications(granted: Bool) {
-        self.notificationsGranted = granted
-        self.step = .briefingTime
-        self.persist()
-    }
-
-    func completeBriefingTime() {
+    func completeFirstSource(choseSource: Bool) {
+        self.choseFirstSource = choseSource
         self.step = .done
         self.isCompleted = true
         self.persist()
@@ -84,17 +86,14 @@ final class OnboardingFlow {
         switch self.step {
         case .welcome, .done:
             break
-        case .pair:
+        case .firstSource:
             self.step = .welcome
-        case .notifications:
-            self.step = .pair
-        case .briefingTime:
-            self.step = .notifications
         }
         self.persist()
     }
 
     func markCompletedForUITest() {
+        self.choseFirstSource = false
         self.step = .done
         self.isCompleted = true
         self.persist()
@@ -103,6 +102,7 @@ final class OnboardingFlow {
     func seedUITest(step: Step) {
         self.step = step
         self.isCompleted = step == .done
+        self.choseFirstSource = false
         self.persist()
     }
 

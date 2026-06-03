@@ -94,7 +94,6 @@ struct SettingsView: View {
                     },
                     onComplete: {
                         self.showingPairFlow = false
-                        self.onboardingFlow.completePairing()
                     }
                 )
                 .toolbar {
@@ -136,7 +135,6 @@ private extension SettingsView {
 
     func clearPairingForNewPair() async {
         self.appConfig.clearPairing()
-        self.onboardingFlow.reset()
         await self.tunnelManager.disconnect()
         self.showingPairFlow = true
     }

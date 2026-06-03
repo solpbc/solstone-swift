@@ -30,6 +30,7 @@ struct MoreView: View {
     @State private var probeResultIsAlive = false
     @State private var showingObserverReset = false
     @State private var showingUnpairConfirm = false
+    @State private var showingConnectJournal = false
     @State private var selectedBriefingTime = Calendar.current.date(
         bySettingHour: 7,
         minute: 0,
@@ -146,12 +147,23 @@ struct MoreView: View {
 
     var body: some View {
         List {
+            if !self.appConfig.isPaired {
+                Section {
+                    Button("connect a journal") {
+                        self.showingConnectJournal = true
+                    }
+                    .hoverEffect(.highlight)
+                    .accessibilityHint("opens journal connection options")
+                }
+            }
+
             Section {
                 Button("refresh brain") {
                     Task {
                         await self.refreshBrain()
                     }
                 }
+                .disabled(!self.tunnelManager.state.isConnected)
                 .hoverEffect(.highlight)
             }
 
@@ -388,6 +400,9 @@ struct MoreView: View {
         }
         .onDisappear {
             self.snapshotCopyTask?.cancel()
+        }
+        .sheet(isPresented: self.$showingConnectJournal) {
+            ConnectJournalSheet(isPresented: self.$showingConnectJournal)
         }
     }
 

@@ -13,7 +13,7 @@ struct WelcomeScreen: View {
     var body: some View {
         OnboardingScaffold(
             title: "welcome to solstone",
-            subtitle: "pair this phone with your journal, choose notifications, and set your morning briefing time."
+            subtitle: "solstone observes alongside you and keeps it on this phone — yours alone, until you connect a journal."
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 Label("private by design", systemImage: "lock.fill")
@@ -26,7 +26,7 @@ struct WelcomeScreen: View {
                 Button("get started", action: self.onGetStarted)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .accessibilityHint("Opens the pairing step")
+                    .accessibilityHint("opens the first source step")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
         }

@@ -216,9 +216,6 @@ struct SolstoneSwiftApp: App {
                             self.pairingHandoff.pairURL = nil
                             self.pairingHandoff.pairURLError = error
                         }
-                        if !self.onboardingFlow.isCompleted {
-                            self.onboardingFlow.step = .pair
-                        }
                         return
                     }
                     guard url.scheme == "solstone",
