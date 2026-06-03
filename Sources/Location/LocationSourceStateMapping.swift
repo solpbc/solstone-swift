@@ -23,7 +23,7 @@ nonisolated func locationSourceState(
         return (
             .needsAttention,
             SourceAttention(
-                message: LocationVocabulary.downgradeBody(tier: tier),
+                message: LocationVocabulary.downgradeBody(tierLabel: tier.label),
                 actionHint: LocationVocabulary.openSettingsAction
             )
         )
@@ -31,7 +31,7 @@ nonisolated func locationSourceState(
         return (
             .needsAttention,
             SourceAttention(
-                message: LocationVocabulary.downgradeBody(tier: tier),
+                message: LocationVocabulary.downgradeBody(tierLabel: tier.label),
                 actionHint: LocationVocabulary.matchToAllowedAction
             )
         )

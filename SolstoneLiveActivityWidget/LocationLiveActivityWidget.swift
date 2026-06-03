@@ -5,31 +5,23 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-@main
-struct SolstoneLiveActivityBundle: WidgetBundle {
-    var body: some Widget {
-        SolstoneLiveActivityWidget()
-        LocationLiveActivityWidget()
-    }
-}
-
-struct SolstoneLiveActivityWidget: Widget {
+struct LocationLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: ObserverActivityAttributes.self) { context in
+        ActivityConfiguration(for: LocationActivityAttributes.self) { context in
             HStack(spacing: 12) {
-                Image(systemName: "ear")
+                Image(systemName: "location.fill")
                     .font(.title2)
                     .foregroundStyle(Color.solOrange)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("solstone")
                         .font(.custom("Comfortaa-Bold", size: 18))
-                    Text(observerModeLabel(for: context.state.mode))
+                    Text(LocationVocabulary.liveActivityText)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Link(destination: URL(string: "solstone://observer/stop")!) {
-                    Image(systemName: "stop.fill")
+                Link(destination: URL(string: "solstone://location/pause")!) {
+                    Image(systemName: "pause.fill")
                         .foregroundStyle(.white)
                         .padding(10)
                         .background(Color.solOrange, in: Circle())
@@ -39,43 +31,42 @@ struct SolstoneLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "ear")
+                    Image(systemName: "location.fill")
                         .foregroundStyle(Color.solOrange)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(observerModeLabel(for: context.state.mode))
-                        .font(.custom("Comfortaa-Bold", size: 16))
+                    VStack(spacing: 2) {
+                        Text("solstone")
+                            .font(.custom("Comfortaa-Bold", size: 16))
+                        Text(LocationVocabulary.liveActivityText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Link(destination: URL(string: "solstone://observer/stop")!) {
-                        Image(systemName: "stop.fill")
+                    Link(destination: URL(string: "solstone://location/pause")!) {
+                        Image(systemName: "pause.fill")
                             .foregroundStyle(.white)
                             .padding(8)
                             .background(Color.solOrange, in: Circle())
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(Self.elapsedString(for: context.state.elapsed))
-                        .font(.subheadline.monospacedDigit())
+                    Text(context.state.tierLabel)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             } compactLeading: {
-                Image(systemName: "ear")
+                Image(systemName: "location.fill")
                     .foregroundStyle(Color.solOrange)
             } compactTrailing: {
-                Text(Self.elapsedString(for: context.state.elapsed))
-                    .font(.caption2.monospacedDigit())
+                Circle()
+                    .fill(Color.solOrange)
+                    .frame(width: 8, height: 8)
             } minimal: {
-                Image(systemName: "ear")
+                Image(systemName: "location.fill")
                     .foregroundStyle(Color.solOrange)
             }
         }
-    }
-
-    private static func elapsedString(for elapsed: TimeInterval) -> String {
-        let totalSeconds = Int(elapsed)
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return String(format: "%02d:%02d", minutes, seconds)
     }
 }

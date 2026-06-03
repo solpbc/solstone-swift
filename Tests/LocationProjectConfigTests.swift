@@ -16,10 +16,44 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
         XCTAssertTrue(projectYML.contains("          - remote-notification"))
     }
 
+    func testWidgetTargetIncludesOnlyLiveActivitySafeLocationSources() throws {
+        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
+        let widgetBlock = try XCTUnwrap(Self.widgetTargetBlock(in: projectYML))
+
+        for required in [
+            "      - SolstoneLiveActivityWidget",
+            "      - Sources/Observer/ObserverMode.swift",
+            "      - Sources/Observer/ObserverLiveActivity.swift",
+            "      - Sources/Design/Colors.swift",
+            "      - Sources/Location/LocationLiveActivity.swift",
+            "      - Sources/Location/LocationVocabulary.swift",
+        ] {
+            XCTAssertTrue(widgetBlock.contains(required), required)
+        }
+
+        for forbidden in [
+            "Sources/Location/LocationManager.swift",
+            "Sources/Location/LocationProviding.swift",
+            "Sources/Location/LocationUploader.swift",
+            "Sources/Location/LocationTier.swift",
+        ] {
+            XCTAssertFalse(widgetBlock.contains(forbidden), forbidden)
+        }
+    }
+
     private static func projectYMLURL() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("project.yml")
+    }
+
+    private static func widgetTargetBlock(in projectYML: String) -> String? {
+        guard let start = projectYML.range(of: "  SolstoneLiveActivityWidget:"),
+              let end = projectYML[start.upperBound...].range(of: "  solstone-swiftTests:")
+        else {
+            return nil
+        }
+        return String(projectYML[start.lowerBound..<end.lowerBound])
     }
 }

@@ -23,6 +23,7 @@ struct SolstoneSwiftApp: App {
     @State private var locationManager: LocationManager
     @State private var observerManager: ObserverManager
     @State private var pendingObserverCommand = PendingObserverCommandState()
+    @State private var pendingLocationCommand = PendingLocationCommandState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var voiceManager: VoiceManager
     @State private var bannerPresenter: BannerPresenter
@@ -187,6 +188,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.locationUploader)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
+                .environment(self.pendingLocationCommand)
                 .environment(self.pairingHandoff)
                 .environment(self.brainStatusMonitor)
                 .environment(self.portalPage)
@@ -213,7 +215,14 @@ struct SolstoneSwiftApp: App {
                     guard url.scheme == "solstone",
                           url.host == "observer",
                           url.path == "/stop"
-                    else { return }
+                    else {
+                        guard url.scheme == "solstone",
+                              url.host == "location",
+                              url.path == "/pause"
+                        else { return }
+                        self.pendingLocationCommand.command = .pauseRequested
+                        return
+                    }
                     self.pendingObserverCommand.command = .stopRequested
                 }
                 .onChange(of: self.pendingObserverCommand.command) { _, command in
@@ -221,6 +230,13 @@ struct SolstoneSwiftApp: App {
                     self.pendingObserverCommand.command = nil
                     Task {
                         await self.observerManager.stopSession()
+                    }
+                }
+                .onChange(of: self.pendingLocationCommand.command) { _, command in
+                    guard command == .pauseRequested else { return }
+                    self.pendingLocationCommand.command = nil
+                    Task {
+                        await self.locationManager.pause()
                     }
                 }
                 .task {

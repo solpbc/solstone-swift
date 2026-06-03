@@ -41,8 +41,8 @@ nonisolated enum LocationVocabulary {
     static let deleteConfirmButton = "delete location's contributions"
     static let deleteReceiptHeadlineTemplate = "deleted. removed from your journal: where your day happened, across {N} days."
 
-    static func downgradeBody(tier: LocationTier) -> String {
-        self.downgradeBodyTemplate.replacingOccurrences(of: "{tier}", with: tier.label)
+    static func downgradeBody(tierLabel: String) -> String {
+        self.downgradeBodyTemplate.replacingOccurrences(of: "{tier}", with: tierLabel)
     }
 
     static func deleteReceiptHeadline(days: Int) -> String {

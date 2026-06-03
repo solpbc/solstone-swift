@@ -46,7 +46,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
 
     func testDowngradeBodySubstitutesTierLabel() {
         XCTAssertEqual(
-            LocationVocabulary.downgradeBody(tier: .balanced),
+            LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label),
             "you chose places + comings and goings, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in."
         )
     }

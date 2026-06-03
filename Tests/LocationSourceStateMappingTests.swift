@@ -57,7 +57,7 @@ nonisolated final class LocationSourceStateMappingTests: XCTestCase {
         let result = locationSourceState(effective: .whenInUse(accuracy: .full), tier: .balanced, paused: false)
 
         XCTAssertEqual(result.0, .needsAttention)
-        XCTAssertEqual(result.1?.message, LocationVocabulary.downgradeBody(tier: .balanced))
+        XCTAssertEqual(result.1?.message, LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label))
         XCTAssertEqual(result.1?.actionHint, LocationVocabulary.matchToAllowedAction)
     }
 }
