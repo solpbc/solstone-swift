@@ -5,18 +5,10 @@ import SwiftUI
 
 struct SourceRowView: View {
     let source: Source
+    let onTap: () -> Void
 
     var body: some View {
-        NavigationLink {
-            switch self.source.kind {
-            case .observer:
-                SourceDetailView()
-            case .importer:
-                ImporterSourceDetailView(source: self.source)
-            case .location:
-                LocationSourceDetailView()
-            }
-        } label: {
+        Button(action: self.onTap) {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: self.source.state.symbol)
                     .font(.title3.weight(.semibold))
@@ -36,7 +28,7 @@ struct SourceRowView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if !self.source.isJournalConnected && self.source.state == .off {
+                    if self.showsNotConnectedAffordance {
                         Text(SourceVocabulary.notConnectedRowAffordance)
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(Color.solOrangeAccessible)
@@ -51,15 +43,24 @@ struct SourceRowView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(self.source.displayName). \(self.source.voiceOverText)")
+        .accessibilityIdentifier("source.row.\(self.source.id)")
+        .accessibilityAction {
+            self.onTap()
+        }
     }
 }
 
 private extension SourceRowView {
+    var showsNotConnectedAffordance: Bool {
+        self.source.kind != .observer && !self.source.isJournalConnected && self.source.state == .off
+    }
+
     var indicatorColor: Color {
         switch self.source.state {
         case .needsAttention:

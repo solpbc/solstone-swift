@@ -146,7 +146,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.recentEmpty,
             SourceVocabulary.recentFailed,
             SourceVocabulary.notConnectedRowAffordance,
-            SourceVocabulary.notConnectedDetailHelper,
             SourceVocabulary.zeroActiveSummary,
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,

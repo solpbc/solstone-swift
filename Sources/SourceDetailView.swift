@@ -85,10 +85,6 @@ private extension SourceDetailView {
         sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
     }
 
-    var isJournalConnected: Bool {
-        self.observerRegistration.activeLocalPort != nil
-    }
-
     @ViewBuilder
     var stateBlock: some View {
         VStack(spacing: 16) {
@@ -137,14 +133,9 @@ private extension SourceDetailView {
                 .frame(width: self.listenButtonSize, height: self.listenButtonSize)
             }
             .buttonStyle(.plain)
-            .disabled(self.observerManager.state == .stopping || !self.isJournalConnected)
-
-            if !self.isJournalConnected {
-                Text(SourceVocabulary.notConnectedDetailHelper)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+            .accessibilityLabel(self.buttonLabel)
+            .accessibilityIdentifier("source.listen")
+            .disabled(self.observerManager.state == .stopping)
 
             if let elapsedText = self.elapsedText {
                 Text(elapsedText)
@@ -279,7 +270,7 @@ private extension SourceDetailView {
     var pauseButtonDisabled: Bool {
         switch self.currentSourceState {
         case .active, .paused:
-            self.observerManager.state == .stopping || !self.isJournalConnected
+            self.observerManager.state == .stopping
         case .off, .enrolling, .needsAttention:
             true
         }

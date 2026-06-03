@@ -10,49 +10,80 @@ struct SourcesView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationManager.self) private var locationManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var selectedSourceRoute: SourceRoute?
 
     private let appGroupMirror = AppGroupMirror()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if self.showsZeroActiveSummary {
-                    Text(SourceVocabulary.zeroActiveSummary)
-                        .font(.subheadline)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if self.showsZeroActiveSummary {
+                        Text(SourceVocabulary.zeroActiveSummary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(SourceGroup.experiencingAlongsideYou.header)
+                            .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
+
+                        SourceRowView(source: self.audioSource) {
+                            self.selectedSourceRoute = .audio
+                        }
+                        SourceRowView(source: self.locationSource) {
+                            self.selectedSourceRoute = .location
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(SourceGroup.bringingInYourself.header)
+                            .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
+
+                        SourceRowView(source: self.shareSource) {
+                            self.selectedSourceRoute = .share
+                        }
+                    }
+
+                    Text(SourceVocabulary.trustLine)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(SourceGroup.experiencingAlongsideYou.header)
-                        .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
-
-                    SourceRowView(source: self.audioSource)
-                    SourceRowView(source: self.locationSource)
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(SourceGroup.bringingInYourself.header)
-                        .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
-
-                    SourceRowView(source: self.shareSource)
-                }
-
-                Text(SourceVocabulary.trustLine)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+                .padding()
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-            .padding()
-            .frame(maxWidth: .infinity)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("sources")
+                        .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))
+                }
+            }
+            .navigationDestination(item: self.$selectedSourceRoute) { route in
+                switch route {
+                case .audio:
+                    SourceDetailView()
+                case .location:
+                    LocationSourceDetailView()
+                case .share:
+                    ImporterSourceDetailView(source: self.shareSource)
+                }
+            }
         }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("sources")
-                    .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))
-            }
+    }
+}
+
+private enum SourceRoute: Hashable, Identifiable {
+    case audio, location, share
+
+    var id: String {
+        switch self {
+        case .audio: "audio"
+        case .location: "location"
+        case .share: "share"
         }
     }
 }

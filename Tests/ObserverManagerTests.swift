@@ -58,6 +58,41 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testStopSessionWithNoLocalPortLeavesChunkPending() async throws {
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ObserverManagerURLProtocol.self]
+        let uploader = ObserverUploader(
+            cacheRootURL: self.tempDirectory,
+            sessionConfiguration: configuration,
+            ensureRegistered: {
+                registrationCalls.withLock { $0 += 1 }
+                throw ObserverUploaderError.registrationUnavailable
+            },
+            isJournalConfigured: { true },
+            localPortProvider: { nil },
+            retryDelays: [0],
+            sleep: { _ in },
+            startPathMonitor: false
+        )
+        let manager = ObserverManager(
+            recorder: self.recorder,
+            uploader: uploader,
+            clock: self.clock,
+            liveActivity: self.liveActivity
+        )
+
+        await manager.startSession(mode: .meeting)
+        await manager.stopSession()
+
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
+        XCTAssertEqual(try self.pendingFileCount(pathExtension: "m4a"), 1)
+        XCTAssertEqual(try self.pendingFileCount(pathExtension: "json"), 1)
+    }
+
+    @MainActor
     func testPermissionDeniedTransitionsToError() async {
         self.recorder.permissionGranted = false
 
@@ -194,4 +229,22 @@ private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable
     }
 
     override func stopLoading() {}
+}
+
+private extension ObserverManagerTests {
+    func pendingFileCount(pathExtension: String) throws -> Int {
+        guard let enumerator = FileManager.default.enumerator(at: self.tempDirectory, includingPropertiesForKeys: nil) else {
+            return 0
+        }
+
+        var count = 0
+        for case let url as URL in enumerator {
+            if url.pathExtension == pathExtension,
+               url.deletingLastPathComponent().lastPathComponent == "pending"
+            {
+                count += 1
+            }
+        }
+        return count
+    }
 }
