@@ -617,12 +617,15 @@ integration-test-onboarding: sim
 		echo "integration-test-onboarding passed"; \
 		tail -n 20 "$$GRANT_APP_LOG"
 
+# Canonical pre-ship gate: brand/a11y/casing assertions (cheap, fail-fast) then a
+# full build + test pass. Run this before merging any branch to main.
 ci:
 	bash test/assert_brand_canon.sh
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
 	bash test/assert_casing.sh
+	$(MAKE) test
 
 test-one: generate
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
