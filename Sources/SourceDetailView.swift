@@ -12,6 +12,7 @@ struct SourceDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var manifestResult: ObserverManifestResult = .loadedEmpty
     @State private var isPulsing = false
+    @ScaledMetric(relativeTo: .headline) private var listenButtonSize: CGFloat = 120
 
     private let manifestClient = ObserverManifestClient()
 
@@ -128,12 +129,12 @@ private extension SourceDetailView {
                             Image(systemName: self.buttonSymbol)
                                 .font(.system(size: 34, weight: .semibold))
                             Text(self.buttonLabel)
-                                .font(.custom("Comfortaa-Bold", size: 18))
+                                .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
                         }
                         .foregroundStyle(self.buttonForeground)
                     }
                 }
-                .frame(width: 120, height: 120)
+                .frame(width: self.listenButtonSize, height: self.listenButtonSize)
             }
             .buttonStyle(.plain)
             .disabled(self.observerManager.state == .stopping || !self.isJournalConnected)
@@ -147,7 +148,7 @@ private extension SourceDetailView {
 
             if let elapsedText = self.elapsedText {
                 Text(elapsedText)
-                    .font(.custom("Comfortaa-Bold", size: 16))
+                    .font(.custom("Comfortaa-Bold", size: 16, relativeTo: .callout))
                     .foregroundStyle(.secondary)
             }
 

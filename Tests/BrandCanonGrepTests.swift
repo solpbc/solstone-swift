@@ -37,6 +37,27 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
         XCTAssertTrue(text.contains("your WiFi network may require " + "sign" + "-in"))
     }
 
+    func testRetiredSourceCopyDoesNotReappear() throws {
+        let root = Self.worktreeRoot()
+        let scanRoots = [
+            root.appendingPathComponent("Sources"),
+            root.appendingPathComponent("SolstoneShareExtension"),
+        ]
+        let files = try scanRoots.flatMap { try Self.swiftFiles(under: $0) }
+        let retiredSubstrings = [
+            "what sol made from it",
+            "open in convey",
+            "back online",
+        ]
+
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for retired in retiredSubstrings {
+                XCTAssertFalse(text.contains(retired), "\(retired) at \(file.path)")
+            }
+        }
+    }
+
     private static let terms = [
         "sign" + " in",
         "signed" + " in",

@@ -23,14 +23,14 @@ struct SourcesView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(SourceGroup.experiencingAlongsideYou.header)
-                        .font(.custom("Comfortaa-Bold", size: 18))
+                        .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
                     SourceRowView(source: self.audioSource)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(SourceGroup.bringingInYourself.header)
-                        .font(.custom("Comfortaa-Bold", size: 18))
+                        .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
                     SourceRowView(source: self.shareSource)
                 }
@@ -49,7 +49,7 @@ struct SourcesView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("sources")
-                    .font(.custom("Comfortaa-Bold", size: 22))
+                    .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))
             }
         }
     }

@@ -189,6 +189,7 @@ struct MoreView: View {
                 .disabled(conveyURL == nil)
                 .hoverEffect(.highlight)
                 .accessibilityLabel(SourceVocabulary.openJournalInConvey)
+                .accessibilityHint("Opens your journal in the browser.")
 
                 if conveyURL == nil {
                     Text(SourceVocabulary.notConnectedRowAffordance)

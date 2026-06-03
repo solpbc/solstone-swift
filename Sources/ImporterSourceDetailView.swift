@@ -45,6 +45,8 @@ struct ImporterSourceDetailView: View {
                             OnThisPhoneView()
                         }
                         .buttonStyle(.bordered)
+                        .accessibilityLabel(SourceVocabulary.journalDashboardTitle)
+                        .accessibilityHint("Shows what you've sent to your journal.")
                     }
                 }
 
@@ -55,6 +57,7 @@ struct ImporterSourceDetailView: View {
                         }
                             .buttonStyle(.bordered)
                             .disabled(self.isDeleting)
+                            .accessibilityHint("Removes everything share sheet added to your journal.")
 
                         self.deleteResultBlock
                     }
@@ -99,6 +102,7 @@ private extension ImporterSourceDetailView {
                 self.handleStateAction()
             }
             .buttonStyle(.bordered)
+            .accessibilityHint(self.stateActionHint)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -153,10 +157,12 @@ private extension ImporterSourceDetailView {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .accessibilityElement(children: .combine)
             case .notConfirmed, .unreachable:
                 Text(SourceVocabulary.deleteJournalUnreachableLine)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
             }
         }
     }
@@ -178,6 +184,17 @@ private extension ImporterSourceDetailView {
             SourceVocabulary.resume
         case .active, .needsAttention, .enrolling:
             SourceVocabulary.pause
+        }
+    }
+
+    var stateActionHint: String {
+        switch self.currentState {
+        case .off:
+            "Turns on share sheet."
+        case .paused:
+            "Resumes share sheet."
+        case .active, .needsAttention, .enrolling:
+            "Pauses share sheet."
         }
     }
 

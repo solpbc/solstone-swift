@@ -120,7 +120,6 @@ nonisolated enum SourceVocabulary {
     static let originAppNotProvided = "origin app not provided"
     static let rawOriginalUnavailable = "raw original is no longer on this phone."
     static let derivedNotInJournalYet = "not in your journal yet"
-    static let derivedOpenInConvey = "open journal ↗"
     static let openJournalInConvey = "open journal ↗"
     static let filenameLabel = "filename"
     static let originAppLabel = "origin app"

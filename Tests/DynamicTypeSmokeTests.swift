@@ -65,6 +65,19 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(ObserverSourcePauseState())
                 .environment(importQueue)
         }
+        let importerSourceDetailView = NavigationStack {
+            ImporterSourceDetailView(source: Self.shareSource())
+                .environment(importQueue)
+        }
+        let onThisPhoneView = NavigationStack {
+            OnThisPhoneView()
+                .environment(importQueue)
+        }
+        let onThisPhoneItemDetailView = NavigationStack {
+            OnThisPhoneItemDetailView(item: Self.onThisPhoneItem())
+                .environment(importQueue)
+                .environment(observerRegistration)
+        }
 
         try self.assertHosted(
             WelcomeScreen(onGetStarted: {})
@@ -77,6 +90,11 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         )
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(onThisPhoneView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        // ShareExtensionView is private in the extension target; its copy is mechanically covered by lock tests.
+        // Hit-target audit: scoped controls are standard Buttons/NavigationLinks/segmented Picker, so no frame assertions are needed here.
     }
 
     @MainActor private func assertHosted<V: View>(_ view: V) throws {
@@ -86,5 +104,38 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
         XCTAssertGreaterThan(controller.view.systemLayoutSizeFitting(CGSize(width: 393, height: 852)).height, 0)
+    }
+
+    private static func shareSource() -> Source {
+        Source(
+            id: "share-sheet",
+            displayName: SourceVocabulary.shareSheetDisplayName,
+            kind: .importer,
+            group: .bringingInYourself,
+            state: .active,
+            activeSubtext: SourceVocabulary.importerActiveSubtext,
+            attention: nil,
+            pendingStatus: .nonePending,
+            isJournalConnected: true
+        )
+    }
+
+    private static func onThisPhoneItem() -> OnThisPhoneItem {
+        OnThisPhoneItem(
+            id: UUID().uuidString,
+            sendState: .inYourJournal,
+            contentType: "application/pdf",
+            filename: "item.pdf",
+            bytes: 42,
+            originApp: "Files",
+            basis: "share",
+            itemTime: Date(),
+            targetJournal: "journal",
+            stream: "default",
+            day: "2026-06-02",
+            segment: "morning",
+            deliveredAt: Date(),
+            rawFileURL: nil
+        )
     }
 }

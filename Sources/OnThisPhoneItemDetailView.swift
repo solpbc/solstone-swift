@@ -111,13 +111,15 @@ private extension OnThisPhoneItemDetailView {
                 activeLocalPort: self.observerRegistration.activeLocalPort,
                 day: self.item.day
             )
-            Button(SourceVocabulary.derivedOpenInConvey) {
+            Button(SourceVocabulary.openJournalInConvey) {
                 if let conveyURL {
                     self.openURL(conveyURL)
                 }
             }
                 .buttonStyle(.bordered)
                 .disabled(conveyURL == nil)
+                .accessibilityLabel(SourceVocabulary.openJournalInConvey)
+                .accessibilityHint("Opens your journal in the browser.")
 
             if conveyURL == nil {
                 Text(SourceVocabulary.notConnectedRowAffordance)
@@ -142,11 +144,13 @@ private extension OnThisPhoneItemDetailView {
                     self.retry()
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityHint("Tries sending this again.")
 
                 Button(SourceVocabulary.drop, role: .destructive) {
                     self.drop()
                 }
                 .buttonStyle(.bordered)
+                .accessibilityHint("Removes this from this phone.")
             }
         }
     }
@@ -156,6 +160,7 @@ private extension OnThisPhoneItemDetailView {
             self.drop()
         }
         .buttonStyle(.bordered)
+        .accessibilityHint("Removes this from this phone.")
     }
 
     var sizeText: String {

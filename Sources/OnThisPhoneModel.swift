@@ -62,6 +62,14 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     var hasLocalRaw: Bool {
         self.rawFileURL != nil
     }
+
+    var voiceOverText: String {
+        [
+            self.filename ?? SourceVocabulary.notProvided,
+            self.contentType ?? SourceVocabulary.notProvided,
+            self.sendState.label,
+        ].joined(separator: ". ")
+    }
 }
 
 nonisolated enum OnThisPhoneResult: Equatable, Sendable {

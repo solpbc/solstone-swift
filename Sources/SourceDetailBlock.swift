@@ -15,7 +15,7 @@ struct SourceDetailBlock<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(self.title)
-                .font(.custom("Comfortaa-Bold", size: 18))
+                .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
             self.content
                 .frame(maxWidth: .infinity, alignment: .leading)

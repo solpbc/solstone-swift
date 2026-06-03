@@ -61,6 +61,42 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(OnThisPhoneSendState.needsAttention.label, SourceVocabulary.needsAttention)
     }
 
+    func testSourceVoiceOverTextIncludesStateLabels() {
+        let activeSource = Source(
+            id: "active",
+            displayName: "audio",
+            kind: .observer,
+            group: .experiencingAlongsideYou,
+            state: .active,
+            activeSubtext: SourceVocabulary.observerActiveSubtext,
+            attention: nil,
+            pendingStatus: .nonePending,
+            isJournalConnected: true
+        )
+        let needsAttentionSource = Source(
+            id: "needs-attention",
+            displayName: SourceVocabulary.shareSheetDisplayName,
+            kind: .importer,
+            group: .bringingInYourself,
+            state: .needsAttention,
+            activeSubtext: SourceVocabulary.importerActiveSubtext,
+            attention: SourceAttention(message: SourceVocabulary.needsAttentionSubtext),
+            pendingStatus: .nonePending,
+            isJournalConnected: true
+        )
+
+        XCTAssertTrue(activeSource.voiceOverText.contains("on"))
+        XCTAssertTrue(needsAttentionSource.voiceOverText.contains("needs attention"))
+    }
+
+    func testOnThisPhoneVoiceOverTextIncludesSendStateLabels() {
+        let deliveredItem = Self.onThisPhoneItem(sendState: .inYourJournal)
+        let failedItem = Self.onThisPhoneItem(sendState: .needsAttention)
+
+        XCTAssertTrue(deliveredItem.voiceOverText.contains("saved to your journal"))
+        XCTAssertTrue(failedItem.voiceOverText.contains("needs attention"))
+    }
+
     private static func session() -> ObserverSession {
         ObserverSession(
             sessionID: UUID(),
@@ -68,6 +104,25 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             startedAt: Date(),
             currentChunkIndex: 0,
             elapsed: 0
+        )
+    }
+
+    private static func onThisPhoneItem(sendState: OnThisPhoneSendState) -> OnThisPhoneItem {
+        OnThisPhoneItem(
+            id: UUID().uuidString,
+            sendState: sendState,
+            contentType: "application/pdf",
+            filename: "item.pdf",
+            bytes: 42,
+            originApp: "Files",
+            basis: "share",
+            itemTime: Date(),
+            targetJournal: "journal",
+            stream: "default",
+            day: "2026-06-02",
+            segment: "morning",
+            deliveredAt: sendState == .inYourJournal ? Date() : nil,
+            rawFileURL: nil
         )
     }
 }

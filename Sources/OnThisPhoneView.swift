@@ -79,6 +79,8 @@ private struct OnThisPhoneRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(self.item.voiceOverText)
     }
 
     private var symbolName: String {
