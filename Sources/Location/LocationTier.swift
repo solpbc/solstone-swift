@@ -37,7 +37,7 @@ nonisolated enum LocationTier: String, CaseIterable, Sendable, Equatable {
         }
     }
 
-    // Light tier intentionally uses the low-power visit service; CoreLocation decides when visit delivery is feasible.
+    // Light tier intentionally uses the low-power CLVisit API; CoreLocation decides when visit delivery is feasible.
     var requiredAuthorization: LocationAuthorizationRequirement {
         switch self {
         case .light:
