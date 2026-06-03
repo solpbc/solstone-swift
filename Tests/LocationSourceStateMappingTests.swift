@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+@testable import solstone_swift
+import XCTest
+
+nonisolated final class LocationSourceStateMappingTests: XCTestCase {
+    func testFullCapabilityMatrix() {
+        let capabilities: [LocationCapability] = [
+            .notDetermined,
+            .servicesDisabled,
+            .denied,
+            .restricted,
+            .whenInUse(accuracy: .full),
+            .whenInUse(accuracy: .reduced),
+            .always(accuracy: .full),
+            .always(accuracy: .reduced),
+        ]
+
+        for tier in LocationTier.allCases {
+            for capability in capabilities {
+                let result = locationSourceState(effective: capability, tier: tier, paused: false)
+                if tier.isSatisfied(by: capability) {
+                    XCTAssertEqual(result.0, .active, "\(tier) \(capability)")
+                    XCTAssertNil(result.1, "\(tier) \(capability)")
+                } else {
+                    XCTAssertEqual(result.0, .needsAttention, "\(tier) \(capability)")
+                    XCTAssertNotNil(result.1, "\(tier) \(capability)")
+                }
+            }
+        }
+    }
+
+    func testPausedShortCircuitsCapability() {
+        let result = locationSourceState(effective: .denied, tier: .full, paused: true)
+
+        XCTAssertEqual(result.0, .paused)
+        XCTAssertNil(result.1)
+    }
+
+    func testRestrictedUsesDistinctBodyWithoutActionHint() {
+        let result = locationSourceState(effective: .restricted, tier: .balanced, paused: false)
+
+        XCTAssertEqual(result.0, .needsAttention)
+        XCTAssertEqual(result.1, SourceAttention(message: LocationVocabulary.restrictedBody))
+    }
+
+    func testDeniedAndServicesDisabledUseOpenSettingsHint() {
+        let denied = locationSourceState(effective: .denied, tier: .balanced, paused: false)
+        let servicesDisabled = locationSourceState(effective: .servicesDisabled, tier: .balanced, paused: false)
+
+        XCTAssertEqual(denied.1?.actionHint, LocationVocabulary.openSettingsAction)
+        XCTAssertEqual(servicesDisabled.1?.actionHint, LocationVocabulary.openSettingsAction)
+    }
+
+    func testLesserGrantUsesMatchToAllowedHint() {
+        let result = locationSourceState(effective: .whenInUse(accuracy: .full), tier: .balanced, paused: false)
+
+        XCTAssertEqual(result.0, .needsAttention)
+        XCTAssertEqual(result.1?.message, LocationVocabulary.downgradeBody(tier: .balanced))
+        XCTAssertEqual(result.1?.actionHint, LocationVocabulary.matchToAllowedAction)
+    }
+}
