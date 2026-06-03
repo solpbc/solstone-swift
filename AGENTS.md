@@ -2,7 +2,7 @@
 
 Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Bundle ID: `app.solstone.swift`.
 
-> **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates the shell behind native onboarding, persists pair/session state, surfaces Day-0/Day-1 states, and adds a single offline banner plus file-backed portal cache metadata. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
+> **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates only native onboarding, lets the shell open before a journal is connected, persists pair/session state, surfaces Day-0/Day-1 and no-journal states, and adds a single offline banner plus file-backed portal cache metadata. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
 
 ## Principles
 
