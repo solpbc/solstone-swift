@@ -2,7 +2,7 @@
 
 Native iOS app for [solstone](https://solpbc.org) — the private, AI-powered personal journal from sol pbc.
 
-Hybrid shell (native SwiftUI + embedded WKWebView portal) with voice-first interaction. The shell, tunnel, voice stack, and build system are well-proven plumbing; what's solstone-specific is the journal-aware voice persona, mobile portal content, APNs for daily briefings, observer pipeline, Sense tab, and onboarding.
+Hybrid shell (native SwiftUI + embedded WKWebView portal) with voice-first interaction. It brings together a journal-aware voice persona, the mobile portal, APNs daily briefings, the observer pipeline, the Sense tab, and native onboarding over a tunneled connection to your solstone journal.
 
 ## Status
 
