@@ -102,6 +102,8 @@ private extension LocationSourceDetailView {
                             self.handleRecovery(action)
                         }
                         .buttonStyle(.borderedProminent)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityHint(action == .openSettings ? "Opens iOS Settings for location access." : "Changes the detail level to what iOS allows.")
                     }
                 }
             }
@@ -113,6 +115,7 @@ private extension LocationSourceDetailView {
             }
             .buttonStyle(.bordered)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .accessibilityHint(self.locationManager.sourceState == .paused ? "Resumes location updates to your journal." : "Pauses location updates to your journal.")
         }
     }
 
@@ -153,6 +156,8 @@ private extension LocationSourceDetailView {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(item.timeLabel). \(SourceVocabulary.shareDeliveredProgress)")
                     }
                 }
             case .loadedEmpty:
@@ -188,6 +193,8 @@ private extension LocationSourceDetailView {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityHint("Tries sending location updates again.")
             }
         }
     }
@@ -200,6 +207,7 @@ private extension LocationSourceDetailView {
                 .buttonStyle(.bordered)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(self.isDeleting)
+                .accessibilityHint("Removes location's contributions from your journal.")
         }
     }
 
@@ -243,6 +251,7 @@ private extension LocationSourceDetailView {
                 }
             }
             .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .disabled(self.journalURL == nil)
             .accessibilityLabel(SourceVocabulary.openJournalInConvey)
             .accessibilityHint("Opens your journal in the browser.")
@@ -292,6 +301,7 @@ private extension LocationSourceDetailView {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(tier == .light ? "Uses places only from now on." : tier == .balanced ? "Uses places plus comings and goings from now on. This is the recommended default." : "Uses the complete picture from now on.")
     }
 
     func handlePauseResumeTap() async {
@@ -379,6 +389,7 @@ private struct LocationEnrollmentContent: View {
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .disabled(self.coordinator.showingPrimer)
+                    .accessibilityHint("Starts adding location updates to your journal.")
                 }
             }
 
@@ -397,6 +408,7 @@ private struct LocationEnrollmentContent: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .frame(maxWidth: .infinity, minHeight: 44)
+                        .accessibilityHint("Continues to the iOS location permission step.")
                     }
                 }
             }
@@ -455,5 +467,6 @@ private extension LocationEnrollmentContent {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(tier == .light ? "Chooses places only for location." : tier == .balanced ? "Chooses places plus comings and goings for location. This is the recommended default." : "Chooses the complete picture for location.")
     }
 }

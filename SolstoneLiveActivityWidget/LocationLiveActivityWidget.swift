@@ -14,7 +14,7 @@ struct LocationLiveActivityWidget: Widget {
                     .foregroundStyle(Color.solOrange)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("solstone")
-                        .font(.custom("Comfortaa-Bold", size: 18))
+                        .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
                     Text(LocationVocabulary.liveActivityText)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -24,8 +24,11 @@ struct LocationLiveActivityWidget: Widget {
                     Image(systemName: "pause.fill")
                         .foregroundStyle(.white)
                         .padding(10)
-                        .background(Color.solOrange, in: Circle())
+                        .background(Color.solOrangeAccessible, in: Circle())
+                        .frame(minWidth: 44, minHeight: 44)
                 }
+                .accessibilityLabel("Pause")
+                .accessibilityHint("Pauses location updates to your journal.")
             }
             .padding()
         } dynamicIsland: { context in
@@ -37,7 +40,7 @@ struct LocationLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 2) {
                         Text("solstone")
-                            .font(.custom("Comfortaa-Bold", size: 16))
+                            .font(.custom("Comfortaa-Bold", size: 16, relativeTo: .subheadline))
                         Text(LocationVocabulary.liveActivityText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -48,8 +51,11 @@ struct LocationLiveActivityWidget: Widget {
                         Image(systemName: "pause.fill")
                             .foregroundStyle(.white)
                             .padding(8)
-                            .background(Color.solOrange, in: Circle())
+                            .background(Color.solOrangeAccessible, in: Circle())
+                            .frame(minWidth: 44, minHeight: 44)
                     }
+                    .accessibilityLabel("Pause")
+                    .accessibilityHint("Pauses location updates to your journal.")
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     Text(context.state.tierLabel)

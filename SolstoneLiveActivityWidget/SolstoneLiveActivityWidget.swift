@@ -22,7 +22,7 @@ struct SolstoneLiveActivityWidget: Widget {
                     .foregroundStyle(Color.solOrange)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("solstone")
-                        .font(.custom("Comfortaa-Bold", size: 18))
+                        .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
                     Text(observerModeLabel(for: context.state.mode))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -44,7 +44,7 @@ struct SolstoneLiveActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text(observerModeLabel(for: context.state.mode))
-                        .font(.custom("Comfortaa-Bold", size: 16))
+                        .font(.custom("Comfortaa-Bold", size: 16, relativeTo: .subheadline))
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Link(destination: URL(string: "solstone://observer/stop")!) {

@@ -10,6 +10,7 @@ cd "$ROOT"
 TARGETS=(
   Sources/Onboarding
   Sources/Home
+  Sources/Location
   Sources/MoreView.swift
   Sources/Voice/VoiceButton.swift
 )
@@ -18,7 +19,7 @@ status=0
 while IFS=: read -r file line _; do
   end=$(( line + 60 ))
   block="$(sed -n "${line},${end}p" "$file")"
-  if ! grep -Eq 'frame\(minWidth: 44, minHeight: 44\)|frame\(maxWidth: \.infinity, minHeight: 44\)|frame\(width: 56, height: 56\)|controlSize\(\.large\)' <<<"$block"; then
+  if ! grep -Eq 'frame\(minWidth: 44, minHeight: 44(, [^)]*)?\)|frame\(maxWidth: \.infinity, minHeight: 44(, [^)]*)?\)|frame\(width: 56, height: 56\)|controlSize\(\.large\)' <<<"$block"; then
     echo "tap target sizing missing for icon-only control near ${file}:${line}"
     status=1
   fi

@@ -7,7 +7,7 @@ import XCTest
 
 nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     @MainActor
-    func testOnboardingTodayMoreAndSourcesRenderAtAccessibilityXXXL() throws {
+    func testOnboardingTodayMoreAndSourcesRenderAtAccessibilityXXXL() async throws {
         let appConfig = AppConfig()
         appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
 
@@ -43,6 +43,26 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             clock: MockObserverClock(),
             defaults: nil
         )
+        let activeLocationProvider = MockLocationProvider()
+        activeLocationProvider.capability = .always(accuracy: .full)
+        let activeLocationManager = LocationManager(
+            provider: activeLocationProvider,
+            uploader: locationUploader,
+            clock: MockObserverClock(),
+            defaults: nil
+        )
+        await activeLocationManager.start(tier: .balanced)
+        XCTAssertEqual(activeLocationManager.sourceState, .active)
+        let needsAttentionLocationProvider = MockLocationProvider()
+        needsAttentionLocationProvider.capability = .denied
+        let needsAttentionLocationManager = LocationManager(
+            provider: needsAttentionLocationProvider,
+            uploader: locationUploader,
+            clock: MockObserverClock(),
+            defaults: nil
+        )
+        await needsAttentionLocationManager.start(tier: .balanced)
+        XCTAssertEqual(needsAttentionLocationManager.sourceState, .needsAttention)
         let importQueueRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: importQueueRoot) }
@@ -88,6 +108,18 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }
+        let activeLocationSourceDetailView = NavigationStack {
+            LocationSourceDetailView()
+                .environment(activeLocationManager)
+                .environment(locationUploader)
+                .environment(observerRegistration)
+        }
+        let needsAttentionLocationSourceDetailView = NavigationStack {
+            LocationSourceDetailView()
+                .environment(needsAttentionLocationManager)
+                .environment(locationUploader)
+                .environment(observerRegistration)
+        }
         let importerSourceDetailView = NavigationStack {
             ImporterSourceDetailView(source: Self.shareSource())
                 .environment(importQueue)
@@ -114,9 +146,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(activeLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(needsAttentionLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        await activeLocationManager.stop()
         // ShareExtensionView is private in the extension target; its copy is mechanically covered by lock tests.
         // Hit-target audit: scoped controls are standard Buttons/NavigationLinks/segmented Picker, so no frame assertions are needed here.
     }
