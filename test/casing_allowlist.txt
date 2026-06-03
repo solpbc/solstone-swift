@@ -54,6 +54,9 @@ ObserverLiveActivity.swift|Listening
 ObserverUploader.swift|Observer
 ObserverUploader.swift|Boundary-
 ObserverUploader.swift|Content-Disposition
+LocationUploader.swift|Location
+LocationUploader.swift|Boundary-
+LocationUploader.swift|Content-Disposition
 LocationVocabulary.swift|\"Always
 ImportQueue.swift|Boundary-
 ImportQueue.swift|Content-Disposition

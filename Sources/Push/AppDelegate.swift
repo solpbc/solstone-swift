@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     let pendingRoute = PendingNotificationRouteState()
     weak var observerUploader: ObserverUploader?
     weak var importQueue: ImportQueue?
+    weak var locationUploader: LocationUploader?
     lazy var tapRouter = NotificationTapRouter { [weak self] route in
         self?.pendingRoute.route = route
     }
@@ -89,6 +90,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         if identifier == ImportQueue.backgroundSessionIdentifier {
             Task { @MainActor [weak self] in
                 self?.importQueue?.handleBackgroundURLSessionEvents(completionHandler: completion)
+            }
+            return
+        }
+
+        if identifier == LocationUploader.backgroundSessionIdentifier {
+            Task { @MainActor [weak self] in
+                self?.locationUploader?.handleBackgroundURLSessionEvents(completionHandler: completion)
             }
             return
         }

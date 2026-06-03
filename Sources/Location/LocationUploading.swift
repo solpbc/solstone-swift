@@ -41,10 +41,3 @@ nonisolated struct LocationSegmentBatch: Sendable, Equatable {
 nonisolated protocol LocationUploading: Sendable {
     func enqueue(_ batch: LocationSegmentBatch) async
 }
-
-actor LocationUploader: LocationUploading {
-    // W1.L2 seam: upload wiring lands in a later lode; keep the live default inert.
-    func enqueue(_ batch: LocationSegmentBatch) async {
-        _ = batch
-    }
-}
