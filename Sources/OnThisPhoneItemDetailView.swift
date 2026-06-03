@@ -27,7 +27,7 @@ struct OnThisPhoneItemDetailView: View {
                     self.rawBlock
                 }
 
-                SourceDetailBlock(title: SourceVocabulary.onThisPhoneDerived) {
+                SourceDetailBlock(title: SourceVocabulary.yourJournalSection) {
                     self.derivedBlock
                 }
 

@@ -41,7 +41,7 @@ struct ImporterSourceDetailView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        NavigationLink(SourceVocabulary.onThisPhone) {
+                        NavigationLink(SourceVocabulary.journalDashboardTitle) {
                             OnThisPhoneView()
                         }
                         .buttonStyle(.bordered)

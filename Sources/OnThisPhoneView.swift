@@ -21,7 +21,7 @@ struct OnThisPhoneView: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle(SourceVocabulary.onThisPhone)
+        .navigationTitle(SourceVocabulary.journalDashboardTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             self.result = self.importQueue.onThisPhoneSnapshot()
