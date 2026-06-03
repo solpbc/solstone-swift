@@ -4,9 +4,9 @@
 import Foundation
 import XCTest
 
-nonisolated final class LocationWidgetStringsGrepTests: XCTestCase {
-    func testWidgetVisibleStringsAvoidLocationForbiddenTerms() throws {
-        let root = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent("SolstoneLiveActivityWidget")
+nonisolated final class LocationBrandCanonGrepTests: XCTestCase {
+    func testLocationStringsAvoidSurveillanceTerms() throws {
+        let root = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent("Sources/Location")
         let regex = try NSRegularExpression(pattern: Self.pattern, options: [.caseInsensitive])
         let files = try StringLiteralGrepSupport.swiftFiles(under: root)
 
@@ -17,7 +17,7 @@ nonisolated final class LocationWidgetStringsGrepTests: XCTestCase {
                 for literal in try StringLiteralGrepSupport.stringLiterals(in: lineText) {
                     let range = NSRange(literal.startIndex..<literal.endIndex, in: literal)
                     if let match = regex.firstMatch(in: literal, range: range) {
-                        XCTFail("forbidden widget string at \(file.path):\(index + 1): \(literal)")
+                        XCTFail("forbidden location string at \(file.path):\(index + 1): \(literal)")
                         XCTAssertEqual(match.numberOfRanges, 0)
                     }
                 }
@@ -26,34 +26,42 @@ nonisolated final class LocationWidgetStringsGrepTests: XCTestCase {
     }
 
     private static let terms = [
-        "captur" + "e",
-        "captur" + "ed",
-        "captur" + "es",
-        "captur" + "ing",
-        "rec" + "ord",
-        "rec" + "ords",
-        "rec" + "orded",
-        "rec" + "ording",
-        "watch",
-        "watch" + "es",
-        "watch" + "ed",
-        "watch" + "ing",
-        "mon" + "itor",
-        "mon" + "itors",
-        "mon" + "itored",
-        "mon" + "itoring",
         "track",
         "track" + "s",
         "track" + "ed",
         "track" + "ing",
+        "mon" + "itor",
+        "mon" + "itors",
+        "mon" + "itored",
+        "mon" + "itoring",
+        "follow",
+        "follow" + "s",
+        "follow" + "ed",
+        "follow" + "ing",
+        "trace",
+        "trace" + "s",
+        "traced",
+        "trac" + "ing",
+        "breadcrumb",
+        "breadcrumb" + "s",
+        "trail",
+        "trail" + "s",
+        "captur" + "e",
+        "captur" + "es",
+        "captur" + "ed",
+        "captur" + "ing",
+        "watch",
+        "watch" + "es",
+        "watch" + "ed",
+        "watch" + "ing",
         "collect",
         "collect" + "s",
         "collect" + "ed",
         "collect" + "ing",
-        "keeper",
-        "assistant",
-        "server",
-        "service",
+        "rec" + "ord",
+        "rec" + "ords",
+        "rec" + "orded",
+        "rec" + "ording",
     ]
 
     private static var pattern: String {

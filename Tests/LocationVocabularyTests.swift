@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Foundation
 import XCTest
 
 nonisolated final class LocationVocabularyTests: XCTestCase {
@@ -66,5 +67,88 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.deliveryLastSaved(time: "3:42 PM"),
             "last saved to your journal at 3:42 PM."
         )
+    }
+
+    func testRetiredLocationOwnerVisibleCopyStaysRetired() {
+        let strings = self.allOwnerVisibleStrings
+        let retiredExactStrings = [
+            "removing location's contributions from your journal arrives in a later update.",
+        ]
+
+        for retired in retiredExactStrings {
+            XCTAssertFalse(strings.contains(retired))
+        }
+        for string in strings {
+            XCTAssertFalse(string.contains("arrives in a later update"))
+        }
+    }
+
+    private var allOwnerVisibleStrings: [String] {
+        let deliveryDate = Date(timeIntervalSince1970: 1_713_624_000)
+        let tierStrings = LocationTier.allCases.flatMap { tier in
+            [
+                tier.label,
+                tier.body,
+            ]
+        }
+        let presentationStrings = [
+            LocationDetailPresentation.deliverySummary(pending: 0, failed: 1, lastUploadAt: deliveryDate).line,
+            LocationDetailPresentation.deliverySummary(pending: 1, failed: 0, lastUploadAt: deliveryDate).line,
+            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0, lastUploadAt: deliveryDate).line,
+            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0, lastUploadAt: nil).line,
+            LocationDetailPresentation.recoveryButtonLabel(for: .openSettings),
+            LocationDetailPresentation.recoveryButtonLabel(for: .matchToAllowed(suggestedTier: .light)),
+            LocationDetailPresentation.tierFraming,
+        ]
+        let mappingStrings = [
+            locationSourceState(effective: .restricted, tier: .balanced, paused: false).1?.message,
+            locationSourceState(effective: .denied, tier: .balanced, paused: false).1?.message,
+            locationSourceState(effective: .whenInUse(accuracy: .full), tier: .balanced, paused: false).1?.message,
+        ].compactMap { $0 }
+
+        return [
+            LocationVocabulary.sourceDisplayName,
+            LocationVocabulary.activeSubtext,
+            LocationVocabulary.preEnrollmentValue,
+            LocationVocabulary.tierDialHeader,
+            LocationVocabulary.tierDialSubhead,
+            LocationVocabulary.lightLabel,
+            LocationVocabulary.lightBody,
+            LocationVocabulary.balancedLabel,
+            LocationVocabulary.balancedBody,
+            LocationVocabulary.balancedDefaultBadge,
+            LocationVocabulary.fullLabel,
+            LocationVocabulary.fullBody,
+            LocationVocabulary.batteryHonesty,
+            LocationVocabulary.alwaysBackgroundPrimer,
+            LocationVocabulary.turnOnLocation,
+            LocationVocabulary.alwaysPrimerHeader,
+            LocationVocabulary.alwaysPrimerContinue,
+            LocationVocabulary.stateBlockTitle,
+            LocationVocabulary.tierBlockTitle,
+            LocationVocabulary.recentBlockTitle,
+            LocationVocabulary.deliveryBlockTitle,
+            LocationVocabulary.tierChangeFraming,
+            LocationVocabulary.deliveryNeedsAttentionTemplate,
+            LocationVocabulary.deliverySendingTemplate,
+            LocationVocabulary.deliveryLastSavedTemplate,
+            LocationVocabulary.deliveryQuietLine,
+            LocationVocabulary.downgradeBodyTemplate,
+            LocationVocabulary.openSettingsAction,
+            LocationVocabulary.matchToAllowedAction,
+            LocationVocabulary.restrictedBody,
+            LocationVocabulary.honestGap,
+            LocationVocabulary.liveActivityText,
+            LocationVocabulary.deleteConfirmBody,
+            LocationVocabulary.deleteConfirmButton,
+            LocationVocabulary.deleteReceiptHeadlineTemplate,
+            LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label),
+            LocationVocabulary.deleteReceiptHeadline(days: 4),
+            LocationVocabulary.deliveryNeedsAttention(count: 1),
+            LocationVocabulary.deliveryNeedsAttention(count: 2),
+            LocationVocabulary.deliverySending(count: 1),
+            LocationVocabulary.deliverySending(count: 3),
+            LocationVocabulary.deliveryLastSaved(time: "3:42 PM"),
+        ] + tierStrings + presentationStrings + mappingStrings
     }
 }
