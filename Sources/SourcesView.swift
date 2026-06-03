@@ -8,6 +8,7 @@ struct SourcesView: View {
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @Environment(ImportQueue.self) private var importQueue
+    @Environment(LocationManager.self) private var locationManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let appGroupMirror = AppGroupMirror()
@@ -26,6 +27,7 @@ struct SourcesView: View {
                         .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
                     SourceRowView(source: self.audioSource)
+                    SourceRowView(source: self.locationSource)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -79,13 +81,7 @@ private extension SourcesView {
     }
 
     var showsZeroActiveSummary: Bool {
-        switch (self.audioSource.state, self.shareSource.state) {
-        case (.active, _), (.enrolling, _), (.needsAttention, _),
-             (_, .active), (_, .enrolling), (_, .needsAttention):
-            false
-        case (.off, .off), (.off, .paused), (.paused, .off), (.paused, .paused):
-            true
-        }
+        [self.audioSource.state, self.shareSource.state, self.locationSource.state].allSatisfy(\.isZeroActive)
     }
 
     var shareSource: Source {
@@ -105,5 +101,30 @@ private extension SourcesView {
             pendingStatus: .nonePending,
             isJournalConnected: pairing.isPaired
         )
+    }
+
+    var locationSource: Source {
+        Source(
+            id: "location",
+            displayName: LocationVocabulary.sourceDisplayName,
+            kind: .location,
+            group: .experiencingAlongsideYou,
+            state: self.locationManager.sourceState,
+            activeSubtext: LocationVocabulary.activeSubtext,
+            attention: self.locationManager.sourceAttention,
+            pendingStatus: .nonePending,
+            isJournalConnected: self.observerRegistration.activeLocalPort != nil
+        )
+    }
+}
+
+private extension SourceState {
+    var isZeroActive: Bool {
+        switch self {
+        case .off, .paused:
+            true
+        case .enrolling, .active, .needsAttention:
+            false
+        }
     }
 }

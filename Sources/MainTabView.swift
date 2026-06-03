@@ -16,6 +16,7 @@ struct MainTabView: View {
     @Environment(PortalPage.self) private var portalPage
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(ObserverManager.self) private var observerManager
+    @Environment(LocationManager.self) private var locationManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @State private var selectedTab = AppTab.today
     @State private var lastPortalTab = AppTab.today
@@ -249,12 +250,10 @@ struct MainTabView: View {
     }
 
     private var sourcesBadgeVisible: Bool {
-        switch sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused) {
-        case .enrolling, .active, .needsAttention:
-            true
-        case .off, .paused:
-            false
-        }
+        [
+            sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused),
+            self.locationManager.sourceState
+        ].contains(where: \.showsSourcesBadge)
     }
 
     private func tabForRoute(_ route: String, currentPortalTab: AppTab) -> AppTab {
@@ -317,5 +316,16 @@ struct MainTabView: View {
         self.debugVoiceState = states[nextIndex]
         self.debugCycleCount += 1
         self.debugBrainStatus = self.debugCycleCount.isMultiple(of: 2) ? .refreshing : nil
+    }
+}
+
+private extension SourceState {
+    var showsSourcesBadge: Bool {
+        switch self {
+        case .enrolling, .active, .needsAttention:
+            true
+        case .off, .paused:
+            false
+        }
     }
 }

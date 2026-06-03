@@ -19,6 +19,8 @@ struct SolstoneSwiftApp: App {
     @State private var observerRegistration: ObserverRegistration
     @State private var observerUploader: ObserverUploader
     @State private var importQueue: ImportQueue
+    @State private var locationUploader: LocationUploader
+    @State private var locationManager: LocationManager
     @State private var observerManager: ObserverManager
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pairingHandoff = PairingHandoffState()
@@ -122,6 +124,15 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
+        let locationUploader = LocationUploader(
+            ensureRegistered: {
+                try await observerRegistration.ensureRegistered()
+            },
+            localPortProvider: {
+                observerRegistration.activeLocalPort
+            }
+        )
+        let locationManager = LocationManager(uploader: locationUploader)
         let observerRecorder = Self.makeObserverRecorder()
         let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
         let voice = VoiceManager(
@@ -148,6 +159,8 @@ struct SolstoneSwiftApp: App {
         self._observerRegistration = State(initialValue: observerRegistration)
         self._observerUploader = State(initialValue: observerUploader)
         self._importQueue = State(initialValue: importQueue)
+        self._locationUploader = State(initialValue: locationUploader)
+        self._locationManager = State(initialValue: locationManager)
         self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
         self._bannerPresenter = State(initialValue: BannerPresenter(
@@ -157,6 +170,7 @@ struct SolstoneSwiftApp: App {
         ))
         self.appDelegate.observerUploader = observerUploader
         self.appDelegate.importQueue = importQueue
+        self.appDelegate.locationUploader = locationUploader
     }
 
     var body: some Scene {
@@ -169,6 +183,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.observerRegistration)
                 .environment(self.observerUploader)
                 .environment(self.importQueue)
+                .environment(self.locationManager)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
@@ -228,6 +243,7 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
+                self.locationManager.noteAppDidEnterForeground()
                 self.backgroundDisconnectTask?.cancel()
                 self.backgroundDisconnectTask = nil
                 if Self.isIntegrationMode {
@@ -253,6 +269,7 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .background:
+                self.locationManager.noteAppDidEnterBackground()
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
                 self.integrationObserverStartTask?.cancel()
@@ -295,6 +312,9 @@ struct SolstoneSwiftApp: App {
                 }
                 Task {
                     await self.importQueue.resumeFromDisk()
+                }
+                Task {
+                    await self.locationUploader.resumeFromDisk()
                 }
 
                 if Self.isIntegrationMode,

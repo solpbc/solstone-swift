@@ -27,6 +27,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             recorder: MockObserverRecorder(),
             uploader: observerUploader
         )
+        let locationManager = LocationManager(
+            provider: MockLocationProvider(),
+            uploader: RecordingLocationUploader(),
+            clock: MockObserverClock(),
+            defaults: nil
+        )
         let importQueueRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: importQueueRoot) }
@@ -64,6 +70,11 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerRegistration)
                 .environment(ObserverSourcePauseState())
                 .environment(importQueue)
+                .environment(locationManager)
+        }
+        let locationSourceDetailView = NavigationStack {
+            LocationSourceDetailView()
+                .environment(locationManager)
         }
         let importerSourceDetailView = NavigationStack {
             ImporterSourceDetailView(source: Self.shareSource())
@@ -90,6 +101,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         )
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))

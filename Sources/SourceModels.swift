@@ -7,6 +7,7 @@ import Observation
 nonisolated enum SourceKind: Equatable, Sendable {
     case observer
     case importer
+    case location
 }
 
 nonisolated enum SourceGroup: Equatable, Sendable {

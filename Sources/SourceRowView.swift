@@ -13,6 +13,8 @@ struct SourceRowView: View {
                 SourceDetailView()
             case .importer:
                 ImporterSourceDetailView(source: self.source)
+            case .location:
+                LocationSourceDetailView()
             }
         } label: {
             HStack(alignment: .center, spacing: 12) {
