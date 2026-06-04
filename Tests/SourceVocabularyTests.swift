@@ -14,11 +14,29 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     }
 
     func testLockedOwnerSourceCopy() {
-        XCTAssertEqual(SourceVocabulary.trustLine, "feeds only your journal — nowhere else")
+        XCTAssertEqual(
+            SourceVocabulary.trustLineUnpaired,
+            "kept on this phone, only — nowhere else, until you connect a journal"
+        )
+        XCTAssertEqual(SourceVocabulary.trustLineConfigured, "feeds only your journal — nowhere else")
+        XCTAssertEqual(SourceVocabulary.trustLine(isPaired: false), SourceVocabulary.trustLineUnpaired)
+        XCTAssertEqual(SourceVocabulary.trustLine(isPaired: true), SourceVocabulary.trustLineConfigured)
+        XCTAssertEqual(SourceVocabulary.sourcesConnectBanner, "kept here until you connect a journal · connect →")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
         XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
+        XCTAssertEqual(
+            SourceVocabulary.connectJournalIntro,
+            "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
+        )
+        XCTAssertEqual(SourceVocabulary.connectDoorOwnTitle, "your own journal")
+        XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this phone to a solstone running on your computer.")
+        XCTAssertEqual(SourceVocabulary.connectDoorHostedTitle, "a hosted journal")
+        XCTAssertEqual(
+            SourceVocabulary.connectDoorHostedSubtitle,
+            "a journal sol pbc keeps for you. on by you, off by you, yours either way."
+        )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneScope,
             "everything your observers have gathered, resting here until you connect a journal."
@@ -162,10 +180,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.sendStateSending,
             SourceVocabulary.experiencingAlongsideYouHeader,
             SourceVocabulary.bringingInYourselfHeader,
-            SourceVocabulary.trustLine,
+            SourceVocabulary.trustLineUnpaired,
+            SourceVocabulary.trustLineConfigured,
             SourceVocabulary.recentEmpty,
             SourceVocabulary.recentFailed,
             SourceVocabulary.notConnectedRowAffordance,
+            SourceVocabulary.sourcesConnectBanner,
             SourceVocabulary.zeroActiveSummary,
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
@@ -192,6 +212,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.originAppLabel,
             SourceVocabulary.sendStateLabel,
             SourceVocabulary.deliveredAtLabel,
+            SourceVocabulary.connectJournalIntro,
+            SourceVocabulary.connectDoorOwnTitle,
+            SourceVocabulary.connectDoorOwnSubtitle,
+            SourceVocabulary.connectDoorHostedTitle,
+            SourceVocabulary.connectDoorHostedSubtitle,
             SourceVocabulary.retry,
             SourceVocabulary.drop,
             SourceVocabulary.turnOn,

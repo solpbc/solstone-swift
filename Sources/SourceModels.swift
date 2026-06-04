@@ -47,7 +47,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let activeSubtext: String
     let attention: SourceAttention?
     let pendingStatus: SourcePendingStatus
-    let isJournalConnected: Bool
 
     var subtext: String {
         self.state.subtext(activeSubtext: self.activeSubtext)

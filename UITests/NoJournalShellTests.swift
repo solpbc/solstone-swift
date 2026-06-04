@@ -61,6 +61,26 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
+    func testNoJournalSourcesShowsUnpairedTrustLineAndConnectBanner() {
+        let app = self.launchNoJournalApp()
+
+        app.tabBars.buttons["sense"].tap()
+
+        let footer = app.staticTexts["sources.trustLine"]
+        XCTAssertTrue(footer.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            footer.label,
+            "kept on this phone, only — nowhere else, until you connect a journal"
+        )
+
+        let banner = app.buttons["sources.connectBanner"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 5))
+        banner.tap()
+
+        XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testConnectEntryOpensPairFlowAndHostedDoorIsHidden() {
         let app = self.launchNoJournalApp()
 

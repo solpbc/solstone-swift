@@ -96,11 +96,17 @@ nonisolated enum SourceVocabulary {
 
     static let experiencingAlongsideYouHeader = "experiencing alongside you"
     static let bringingInYourselfHeader = "bringing in yourself"
-    static let trustLine = "feeds only your journal — nowhere else"
+    static let trustLineUnpaired = "kept on this phone, only — nowhere else, until you connect a journal"
+    static let trustLineConfigured = "feeds only your journal — nowhere else"
+
+    static func trustLine(isPaired: Bool) -> String {
+        isPaired ? Self.trustLineConfigured : Self.trustLineUnpaired
+    }
 
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"
     static let notConnectedRowAffordance = "connect your journal first"
+    static let sourcesConnectBanner = "kept here until you connect a journal · connect →"
     static let zeroActiveSummary = "nothing is on right now"
     static let whatItAdds = "adds what you say and nearby sound while this is on."
     static let pendingSeam = "nothing pending right now."
@@ -125,6 +131,11 @@ nonisolated enum SourceVocabulary {
     static let originAppLabel = "origin app"
     static let sendStateLabel = "send state"
     static let deliveredAtLabel = "delivered at"
+    static let connectJournalIntro = "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
+    static let connectDoorOwnTitle = "your own journal"
+    static let connectDoorOwnSubtitle = "pair this phone to a solstone running on your computer."
+    static let connectDoorHostedTitle = "a hosted journal"
+    static let connectDoorHostedSubtitle = "a journal sol pbc keeps for you. on by you, off by you, yours either way."
     static let retry = "retry"
     static let drop = "drop"
     static let turnOn = "turn on"

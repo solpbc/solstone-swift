@@ -27,12 +27,6 @@ struct SourceRowView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
-
-                    if self.showsNotConnectedAffordance {
-                        Text(SourceVocabulary.notConnectedRowAffordance)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.solOrangeAccessible)
-                    }
                 }
 
                 Spacer(minLength: 12)
@@ -57,10 +51,6 @@ struct SourceRowView: View {
 }
 
 private extension SourceRowView {
-    var showsNotConnectedAffordance: Bool {
-        self.source.kind != .observer && !self.source.isJournalConnected && self.source.state == .off
-    }
-
     var indicatorColor: Color {
         switch self.source.state {
         case .needsAttention:

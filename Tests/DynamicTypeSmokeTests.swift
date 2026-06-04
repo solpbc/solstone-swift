@@ -96,6 +96,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
 
         let sourcesView = NavigationStack {
             SourcesView()
+                .environment(appConfig)
                 .environment(observerManager)
                 .environment(observerRegistration)
                 .environment(ObserverSourcePauseState())
@@ -182,8 +183,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             state: .active,
             activeSubtext: SourceVocabulary.importerActiveSubtext,
             attention: nil,
-            pendingStatus: .nonePending,
-            isJournalConnected: true
+            pendingStatus: .nonePending
         )
     }
 

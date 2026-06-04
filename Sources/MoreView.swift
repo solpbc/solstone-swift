@@ -167,28 +167,30 @@ struct MoreView: View {
                 .hoverEffect(.highlight)
             }
 
-            Section {
-                LabeledContent("method", value: self.via == .lan ? "local network" : "remote journal")
-                LabeledContent("journal", value: self.serverHost)
-                LabeledContent("uptime") {
-                    Text(self.connectedSince, style: .timer)
-                }
-                LabeledContent("health") {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(self.healthColor)
-                            .frame(width: 8, height: 8)
-                        Text(self.healthLabel)
+            if self.appConfig.isPaired {
+                Section {
+                    LabeledContent("method", value: self.via == .lan ? "local network" : "remote journal")
+                    LabeledContent("journal", value: self.serverHost)
+                    LabeledContent("uptime") {
+                        Text(self.connectedSince, style: .timer)
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("health: \(self.healthLabel)")
-                }
-            } header: {
-                Text(self.justCopiedSnapshot ? "copied" : "connection")
-                    .onLongPressGesture {
-                        self.copySnapshot()
+                    LabeledContent("health") {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(self.healthColor)
+                                .frame(width: 8, height: 8)
+                            Text(self.healthLabel)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("health: \(self.healthLabel)")
                     }
-                    .accessibilityHint("long press to copy diagnostic snapshot")
+                } header: {
+                    Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
+                        .onLongPressGesture {
+                            self.copySnapshot()
+                        }
+                        .accessibilityHint("long press to copy diagnostic snapshot")
+                }
             }
 
             Section {
@@ -369,11 +371,13 @@ struct MoreView: View {
                 LabeledContent("journal root", value: self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot)
             }
 
-            Section {
-                Button("unpair this device", role: .destructive) {
-                    self.showingUnpairConfirm = true
+            if self.appConfig.isPaired {
+                Section {
+                    Button("unpair this device", role: .destructive) {
+                        self.showingUnpairConfirm = true
+                    }
+                    .accessibilityHint("Clears this device pairing and returns to onboarding")
                 }
-                .accessibilityHint("Clears this device pairing and returns to onboarding")
             }
         }
         .navigationTitle("more")

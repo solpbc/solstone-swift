@@ -4,13 +4,14 @@
 import SwiftUI
 
 struct SourcesView: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(ObserverManager.self) private var observerManager
-    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationManager.self) private var locationManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSourceRoute: SourceRoute?
+    @State private var showingConnectJournal = false
 
     private let appGroupMirror = AppGroupMirror()
 
@@ -22,6 +23,10 @@ struct SourcesView: View {
                         Text(SourceVocabulary.zeroActiveSummary)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                    }
+
+                    if !self.appConfig.isPaired {
+                        self.connectBanner
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -45,10 +50,11 @@ struct SourcesView: View {
                         }
                     }
 
-                    Text(SourceVocabulary.trustLine)
+                    Text(SourceVocabulary.trustLine(isPaired: self.appConfig.isPaired))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("sources.trustLine")
                 }
                 .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
                 .padding()
@@ -72,6 +78,9 @@ struct SourcesView: View {
                     ImporterSourceDetailView(source: self.shareSource)
                 }
             }
+            .sheet(isPresented: self.$showingConnectJournal) {
+                ConnectJournalSheet(isPresented: self.$showingConnectJournal)
+            }
         }
     }
 }
@@ -89,6 +98,25 @@ private enum SourceRoute: Hashable, Identifiable {
 }
 
 private extension SourcesView {
+    var connectBanner: some View {
+        Button {
+            self.showingConnectJournal = true
+        } label: {
+            Text(SourceVocabulary.sourcesConnectBanner)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityIdentifier("sources.connectBanner")
+        .accessibilityHint("opens journal connection options")
+    }
+
     var audioSource: Source {
         let state = sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
         let attention: SourceAttention?
@@ -106,8 +134,7 @@ private extension SourcesView {
             state: state,
             activeSubtext: SourceVocabulary.observerActiveSubtext,
             attention: attention,
-            pendingStatus: .nonePending,
-            isJournalConnected: self.observerRegistration.activeLocalPort != nil
+            pendingStatus: .nonePending
         )
     }
 
@@ -117,7 +144,6 @@ private extension SourcesView {
 
     var shareSource: Source {
         let shareState = self.appGroupMirror.shareSourceState()
-        let pairing = self.appGroupMirror.pairingSnapshot()
         return Source(
             id: "share-sheet",
             displayName: SourceVocabulary.shareSheetDisplayName,
@@ -129,8 +155,7 @@ private extension SourcesView {
                 lastDeliveredAt: self.importQueue.lastDeliveredAt
             ),
             attention: self.importQueue.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil,
-            pendingStatus: .nonePending,
-            isJournalConnected: pairing.isPaired
+            pendingStatus: .nonePending
         )
     }
 
@@ -143,8 +168,7 @@ private extension SourcesView {
             state: self.locationManager.sourceState,
             activeSubtext: LocationVocabulary.activeSubtext,
             attention: self.locationManager.sourceAttention,
-            pendingStatus: .nonePending,
-            isJournalConnected: self.observerRegistration.activeLocalPort != nil
+            pendingStatus: .nonePending
         )
     }
 }

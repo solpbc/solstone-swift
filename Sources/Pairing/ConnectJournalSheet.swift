@@ -18,7 +18,7 @@ struct ConnectJournalSheet: View {
         NavigationStack(path: self.$path) {
             List {
                 Section {
-                    Text("your observations are kept on this phone. connect a journal and everything gathered so far flows in.")
+                    Text(SourceVocabulary.connectJournalIntro)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -26,8 +26,8 @@ struct ConnectJournalSheet: View {
                 Section {
                     NavigationLink(value: Destination.ownJournal) {
                         self.doorRow(
-                            label: "your own journal",
-                            subtitle: "pair this phone to a solstone running on your computer.",
+                            label: SourceVocabulary.connectDoorOwnTitle,
+                            subtitle: SourceVocabulary.connectDoorOwnSubtitle,
                             systemImage: "desktopcomputer"
                         )
                     }
@@ -36,8 +36,8 @@ struct ConnectJournalSheet: View {
                     if Self.hostedJournalAvailable {
                         NavigationLink(value: Destination.hostedJournal) {
                             self.doorRow(
-                                label: "hosted journal",
-                                subtitle: "connect to a solstone journal hosted for you.",
+                                label: SourceVocabulary.connectDoorHostedTitle,
+                                subtitle: SourceVocabulary.connectDoorHostedSubtitle,
                                 systemImage: "cloud"
                             )
                         }
