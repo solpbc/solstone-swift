@@ -231,6 +231,28 @@ final class ObserverUploader {
         self.backgroundCompletionHandler = completionHandler
     }
 
+    func dropItem(sessionID: UUID, chunkID: String) {
+        self.retryTasksByChunkID[chunkID]?.cancel()
+        self.retryTasksByChunkID.removeValue(forKey: chunkID)
+        self.attemptCountByChunkID.removeValue(forKey: chunkID)
+        if let taskID = self.activeTaskIDByChunkID.removeValue(forKey: chunkID) {
+            self.taskInfoByTaskID.removeValue(forKey: taskID)
+            self.responseDataByTaskID.removeValue(forKey: taskID)
+        }
+
+        let pendingDirectory = self.pendingDirectoryURL(sessionID: sessionID)
+        try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
+        try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
+        try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).upload", isDirectory: false))
+
+        let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
+        try? self.fileManager.removeItem(at: failedDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
+        try? self.fileManager.removeItem(at: failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
+
+        self.refreshCounts()
+        uploaderLog.info("observer item dropped \(chunkID, privacy: .public)")
+    }
+
     func inProgressChunkURL(sessionID: UUID, chunkID: String) throws -> URL {
         try self.ensureSessionDirectories(sessionID: sessionID)
         return self.inProgressDirectoryURL(sessionID: sessionID)

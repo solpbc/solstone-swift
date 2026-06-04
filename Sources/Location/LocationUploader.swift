@@ -257,6 +257,25 @@ final class LocationUploader: LocationUploading {
         self.backgroundCompletionHandler = completionHandler
     }
 
+    func dropItem(fileID: String) {
+        self.uploadTaskByFileID[fileID]?.cancel()
+        self.uploadTaskByFileID.removeValue(forKey: fileID)
+        self.retryTasksByFileID[fileID]?.cancel()
+        self.retryTasksByFileID.removeValue(forKey: fileID)
+        self.attemptCountByFileID.removeValue(forKey: fileID)
+        if let taskID = self.activeTaskIDByFileID.removeValue(forKey: fileID) {
+            self.taskInfoByTaskID.removeValue(forKey: taskID)
+            self.responseDataByTaskID.removeValue(forKey: taskID)
+        }
+
+        try? self.fileManager.removeItem(at: self.pendingFileURL(fileID: fileID))
+        try? self.fileManager.removeItem(at: self.pendingDirectoryURL().appendingPathComponent("\(fileID).upload", isDirectory: false))
+        try? self.fileManager.removeItem(at: self.failedDirectoryURL().appendingPathComponent("\(fileID).jsonl", isDirectory: false))
+
+        self.refreshCounts()
+        locationUploadLog.info("location item dropped \(fileID, privacy: .public)")
+    }
+
     func handlePathStatus(_ status: NWPath.Status) {
         guard status == .satisfied else { return }
         guard !self.isDeleting else {
@@ -750,8 +769,8 @@ private extension LocationUploader {
                 requestBodyURL: requestBodyURL
             )
             self.activeTaskIDByFileID[fileID] = task.taskIdentifier
-            task.resume()
             self.uploadTaskByFileID[fileID] = task
+            task.resume()
         } catch {
             await self.handleUploadFailure(
                 fileID: fileID,

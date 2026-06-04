@@ -424,6 +424,68 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testDropItemRemovesLocalArtifactsAndDoesNotRegisterOrUpload() throws {
+        let fileID = "20260602-235800_300"
+        let pending = try self.writeLocationFile(status: "pending", filename: "\(fileID).jsonl")
+        let pendingUpload = try self.writeLocationFile(status: "pending", filename: "\(fileID).upload", data: Data("body".utf8))
+        let failed = try self.writeLocationFile(status: "failed", filename: "\(fileID).jsonl")
+        let uploader = self.makeUploader(ensureRegistered: {
+            XCTFail("dropItem should not register")
+            throw LocationUploaderError.registrationUnavailable
+        })
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 1)
+        uploader.dropItem(fileID: fileID)
+
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pending.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingUpload.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failed.path))
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testDropItemCancelsInFlightUploadAndLeavesDeleteGuardUntouched() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        let uploadCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            let call = uploadCalls.withLock { value in
+                value += 1
+                return value
+            }
+            if call == 1 {
+                uploadStarted.signal()
+                _ = uploadRelease.wait(timeout: .now() + 2)
+                return (Self.response(for: request, statusCode: 500), Data("late failure".utf8))
+            }
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader(retryDelays: [0])
+        let firstFileID = "20240420-094000_300"
+
+        await uploader.enqueue(self.makeBatch())
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.dropItem(fileID: firstFileID)
+        uploadRelease.signal()
+        try await self.waitFor("drop cancellation") {
+            LocationUploaderURLProtocol.cancelledCount >= 1
+        }
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertNil(uploader.lastError)
+        await uploader.enqueue(self.makeBatch(segmentStart: Date(timeIntervalSince1970: 1_713_625_200)))
+        try await self.waitFor("post-drop enqueue") {
+            LocationUploaderURLProtocol.callCount >= 2 && uploader.pendingCount == 0
+        }
+    }
+
+    @MainActor
     func testDeleteLocationSourceConfirmedReceiptClearsLocalStateAndUsesLocationEndpoint() async throws {
         try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.jsonl")
         try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.upload", data: Data("body".utf8))

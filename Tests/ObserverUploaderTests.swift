@@ -221,6 +221,74 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 1)
     }
 
+    @MainActor
+    func testDropItemRemovesLocalArtifactsAndDoesNotRegisterOrUpload() throws {
+        let sessionID = UUID()
+        let chunkID = "chunk-drop"
+        let pendingAudio = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
+        let pendingSidecar = self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID)
+        let pendingUpload = pendingAudio.deletingLastPathComponent().appendingPathComponent("\(chunkID).upload")
+        let failedAudio = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).m4a")
+        let failedSidecar = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).json")
+        try FileManager.default.createDirectory(at: pendingAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: failedAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: pendingAudio)
+        try Data("sidecar".utf8).write(to: pendingSidecar)
+        try Data("upload".utf8).write(to: pendingUpload)
+        try Data("failed audio".utf8).write(to: failedAudio)
+        try Data("failed sidecar".utf8).write(to: failedSidecar)
+        let uploader = self.makeUploader(ensureRegistered: {
+            XCTFail("dropItem should not register")
+            throw ObserverUploaderError.registrationUnavailable
+        })
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 1)
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingAudio.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingSidecar.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingUpload.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedAudio.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedSidecar.path))
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testDropItemClearsInFlightStateSoLateCompletionIsHarmless() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data("late failure".utf8)
+            )
+        }
+        let uploader = self.makeUploader(retryDelays: [0])
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-in-flight")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.dropItem(sessionID: sessionID, chunkID: "chunk-in-flight")
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        uploadRelease.signal()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertNil(uploader.lastError)
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
     func testBackgroundSessionIdentifierInvariant() {
         XCTAssertEqual(ObserverUploader.backgroundSessionIdentifier, "app.solstone.swift.observer-upload")
     }
