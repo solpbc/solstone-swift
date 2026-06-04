@@ -56,6 +56,31 @@ struct SolstoneSwiftApp: App {
         Self.isIntegrationTest || Self.isIntegrationTestLive
     }
 
+    private static var isUITest: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--ui-test")
+#else
+        false
+#endif
+    }
+
+    private static var shouldUseUITestObserverRecorder: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--ui-test-observer-recorder")
+            || ProcessInfo.processInfo.arguments.contains("--ui-test-observer-permission-denied")
+#else
+        false
+#endif
+    }
+
+    private static var uiTestObserverPermissionGranted: Bool {
+#if DEBUG
+        !ProcessInfo.processInfo.arguments.contains("--ui-test-observer-permission-denied")
+#else
+        true
+#endif
+    }
+
     private static var shouldAutoStartIntegrationVoice: Bool {
 #if DEBUG
         if let observerTap = self.integrationObserverTapKind {
@@ -425,6 +450,8 @@ private extension SolstoneSwiftApp {
         defaults.removeObject(forKey: "onboarding.step")
         defaults.removeObject(forKey: "onboarding.completed")
         defaults.removeObject(forKey: "briefing.firstSeen")
+        defaults.removeObject(forKey: AudioStorageKey.enrolled)
+        defaults.removeObject(forKey: AudioStorageKey.magicMomentFirstSeen)
         defaults.removeObject(forKey: "push.pendingRegistrationToken")
         defaults.removeObject(forKey: "push.lastRegisteredToken")
         defaults.removeObject(forKey: "push.lastRegisteredEnvironment")
@@ -435,6 +462,9 @@ private extension SolstoneSwiftApp {
 #if DEBUG
         if self.isIntegrationTest {
             return IntegrationTestObserverRecorder()
+        }
+        if self.isUITest && self.shouldUseUITestObserverRecorder {
+            return IntegrationTestObserverRecorder(permissionGranted: self.uiTestObserverPermissionGranted)
         }
 #endif
         return LiveObserverRecorder()

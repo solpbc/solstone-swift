@@ -125,6 +125,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             ImporterSourceDetailView(source: Self.shareSource())
                 .environment(appConfig)
                 .environment(importQueue)
+                .environment(observerManager)
                 .environment(observerUploader)
                 .environment(locationUploader)
         }
@@ -132,6 +133,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             OnThisPhoneView()
                 .environment(appConfig)
                 .environment(importQueue)
+                .environment(observerManager)
                 .environment(observerUploader)
                 .environment(locationUploader)
         }

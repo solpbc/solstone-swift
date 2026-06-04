@@ -24,6 +24,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.sourcesConnectBanner, "kept here until you connect a journal · connect →")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
+        XCTAssertEqual(
+            SourceVocabulary.audioEnrollmentValue,
+            "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you."
+        )
+        XCTAssertEqual(SourceVocabulary.turnOnAudio, "turn on audio")
         XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
         XCTAssertEqual(
@@ -50,6 +55,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneNotBackedUp,
             "on this phone only — not backed up. connect a journal to keep a copy."
         )
+        XCTAssertEqual(SourceVocabulary.magicMomentShownHeadline, "it's on your phone now")
+        XCTAssertEqual(
+            SourceVocabulary.magicMomentShownBody,
+            "sol just took in your first observation and kept it here — yours, and nowhere else."
+        )
+        XCTAssertEqual(SourceVocabulary.magicMomentShownSecondary, "connect a journal whenever →")
+        XCTAssertEqual(SourceVocabulary.magicMomentPendingHeadline, "your first audio observation is getting ready")
+        XCTAssertEqual(SourceVocabulary.magicMomentPendingBody, "when you stop listening, it will rest here on this phone.")
+        XCTAssertEqual(SourceVocabulary.askEmptyHeadline, "nothing to ask yet")
+        XCTAssertEqual(
+            SourceVocabulary.askEmptyBody,
+            "sol answers from your journal. connect one, and sol can read everything your phone has gathered."
+        )
+        XCTAssertEqual(SourceVocabulary.askEmptyButton, "connect a journal")
+        XCTAssertEqual(SourceVocabulary.askEmptyIconName, "internaldrive")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneAgedBacklog(count: 1),
             "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
@@ -58,6 +78,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneAgedBacklog(count: 12),
             "12 observations are resting on this phone. connect a journal whenever you'd like a backup."
         )
+        XCTAssertEqual(SourceVocabulary.askWaitingObservations(count: 1), "1 observation is waiting on this phone.")
+        XCTAssertEqual(SourceVocabulary.askWaitingObservations(count: 238), "238 observations are waiting on this phone.")
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 1), "1 observation")
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 observations")
         XCTAssertEqual(SourceVocabulary.derivedNotInJournalYet, "not in your journal yet")

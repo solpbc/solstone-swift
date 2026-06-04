@@ -6,12 +6,17 @@ import SwiftUI
 struct OnThisPhoneView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ImportQueue.self) private var importQueue
+    @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
+    @AppStorage(AudioStorageKey.magicMomentFirstSeen) private var magicMomentFirstSeen = false
     @State private var aggregate: OnThisPhoneAggregateSnapshot?
     @State private var showingConnectJournal = false
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
+    @State private var magicMomentItem: OnThisPhoneItem?
+    @State private var magicMomentDismissed = false
 
     var body: some View {
         ScrollView {
@@ -20,7 +25,9 @@ struct OnThisPhoneView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                if !self.appConfig.isPaired {
+                self.magicMomentSection
+
+                if !self.appConfig.isPaired && !self.isShowingMagicMomentSection {
                     self.notBackedUpNudge
                 }
 
@@ -45,6 +52,12 @@ struct OnThisPhoneView: View {
             self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
             self.loadSnapshot()
         }
+        .onChange(of: self.observerUploader.pendingCount) { _, _ in
+            self.loadSnapshot()
+        }
+        .onChange(of: self.observerUploader.failedCount) { _, _ in
+            self.loadSnapshot()
+        }
         .sheet(isPresented: self.$showingConnectJournal) {
             ConnectJournalSheet(isPresented: self.$showingConnectJournal)
         }
@@ -52,6 +65,122 @@ struct OnThisPhoneView: View {
 }
 
 private extension OnThisPhoneView {
+    @ViewBuilder
+    var magicMomentSection: some View {
+        if let magicMomentItem, !self.magicMomentDismissed {
+            self.magicMomentShownCard(item: magicMomentItem)
+        } else if self.shouldShowMagicMomentPending {
+            self.magicMomentPendingCard
+        }
+    }
+
+    var isShowingMagicMomentSection: Bool {
+        if self.magicMomentItem != nil && !self.magicMomentDismissed {
+            return true
+        }
+        return self.shouldShowMagicMomentPending
+    }
+
+    var shouldShowMagicMomentPending: Bool {
+        guard self.audioEnrolled,
+              !self.magicMomentFirstSeen,
+              !self.magicMomentDismissed,
+              self.magicMomentItem == nil,
+              self.aggregate?.items.contains(where: { $0.sourceKind == .audio }) == false
+        else {
+            return false
+        }
+
+        switch self.observerManager.state {
+        case .starting, .active:
+            return true
+        case .idle, .stopping, .error:
+            return false
+        }
+    }
+
+    func magicMomentShownCard(item: OnThisPhoneItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "checkmark.circle")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(SourceVocabulary.magicMomentShownHeadline)
+                        .font(.headline)
+                    Text(SourceVocabulary.magicMomentShownBody)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                self.magicMomentDismissButton
+            }
+
+            if let duration = OnThisPhoneItem.formattedDuration(item.audioDurationS) {
+                Text(duration)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("magicMoment.duration")
+            }
+
+            Button(SourceVocabulary.magicMomentShownSecondary) {
+                self.showingConnectJournal = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .frame(minWidth: 44, minHeight: 44)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("magicMoment.card")
+    }
+
+    var magicMomentPendingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "ear")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(SourceVocabulary.magicMomentPendingHeadline)
+                        .font(.headline)
+                    Text(SourceVocabulary.magicMomentPendingBody)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                self.magicMomentDismissButton
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("magicMoment.card")
+    }
+
+    var magicMomentDismissButton: some View {
+        Button {
+            self.magicMomentDismissed = true
+        } label: {
+            Image(systemName: "xmark")
+                .font(.footnote.weight(.bold))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .accessibilityLabel("dismiss")
+        .accessibilityIdentifier("magicMoment.dismiss")
+    }
+
     var notBackedUpNudge: some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "info.circle")
@@ -134,11 +263,31 @@ private extension OnThisPhoneView {
     }
 
     func loadSnapshot() {
-        self.aggregate = OnThisPhoneSnapshotAggregator.snapshot(
+        let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
             locationUploader: self.locationUploader
         )
+        self.aggregate = aggregate
+        self.updateMagicMoment(from: aggregate)
+    }
+
+    func updateMagicMoment(from aggregate: OnThisPhoneAggregateSnapshot) {
+        guard self.audioEnrolled,
+              !self.magicMomentFirstSeen,
+              !self.magicMomentDismissed,
+              self.magicMomentItem == nil,
+              self.observerManager.state != .error(.permissionDenied)
+        else {
+            return
+        }
+
+        guard let audioItem = aggregate.items.first(where: { $0.sourceKind == .audio }) else {
+            return
+        }
+
+        self.magicMomentItem = audioItem
+        self.magicMomentFirstSeen = true
     }
 }
 

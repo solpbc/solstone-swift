@@ -214,7 +214,7 @@ struct MainTabView: View {
     private func portalTab(for tab: AppTab) -> some View {
         if !self.appConfig.isPaired {
             if tab == .ask {
-                NoJournalPlaceholderView(kind: .ask)
+                AskNoJournalPlaceholderContainer()
             } else {
                 NavigationStack {
                     OnThisPhoneView()

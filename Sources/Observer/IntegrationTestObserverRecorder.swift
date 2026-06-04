@@ -14,12 +14,17 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
 
     private let session = AVAudioSession.sharedInstance()
+    private let permissionGranted: Bool
     private var currentURL: URL?
     private var currentStartedAt: Date?
     private var didActivateSession = false
 
+    init(permissionGranted: Bool = true) {
+        self.permissionGranted = permissionGranted
+    }
+
     func requestPermission() async -> Bool {
-        true
+        self.permissionGranted
     }
 
     func currentAudioCategory() -> AVAudioSession.Category {

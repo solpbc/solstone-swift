@@ -9,6 +9,7 @@ struct SourceDetailView: View {
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
+    @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var manifestResult: ObserverManifestResult = .loadedEmpty
     @State private var isPulsing = false
@@ -19,36 +20,13 @@ struct SourceDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SourceDetailBlock(title: "state") {
-                    self.stateBlock
-                }
-
-                SourceDetailBlock(title: "what it adds") {
-                    Text(SourceVocabulary.whatItAdds)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                SourceDetailBlock(title: "recent") {
-                    self.recentBlock
-                }
-
-                SourceDetailBlock(title: "pending & gaps") {
-                    Text(SourceVocabulary.pendingSeam)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                SourceDetailBlock(title: "remove") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button("remove") {}
-                            .buttonStyle(.bordered)
-                            .disabled(true)
-
-                        Text(SourceVocabulary.removeSeam)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                if self.audioEnrolled {
+                    self.enrolledContent
+                } else {
+                    AudioEnrollmentContent(
+                        mode: self.selectedModeBinding.wrappedValue,
+                        audioEnrolled: self.$audioEnrolled
+                    )
                 }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
@@ -70,6 +48,41 @@ struct SourceDetailView: View {
 }
 
 private extension SourceDetailView {
+    @ViewBuilder
+    var enrolledContent: some View {
+        SourceDetailBlock(title: "state") {
+            self.stateBlock
+        }
+
+        SourceDetailBlock(title: "what it adds") {
+            Text(SourceVocabulary.whatItAdds)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+
+        SourceDetailBlock(title: "recent") {
+            self.recentBlock
+        }
+
+        SourceDetailBlock(title: "pending & gaps") {
+            Text(SourceVocabulary.pendingSeam)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+
+        SourceDetailBlock(title: "remove") {
+            VStack(alignment: .leading, spacing: 8) {
+                Button("remove") {}
+                    .buttonStyle(.bordered)
+                    .disabled(true)
+
+                Text(SourceVocabulary.removeSeam)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     var selectedModeBinding: Binding<ObserverMode> {
         Binding(
             get: {
@@ -327,5 +340,83 @@ private extension SourceDetailView {
         }
 
         self.manifestResult = await self.manifestClient.fetchToday(localPort: localPort, key: key)
+    }
+}
+
+private struct AudioEnrollmentContent: View {
+    @Environment(ObserverManager.self) private var observerManager
+    @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
+    @Binding var audioEnrolled: Bool
+    @State private var isStarting = false
+
+    private let mode: ObserverMode
+    private let presentation = AudioEnrollmentPresentation.current
+
+    init(mode: ObserverMode, audioEnrolled: Binding<Bool>) {
+        self.mode = mode
+        self._audioEnrolled = audioEnrolled
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            self.valueBlock
+
+            Button(self.presentation.turnOnAudio) {
+                Task {
+                    await self.confirm()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .disabled(self.isStarting)
+            .accessibilityHint("Starts keeping audio observations on this phone.")
+
+            if let errorMessage = self.errorMessage {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(errorMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    if self.observerManager.state == .error(.permissionDenied) {
+                        Button("open settings") {
+                            UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .frame(minWidth: 44, minHeight: 44)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension AudioEnrollmentContent {
+    var valueBlock: some View {
+        Text(self.presentation.preEnrollmentValue)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .accessibilityIdentifier("audioEnrollment.value")
+    }
+
+    var errorMessage: String? {
+        guard case .error(let error) = self.observerManager.state else { return nil }
+        return error.message
+    }
+
+    func confirm() async {
+        guard !self.isStarting else { return }
+        self.isStarting = true
+        defer { self.isStarting = false }
+
+        self.observerSourcePauseState.isPaused = false
+        await self.observerManager.startSession(mode: self.mode)
+        if self.observerManager.state != .error(.permissionDenied) {
+            self.audioEnrolled = true
+        }
     }
 }

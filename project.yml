@@ -62,9 +62,9 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start, storing them in your private journal. Nothing is shared with sol pbc."
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "solstone adds where your day happens to your journal — kept by you and nowhere else. you choose how much; you can change it or delete it any time."
-        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "solstone keeps where your day happens in your journal, even when it's not open — kept by you and nowhere else. you choose how much; you can change it or delete it any time."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start and keeps them on this phone — yours alone, until you connect a journal. nothing is shared with sol pbc."
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "solstone adds where your day happens and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "solstone adds where your day happens, even in the background, and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
         INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your solstone's pairing code"
         INFOPLIST_KEY_UIBackgroundModes:
           - audio

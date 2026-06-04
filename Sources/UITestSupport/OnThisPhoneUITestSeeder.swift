@@ -11,6 +11,9 @@ private let onThisPhoneUITestSeedLog = Logger(subsystem: "app.solstone.swift", c
 enum OnThisPhoneUITestSeeder {
     private static let defaultSeedFlag = "--ui-test-seed-on-this-phone"
     private static let agedBacklogSeedFlag = "--ui-test-seed-aged-backlog"
+    private static let audioMagicSeedFlag = "--ui-test-seed-audio-magic"
+    private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
+    private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
 
     static func runIfRequested(
@@ -22,15 +25,25 @@ enum OnThisPhoneUITestSeeder {
         if arguments.contains(Self.resetNudgeDismissalFlag) {
             UserSettings.onThisPhoneBacklogNudgeDismissed = false
         }
+        if arguments.contains(Self.resetAudioL5Flag) {
+            Self.resetAudioL5State()
+        }
 
         let seedDefault = arguments.contains(Self.defaultSeedFlag)
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
-        guard seedDefault || seedAgedBacklog else { return }
+        let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
+        guard seedDefault || seedAgedBacklog || seedAudioMagic else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            if seedAgedBacklog {
+            if seedAudioMagic {
+                try Self.seedAudioMagic(
+                    roots: roots,
+                    durationS: Self.audioMagicDuration(arguments: arguments),
+                    fileManager: fileManager
+                )
+            } else if seedAgedBacklog {
                 try Self.seedAgedBacklog(roots: roots, fileManager: fileManager)
             } else {
                 try Self.seedDefault(roots: roots, fileManager: fileManager)
@@ -68,6 +81,7 @@ private extension OnThisPhoneUITestSeeder {
         for root in [roots.observer, roots.location, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
             try fileManager.removeItem(at: root)
         }
+        Self.resetAudioL5State()
     }
 
     static func seedDefault(roots: Roots, fileManager: FileManager) throws {
@@ -132,6 +146,33 @@ private extension OnThisPhoneUITestSeeder {
                 fileManager: fileManager
             )
         }
+    }
+
+    static func seedAudioMagic(roots: Roots, durationS: TimeInterval, fileManager: FileManager) throws {
+        let sessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+        try Self.writeObserverChunk(
+            root: roots.observer,
+            sessionID: sessionID,
+            chunkID: "seed-audio-magic",
+            startedAt: Date(timeIntervalSince1970: 1_780_480_900),
+            durationS: durationS,
+            fileManager: fileManager
+        )
+        UserDefaults.standard.set(true, forKey: AudioStorageKey.enrolled)
+        UserDefaults.standard.set(false, forKey: AudioStorageKey.magicMomentFirstSeen)
+    }
+
+    static func resetAudioL5State() {
+        UserDefaults.standard.removeObject(forKey: AudioStorageKey.enrolled)
+        UserDefaults.standard.removeObject(forKey: AudioStorageKey.magicMomentFirstSeen)
+    }
+
+    static func audioMagicDuration(arguments: [String]) -> TimeInterval {
+        guard let rawArgument = arguments.first(where: { $0.hasPrefix(Self.audioMagicDurationPrefix) }) else {
+            return 75
+        }
+        let rawValue = rawArgument.dropFirst(Self.audioMagicDurationPrefix.count)
+        return TimeInterval(String(rawValue)) ?? 75
     }
 
     static func writeObserverChunk(

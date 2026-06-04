@@ -42,7 +42,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testAudioListenControlEnabledAtZeroJournal() {
+    func testAudioEnrollmentAvailableAtZeroJournal() {
         let app = self.launchNoJournalApp()
 
         app.tabBars.buttons["sense"].tap()
@@ -50,14 +50,12 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(audioRow.waitForExistence(timeout: 5))
         audioRow.tap()
 
-        let listen = app.descendants(matching: .any)["source.listen"]
-        if listen.waitForExistence(timeout: 5) {
-            XCTAssertTrue(listen.isEnabled)
-        } else {
-            let start = app.buttons["start"]
-            XCTAssertTrue(start.waitForExistence(timeout: 5))
-            XCTAssertTrue(start.isEnabled)
-        }
+        let valueBlock = app.staticTexts["audioEnrollment.value"]
+        XCTAssertTrue(valueBlock.waitForExistence(timeout: 5))
+        XCTAssertEqual(valueBlock.label, "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you.")
+        let turnOnAudio = app.buttons["turn on audio"]
+        XCTAssertTrue(turnOnAudio.waitForExistence(timeout: 5))
+        XCTAssertTrue(turnOnAudio.isEnabled)
     }
 
     @MainActor
@@ -103,6 +101,77 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         app.tabBars.buttons["ask"].tap()
         XCTAssertTrue(app.staticTexts["placeholder.ask"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testAskWarmEmptyShowsCountTieBack() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+
+        app.tabBars.buttons["ask"].tap()
+        XCTAssertTrue(app.staticTexts["placeholder.ask"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["nothing to ask yet"].waitForExistence(timeout: 5))
+
+        let count = app.staticTexts["placeholder.ask.count"]
+        XCTAssertTrue(count.waitForExistence(timeout: 5))
+        XCTAssertEqual(count.label, "6 observations are waiting on this phone.")
+    }
+
+    @MainActor
+    func testAudioMagicMomentShownPersistsAcrossRelaunch() {
+        let app = self.launchNoJournalApp(extraArguments: [
+            "--ui-test-seed-audio-magic",
+            "--ui-test-seed-audio-magic-duration=185",
+        ])
+
+        XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
+        let duration = app.staticTexts["magicMoment.duration"]
+        XCTAssertTrue(duration.waitForExistence(timeout: 5))
+        XCTAssertEqual(duration.label, "3m 5s")
+
+        app.terminate()
+        app.launchArguments = ["--ui-test", "--ui-test-no-journal"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        self.openTodayTabIfNeeded(in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testAudioMagicMomentDurationTracksSeededDuration() {
+        let app = self.launchNoJournalApp(extraArguments: [
+            "--ui-test-seed-audio-magic",
+            "--ui-test-seed-audio-magic-duration=242",
+        ])
+
+        XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
+        let duration = app.staticTexts["magicMoment.duration"]
+        XCTAssertTrue(duration.waitForExistence(timeout: 5))
+        XCTAssertEqual(duration.label, "4m 2s")
+    }
+
+    @MainActor
+    func testAudioEnrollmentPermissionDeniedDoesNotShowMagicMoment() {
+        let app = self.launchNoJournalApp(extraArguments: [
+            "--ui-test-reset-audio-l5",
+            "--ui-test-observer-permission-denied",
+        ])
+
+        app.tabBars.buttons["sense"].tap()
+        let audioRow = app.buttons["source.row.audio"]
+        XCTAssertTrue(audioRow.waitForExistence(timeout: 5))
+        audioRow.tap()
+
+        let turnOnAudio = app.buttons["turn on audio"]
+        XCTAssertTrue(turnOnAudio.waitForExistence(timeout: 5))
+        turnOnAudio.tap()
+        XCTAssertTrue(app.staticTexts["microphone access is required to listen"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["open settings"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["turn on audio"].exists)
+
+        app.tabBars.buttons["today"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 2))
     }
 
     @MainActor
