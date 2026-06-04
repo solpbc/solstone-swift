@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci brand-sync \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
@@ -20,6 +20,18 @@ SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
 DEV_APP    = $(DERIVED)/Build/Products/Debug-iphoneos/$(SCHEME).app
 DEVICE_LOG ?= /tmp/solstone-swift.log
 BRAND_DIR  ?= ../sol-brand
+
+# --- CI test runner (host-side-flake resistance; see test/run_ci_tests.sh) ---
+# `make ci` runs the test phase through a timeout-guarded, retry-once wrapper that
+# never hangs and never masks a real test failure. The UITest target intermittently
+# wedges/flakes at the HOST RUNNER under simulator load (0% CPU accessibility hang,
+# or exit 65 with 0 recorded failures) — these vars tune the wrapper. Pin a different
+# runtime by overriding CI_SIM_RUNTIME (e.g. ...SimRuntime.iOS-26-4).
+CI_SIM_NAME        ?= solstone-swift-ci
+CI_SIM_DEVICETYPE  ?= com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro
+CI_SIM_RUNTIME     ?= com.apple.CoreSimulator.SimRuntime.iOS-26-5
+CI_ATTEMPT_TIMEOUT ?= 1200
+CI_MAX_ATTEMPTS    ?= 2
 
 # --- Project setup ---
 
@@ -619,13 +631,23 @@ integration-test-onboarding: sim
 
 # Canonical pre-ship gate: brand/a11y/casing assertions (cheap, fail-fast) then a
 # full build + test pass. Run this before merging any branch to main.
-ci:
+# The test phase goes through test/run_ci_tests.sh: a timeout-guarded, retry-once
+# wrapper that never hangs and never masks a real failure (host-side UITest-runner
+# flake resistance). Override CI_* vars above to tune timeout/runtime/attempts.
+ci: generate
 	bash test/assert_brand_canon.sh
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
 	bash test/assert_casing.sh
-	$(MAKE) test
+	PROJECT='$(PROJECT)' SCHEME='$(SCHEME)' DERIVED='$(DERIVED)' \
+		CI_SIM_NAME='$(CI_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_SIM_DEVICETYPE)' \
+		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
+		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
+
+# Validate the CI runner's trust-critical classification logic (no simulator needed).
+ci-selftest:
+	bash test/run_ci_tests.sh --selftest
 
 test-one: generate
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
