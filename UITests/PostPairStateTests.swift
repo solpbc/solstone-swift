@@ -64,6 +64,11 @@ nonisolated final class PostPairStateTests: XCTestCase {
 
         app.tabBars.buttons["sense"].tap()
         XCTAssertTrue(app.navigationBars["sources"].waitForExistence(timeout: 5))
+        app.buttons["source.row.share-sheet"].tap()
+        XCTAssertTrue(app.buttons["on this phone"].waitForExistence(timeout: 5))
+        app.buttons["on this phone"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
+
         app.tabBars.buttons["more"].tap()
         XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 5))
     }
