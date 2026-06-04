@@ -78,7 +78,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
             ),
         ])
 
-        let items = try self.loadedItems(from: queue.onThisPhoneSnapshot())
+        let items = try self.loadedItems(from: queue.onThisPhoneSourceSnapshot())
 
         XCTAssertEqual(items.map(\.id), [deliveredID, failedID, pendingID])
         let pending = try XCTUnwrap(items.first { $0.id == pendingID })
@@ -123,7 +123,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
             request: try self.request(day: "20260420", segment: "120000_0", stream: "import.share")
         )
 
-        let item = try XCTUnwrap(self.loadedItems(from: queue.onThisPhoneSnapshot()).first)
+        let item = try XCTUnwrap(self.loadedItems(from: queue.onThisPhoneSourceSnapshot()).first)
 
         XCTAssertEqual(item.id, itemID)
         XCTAssertEqual(item.sendState, .savedOnThisPhone)
@@ -140,10 +140,10 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
     @MainActor
     func testEmptyAndCorruptLedgerResults() throws {
         let queue = self.makeQueue()
-        XCTAssertEqual(queue.onThisPhoneSnapshot(), .loadedEmpty)
+        XCTAssertEqual(queue.onThisPhoneSourceSnapshot(), .loaded(items: []))
 
         try Data("{".utf8).write(to: self.ledgerURL(), options: .atomic)
-        XCTAssertEqual(queue.onThisPhoneSnapshot(), .failed)
+        XCTAssertEqual(queue.onThisPhoneSourceSnapshot(), .failed)
     }
 
     @MainActor
@@ -196,7 +196,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         let failedBefore = try self.directoryEntries(status: "failed")
         let ledgerBefore = try Data(contentsOf: self.ledgerURL())
 
-        _ = queue.onThisPhoneSnapshot()
+        _ = queue.onThisPhoneSourceSnapshot()
 
         XCTAssertEqual(queue.pendingCount, pendingCount)
         XCTAssertEqual(queue.failedCount, failedCount)
@@ -233,7 +233,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
             ),
         ])
 
-        let items = try self.loadedItems(from: queue.onThisPhoneSnapshot())
+        let items = try self.loadedItems(from: queue.onThisPhoneSourceSnapshot())
 
         XCTAssertNotNil(items.first { $0.id == pendingID }?.rawFileURL)
         XCTAssertEqual(items.first { $0.id == pendingID }?.hasLocalRaw, true)
@@ -310,7 +310,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         try encoder.encode(ledger).write(to: self.ledgerURL(), options: .atomic)
     }
 
-    private func loadedItems(from result: OnThisPhoneResult) throws -> [OnThisPhoneItem] {
+    private func loadedItems(from result: OnThisPhoneSourceResult) throws -> [OnThisPhoneItem] {
         guard case .loaded(let items) = result else {
             XCTFail("Expected loaded result")
             return []

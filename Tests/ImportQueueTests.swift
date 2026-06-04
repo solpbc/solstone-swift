@@ -625,7 +625,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: pendingID).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.failedItemDirectory(itemID: failedID).path))
         XCTAssertEqual(try self.readLedger(), [:])
-        XCTAssertEqual(queue.onThisPhoneSnapshot(), .loadedEmpty)
+        XCTAssertEqual(queue.onThisPhoneSourceSnapshot(), .loaded(items: []))
     }
 
     @MainActor

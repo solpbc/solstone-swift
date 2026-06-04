@@ -283,7 +283,7 @@ final class ImportQueue {
         importQueueLog.info("import item dropped \(itemIDString, privacy: .public)")
     }
 
-    func onThisPhoneSnapshot() -> OnThisPhoneResult {
+    func onThisPhoneSourceSnapshot() -> OnThisPhoneSourceResult {
         let ledger: [String: LedgerEntry]
         do {
             ledger = try self.loadLedger()
@@ -328,21 +328,9 @@ final class ImportQueue {
             items.append(self.deliveredOnThisPhoneItem(itemID: itemID, entry: entry))
         }
 
-        guard !items.isEmpty else { return .loadedEmpty }
-        return .loaded(items.sorted { lhs, rhs in
+        return .loaded(items: items.sorted { lhs, rhs in
             (lhs.deliveredAt ?? lhs.itemTime ?? .distantPast) > (rhs.deliveredAt ?? rhs.itemTime ?? .distantPast)
         })
-    }
-
-    func onThisPhoneSourceSnapshot() -> OnThisPhoneSourceResult {
-        switch self.onThisPhoneSnapshot() {
-        case .loaded(let items):
-            .loaded(items: items)
-        case .loadedEmpty:
-            .loaded(items: [])
-        case .failed:
-            .failed
-        }
     }
 
     func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {

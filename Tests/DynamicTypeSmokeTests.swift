@@ -122,15 +122,23 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         }
         let importerSourceDetailView = NavigationStack {
             ImporterSourceDetailView(source: Self.shareSource())
+                .environment(appConfig)
                 .environment(importQueue)
+                .environment(observerUploader)
+                .environment(locationUploader)
         }
         let onThisPhoneView = NavigationStack {
             OnThisPhoneView()
+                .environment(appConfig)
                 .environment(importQueue)
+                .environment(observerUploader)
+                .environment(locationUploader)
         }
         let onThisPhoneItemDetailView = NavigationStack {
             OnThisPhoneItemDetailView(item: Self.onThisPhoneItem())
                 .environment(importQueue)
+                .environment(observerUploader)
+                .environment(locationUploader)
                 .environment(observerRegistration)
         }
 

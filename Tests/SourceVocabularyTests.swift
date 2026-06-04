@@ -17,12 +17,31 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.trustLine, "feeds only your journal — nowhere else")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
-        XCTAssertEqual(SourceVocabulary.journalDashboardTitle, "journal dashboard")
+        XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
         XCTAssertEqual(
-            SourceVocabulary.onThisPhoneEmpty,
-            "nothing here yet. things you send to your journal show up here so you can check they arrived."
+            SourceVocabulary.onThisPhoneScope,
+            "everything your observers have gathered, resting here until you connect a journal."
         )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneEmpty,
+            "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDeleteReceipt, "deleted from this phone")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneNotBackedUp,
+            "on this phone only — not backed up. connect a journal to keep a copy."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneAgedBacklog(count: 1),
+            "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneAgedBacklog(count: 12),
+            "12 observations are resting on this phone. connect a journal whenever you'd like a backup."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 1), "1 observation")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 observations")
         XCTAssertEqual(SourceVocabulary.derivedNotInJournalYet, "not in your journal yet")
         XCTAssertEqual(SourceVocabulary.openJournalInConvey, "open journal ↗")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
@@ -111,6 +130,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "open in convey ↗",
             "open your journal in convey ↗",
             "in your journal",
+            "journal dashboard",
         ]
 
         for retired in retiredExactStrings {
@@ -154,8 +174,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhone,
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneEmpty,
-            SourceVocabulary.onThisPhoneFailed,
-            SourceVocabulary.journalDashboardTitle,
+            SourceVocabulary.onThisPhoneDeleteReceipt,
+            SourceVocabulary.onThisPhoneNotBackedUp,
+            SourceVocabulary.onThisPhoneAgedBacklog(count: 2),
+            SourceVocabulary.onThisPhoneLocationRowLabel(count: 2),
+            SourceVocabulary.onThisPhoneSourceGapAccessibilityLabel,
             SourceVocabulary.yourJournalSection,
             SourceVocabulary.onThisPhoneSource,
             SourceVocabulary.onThisPhonePlacement,

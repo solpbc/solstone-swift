@@ -4,9 +4,14 @@
 import SwiftUI
 
 struct OnThisPhoneView: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(ImportQueue.self) private var importQueue
+    @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(LocationUploader.self) private var locationUploader
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var result: OnThisPhoneResult = .loadedEmpty
+    @State private var aggregate: OnThisPhoneAggregateSnapshot?
+    @State private var showingConnectJournal = false
+    @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
 
     var body: some View {
         ScrollView {
@@ -15,44 +20,151 @@ struct OnThisPhoneView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                self.content
+                if !self.appConfig.isPaired {
+                    self.notBackedUpNudge
+                }
+
+                if let aggregate {
+                    OnThisPhoneCountsHeader(sources: aggregate.sources)
+                    if !self.appConfig.isPaired,
+                       OnThisPhoneBacklogNudge.shouldShow(items: aggregate.items, now: Date()),
+                       !self.backlogNudgeDismissed {
+                        self.agedBacklogNudge(count: aggregate.items.count)
+                    }
+                    self.content(aggregate: aggregate)
+                }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle(SourceVocabulary.journalDashboardTitle)
+        .accessibilityIdentifier("onThisPhone.surface")
+        .navigationTitle(SourceVocabulary.onThisPhone)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            self.result = self.importQueue.onThisPhoneSnapshot()
+            self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
+            self.loadSnapshot()
+        }
+        .sheet(isPresented: self.$showingConnectJournal) {
+            ConnectJournalSheet(isPresented: self.$showingConnectJournal)
         }
     }
 }
 
 private extension OnThisPhoneView {
+    var notBackedUpNudge: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "info.circle")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text(SourceVocabulary.onThisPhoneNotBackedUp)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("onThisPhone.notBackedUp")
+
+            Spacer(minLength: 0)
+
+            Button("connect a journal") {
+                self.showingConnectJournal = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityIdentifier("onThisPhone.connectJournal")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    func agedBacklogNudge(count: Int) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "clock")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text(SourceVocabulary.onThisPhoneAgedBacklog(count: count))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("onThisPhone.agedBacklog")
+
+            Spacer(minLength: 0)
+
+            Button {
+                UserSettings.onThisPhoneBacklogNudgeDismissed = true
+                self.backlogNudgeDismissed = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .accessibilityLabel("dismiss")
+            .accessibilityIdentifier("onThisPhone.agedBacklog.dismiss")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
     @ViewBuilder
-    var content: some View {
-        switch self.result {
-        case .loaded(let items):
+    func content(aggregate: OnThisPhoneAggregateSnapshot) -> some View {
+        if aggregate.items.isEmpty {
+            Text(SourceVocabulary.onThisPhoneEmpty)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else {
             LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(items) { item in
+                ForEach(aggregate.items) { item in
                     NavigationLink {
-                        OnThisPhoneItemDetailView(item: item)
+                        OnThisPhoneItemDetailView(item: item) {
+                            self.loadSnapshot()
+                        }
                     } label: {
                         OnThisPhoneRow(item: item)
                     }
                     .buttonStyle(.plain)
                 }
             }
-        case .loadedEmpty:
-            Text(SourceVocabulary.onThisPhoneEmpty)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        case .failed:
-            Text(SourceVocabulary.onThisPhoneFailed)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
         }
+    }
+
+    func loadSnapshot() {
+        self.aggregate = OnThisPhoneSnapshotAggregator.snapshot(
+            importQueue: self.importQueue,
+            observerUploader: self.observerUploader,
+            locationUploader: self.locationUploader
+        )
+    }
+}
+
+private struct OnThisPhoneCountsHeader: View {
+    let sources: [OnThisPhoneSourceSnapshot]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(self.sources, id: \.sourceKind) { source in
+                Text(SourceVocabulary.onThisPhoneCountLabel(
+                    for: source.sourceKind,
+                    count: source.result.count
+                ))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(source.result.count == nil ? .secondary : .primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(.secondarySystemBackground), in: Capsule())
+                .accessibilityIdentifier("onThisPhone.counts.\(source.sourceKind.accessibilityID)")
+                .accessibilityLabel(SourceVocabulary.onThisPhoneCountAccessibilityLabel(
+                    for: source.sourceKind,
+                    count: source.result.count
+                ))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -61,11 +173,11 @@ private struct OnThisPhoneRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(self.item.filename ?? SourceVocabulary.notProvided)
-                .font(.headline)
+            Text(SourceVocabulary.onThisPhoneSourceName(for: self.item.sourceKind))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
 
-            Text(self.item.contentType ?? SourceVocabulary.notProvided)
+            Text(self.item.rowPayloadText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -81,6 +193,7 @@ private struct OnThisPhoneRow: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(self.item.voiceOverText)
+        .accessibilityIdentifier("onThisPhone.row.\(self.item.id)")
     }
 
     private var symbolName: String {

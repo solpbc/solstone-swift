@@ -107,10 +107,11 @@ nonisolated enum SourceVocabulary {
     static let removeSeam = "removing audio is coming later."
     static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
     static let onThisPhone = "on this phone"
-    static let onThisPhoneScope = "shows things this phone saved from the share sheet and whether they reached your journal."
-    static let onThisPhoneEmpty = "nothing here yet. things you send to your journal show up here so you can check they arrived."
-    static let onThisPhoneFailed = "couldn't load what's on this phone"
-    static let journalDashboardTitle = "journal dashboard"
+    static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
+    static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
+    static let onThisPhoneDeleteReceipt = "deleted from this phone"
+    static let onThisPhoneNotBackedUp = "on this phone only — not backed up. connect a journal to keep a copy."
+    static let onThisPhoneSourceGapAccessibilityLabel = "couldn't read this source right now"
     static let yourJournalSection = "your journal"
     static let onThisPhoneSource = "source"
     static let onThisPhonePlacement = "placement"
@@ -138,5 +139,48 @@ nonisolated enum SourceVocabulary {
 
     static func deleteReceiptHeadline(originals: Int) -> String {
         self.deleteReceiptHeadlineTemplate.replacingOccurrences(of: "{N}", with: String(originals))
+    }
+
+    static func onThisPhoneAgedBacklog(count: Int) -> String {
+        if count == 1 {
+            return "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
+        }
+        return "\(count) observations are resting on this phone. connect a journal whenever you'd like a backup."
+    }
+
+    static func onThisPhoneLocationRowLabel(count: Int) -> String {
+        count == 1 ? "1 observation" : "\(count) observations"
+    }
+
+    static func onThisPhoneSourceName(for sourceKind: OnThisPhoneSourceKind) -> String {
+        switch sourceKind {
+        case .audio:
+            "audio"
+        case .location:
+            "location"
+        case .share:
+            Self.shareSheetDisplayName
+        }
+    }
+
+    static func onThisPhoneCountNoun(for sourceKind: OnThisPhoneSourceKind, count: Int) -> String {
+        switch sourceKind {
+        case .audio:
+            count == 1 ? "conversation" : "conversations"
+        case .location:
+            count == 1 ? "place" : "places"
+        case .share:
+            count == 1 ? "thing" : "things"
+        }
+    }
+
+    static func onThisPhoneCountLabel(for sourceKind: OnThisPhoneSourceKind, count: Int?) -> String {
+        guard let count else { return "—" }
+        return "\(count) \(Self.onThisPhoneCountNoun(for: sourceKind, count: count))"
+    }
+
+    static func onThisPhoneCountAccessibilityLabel(for sourceKind: OnThisPhoneSourceKind, count: Int?) -> String {
+        guard count != nil else { return Self.onThisPhoneSourceGapAccessibilityLabel }
+        return Self.onThisPhoneCountLabel(for: sourceKind, count: count)
     }
 }

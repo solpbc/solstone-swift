@@ -5,12 +5,21 @@ import SwiftUI
 
 struct OnThisPhoneItemDetailView: View {
     @Environment(ImportQueue.self) private var importQueue
+    @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(LocationUploader.self) private var locationUploader
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(ObserverRegistration.self) private var observerRegistration
 
     let item: OnThisPhoneItem
+    let onLocalMutation: @MainActor () -> Void
+    @State private var deleteReceipt: String?
+
+    init(item: OnThisPhoneItem, onLocalMutation: @escaping @MainActor () -> Void = {}) {
+        self.item = item
+        self.onLocalMutation = onLocalMutation
+    }
 
     var body: some View {
         ScrollView {
@@ -53,11 +62,18 @@ struct OnThisPhoneItemDetailView: View {
 private extension OnThisPhoneItemDetailView {
     var sourceBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(SourceVocabulary.shareSheetDisplayName)
+            Text(SourceVocabulary.onThisPhoneSourceName(for: self.item.sourceKind))
                 .font(.subheadline.weight(.semibold))
-            Text(self.item.originApp ?? SourceVocabulary.originAppNotProvided)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            switch self.item.sourceKind {
+            case .audio, .location:
+                Text(self.item.itemTime?.formatted() ?? SourceVocabulary.notProvided)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            case .share:
+                Text(self.item.originApp ?? SourceVocabulary.originAppNotProvided)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -84,7 +100,9 @@ private extension OnThisPhoneItemDetailView {
                 LabeledContent(SourceVocabulary.filenameLabel, value: self.item.filename ?? SourceVocabulary.notProvided)
                 LabeledContent("content type", value: self.item.contentType ?? SourceVocabulary.notProvided)
                 LabeledContent("size", value: self.sizeText)
-                LabeledContent(SourceVocabulary.originAppLabel, value: self.item.originApp ?? SourceVocabulary.originAppNotProvided)
+                if self.item.sourceKind == .share {
+                    LabeledContent(SourceVocabulary.originAppLabel, value: self.item.originApp ?? SourceVocabulary.originAppNotProvided)
+                }
                 LabeledContent("basis", value: self.item.basis ?? SourceVocabulary.notProvided)
                 LabeledContent("when", value: self.item.itemTime?.formatted() ?? SourceVocabulary.notProvided)
                 LabeledContent("target journal", value: self.item.targetJournal ?? SourceVocabulary.notProvided)
@@ -135,32 +153,56 @@ private extension OnThisPhoneItemDetailView {
 
     var failedActionsBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(SourceVocabulary.failedImportSubtext)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if self.item.sourceKind == .share {
+                Text(SourceVocabulary.failedImportSubtext)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-            HStack {
-                Button(SourceVocabulary.retry) {
-                    self.retry()
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityHint("Tries sending this again.")
+                HStack {
+                    // Audio and location retry on their own; manual requeue is share-only for now.
+                    Button(SourceVocabulary.retry) {
+                        self.retry()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint("Tries sending this again.")
 
-                Button(SourceVocabulary.drop, role: .destructive) {
-                    self.drop()
+                    Button(SourceVocabulary.drop, role: .destructive) {
+                        self.drop()
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Removes this from this phone.")
                 }
-                .buttonStyle(.bordered)
-                .accessibilityHint("Removes this from this phone.")
+            } else {
+                self.dropButton
             }
+
+            self.deleteReceiptBlock
         }
     }
 
     var dropOnlyBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            self.dropButton
+            self.deleteReceiptBlock
+        }
+    }
+
+    var dropButton: some View {
         Button(SourceVocabulary.drop, role: .destructive) {
             self.drop()
         }
         .buttonStyle(.bordered)
         .accessibilityHint("Removes this from this phone.")
+    }
+
+    @ViewBuilder
+    var deleteReceiptBlock: some View {
+        if let deleteReceipt {
+            Text(deleteReceipt)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+        }
     }
 
     var sizeText: String {
@@ -179,8 +221,16 @@ private extension OnThisPhoneItemDetailView {
     }
 
     func drop() {
-        guard let itemID = UUID(uuidString: self.item.id) else { return }
-        self.importQueue.dropItem(itemID: itemID)
-        self.dismiss()
+        guard let parsedID = OnThisPhoneItemID(sourceKind: self.item.sourceKind, id: self.item.id) else { return }
+        switch parsedID {
+        case .share(let itemID):
+            self.importQueue.dropItem(itemID: itemID)
+        case .audio(let sessionID, let chunkID):
+            self.observerUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        case .location(let fileID):
+            self.locationUploader.dropItem(fileID: fileID)
+        }
+        self.deleteReceipt = SourceVocabulary.onThisPhoneDeleteReceipt
+        self.onLocalMutation()
     }
 }

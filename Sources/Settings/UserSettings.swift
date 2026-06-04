@@ -27,4 +27,13 @@ enum UserSettings: Sendable {
             UserDefaults.standard.set(newValue, forKey: "verboseErrors")
         }
     }
+
+    nonisolated static var onThisPhoneBacklogNudgeDismissed: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: "onThisPhoneBacklogNudgeDismissed")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "onThisPhoneBacklogNudgeDismissed")
+        }
+    }
 }

@@ -3,10 +3,21 @@
 
 import Foundation
 
-nonisolated enum OnThisPhoneSourceKind: Equatable, Sendable {
+nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
     case audio
     case location
     case share
+
+    var accessibilityID: String {
+        switch self {
+        case .audio:
+            "audio"
+        case .location:
+            "location"
+        case .share:
+            "share"
+        }
+    }
 }
 
 nonisolated enum OnThisPhoneSendState: Equatable, Sendable {
@@ -112,17 +123,39 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
 
     var voiceOverText: String {
         [
-            self.filename ?? SourceVocabulary.notProvided,
-            self.contentType ?? SourceVocabulary.notProvided,
+            SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind),
+            self.rowPayloadText,
             self.sendState.label,
         ].joined(separator: ". ")
     }
-}
 
-nonisolated enum OnThisPhoneResult: Equatable, Sendable {
-    case loaded([OnThisPhoneItem])
-    case loadedEmpty
-    case failed
+    var rowPayloadText: String {
+        switch self.sourceKind {
+        case .audio:
+            return Self.formattedDuration(self.audioDurationS)
+                ?? self.filename
+                ?? SourceVocabulary.notProvided
+        case .location:
+            let countText = self.locationFixCount.map {
+                SourceVocabulary.onThisPhoneLocationRowLabel(count: $0)
+            } ?? SourceVocabulary.notProvided
+            guard let itemTime else { return countText }
+            return "\(countText) · \(itemTime.formatted())"
+        case .share:
+            return self.filename ?? SourceVocabulary.notProvided
+        }
+    }
+
+    static func formattedDuration(_ duration: Double?) -> String? {
+        guard let duration else { return nil }
+        let totalSeconds = max(Int(duration.rounded()), 0)
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s"
+        }
+        return "\(seconds)s"
+    }
 }
 
 nonisolated enum OnThisPhoneSourceResult: Equatable, Sendable {
@@ -172,5 +205,47 @@ nonisolated enum OnThisPhoneItemSort {
 
     static func timestamp(for item: OnThisPhoneItem) -> Date {
         item.deliveredAt ?? item.itemTime ?? .distantPast
+    }
+}
+
+nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
+    case share(UUID)
+    case audio(sessionID: UUID, chunkID: String)
+    case location(fileID: String)
+
+    init?(sourceKind: OnThisPhoneSourceKind, id: String) {
+        switch sourceKind {
+        case .share:
+            guard let itemID = UUID(uuidString: id) else { return nil }
+            self = .share(itemID)
+        case .audio:
+            let parts = id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3,
+                  parts[0] == "audio",
+                  let sessionID = UUID(uuidString: String(parts[1])),
+                  !parts[2].isEmpty
+            else {
+                return nil
+            }
+            self = .audio(sessionID: sessionID, chunkID: String(parts[2]))
+        case .location:
+            let prefix = "location:"
+            guard id.hasPrefix(prefix) else { return nil }
+            let fileID = String(id.dropFirst(prefix.count))
+            guard !fileID.isEmpty else { return nil }
+            self = .location(fileID: fileID)
+        }
+    }
+}
+
+nonisolated enum OnThisPhoneBacklogNudge {
+    static func shouldShow(items: [OnThisPhoneItem], now: Date) -> Bool {
+        guard items.count > 50 else { return false }
+        // Prefer the item's local time; deliveredAt is a fallback for delivered share ledger entries.
+        let itemTimes = items.compactMap { item in
+            item.itemTime ?? item.deliveredAt
+        }
+        guard let oldest = itemTimes.min() else { return false }
+        return oldest < now.addingTimeInterval(-7 * 24 * 60 * 60)
     }
 }

@@ -41,11 +41,11 @@ struct ImporterSourceDetailView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        NavigationLink(SourceVocabulary.journalDashboardTitle) {
+                        NavigationLink(SourceVocabulary.onThisPhone) {
                             OnThisPhoneView()
                         }
                         .buttonStyle(.bordered)
-                        .accessibilityLabel(SourceVocabulary.journalDashboardTitle)
+                        .accessibilityLabel(SourceVocabulary.onThisPhone)
                         .accessibilityHint("Shows what you've sent to your journal.")
                     }
                 }

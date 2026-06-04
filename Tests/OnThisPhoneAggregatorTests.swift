@@ -113,6 +113,107 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(try self.count(for: .audio, in: snapshot), 1)
         XCTAssertEqual(try self.count(for: .location, in: snapshot), 1)
     }
+
+    @MainActor
+    func testPureSnapshotKeepsGapCountDistinctFromLoadedZero() throws {
+        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(sources: [
+            OnThisPhoneSourceSnapshot(sourceKind: .audio, result: .failed),
+            OnThisPhoneSourceSnapshot(sourceKind: .location, result: .loaded(items: [])),
+            OnThisPhoneSourceSnapshot(sourceKind: .share, result: .loaded(items: [])),
+        ])
+
+        let audio = try self.result(for: .audio, in: snapshot)
+        let location = try self.result(for: .location, in: snapshot)
+        XCTAssertNil(audio.count)
+        XCTAssertEqual(location.count, 0)
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneCountLabel(for: .audio, count: audio.count),
+            "—"
+        )
+        XCTAssertNotEqual(
+            SourceVocabulary.onThisPhoneCountLabel(for: .audio, count: audio.count),
+            SourceVocabulary.onThisPhoneCountLabel(for: .location, count: location.count)
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneCountAccessibilityLabel(for: .audio, count: audio.count),
+            SourceVocabulary.onThisPhoneSourceGapAccessibilityLabel
+        )
+    }
+
+    @MainActor
+    func testPureSnapshotPartialFailureMergesLoadedItems() {
+        let audio = Self.item(id: "audio", sourceKind: .audio, itemTime: Date(timeIntervalSince1970: 30))
+        let share = Self.item(id: "share", sourceKind: .share, itemTime: Date(timeIntervalSince1970: 20))
+
+        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(sources: [
+            OnThisPhoneSourceSnapshot(sourceKind: .audio, result: .loaded(items: [audio])),
+            OnThisPhoneSourceSnapshot(sourceKind: .location, result: .failed),
+            OnThisPhoneSourceSnapshot(sourceKind: .share, result: .loaded(items: [share])),
+        ])
+
+        XCTAssertEqual(snapshot.items.map(\.id), ["audio", "share"])
+    }
+
+    @MainActor
+    func testAgedBacklogThresholdRequiresCountAndAge() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(OnThisPhoneBacklogNudge.shouldShow(
+            items: Self.items(count: 50, oldest: now.addingTimeInterval(-8 * 24 * 60 * 60)),
+            now: now
+        ))
+        XCTAssertFalse(OnThisPhoneBacklogNudge.shouldShow(
+            items: Self.items(count: 51, oldest: now.addingTimeInterval(-6 * 24 * 60 * 60)),
+            now: now
+        ))
+        XCTAssertTrue(OnThisPhoneBacklogNudge.shouldShow(
+            items: Self.items(count: 51, oldest: now.addingTimeInterval(-8 * 24 * 60 * 60)),
+            now: now
+        ))
+    }
+
+    func testLocationRowPayloadUsesObservationNoun() {
+        let itemTime = Date(timeIntervalSince1970: 1_780_480_800)
+        let singular = Self.item(
+            id: "location:one",
+            sourceKind: .location,
+            itemTime: itemTime,
+            locationFixCount: 1
+        )
+        let plural = Self.item(
+            id: "location:two",
+            sourceKind: .location,
+            itemTime: itemTime,
+            locationFixCount: 2
+        )
+
+        XCTAssertTrue(singular.rowPayloadText.hasPrefix("1 observation · "))
+        XCTAssertTrue(plural.rowPayloadText.hasPrefix("2 observations · "))
+        XCTAssertTrue(singular.voiceOverText.contains("1 observation"))
+        XCTAssertTrue(plural.voiceOverText.contains("2 observations"))
+        XCTAssertFalse(singular.rowPayloadText.contains("place"))
+        XCTAssertFalse(plural.rowPayloadText.contains("place"))
+    }
+
+    func testOnThisPhoneItemIDParsing() throws {
+        let sessionID = UUID()
+        let shareID = UUID()
+
+        XCTAssertEqual(
+            OnThisPhoneItemID(sourceKind: .audio, id: "audio:\(sessionID.uuidString):chunk:with:colons"),
+            .audio(sessionID: sessionID, chunkID: "chunk:with:colons")
+        )
+        XCTAssertEqual(
+            OnThisPhoneItemID(sourceKind: .location, id: "location:20260603-110000_300"),
+            .location(fileID: "20260603-110000_300")
+        )
+        XCTAssertEqual(
+            OnThisPhoneItemID(sourceKind: .share, id: shareID.uuidString),
+            .share(shareID)
+        )
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "audio:not-a-uuid:chunk"))
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .location, id: "20260603-110000_300"))
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .share, id: "location:20260603-110000_300"))
+    }
 }
 
 private extension OnThisPhoneAggregatorTests {
@@ -231,6 +332,42 @@ private extension OnThisPhoneAggregatorTests {
 
     func result(for sourceKind: OnThisPhoneSourceKind, in snapshot: OnThisPhoneAggregateSnapshot) throws -> OnThisPhoneSourceResult {
         try XCTUnwrap(snapshot.sources.first { $0.sourceKind == sourceKind }?.result)
+    }
+
+    static func items(count: Int, oldest: Date) -> [OnThisPhoneItem] {
+        (0..<count).map { index in
+            Self.item(
+                id: "item-\(index)",
+                sourceKind: .share,
+                itemTime: index == 0 ? oldest : Date(timeIntervalSince1970: oldest.timeIntervalSince1970 + Double(index + 1))
+            )
+        }
+    }
+
+    static func item(
+        id: String,
+        sourceKind: OnThisPhoneSourceKind,
+        itemTime: Date,
+        locationFixCount: Int? = nil
+    ) -> OnThisPhoneItem {
+        OnThisPhoneItem(
+            id: id,
+            sourceKind: sourceKind,
+            sendState: .savedOnThisPhone,
+            contentType: "application/octet-stream",
+            filename: id,
+            bytes: nil,
+            originApp: nil,
+            basis: nil,
+            itemTime: itemTime,
+            targetJournal: nil,
+            stream: nil,
+            day: nil,
+            segment: nil,
+            deliveredAt: nil,
+            rawFileURL: nil,
+            locationFixCount: locationFixCount
+        )
     }
 }
 
