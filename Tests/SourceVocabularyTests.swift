@@ -55,6 +55,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneNotBackedUp,
             "on this phone only — not backed up. connect a journal to keep a copy."
         )
+        XCTAssertEqual(SourceVocabulary.migrationStageOnThisPhone, "on this phone")
+        XCTAssertEqual(SourceVocabulary.migrationStageOnItsWay, "on its way")
+        XCTAssertEqual(SourceVocabulary.migrationStageInYourJournal, "your journal")
+        XCTAssertEqual(
+            SourceVocabulary.migrationStageCount(12, stage: SourceVocabulary.migrationStageOnItsWay),
+            "12 on its way"
+        )
         XCTAssertEqual(SourceVocabulary.magicMomentShownHeadline, "it's on your phone now")
         XCTAssertEqual(
             SourceVocabulary.magicMomentShownBody,
@@ -218,6 +225,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneDeleteReceipt,
             SourceVocabulary.onThisPhoneNotBackedUp,
+            SourceVocabulary.migrationStageOnThisPhone,
+            SourceVocabulary.migrationStageOnItsWay,
+            SourceVocabulary.migrationStageInYourJournal,
+            SourceVocabulary.migrationReached(count: 2),
+            SourceVocabulary.migrationStageCount(2, stage: SourceVocabulary.migrationStageOnItsWay),
             SourceVocabulary.onThisPhoneAgedBacklog(count: 2),
             SourceVocabulary.onThisPhoneLocationRowLabel(count: 2),
             SourceVocabulary.onThisPhoneSourceGapAccessibilityLabel,

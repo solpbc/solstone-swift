@@ -9,6 +9,7 @@ struct OnThisPhoneView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(LocationUploader.self) private var locationUploader
+    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @AppStorage(AudioStorageKey.magicMomentFirstSeen) private var magicMomentFirstSeen = false
@@ -17,6 +18,8 @@ struct OnThisPhoneView: View {
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
     @State private var magicMomentDismissed = false
+    @State private var migrationSawUndelivered = false
+    @State private var migrationCompletionDismissed = false
 
     var body: some View {
         ScrollView {
@@ -32,6 +35,13 @@ struct OnThisPhoneView: View {
                 }
 
                 if let aggregate {
+                    let migration = onThisPhoneMigration(
+                        snapshot: aggregate,
+                        journalConnected: self.observerRegistration.activeLocalPort != nil
+                    )
+                    if self.appConfig.isPaired, !migration.isEmpty {
+                        self.migrationSection(migration: migration)
+                    }
                     OnThisPhoneCountsHeader(sources: aggregate.sources)
                     if !self.appConfig.isPaired,
                        OnThisPhoneBacklogNudge.shouldShow(items: aggregate.items, now: Date()),
@@ -56,6 +66,21 @@ struct OnThisPhoneView: View {
             self.loadSnapshot()
         }
         .onChange(of: self.observerUploader.failedCount) { _, _ in
+            self.loadSnapshot()
+        }
+        .onChange(of: self.importQueue.pendingCount) { _, _ in
+            self.loadSnapshot()
+        }
+        .onChange(of: self.importQueue.failedCount) { _, _ in
+            self.loadSnapshot()
+        }
+        .onChange(of: self.locationUploader.pendingCount) { _, _ in
+            self.loadSnapshot()
+        }
+        .onChange(of: self.locationUploader.failedCount) { _, _ in
+            self.loadSnapshot()
+        }
+        .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
             self.loadSnapshot()
         }
         .sheet(isPresented: self.$showingConnectJournal) {
@@ -97,6 +122,122 @@ private extension OnThisPhoneView {
         case .idle, .stopping, .error:
             return false
         }
+    }
+
+    func migrationSection(migration: OnThisPhoneMigration) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            self.migrationStageRow(migration: migration)
+
+            if migration.showsCompletion(sawUndelivered: self.migrationSawUndelivered),
+               !self.migrationCompletionDismissed {
+                self.migrationCompletionCard(count: migration.inYourJournal)
+            } else {
+                let splitText = self.migrationSplitText(migration: migration)
+                if !splitText.isEmpty {
+                    Text(splitText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("onThisPhone.migration.split")
+                }
+            }
+
+            if migration.needsAttention > 0 {
+                self.migrationNeedsAttentionRow(count: migration.needsAttention)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("onThisPhone.migration")
+    }
+
+    func migrationStageRow(migration: OnThisPhoneMigration) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            self.migrationStagePill(
+                count: migration.onThisPhone,
+                stage: SourceVocabulary.migrationStageOnThisPhone,
+                accessibilityID: "onThisPhone.migration.stage.onThisPhone"
+            )
+            self.migrationStagePill(
+                count: migration.onItsWay,
+                stage: SourceVocabulary.migrationStageOnItsWay,
+                accessibilityID: "onThisPhone.migration.stage.onItsWay"
+            )
+            self.migrationStagePill(
+                count: migration.inYourJournal,
+                stage: SourceVocabulary.migrationStageInYourJournal,
+                accessibilityID: "onThisPhone.migration.stage.inYourJournal"
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    func migrationStagePill(count: Int, stage: String, accessibilityID: String) -> some View {
+        Text(SourceVocabulary.migrationStageCount(count, stage: stage))
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(Color(.secondarySystemBackground), in: Capsule())
+            .accessibilityIdentifier(accessibilityID)
+    }
+
+    func migrationCompletionCard(count: Int) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checkmark.circle")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text(SourceVocabulary.migrationReached(count: count))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+
+            Button {
+                self.migrationCompletionDismissed = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .accessibilityLabel("dismiss")
+            .accessibilityIdentifier("onThisPhone.migration.completion.dismiss")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("onThisPhone.migration.completion")
+    }
+
+    func migrationNeedsAttentionRow(count: Int) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+            Text(SourceVocabulary.migrationStageCount(count, stage: SourceVocabulary.needsAttention))
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.red)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("onThisPhone.migration.needsAttention")
+    }
+
+    func migrationSplitText(migration: OnThisPhoneMigration) -> String {
+        [
+            (migration.onThisPhone, SourceVocabulary.migrationStageOnThisPhone),
+            (migration.onItsWay, SourceVocabulary.migrationStageOnItsWay),
+            (migration.inYourJournal, SourceVocabulary.migrationStageInYourJournal),
+        ]
+        .filter { count, _ in count > 0 }
+        .map { count, stage in SourceVocabulary.migrationStageCount(count, stage: stage) }
+        .joined(separator: " · ")
     }
 
     func magicMomentShownCard(item: OnThisPhoneItem) -> some View {
@@ -270,6 +411,14 @@ private extension OnThisPhoneView {
         )
         self.aggregate = aggregate
         self.updateMagicMoment(from: aggregate)
+        let migration = onThisPhoneMigration(
+            snapshot: aggregate,
+            journalConnected: self.observerRegistration.activeLocalPort != nil
+        )
+        if !migration.isEmpty && !migration.isAllDelivered {
+            self.migrationSawUndelivered = true
+            self.migrationCompletionDismissed = false
+        }
     }
 
     func updateMagicMoment(from aggregate: OnThisPhoneAggregateSnapshot) {

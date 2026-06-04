@@ -119,6 +119,9 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
     static let onThisPhoneDeleteReceipt = "deleted from this phone"
     static let onThisPhoneNotBackedUp = "on this phone only — not backed up. connect a journal to keep a copy."
+    static let migrationStageOnThisPhone = "on this phone"
+    static let migrationStageOnItsWay = "on its way"
+    static let migrationStageInYourJournal = "your journal"
     static let onThisPhoneSourceGapAccessibilityLabel = "couldn't read this source right now"
     static let magicMomentShownHeadline = "it's on your phone now"
     static let magicMomentShownBody = "sol just took in your first observation and kept it here — yours, and nowhere else."
@@ -179,6 +182,16 @@ nonisolated enum SourceVocabulary {
 
     static func onThisPhoneLocationRowLabel(count: Int) -> String {
         count == 1 ? "1 observation" : "\(count) observations"
+    }
+
+    static func migrationReached(count: Int) -> String {
+        count == 1
+            ? "1 observation just reached your journal."
+            : "\(count) observations just reached your journal."
+    }
+
+    static func migrationStageCount(_ count: Int, stage: String) -> String {
+        "\(count) \(stage)"
     }
 
     static func onThisPhoneSourceName(for sourceKind: OnThisPhoneSourceKind) -> String {
