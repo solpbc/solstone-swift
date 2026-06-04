@@ -94,14 +94,14 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: self.$selectedTab) {
-            self.portalTab
+            self.portalTab(for: .today)
                 .tag(AppTab.today)
                 .tabItem {
                     Label(AppTab.today.label, systemImage: AppTab.today.iconName)
                 }
                 .keyboardShortcut(KeyEquivalent(AppTab.today.shortcutKey), modifiers: .command)
 
-            self.portalTab
+            self.portalTab(for: .ask)
                 .tag(AppTab.ask)
                 .tabItem {
                     Label(AppTab.ask.label, systemImage: AppTab.ask.iconName)
@@ -211,9 +211,15 @@ struct MainTabView: View {
     }
 
     @ViewBuilder
-    private var portalTab: some View {
+    private func portalTab(for tab: AppTab) -> some View {
         if !self.appConfig.isPaired {
-            NoJournalPlaceholderView(kind: self.selectedTab == .ask ? .ask : .today)
+            if tab == .ask {
+                NoJournalPlaceholderView(kind: .ask)
+            } else {
+                NavigationStack {
+                    OnThisPhoneView()
+                }
+            }
         } else if !self.tunnelManager.state.isConnected {
             PortalWarmCardView()
         } else {

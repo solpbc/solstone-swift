@@ -109,6 +109,9 @@ struct SolstoneSwiftApp: App {
         if Self.shouldResetIntegrationObserverRegistration {
             observerRegistration.reset()
         }
+#if DEBUG
+        OnThisPhoneUITestSeeder.runIfRequested()
+#endif
         let observerUploader = ObserverUploader(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
