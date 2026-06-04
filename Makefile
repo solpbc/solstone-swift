@@ -1,6 +1,7 @@
 # solstone-swift build targets
 
 .PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
+			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
@@ -20,6 +21,16 @@ SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
 DEV_APP    = $(DERIVED)/Build/Products/Debug-iphoneos/$(SCHEME).app
 DEVICE_LOG ?= /tmp/solstone-swift.log
 BRAND_DIR  ?= ../sol-brand
+
+# --- App Store Connect / TestFlight (operator config) ---
+# The pipeline below is generic; the account-specific values it needs are NOT
+# committed. To use `make testflight`, create config/testflight.env (gitignored)
+# defining ASC_KEY_ID, ASC_ISSUER, ASC_KEY_PATH, and TESTFLIGHT_GROUP for your
+# own App Store Connect account. See config/testflight.env.example for the format.
+-include config/testflight.env
+
+ARCHIVE_DISTRIBUTION ?= build/solstone-swift-distribution.xcarchive
+TESTFLIGHT_NOTIFY    ?= false
 
 # --- CI test runner (host-side-flake resistance; see test/run_ci_tests.sh) ---
 # `make ci` runs the test phase through a timeout-guarded, retry-once wrapper that
@@ -689,6 +700,84 @@ release: generate unlock
 		-destination 'id=$(DEVICE)' \
 		-derivedDataPath $(DERIVED) \
 		DEVELOPMENT_TEAM=$(TEAM_ID)
+
+# === TestFlight distribution (App Store Connect internal testing) ===
+# Requires config/testflight.env (see the operator-config block near the top).
+
+# Fail early with a clear message if operator config is missing.
+check-asc-config:
+	@test -n "$(ASC_KEY_ID)" && test -n "$(ASC_ISSUER)" && test -n "$(ASC_KEY_PATH)" || { \
+		echo "error: App Store Connect config missing — create config/testflight.env"; \
+		echo "       (copy config/testflight.env.example and fill in your values)"; exit 1; }
+	@test -f "$(ASC_KEY_PATH)" || { echo "error: ASC API key not found at: $(ASC_KEY_PATH)"; exit 1; }
+
+# Distribution-signed archive (generic iOS; App Store provisioning via the ASC key).
+release-distribution: generate unlock check-asc-config
+	xcodebuild archive -project $(PROJECT) -scheme $(SCHEME) \
+		-skipMacroValidation \
+		-configuration Release \
+		-archivePath $(ARCHIVE_DISTRIBUTION) \
+		-destination 'generic/platform=iOS' \
+		-derivedDataPath $(DERIVED) \
+		-allowProvisioningUpdates \
+		-authenticationKeyPath $(ASC_KEY_PATH) \
+		-authenticationKeyID $(ASC_KEY_ID) \
+		-authenticationKeyIssuerID $(ASC_ISSUER) \
+		DEVELOPMENT_TEAM=$(TEAM_ID)
+
+# Export the distribution archive to a signed App Store IPA.
+# exportOptions is generated from TEAM_ID so the team is single-sourced.
+ipa-appstore: release-distribution
+	rm -rf build/ipa-appstore
+	@mkdir -p build
+	@{ \
+		echo '<?xml version="1.0" encoding="UTF-8"?>'; \
+		echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'; \
+		echo '<plist version="1.0">'; \
+		echo '<dict>'; \
+		echo '  <key>method</key><string>app-store-connect</string>'; \
+		echo '  <key>teamID</key><string>$(TEAM_ID)</string>'; \
+		echo '  <key>signingStyle</key><string>automatic</string>'; \
+		echo '  <key>uploadSymbols</key><true/>'; \
+		echo '  <key>uploadBitcode</key><false/>'; \
+		echo '  <key>destination</key><string>export</string>'; \
+		echo '  <key>manageAppVersionAndBuildNumber</key><false/>'; \
+		echo '</dict>'; \
+		echo '</plist>'; \
+	} > build/exportOptions-AppStore.plist
+	xcodebuild -exportArchive \
+		-archivePath $(ARCHIVE_DISTRIBUTION) \
+		-exportPath build/ipa-appstore \
+		-exportOptionsPlist build/exportOptions-AppStore.plist \
+		-allowProvisioningUpdates \
+		-authenticationKeyPath $(ASC_KEY_PATH) \
+		-authenticationKeyID $(ASC_KEY_ID) \
+		-authenticationKeyIssuerID $(ASC_ISSUER)
+
+# Upload the exported IPA to App Store Connect for TestFlight processing.
+testflight-upload: ipa-appstore
+	xcrun altool --upload-app \
+		--type ios \
+		--file "$$(ls build/ipa-appstore/*.ipa | head -1)" \
+		--apiKey $(ASC_KEY_ID) \
+		--apiIssuer $(ASC_ISSUER) \
+		--p8-file-path $(ASC_KEY_PATH)
+
+# Full pipeline: upload, wait for processing, clear export compliance,
+# attach to the internal group, and wait for IN_BETA_TESTING.
+testflight: testflight-release
+
+testflight-release: testflight-upload
+	@test -n "$(TESTFLIGHT_GROUP)" || { echo "error: TESTFLIGHT_GROUP not set (config/testflight.env)"; exit 1; }
+	notify_arg=""; \
+	if [ "$(TESTFLIGHT_NOTIFY)" = "true" ]; then notify_arg="--notify"; fi; \
+	python3 -u scripts/release-testflight.py \
+		--bundle-id "$(BUNDLE_ID)" \
+		--group-name "$(TESTFLIGHT_GROUP)" \
+		--key-id "$(ASC_KEY_ID)" \
+		--issuer-id "$(ASC_ISSUER)" \
+		--key-path "$(ASC_KEY_PATH)" \
+		$$notify_arg
 
 deploy: build
 	@tmux kill-window -t hopper:logs 2>/dev/null || true

@@ -35,6 +35,9 @@ DerivedData/
 *.xcodeproj
 Sources/Info.plist
 
+# App Store Connect / TestFlight operator config (account-specific; never committed)
+config/testflight.env
+
 # CocoaPods
 #
 # We recommend against adding the Pods directory to your .gitignore. However
