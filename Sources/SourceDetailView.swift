@@ -23,10 +23,7 @@ struct SourceDetailView: View {
                 if self.audioEnrolled {
                     self.enrolledContent
                 } else {
-                    AudioEnrollmentContent(
-                        mode: self.selectedModeBinding.wrappedValue,
-                        audioEnrolled: self.$audioEnrolled
-                    )
+                    AudioEnrollmentContent(mode: self.selectedModeBinding.wrappedValue)
                 }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
@@ -346,15 +343,13 @@ private extension SourceDetailView {
 private struct AudioEnrollmentContent: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
-    @Binding var audioEnrolled: Bool
     @State private var isStarting = false
 
     private let mode: ObserverMode
     private let presentation = AudioEnrollmentPresentation.current
 
-    init(mode: ObserverMode, audioEnrolled: Binding<Bool>) {
+    init(mode: ObserverMode) {
         self.mode = mode
-        self._audioEnrolled = audioEnrolled
     }
 
     var body: some View {
@@ -415,8 +410,6 @@ private extension AudioEnrollmentContent {
 
         self.observerSourcePauseState.isPaused = false
         await self.observerManager.startSession(mode: self.mode)
-        if self.observerManager.state != .error(.permissionDenied) {
-            self.audioEnrolled = true
-        }
+        self.observerManager.persistEnrolledIfActive()
     }
 }

@@ -9,6 +9,7 @@ final class MockObserverLiveActivity: ObserverLiveActivitying {
     var startCalls: [(ObserverMode, UUID, TimeInterval)] = []
     var updateCalls: [(ObserverMode, TimeInterval)] = []
     var endCalls: [(ObserverMode, TimeInterval)] = []
+    var endAllCallCount = 0
 
     func start(mode: ObserverMode, sessionID: UUID, elapsed: TimeInterval) async {
         self.startCalls.append((mode, sessionID, elapsed))
@@ -20,5 +21,9 @@ final class MockObserverLiveActivity: ObserverLiveActivitying {
 
     func end(mode: ObserverMode, elapsed: TimeInterval) async {
         self.endCalls.append((mode, elapsed))
+    }
+
+    func endAll() async {
+        self.endAllCallCount += 1
     }
 }

@@ -18,6 +18,7 @@ protocol ObserverLiveActivitying: AnyObject {
     func start(mode: ObserverMode, sessionID: UUID, elapsed: TimeInterval) async
     func update(mode: ObserverMode, elapsed: TimeInterval) async
     func end(mode: ObserverMode, elapsed: TimeInterval) async
+    func endAll() async
 }
 
 actor ObserverLiveActivity: ObserverLiveActivitying {
@@ -67,6 +68,13 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
         self.activitySessionID = nil
     }
 
+    func endAll() async {
+        for activity in Activity<ObserverActivityAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+        self.activitySessionID = nil
+    }
+
     nonisolated private static func updateActivity(
         sessionID: String,
         content: ActivityContent<ObserverActivityAttributes.ContentState>
@@ -89,12 +97,5 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
 }
 
 nonisolated func observerModeLabel(for rawMode: String) -> String {
-    switch rawMode {
-    case "meeting":
-        "Meeting"
-    case "voice_memo":
-        "Voice memo"
-    default:
-        "Listening"
-    }
+    "listening"
 }

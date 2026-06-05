@@ -42,6 +42,20 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
         }
     }
 
+    func testProjectYMLRegistersSolstoneURLScheme() throws {
+        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
+        let appBlock = try XCTUnwrap(Self.appTargetBlock(in: projectYML))
+
+        for required in [
+            "        CFBundleURLTypes:",
+            "          - CFBundleURLName: app.solstone.swift",
+            "            CFBundleURLSchemes:",
+            "              - solstone",
+        ] {
+            XCTAssertTrue(appBlock.contains(required), required)
+        }
+    }
+
     private static func projectYMLURL() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -52,6 +66,15 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
     private static func widgetTargetBlock(in projectYML: String) -> String? {
         guard let start = projectYML.range(of: "  SolstoneLiveActivityWidget:"),
               let end = projectYML[start.upperBound...].range(of: "  solstone-swiftTests:")
+        else {
+            return nil
+        }
+        return String(projectYML[start.lowerBound..<end.lowerBound])
+    }
+
+    private static func appTargetBlock(in projectYML: String) -> String? {
+        guard let start = projectYML.range(of: "  solstone-swift:"),
+              let end = projectYML[start.upperBound...].range(of: "  SolstoneNotificationContent:")
         else {
             return nil
         }

@@ -81,6 +81,10 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: app.solstone.swift
+            CFBundleURLSchemes:
+              - solstone
         UILaunchScreen:
           UIImageName: SolWordmark
           UIColorName: systemBackground

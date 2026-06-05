@@ -185,6 +185,7 @@ struct SolstoneSwiftApp: App {
             case .startObserver(let mode):
                 Task { @MainActor in
                     await observerManager.startSession(mode: mode)
+                    observerManager.persistEnrolledIfActive()
                 }
             }
         }
@@ -246,18 +247,14 @@ struct SolstoneSwiftApp: App {
                         }
                         return
                     }
-                    guard url.scheme == "solstone",
-                          url.host == "observer",
-                          url.path == "/stop"
-                    else {
-                        guard url.scheme == "solstone",
-                              url.host == "location",
-                              url.path == "/pause"
-                        else { return }
+                    switch SolstoneDeepLink.parse(url) {
+                    case .observerStop:
+                        self.pendingObserverCommand.command = .stopRequested
+                    case .locationPause:
                         self.pendingLocationCommand.command = .pauseRequested
-                        return
+                    case nil:
+                        break
                     }
-                    self.pendingObserverCommand.command = .stopRequested
                 }
                 .onChange(of: self.pendingObserverCommand.command) { _, command in
                     guard command == .stopRequested else { return }
@@ -275,6 +272,11 @@ struct SolstoneSwiftApp: App {
                 }
                 .task {
                     await self.importQueue.resumeFromDisk()
+                }
+                .task {
+                    if case .idle = self.observerManager.state {
+                        await self.observerManager.endStaleObserverActivities()
+                    }
                 }
         }
         .commands {

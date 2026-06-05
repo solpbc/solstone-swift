@@ -157,15 +157,19 @@ final class ObserverManager {
 
     func stopSession() async {
         let preserveStartCancelled: Bool
+        let wasActive: Bool
         switch self.state {
         case .idle:
+            await self.endStaleObserverActivities()
             return
         case .starting:
             preserveStartCancelled = true
+            wasActive = false
             self.startCancelled = true
             self.state = .stopping
         case .active:
             preserveStartCancelled = false
+            wasActive = true
             self.state = .stopping
         case .stopping, .error:
             return
@@ -186,11 +190,28 @@ final class ObserverManager {
                 startedAt: startedAt,
                 mode: mode
             )
-            await self.liveActivity.end(mode: mode, elapsed: self.sessionStartedAt.map { self.clock.now().timeIntervalSince($0) } ?? finalized.duration)
+        }
+
+        if wasActive {
+            await self.liveActivity.end(
+                mode: self.currentMode ?? .meeting,
+                elapsed: self.sessionStartedAt.map { self.clock.now().timeIntervalSince($0) } ?? 0
+            )
         }
 
         self.resetRuntime(preserveStartCancelled: preserveStartCancelled)
         self.state = .idle
+    }
+
+    func endStaleObserverActivities() async {
+        await self.liveActivity.endAll()
+    }
+}
+
+extension ObserverManager {
+    func persistEnrolledIfActive(into defaults: UserDefaults = .standard) {
+        guard case .active = self.state else { return }
+        defaults.set(true, forKey: AudioStorageKey.enrolled)
     }
 }
 

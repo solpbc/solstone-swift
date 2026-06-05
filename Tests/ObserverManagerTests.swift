@@ -93,6 +93,43 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testStopSessionEndsLiveActivityWhenChunkFinalizes() async {
+        await self.manager.startSession(mode: .meeting)
+        self.clock.advance(by: 42)
+
+        await self.manager.stopSession()
+
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.0, .meeting)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.1 ?? 0, 42, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testStopSessionEndsLiveActivityWhenNoChunkFinalizes() async {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.currentURL = nil
+
+        await self.manager.stopSession()
+
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.uploader.pendingCount, 0)
+    }
+
+    @MainActor
+    func testStopSessionEndsLiveActivityWhenRecorderStopThrows() async {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.stopError = ObserverManagerTestError.stopFailed
+
+        await self.manager.stopSession()
+
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.uploader.pendingCount, 0)
+    }
+
+    @MainActor
     func testPermissionDeniedTransitionsToError() async {
         self.recorder.permissionGranted = false
 
@@ -184,6 +221,74 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         await task.value
 
         XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertTrue(self.liveActivity.endCalls.isEmpty)
+        XCTAssertEqual(self.liveActivity.endAllCallCount, 0)
+    }
+
+    @MainActor
+    func testEndStaleObserverActivitiesEndsAllObserverActivities() async {
+        // Structural location safety is in the implementation: endAll enumerates only ObserverActivityAttributes.
+        await self.manager.endStaleObserverActivities()
+
+        XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
+    }
+
+    @MainActor
+    func testStopSessionWhileIdleEndsStaleObserverActivities() async {
+        await self.manager.stopSession()
+
+        XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
+        XCTAssertTrue(self.liveActivity.endCalls.isEmpty)
+    }
+
+    @MainActor
+    func testPersistEnrolledIfActiveWritesAudioEnrollment() async {
+        let (defaults, suiteName) = self.makeEphemeralDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        await self.manager.startSession(mode: .meeting)
+        self.manager.persistEnrolledIfActive(into: defaults)
+
+        XCTAssertEqual(defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+    }
+
+    @MainActor
+    func testPersistEnrolledIfActiveDoesNotWriteForUnavailableOrPermissionDenied() async {
+        let (defaults, suiteName) = self.makeEphemeralDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        self.recorder.permissionGranted = false
+        await self.manager.startSession(mode: .meeting)
+        XCTAssertEqual(self.manager.state, .error(.permissionDenied))
+        self.manager.persistEnrolledIfActive(into: defaults)
+        XCTAssertNil(defaults.object(forKey: AudioStorageKey.enrolled))
+
+        self.recorder.permissionGranted = true
+        self.recorder.startError = ObserverManagerTestError.startFailed
+        await self.manager.startSession(mode: .meeting)
+        guard case .error(.unavailable) = self.manager.state else {
+            return XCTFail("Expected unavailable error")
+        }
+        self.manager.persistEnrolledIfActive(into: defaults)
+        XCTAssertNil(defaults.object(forKey: AudioStorageKey.enrolled))
+    }
+
+    @MainActor
+    func testAudioEnrollmentStateIgnoresLiveActivityOutcome() async {
+        let (defaults, suiteName) = self.makeEphemeralDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        await self.manager.startSession(mode: .meeting)
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        // MockObserverLiveActivity does no real ActivityKit work; manager state never depends on live-activity results.
+        self.manager.persistEnrolledIfActive(into: defaults)
+        await self.manager.stopSession()
+
+        XCTAssertEqual(defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+        XCTAssertEqual(self.manager.state, .idle)
     }
 
     @MainActor
@@ -193,6 +298,11 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         XCTAssertEqual(self.recorder.startCallCount, 1)
     }
+}
+
+private enum ObserverManagerTestError: Error {
+    case startFailed
+    case stopFailed
 }
 
 private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable {
@@ -232,6 +342,13 @@ private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable
 }
 
 private extension ObserverManagerTests {
+    func makeEphemeralDefaults() -> (defaults: UserDefaults, suiteName: String) {
+        let suiteName = "ObserverManagerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+
     func pendingFileCount(pathExtension: String) throws -> Int {
         guard let enumerator = FileManager.default.enumerator(at: self.tempDirectory, includingPropertiesForKeys: nil) else {
             return 0
