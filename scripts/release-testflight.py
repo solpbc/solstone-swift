@@ -394,8 +394,14 @@ def main():
             api, app_id, build_number, args.timeout
         )
 
+    has_all_builds = bool(group.get("attributes", {}).get("hasAccessToAllBuilds"))
     names = group_names(build, included)
-    if args.group_name not in names:
+    if has_all_builds:
+        # Groups with "access to all builds" include every build automatically;
+        # POSTing an explicit attach is both unnecessary and rejected (HTTP 422).
+        print(f"TestFlight group: {args.group_name!r} has access to all builds — "
+              f"build is included automatically (no attach needed)")
+    elif args.group_name not in names:
         attach_group(api, build, group)
     else:
         print(f"TestFlight group: build already available to {args.group_name}")
