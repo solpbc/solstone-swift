@@ -550,15 +550,14 @@ integration-test-onboarding: sim
 		LAUNCH_PID=""; \
 		PAIRING_MOCK_LOG=$$(mktemp -t solstone-swift-pairing-mock.XXXXXX); \
 		PAIRING_COUNT=$$(mktemp -t solstone-swift-pairing-count.XXXXXX); \
-		DENY_APP_LOG=$$(mktemp -t solstone-swift-onboarding-deny.XXXXXX); \
-		GRANT_APP_LOG=$$(mktemp -t solstone-swift-onboarding-grant.XXXXXX); \
+		APP_LOG=$$(mktemp -t solstone-swift-onboarding-app.XXXXXX); \
 		BOOT_LOG=$$(mktemp -t solstone-swift-onboarding-boot.XXXXXX); \
 		cleanup() { \
 			status=$$?; \
 			if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
 			if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
 			if [ -n "$$PAIRING_MOCK_PID" ] && kill -0 "$$PAIRING_MOCK_PID" 2>/dev/null; then kill "$$PAIRING_MOCK_PID" 2>/dev/null; fi; \
-			rm -f "$$PAIRING_MOCK_LOG" "$$PAIRING_COUNT" "$$DENY_APP_LOG" "$$GRANT_APP_LOG" "$$BOOT_LOG"; \
+			rm -f "$$PAIRING_MOCK_LOG" "$$PAIRING_COUNT" "$$APP_LOG" "$$BOOT_LOG"; \
 			exit $$status; \
 		}; \
 		trap cleanup EXIT INT TERM; \
@@ -580,65 +579,28 @@ integration-test-onboarding: sim
 		done; \
 		[ "$$pairing_ready" -eq 1 ] || { echo "mock pairing server did not become ready"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
 		xcrun simctl install booted $(SIM_APP); \
-		DENY_START=$$(date +"%Y-%m-%d %H:%M:%S"); \
-		SIMCTL_CHILD_MOCK_PAIRING_PORT=$(PAIRING_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test-onboarding --integration-test-onboarding-deny-notifications --onboarding-mock-pair-token=ptk_mock >"$$DENY_APP_LOG" 2>&1 & \
+		ONBOARDING_START=$$(date +"%Y-%m-%d %H:%M:%S"); \
+		SIMCTL_CHILD_MOCK_PAIRING_PORT=$(PAIRING_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test-onboarding >"$$APP_LOG" 2>&1 & \
 		LAUNCH_PID=$$!; \
 		completed=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
-			if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "$(LOG_SUB)" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
+			if xcrun simctl spawn booted log show --info --start "$$ONBOARDING_START" --predicate 'subsystem == "$(LOG_SUB)" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: deny scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; tail -n 120 "$$DENY_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
-		if xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
-			echo "integration-test-onboarding failed: unexpected voice session start in deny scenario"; \
-			xcrun simctl spawn booted log show --info --start "$$DENY_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; \
-			exit 1; \
-		fi; \
-		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"confirm_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
-			echo "integration-test-onboarding failed: deny scenario pairing confirm never hit the mock server"; \
-			cat "$$PAIRING_COUNT"; \
-			cat "$$PAIRING_MOCK_LOG"; \
-			exit 1; \
-		fi; \
-		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -q '"tz_identifier"'; then \
-			echo "integration-test-onboarding failed: deny scenario briefing-time PUT missing"; \
-			cat "$$PAIRING_COUNT"; \
-			cat "$$PAIRING_MOCK_LOG"; \
-			exit 1; \
-		fi; \
-		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*0'; then \
-			echo "integration-test-onboarding failed: deny scenario unexpectedly registered for push"; \
-			cat "$$PAIRING_COUNT"; \
-			cat "$$PAIRING_MOCK_LOG"; \
-			exit 1; \
-		fi; \
-		xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1 || true; \
-		LAUNCH_PID=""; \
-		sleep 2; \
-		GRANT_START=$$(date +"%Y-%m-%d %H:%M:%S"); \
-		SIMCTL_CHILD_MOCK_PAIRING_PORT=$(PAIRING_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test-onboarding --integration-test-onboarding-grant-notifications --onboarding-mock-pair-token=ptk_mock_grant >"$$GRANT_APP_LOG" 2>&1 & \
-		LAUNCH_PID=$$!; \
-		completed=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
-			if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "$(LOG_SUB)" AND category == "onboarding"' 2>/dev/null | grep -q "onboarding completed"; then completed=1; break; fi; \
-			sleep 1; \
-		done; \
-		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: grant scenario did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; tail -n 120 "$$GRANT_APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
-		if xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
-			echo "integration-test-onboarding failed: unexpected voice session start in grant scenario"; \
-			xcrun simctl spawn booted log show --info --start "$$GRANT_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; \
-			exit 1; \
-		fi; \
-		if ! curl -s "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
-			echo "integration-test-onboarding failed: grant scenario never registered push"; \
-			cat "$$PAIRING_COUNT"; \
-			cat "$$PAIRING_MOCK_LOG"; \
+		[ "$$completed" -eq 1 ] || { echo "integration-test-onboarding failed: onboarding did not complete"; xcrun simctl spawn booted log show --info --last 40s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; tail -n 120 "$$APP_LOG"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		PAIRING_STATUS=$$(curl -fsS "http://127.0.0.1:$(PAIRING_PORT)/api/pairing/status") || { echo "integration-test-onboarding failed: could not read pairing status from mock server"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		echo "$$PAIRING_STATUS" | grep -Eq '"confirm_count"[[:space:]]*:[[:space:]]*0' || { echo "integration-test-onboarding failed: onboarding unexpectedly confirmed pairing"; echo "$$PAIRING_STATUS"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		echo "$$PAIRING_STATUS" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*0' || { echo "integration-test-onboarding failed: onboarding unexpectedly registered for push"; echo "$$PAIRING_STATUS"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		echo "$$PAIRING_STATUS" | grep -Eq '"briefing_updates"[[:space:]]*:[[:space:]]*\[\]' || { echo "integration-test-onboarding failed: onboarding unexpectedly updated briefing time"; echo "$$PAIRING_STATUS"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
+		if xcrun simctl spawn booted log show --info --start "$$ONBOARDING_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
+			echo "integration-test-onboarding failed: unexpected voice session start during onboarding"; \
+			xcrun simctl spawn booted log show --info --start "$$ONBOARDING_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; \
 			exit 1; \
 		fi; \
 		echo "--- subsystem log tail ---"; \
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 		echo "integration-test-onboarding passed"; \
-		tail -n 20 "$$GRANT_APP_LOG"
+		tail -n 20 "$$APP_LOG"
 
 # Canonical pre-ship gate: brand/a11y/casing assertions (cheap, fail-fast) then a
 # full build + test pass. Run this before merging any branch to main.

@@ -5,9 +5,6 @@ import Foundation
 import Observation
 import SPLTunnel
 import SwiftUI
-import os
-
-private let pairFlowViewLog = Logger(subsystem: "app.solstone.swift", category: "pair-flow")
 
 @MainActor
 @Observable
@@ -156,13 +153,7 @@ struct PairFlowView: View {
         }
         .onAppear {
             guard !self.didAutoPair else { return }
-            if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
-                self.fallbackTimer.cancel()
-                self.didAutoPair = true
-                Task {
-                    await self.completeIntegrationPairing()
-                }
-            } else if let pairURLError = self.handoff.pairURLError {
+            if let pairURLError = self.handoff.pairURLError {
                 self.fallbackTimer.cancel()
                 self.errorMessage = PairFlowCoordinator.message(for: pairURLError)
                 self.handoff.pairURLError = nil
@@ -248,36 +239,6 @@ struct PairFlowView: View {
             self.onComplete()
         } catch {
             self.errorMessage = PairFlowCoordinator.message(for: error)
-        }
-    }
-
-    private func completeIntegrationPairing() async {
-#if DEBUG
-        self.fallbackTimer.cancel()
-        let port = Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "") ?? 8676
-        await Self.recordIntegrationPairConfirm(port: port)
-        self.appConfig.seedUITestPairing(
-            journalRoot: "http://127.0.0.1:\(port)",
-            deviceID: "integration-test-device",
-            sessionKey: "integration-test-session"
-        )
-        pairFlowViewLog.info("onboarding integration SPL pairing seeded on port \(port)")
-        self.onComplete()
-#endif
-    }
-
-    private static func recordIntegrationPairConfirm(port: Int) async {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/api/pairing/confirm") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = """
-        {"token":"integration","public_key":"integration","device_name":"integration","platform":"ios","bundle_id":"app.solstone.swift","app_version":"0"}
-        """.data(using: .utf8)
-        do {
-            _ = try await URLSession.shared.data(for: request)
-        } catch {
-            pairFlowViewLog.error("integration pair confirm failed: \(String(describing: error), privacy: .public)")
         }
     }
 
