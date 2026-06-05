@@ -4,22 +4,23 @@
 #if DEBUG
 import AVFoundation
 import Foundation
-import os
-
-private let integrationObserverLog = Logger(subsystem: "app.solstone.swift", category: "observer")
 
 @MainActor
 final class IntegrationTestObserverRecorder: ObserverRecording {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
 
-    private let session = AVAudioSession.sharedInstance()
+    private let session: any ObserverAudioSession
     private let permissionGranted: Bool
     private var currentURL: URL?
     private var currentStartedAt: Date?
     private var didActivateSession = false
 
-    init(permissionGranted: Bool = true) {
+    init(
+        session: any ObserverAudioSession = AVAudioSession.sharedInstance(),
+        permissionGranted: Bool = true
+    ) {
+        self.session = session
         self.permissionGranted = permissionGranted
     }
 
@@ -27,25 +28,8 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
         self.permissionGranted
     }
 
-    func currentAudioCategory() -> AVAudioSession.Category {
-        self.session.category
-    }
-
     func start(url: URL, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
-        let category = self.session.category
-        if category == .ambient {
-            try self.session.setCategory(.record, mode: .measurement, options: [])
-            try self.session.setActive(true)
-            self.didActivateSession = true
-            integrationObserverLog.info("observer: activated standalone session")
-        } else {
-            self.didActivateSession = false
-            if category == .playAndRecord {
-                integrationObserverLog.info("observer: reused active voice session")
-            } else {
-                integrationObserverLog.info("observer: reused active audio session")
-            }
-        }
+        self.didActivateSession = try ObserverAudioActivator.ensureActiveRecordSession(self.session)
 
         try Self.writePlaceholderFile(to: url)
         self.currentURL = url
@@ -64,7 +48,7 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
     func stop() async throws -> ObserverRecordedChunk? {
         let finalized = self.finalizeCurrentChunk()
         if self.didActivateSession {
-            try? self.session.setActive(false)
+            try? self.session.setActive(false, options: [])
         }
         self.didActivateSession = false
         self.currentURL = nil

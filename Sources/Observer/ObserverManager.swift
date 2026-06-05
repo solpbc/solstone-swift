@@ -16,7 +16,7 @@ struct ObserverSession: Equatable, Sendable {
     let elapsed: TimeInterval
 }
 
-enum ObserverError: Equatable, Sendable {
+enum ObserverError: Error, Equatable, Sendable {
     case permissionDenied
     case audioSessionConflict
     case diskFull
@@ -149,9 +149,10 @@ final class ObserverManager {
             await self.liveActivity.start(mode: mode, sessionID: sessionID, elapsed: 0)
             self.startElapsedTask()
             self.startSegmentationTask()
+        } catch let observerError as ObserverError {
+            self.state = .error(observerError)
         } catch {
-            let message = String(describing: error)
-            self.state = .error(.unavailable(reason: message))
+            self.state = .error(.unavailable(reason: String(describing: error)))
         }
     }
 

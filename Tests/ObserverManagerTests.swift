@@ -274,6 +274,15 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testStartSessionPreservesThrownObserverError() async {
+        self.recorder.startError = ObserverError.unavailable(reason: "audio input unavailable")
+
+        await self.manager.startSession(mode: .meeting)
+
+        XCTAssertEqual(self.manager.state, .error(.unavailable(reason: "audio input unavailable")))
+    }
+
+    @MainActor
     func testAudioEnrollmentStateIgnoresLiveActivityOutcome() async {
         let (defaults, suiteName) = self.makeEphemeralDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }

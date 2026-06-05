@@ -27,7 +27,6 @@ protocol ObserverRecording: AnyObject {
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)? { get set }
 
     func requestPermission() async -> Bool
-    func currentAudioCategory() -> AVAudioSession.Category
     func start(url: URL, mode: ObserverMode) async throws -> ObserverRecordingStartResult
     func rotate(to url: URL) async throws -> ObserverRecordedChunk?
     func stop() async throws -> ObserverRecordedChunk?
@@ -36,12 +35,47 @@ protocol ObserverRecording: AnyObject {
 }
 
 @MainActor
+protocol ObserverAudioSession: AnyObject {
+    var category: AVAudioSession.Category { get }
+    func setCategory(_ category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions) throws
+    func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws
+}
+
+extension AVAudioSession: ObserverAudioSession {}
+
+enum ObserverAudioActivator {
+    /// Ensures a record-capable, active session before tapping.
+    /// Returns true when THIS call established the record session (caller owns
+    /// deactivation in stop()); false when it reused an existing record-capable
+    /// session (e.g. an in-progress voice call) — which must never be torn down.
+    @MainActor
+    static func ensureActiveRecordSession(_ session: ObserverAudioSession) throws -> Bool {
+        let category = session.category
+        let alreadyRecordCapable = (category == .playAndRecord || category == .record)
+        if !alreadyRecordCapable {
+            try session.setCategory(.record, mode: .measurement, options: [])
+        }
+        try session.setActive(true, options: [])
+        if alreadyRecordCapable {
+            if category == .playAndRecord {
+                observerLog.info("observer: reused active voice session")
+            } else {
+                observerLog.info("observer: reused active audio session")
+            }
+            return false
+        }
+        observerLog.info("observer: activated standalone session")
+        return true
+    }
+}
+
+@MainActor
 final class LiveObserverRecorder: NSObject, ObserverRecording {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
 
     private let engine: AVAudioEngine
-    private let session: AVAudioSession
+    private let session: any ObserverAudioSession
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let lock = NSLock()
@@ -54,7 +88,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
 
     init(
         engine: AVAudioEngine = AVAudioEngine(),
-        session: AVAudioSession = .sharedInstance(),
+        session: any ObserverAudioSession = AVAudioSession.sharedInstance(),
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -82,25 +116,8 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         }
     }
 
-    func currentAudioCategory() -> AVAudioSession.Category {
-        self.session.category
-    }
-
     func start(url: URL, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
-        let category = self.session.category
-        if category == .ambient {
-            try self.session.setCategory(.record, mode: .measurement, options: [])
-            try self.session.setActive(true)
-            self.didActivateSession = true
-            observerLog.info("observer: activated standalone session")
-        } else {
-            self.didActivateSession = false
-            if category == .playAndRecord {
-                observerLog.info("observer: reused active voice session")
-            } else {
-                observerLog.info("observer: reused active audio session")
-            }
-        }
+        self.didActivateSession = try ObserverAudioActivator.ensureActiveRecordSession(self.session)
 
         try self.installTap(initialURL: url)
         self.installInterruptionObserver()
@@ -127,7 +144,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         self.lastReportedDuration = 0
 
         if self.didActivateSession {
-            try? self.session.setActive(false)
+            try? self.session.setActive(false, options: [])
         }
         self.didActivateSession = false
         return finalized
@@ -143,13 +160,20 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
             try self.engine.start()
         }
     }
+
+    nonisolated static func validatedTapFormat(_ format: AVAudioFormat?) -> AVAudioFormat? {
+        guard let format, format.sampleRate > 0, format.channelCount > 0 else { return nil }
+        return format
+    }
 }
 
 private extension LiveObserverRecorder {
     func installTap(initialURL: URL) throws {
         _ = try self.prepareFile(at: initialURL)
         let inputNode = self.engine.inputNode
-        let format = inputNode.inputFormat(forBus: 0)
+        guard let format = Self.validatedTapFormat(inputNode.inputFormat(forBus: 0)) else {
+            throw ObserverError.unavailable(reason: "audio input unavailable")
+        }
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.handleBuffer(buffer)

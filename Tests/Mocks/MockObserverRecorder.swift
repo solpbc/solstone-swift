@@ -11,7 +11,6 @@ final class MockObserverRecorder: ObserverRecording {
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
     var permissionGranted = true
     var permissionDelay: Duration?
-    var currentCategoryValue: AVAudioSession.Category = .ambient
     var startCallCount = 0
     var rotateCallCount = 0
     var stopCallCount = 0
@@ -31,10 +30,6 @@ final class MockObserverRecorder: ObserverRecording {
             try? await Task.sleep(for: permissionDelay)
         }
         return self.permissionGranted
-    }
-
-    func currentAudioCategory() -> AVAudioSession.Category {
-        self.currentCategoryValue
     }
 
     func start(url: URL, mode: ObserverMode) async throws -> ObserverRecordingStartResult {
