@@ -613,6 +613,7 @@ ci: generate
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
 	bash test/assert_casing.sh
+	bash test/assert_background_modes.sh
 	PROJECT='$(PROJECT)' SCHEME='$(SCHEME)' DERIVED='$(DERIVED)' \
 		CI_SIM_NAME='$(CI_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_SIM_DEVICETYPE)' \
 		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
