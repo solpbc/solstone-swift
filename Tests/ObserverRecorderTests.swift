@@ -28,6 +28,42 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
         XCTAssertEqual(validated?.channelCount, 1)
     }
 
+    func testTapWriterAccumulatesDurationOffMainActor() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("chunk.m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 32_000,
+        ]
+        let writer = ObserverTapWriter()
+        // Hand the file to the box in a nested scope so the box holds the only strong ref;
+        // finalizeAndReset then releases it and AVAudioFile flushes to disk.
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: settings)
+            _ = writer.swap(to: file, url: url)
+        }
+
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1600)!
+        buffer.frameLength = 1600
+
+        // Synchronous, no await — compiles ONLY because write is nonisolated.
+        writer.write(buffer)
+        writer.write(buffer)
+
+        let chunk = writer.finalizeAndReset()
+        XCTAssertNotNil(chunk)
+        XCTAssertEqual(chunk?.duration ?? 0, 0.2, accuracy: 0.0001) // 2 * 1600/16000
+        XCTAssertEqual(chunk?.url, url)
+
+        let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(size, 0)
+    }
+
     @MainActor
     func testEnsureActiveRecordSessionActivatesFromColdCategory() throws {
         let spy = SpyAudioSession(category: .soloAmbient)

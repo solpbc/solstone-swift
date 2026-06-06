@@ -5,14 +5,14 @@ import AVFoundation
 import Foundation
 import os
 
-private let observerLog = Logger(subsystem: "app.solstone.swift", category: "observer")
+nonisolated private let observerLog = Logger(subsystem: "app.solstone.swift", category: "observer")
 
 enum ObserverInterruptionEvent: Sendable {
     case began
     case ended
 }
 
-struct ObserverRecordedChunk: Sendable {
+nonisolated struct ObserverRecordedChunk: Sendable {
     let url: URL
     let duration: TimeInterval
 }
@@ -71,18 +71,18 @@ enum ObserverAudioActivator {
 
 @MainActor
 final class LiveObserverRecorder: NSObject, ObserverRecording {
-    var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
+    var onMeter: (@Sendable (Float, TimeInterval) -> Void)? {
+        get { self.tapState.onMeter }
+        set { self.tapState.onMeter = newValue }
+    }
+
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
 
     private let engine: AVAudioEngine
     private let session: any ObserverAudioSession
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
-    private let lock = NSLock()
-    private var currentFile: AVAudioFile?
-    private var currentURL: URL?
-    private var currentDuration: TimeInterval = 0
-    private var lastReportedDuration: TimeInterval = 0
+    private let tapState = ObserverTapWriter()
     private var didActivateSession = false
     private var interruptionObserver: NSObjectProtocol?
 
@@ -137,11 +137,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         self.engine.stop()
         self.removeInterruptionObserver()
 
-        let finalized = self.lockedFinalizeChunk()
-        self.currentFile = nil
-        self.currentURL = nil
-        self.currentDuration = 0
-        self.lastReportedDuration = 0
+        let finalized = self.tapState.finalizeAndReset()
 
         if self.didActivateSession {
             try? self.session.setActive(false, options: [])
@@ -175,15 +171,12 @@ private extension LiveObserverRecorder {
             throw ObserverError.unavailable(reason: "audio input unavailable")
         }
         inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.handleBuffer(buffer)
-        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: self.tapState.makeTapBlock())
     }
 
     func prepareFile(at url: URL) throws -> ObserverRecordedChunk? {
         try self.fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-        let finalized = self.lockedFinalizeChunk()
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 16_000,
@@ -192,47 +185,7 @@ private extension LiveObserverRecorder {
         ]
         let file = try AVAudioFile(forWriting: url, settings: settings)
 
-        self.lock.lock()
-        self.currentFile = file
-        self.currentURL = url
-        self.currentDuration = 0
-        self.lastReportedDuration = 0
-        self.lock.unlock()
-        return finalized
-    }
-
-    func handleBuffer(_ buffer: AVAudioPCMBuffer) {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-
-        guard let currentFile else { return }
-        do {
-            try currentFile.write(from: buffer)
-            let sampleRate = buffer.format.sampleRate
-            if sampleRate > 0 {
-                self.currentDuration += Double(buffer.frameLength) / sampleRate
-            }
-
-            let duration = self.currentDuration
-            if duration - self.lastReportedDuration >= 0.25 {
-                self.lastReportedDuration = duration
-                let level = Self.decibels(for: buffer)
-                let meter = self.onMeter
-                Task { @MainActor in
-                    meter?(level, duration)
-                }
-            }
-        } catch {
-            observerLog.error("observer buffer write failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    func lockedFinalizeChunk() -> ObserverRecordedChunk? {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-
-        guard let currentURL else { return nil }
-        return ObserverRecordedChunk(url: currentURL, duration: self.currentDuration)
+        return self.tapState.swap(to: file, url: url)
     }
 
     func installInterruptionObserver() {
@@ -266,7 +219,7 @@ private extension LiveObserverRecorder {
         }
     }
 
-    static func decibels(for buffer: AVAudioPCMBuffer) -> Float {
+    nonisolated static func decibels(for buffer: AVAudioPCMBuffer) -> Float {
         guard let samples = buffer.floatChannelData?[0] else { return -160 }
         let frameLength = Int(buffer.frameLength)
         guard frameLength > 0 else { return -160 }
@@ -280,5 +233,86 @@ private extension LiveObserverRecorder {
         let rms = sqrt(sum / Float(frameLength))
         guard rms > 0 else { return -160 }
         return 20 * log10(rms)
+    }
+}
+
+nonisolated final class ObserverTapWriter: Sendable {
+    private struct State {
+        var file: AVAudioFile?
+        var url: URL?
+        var duration: TimeInterval = 0
+        var lastReportedDuration: TimeInterval = 0
+        var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
+    }
+
+    private let lock = OSAllocatedUnfairLock(uncheckedState: State())
+
+    var onMeter: (@Sendable (Float, TimeInterval) -> Void)? {
+        get { self.lock.withLockUnchecked { $0.onMeter } }
+        set { self.lock.withLockUnchecked { $0.onMeter = newValue } }
+    }
+
+    /// Installs a freshly created file as the active chunk target and returns the
+    /// previously active chunk (if any) so the caller can hand it off (rotate).
+    func swap(to file: AVAudioFile, url: URL) -> ObserverRecordedChunk? {
+        self.lock.withLockUnchecked { state in
+            let prior = Self.chunk(from: state)
+            state.file = file
+            state.url = url
+            state.duration = 0
+            state.lastReportedDuration = 0
+            return prior
+        }
+    }
+
+    /// Finalizes and clears the active chunk (stop path).
+    func finalizeAndReset() -> ObserverRecordedChunk? {
+        self.lock.withLockUnchecked { state in
+            let chunk = Self.chunk(from: state)
+            state.file = nil
+            state.url = nil
+            state.duration = 0
+            state.lastReportedDuration = 0
+            return chunk
+        }
+    }
+
+    /// Realtime write path — runs on AVFAudio's audio thread. Touches ZERO @MainActor state.
+    func write(_ buffer: AVAudioPCMBuffer) {
+        let pending: (@Sendable (Float, TimeInterval) -> Void, Float, TimeInterval)? =
+            self.lock.withLockUnchecked { state in
+                guard let file = state.file else { return nil }
+                do {
+                    try file.write(from: buffer)
+                    let sampleRate = buffer.format.sampleRate
+                    if sampleRate > 0 {
+                        state.duration += Double(buffer.frameLength) / sampleRate
+                    }
+                    let duration = state.duration
+                    guard duration - state.lastReportedDuration >= 0.25 else { return nil }
+                    state.lastReportedDuration = duration
+                    guard let meter = state.onMeter else { return nil }
+                    let level = LiveObserverRecorder.decibels(for: buffer)
+                    return (meter, level, duration)
+                } catch {
+                    observerLog.error("observer buffer write failed: \(String(describing: error), privacy: .public)")
+                    return nil
+                }
+            }
+        if let (meter, level, duration) = pending {
+            Task { @MainActor in meter(level, duration) }
+        }
+    }
+
+    /// Forms the tap block in a NONISOLATED context. This is load-bearing: forming
+    /// the closure inside the @MainActor installTap method re-inserts the executor
+    /// isolation check (verified in prep), so the block MUST be produced here.
+    func makeTapBlock() -> AVAudioNodeTapBlock {
+        { [self] buffer, _ in self.write(buffer) }
+    }
+
+    private static func chunk(from state: State) -> ObserverRecordedChunk? {
+        guard let url = state.url else { return nil }
+        return ObserverRecordedChunk(url: url, duration: state.duration)
     }
 }
