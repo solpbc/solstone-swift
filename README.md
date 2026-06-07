@@ -1,6 +1,6 @@
 # solstone-swift
 
-Native iOS app for [solstone](https://solpbc.org) — the private, AI-powered personal journal from sol pbc.
+Native iOS app for [solstone](https://solpbc.org), an open source, local-first journal of what you see and hear, for the agents you use. On your machine, always private, only yours.
 
 Hybrid shell (native SwiftUI + embedded WKWebView portal) with voice-first interaction. It brings together a journal-aware voice persona, the mobile portal, APNs daily briefings, the observer pipeline, the Sense tab, and native onboarding over a tunneled connection to your solstone journal.
 
