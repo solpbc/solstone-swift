@@ -18,8 +18,19 @@ final class ObserverRegistration {
     }
 
     private struct RegistrationRequest: Encodable {
-        let name = "solstone-swift"
-        let platform = "ios"
+        let platform: String
+        let hostname: String
+        let streamType: String
+        let version: String
+        let label: String?
+
+        enum CodingKeys: String, CodingKey {
+            case platform
+            case hostname
+            case streamType = "stream_type"
+            case version
+            case label
+        }
     }
 
     private struct RegistrationResponse: Decodable {
@@ -33,13 +44,22 @@ final class ObserverRegistration {
 
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
+    @ObservationIgnored private let hostname: String
+    @ObservationIgnored private let version: String
+    @ObservationIgnored private let streamType: String
+    @ObservationIgnored private let label: String?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let loadKey: @Sendable () throws -> String?
     @ObservationIgnored private let saveKey: @Sendable (String) throws -> Void
     @ObservationIgnored private let deleteKey: @Sendable () throws -> Void
+    @ObservationIgnored private var registrationTask: Task<String, Error>?
 
     init(
+        hostname: String,
+        version: String,
+        streamType: String = "mobile",
+        label: String? = nil,
         session: URLSession = .shared,
         urlBuilder: @escaping @Sendable (Int) -> URL? = { ObserverServerURL.registrationURL(localPort: $0) },
         retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000, 8_000_000_000, 16_000_000_000],
@@ -50,6 +70,10 @@ final class ObserverRegistration {
     ) {
         self.session = session
         self.urlBuilder = urlBuilder
+        self.hostname = hostname
+        self.version = version
+        self.streamType = streamType
+        self.label = label
         self.retryDelays = retryDelays
         self.sleep = sleep
         self.loadKey = loadKey
@@ -71,6 +95,31 @@ final class ObserverRegistration {
             return existing
         }
 
+        if let registrationTask = self.registrationTask {
+            return try await registrationTask.value
+        }
+
+        let registrationTask = Task { @MainActor in
+            try await self.registerWithServer()
+        }
+        self.registrationTask = registrationTask
+
+        do {
+            let key = try await registrationTask.value
+            self.registrationTask = nil
+            return key
+        } catch {
+            self.registrationTask = nil
+            throw error
+        }
+    }
+
+    private func registerWithServer() async throws -> String {
+        if let existing = try self.loadKey(), !existing.isEmpty {
+            self.state = .registered
+            return existing
+        }
+
         guard let localPort = self.activeLocalPort else {
             let reason = "observer registration unavailable: missing active local port"
             self.state = .failed(reason: reason)
@@ -85,13 +134,20 @@ final class ObserverRegistration {
 
         var lastError = "observer registration failed"
         for (index, delay) in self.retryDelays.enumerated() {
+            try Task.checkCancellation()
             self.state = .registering
 
             do {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = try JSONEncoder().encode(RegistrationRequest())
+                request.httpBody = try JSONEncoder().encode(RegistrationRequest(
+                    platform: "ios",
+                    hostname: self.hostname,
+                    streamType: self.streamType,
+                    version: self.version,
+                    label: self.label
+                ))
 
                 let (data, response) = try await self.session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
@@ -108,7 +164,12 @@ final class ObserverRegistration {
                 self.state = .registered
                 log.info("observer registration succeeded (key length=\(payload.key.count, privacy: .public))")
                 return payload.key
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
                 if index == self.retryDelays.count - 1 {
                     break
                 }
@@ -124,6 +185,8 @@ final class ObserverRegistration {
 
     func reset() {
         do {
+            self.registrationTask?.cancel()
+            self.registrationTask = nil
             try self.deleteKey()
             self.state = .idle
             log.info("observer registration reset")

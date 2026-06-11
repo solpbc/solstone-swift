@@ -18,12 +18,10 @@ nonisolated enum LocationRecentResult: Equatable, Sendable {
 }
 
 nonisolated protocol LocationRecentProviding: Sendable {
-    func fetchToday(localPort: Int, key: String) async -> LocationRecentResult
+    func fetchToday(localPort: Int, handle: String) async -> LocationRecentResult
 }
 
 nonisolated struct LocationRecentSource: LocationRecentProviding {
-    private static let locationPrefix = "location/"
-
     private let session: URLSession
     private let locale: Locale
     private let timeZone: TimeZone
@@ -34,14 +32,14 @@ nonisolated struct LocationRecentSource: LocationRecentProviding {
         self.timeZone = timeZone
     }
 
-    func fetchToday(localPort: Int, key: String) async -> LocationRecentResult {
+    func fetchToday(localPort: Int, handle: String) async -> LocationRecentResult {
         let day = Self.dayString(for: Date())
-        guard let url = ObserverServerURL.manifestURL(localPort: localPort, key: key, day: day) else {
+        guard let url = ObserverServerURL.manifestURL(localPort: localPort, day: day) else {
             locationRecentLog.debug("location recent unavailable: invalid url")
             return .failed
         }
 
-        var request = URLRequest(url: url)
+        var request = ObserverAuthorizedRequest.make(url: url, handle: handle)
         request.timeoutInterval = 5
 
         do {
@@ -149,19 +147,18 @@ private extension LocationRecentSource {
     }
 
     func locationItem(from segment: Segment) -> (sortKey: String, item: LocationRecentItem)? {
-        guard let fullKey = segment.key ?? segment.originalKey,
-              fullKey.hasPrefix(Self.locationPrefix)
+        guard let segmentKey = segment.key ?? segment.originalKey,
+              segment.files?.contains(where: { $0.name == "location.jsonl" }) == true
         else {
             return nil
         }
 
-        let strippedKey = String(fullKey.dropFirst(Self.locationPrefix.count))
         return (
-            sortKey: strippedKey,
+            sortKey: segmentKey,
             item: LocationRecentItem(
-                id: fullKey,
+                id: segmentKey,
                 timeLabel: Self.timeLabel(
-                    forSegmentKey: strippedKey,
+                    forSegmentKey: segmentKey,
                     locale: self.locale,
                     timeZone: self.timeZone
                 )

@@ -331,12 +331,12 @@ private extension SourceDetailView {
             return
         }
 
-        guard let key = try? await self.observerRegistration.ensureRegistered() else {
+        guard let handle = try? await self.observerRegistration.ensureRegistered() else {
             self.manifestResult = .failed
             return
         }
 
-        self.manifestResult = await self.manifestClient.fetchToday(localPort: localPort, key: key)
+        self.manifestResult = await self.manifestClient.fetchToday(localPort: localPort, handle: handle)
     }
 }
 

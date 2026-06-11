@@ -344,12 +344,12 @@ private extension LocationSourceDetailView {
             return
         }
 
-        guard let key = try? await self.observerRegistration.ensureRegistered() else {
+        guard let handle = try? await self.observerRegistration.ensureRegistered() else {
             self.recentResult = .failed
             return
         }
 
-        self.recentResult = await self.recentSource.fetchToday(localPort: localPort, key: key)
+        self.recentResult = await self.recentSource.fetchToday(localPort: localPort, handle: handle)
     }
 }
 

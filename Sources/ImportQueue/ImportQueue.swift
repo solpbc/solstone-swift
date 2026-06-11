@@ -66,7 +66,7 @@ final class ImportQueue {
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
-    @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
+    @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
@@ -94,8 +94,8 @@ final class ImportQueue {
         },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
-        urlBuilder: @escaping @Sendable (Int, String) -> URL? = { localPort, key in
-            ObserverServerURL.ingestURL(localPort: localPort, key: key)
+        urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
+            ObserverServerURL.ingestURL(localPort: localPort)
         },
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
@@ -493,9 +493,9 @@ private extension ImportQueue {
 
         self.cancelImportShareWorkForDelete()
 
-        let key: String
+        let handle: String
         do {
-            key = try await self.ensureRegistered()
+            handle = try await self.ensureRegistered()
         } catch {
             let detail = String(describing: error)
             importQueueLog.error("share source delete unavailable: registration failed \(detail, privacy: .public)")
@@ -508,14 +508,13 @@ private extension ImportQueue {
             return .unreachable(reason: detail)
         }
 
-        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, stream: "import.share", key: key) else {
+        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, source: "import.share") else {
             let detail = "share source delete unavailable: invalid url"
             importQueueLog.error("\(detail, privacy: .public)")
             return .unreachable(reason: detail)
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
+        var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "DELETE")
         request.timeoutInterval = 10
 
         let data: Data
@@ -633,9 +632,9 @@ private extension ImportQueue {
             return
         }
 
-        let key: String
+        let handle: String
         do {
-            key = try await self.ensureRegistered()
+            handle = try await self.ensureRegistered()
         } catch {
             let detail = String(describing: error)
             importQueueLog.error("import upload pending \(itemID, privacy: .public): registration unavailable \(detail, privacy: .public)")
@@ -644,7 +643,7 @@ private extension ImportQueue {
             return
         }
 
-        guard let url = self.urlBuilder(localPort, key) else {
+        guard let url = self.urlBuilder(localPort) else {
             let detail = "import upload unavailable: invalid url"
             importQueueLog.error("\(detail, privacy: .public)")
             self.lastError = detail
@@ -656,8 +655,7 @@ private extension ImportQueue {
             let descriptor = try self.loadDescriptor(itemID: itemID, status: .pending)
             let ledgerStub = try self.loadLedgerStub(itemID: itemID, status: .pending, descriptor: descriptor)
             let bodyURL = try self.buildMultipartRequestBody(itemID: itemID)
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
+            var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: itemID))", forHTTPHeaderField: "Content-Type")
 
             let task = self.session.uploadTask(with: request, fromFile: bodyURL)
@@ -814,7 +812,6 @@ private extension ImportQueue {
         body.append(self.multipartField(named: "day", value: descriptor.day, boundary: boundary))
         body.append(self.multipartField(named: "segment", value: descriptor.segment, boundary: boundary))
         body.append(self.multipartField(named: "platform", value: "ios", boundary: boundary))
-        body.append(self.multipartField(named: "meta", value: Self.metaJSONString(stream: descriptor.stream), boundary: boundary))
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"\(descriptor.filename)\"\r\n".data(using: .utf8)!)
@@ -964,11 +961,6 @@ private extension ImportQueue {
     nonisolated static func optionalJSONString(_ value: String?) throws -> String {
         guard let value else { return "null" }
         return try Self.jsonString(value)
-    }
-
-    nonisolated static func metaJSONString(stream: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: ["stream": stream], options: [.sortedKeys])
-        return data.map { String(decoding: $0, as: UTF8.self) } ?? #"{"stream":""}"#
     }
 
     nonisolated static func iso8601String(for date: Date) -> String {

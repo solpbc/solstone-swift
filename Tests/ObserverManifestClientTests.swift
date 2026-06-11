@@ -21,7 +21,7 @@ nonisolated final class ObserverManifestClientTests: XCTestCase {
             )
         }
 
-        let result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
 
         XCTAssertEqual(result, .loaded([
             ObserverManifestItem(id: "meeting", title: "meeting", subtitle: "today")
@@ -36,7 +36,7 @@ nonisolated final class ObserverManifestClientTests: XCTestCase {
             )
         }
 
-        let result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
 
         XCTAssertEqual(result, .loadedEmpty)
     }
@@ -49,7 +49,7 @@ nonisolated final class ObserverManifestClientTests: XCTestCase {
             )
         }
 
-        let result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
 
         XCTAssertEqual(result, .failed)
     }
@@ -79,6 +79,8 @@ private final class ObserverManifestURLProtocol: URLProtocol, @unchecked Sendabl
     }
 
     override func startLoading() {
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer observer-key")
+        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/manifest/\(observerManifestTestDayString())")
         guard let handler = Self.handler else {
             XCTFail("ObserverManifestURLProtocol handler not set")
             return
@@ -95,4 +97,12 @@ private final class ObserverManifestURLProtocol: URLProtocol, @unchecked Sendabl
     }
 
     override func stopLoading() {}
+}
+
+nonisolated private func observerManifestTestDayString() -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.timeZone = .current
+    formatter.dateFormat = "yyyyMMdd"
+    return formatter.string(from: Date())
 }

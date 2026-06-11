@@ -61,15 +61,15 @@ nonisolated struct ObserverManifestClient: Sendable {
         self.session = session
     }
 
-    func fetchToday(localPort: Int, key: String) async -> ObserverManifestResult {
+    func fetchToday(localPort: Int, handle: String) async -> ObserverManifestResult {
         let day = Self.dayString(for: Date())
-        guard let url = ObserverServerURL.manifestURL(localPort: localPort, key: key, day: day) else {
+        guard let url = ObserverServerURL.manifestURL(localPort: localPort, day: day) else {
             let log = Logger(subsystem: "app.solstone.swift", category: "observer")
             log.debug("observer manifest unavailable: invalid url")
             return .failed
         }
 
-        var request = URLRequest(url: url)
+        var request = ObserverAuthorizedRequest.make(url: url, handle: handle)
         request.timeoutInterval = 5
 
         do {

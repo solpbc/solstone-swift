@@ -268,8 +268,8 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertTrue(body.contains("name=\"day\""))
         XCTAssertTrue(body.contains("name=\"segment\""))
         XCTAssertTrue(body.contains("name=\"platform\""))
-        XCTAssertTrue(body.contains("name=\"meta\""))
-        XCTAssertTrue(body.contains(#"{"stream":"import.share"}"#))
+        XCTAssertFalse(body.contains("name=\"meta\""))
+        XCTAssertFalse(body.contains(#""stream""#))
         XCTAssertTrue(body.contains("filename=\"document.pdf\""))
         XCTAssertTrue(body.contains("filename=\"item.json\""))
     }
@@ -308,7 +308,8 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertEqual(ledger[itemID]?.originApp, "com.example.files")
         XCTAssertNotNil(ledger[itemID]?.itemTime)
         let body = String(decoding: try XCTUnwrap(ImportQueueURLProtocol.capturedBodies.first), as: UTF8.self)
-        XCTAssertTrue(body.contains(#"{"stream":"import.share"}"#))
+        XCTAssertFalse(body.contains("name=\"meta\""))
+        XCTAssertFalse(body.contains(#""stream""#))
         queue.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
     }
@@ -607,7 +608,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ])
         ImportQueueURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "DELETE")
-            XCTAssertEqual(request.url?.path, "/app/observer/source/import.share/test-observer-key-abc")
+            XCTAssertEqual(request.url?.path, "/app/observer/source/import.share")
             return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(originals: 3))
         }
         let queue = self.makeQueue()
@@ -1212,6 +1213,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-observer-key-abc")
         Self.callCountBox.withLock { $0 += 1 }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }

@@ -78,7 +78,7 @@ final class ObserverUploader {
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
-    @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
+    @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
@@ -102,8 +102,8 @@ final class ObserverUploader {
         },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
-        urlBuilder: @escaping @Sendable (Int, String) -> URL? = { localPort, key in
-            ObserverServerURL.ingestURL(localPort: localPort, key: key)
+        urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
+            ObserverServerURL.ingestURL(localPort: localPort)
         },
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
@@ -424,9 +424,9 @@ private extension ObserverUploader {
             return
         }
 
-        let key: String
+        let handle: String
         do {
-            key = try await self.ensureRegistered()
+            handle = try await self.ensureRegistered()
         } catch {
             await self.handleUploadFailure(
                 chunkID: chunkID,
@@ -438,7 +438,7 @@ private extension ObserverUploader {
             return
         }
 
-        guard let url = self.urlBuilder(localPort, key) else {
+        guard let url = self.urlBuilder(localPort) else {
             await self.handleUploadFailure(
                 chunkID: chunkID,
                 sessionID: sessionID,
@@ -455,8 +455,7 @@ private extension ObserverUploader {
                 audioURL: audioURL,
                 sidecar: sidecar
             )
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
+            var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: chunkID))", forHTTPHeaderField: "Content-Type")
 
             let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)

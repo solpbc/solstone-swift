@@ -59,7 +59,7 @@ final class LocationUploader: LocationUploading {
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
-    @ObservationIgnored private let urlBuilder: @Sendable (Int, String) -> URL?
+    @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
@@ -86,8 +86,8 @@ final class LocationUploader: LocationUploading {
         },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
-        urlBuilder: @escaping @Sendable (Int, String) -> URL? = { localPort, key in
-            ObserverServerURL.ingestURL(localPort: localPort, key: key)
+        urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
+            ObserverServerURL.ingestURL(localPort: localPort)
         },
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
@@ -291,9 +291,9 @@ final class LocationUploader: LocationUploading {
         self.isDeleting = true
         self.cancelLocationWorkForDelete()
 
-        let key: String
+        let handle: String
         do {
-            key = try await self.ensureRegistered()
+            handle = try await self.ensureRegistered()
         } catch {
             let detail = String(describing: error)
             locationUploadLog.error("location source delete unavailable: registration failed \(detail, privacy: .public)")
@@ -306,14 +306,13 @@ final class LocationUploader: LocationUploading {
             return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
         }
 
-        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, stream: "location", key: key) else {
+        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, source: "location") else {
             let detail = "location source delete unavailable: invalid url"
             locationUploadLog.error("\(detail, privacy: .public)")
             return await self.resetDeleteAndResume(result: .unreachable(reason: detail))
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
+        var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "DELETE")
         request.timeoutInterval = 10
 
         let data: Data
@@ -731,9 +730,9 @@ private extension LocationUploader {
             return
         }
 
-        let key: String
+        let handle: String
         do {
-            key = try await self.ensureRegistered()
+            handle = try await self.ensureRegistered()
         } catch {
             await self.handleUploadFailure(
                 fileID: fileID,
@@ -743,7 +742,7 @@ private extension LocationUploader {
             return
         }
 
-        guard let url = self.urlBuilder(localPort, key) else {
+        guard let url = self.urlBuilder(localPort) else {
             await self.handleUploadFailure(
                 fileID: fileID,
                 segmentURL: segmentURL,
@@ -758,8 +757,7 @@ private extension LocationUploader {
                 fileID: fileID,
                 parsed: parsed
             )
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
+            var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: fileID))", forHTTPHeaderField: "Content-Type")
 
             let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
@@ -892,7 +890,6 @@ private extension LocationUploader {
         body.append(self.multipartField(named: "segment", value: parsed.segment, boundary: boundary))
         body.append(self.multipartField(named: "day", value: parsed.day, boundary: boundary))
         body.append(self.multipartField(named: "platform", value: "ios", boundary: boundary))
-        body.append(self.multipartField(named: "meta", value: Self.metaJSONString(), boundary: boundary))
 
         let segmentData = try Data(contentsOf: segmentURL)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -926,11 +923,6 @@ private extension LocationUploader {
             throw LocationUploaderError.invalidFrozenFilename(filename)
         }
         return ParsedFileName(day: day, segment: segment)
-    }
-
-    static func metaJSONString() -> String {
-        let data = try? JSONSerialization.data(withJSONObject: ["stream": "location"], options: [.sortedKeys])
-        return data.map { String(decoding: $0, as: UTF8.self) } ?? #"{"stream":"location"}"#
     }
 
     func dayString(for date: Date) -> String {

@@ -130,7 +130,12 @@ struct SolstoneSwiftApp: App {
             tunnelManager: tunnel,
             brainStatusMonitor: brain
         )
-        let observerRegistration = ObserverRegistration()
+        let observerRegistration = ObserverRegistration(
+            hostname: UIDevice.current.name,
+            version: AppVersion.shortVersion,
+            streamType: "mobile",
+            label: nil
+        )
         if Self.shouldResetIntegrationObserverRegistration {
             observerRegistration.reset()
         }

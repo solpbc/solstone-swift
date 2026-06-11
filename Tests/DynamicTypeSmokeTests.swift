@@ -15,6 +15,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let diagnosticLog = DiagnosticLog()
         let brainStatusMonitor = BrainStatusMonitor()
         let observerRegistration = ObserverRegistration(
+            hostname: "test-device",
+            version: "1.0",
             loadKey: { nil },
             saveKey: { _ in },
             deleteKey: {}

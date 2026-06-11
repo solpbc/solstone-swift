@@ -43,11 +43,15 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     func testEnsureRegisteredSuccessPersistsKey() async throws {
         ObserverRegistrationURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/app/observer/api/create")
+            XCTAssertEqual(request.url?.path, "/app/observer/register")
             let body = try XCTUnwrap(requestBody(from: request))
             let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
-            XCTAssertEqual(payload["name"], "solstone-swift")
             XCTAssertEqual(payload["platform"], "ios")
+            XCTAssertEqual(payload["hostname"], "test-device")
+            XCTAssertEqual(payload["stream_type"], "mobile")
+            XCTAssertEqual(payload["version"], "1.2.3")
+            XCTAssertNil(payload["label"])
+            XCTAssertNil(payload["name"])
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data(#"{"name":"solstone-swift","key":"observer-key-123","prefix":"obs_"}"#.utf8)
@@ -155,6 +159,8 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
     ) -> ObserverRegistration {
         ObserverRegistration(
+            hostname: "test-device",
+            version: "1.2.3",
             session: self.session,
             retryDelays: retryDelays,
             sleep: sleep,

@@ -5,19 +5,19 @@ import Foundation
 
 nonisolated enum ObserverServerURL {
     static func registrationURL(localPort: Int) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/api/create")
+        self.url(localPort: localPort, path: "/app/observer/register")
     }
 
-    static func ingestURL(localPort: Int, key: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/ingest/\(key)")
+    static func ingestURL(localPort: Int) -> URL? {
+        self.url(localPort: localPort, path: "/app/observer/ingest")
     }
 
-    static func manifestURL(localPort: Int, key: String, day: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/ingest/\(key)/manifest/\(day)")
+    static func manifestURL(localPort: Int, day: String) -> URL? {
+        self.url(localPort: localPort, path: "/app/observer/ingest/manifest/\(day)")
     }
 
-    static func deleteSourceURL(localPort: Int, stream: String, key: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/source/\(stream)/\(key)")
+    static func deleteSourceURL(localPort: Int, source: String) -> URL? {
+        self.url(localPort: localPort, path: "/app/observer/source/\(source)")
     }
 
     static func url(localPort: Int, path: String, queryItems: [URLQueryItem] = []) -> URL? {

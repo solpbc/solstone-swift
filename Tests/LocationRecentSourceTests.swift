@@ -24,10 +24,10 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
                     #"""
                     {
                       "segments": [
-                        {"key":"audio/20260603-160000_300","observed":"today","files":[{"name":"audio.m4a"}]},
-                        {"key":"location/20260603-150000_300","observed":"today","files":[{"name":"location.jsonl"}]},
-                        {"key":"meeting","observed":"today","files":[]},
-                        {"key":"location/20260603-154212_300","observed":"today","files":[{"name":"location.jsonl"}]}
+                        {"key":"20260603-160000_300","observed":"today","files":[{"name":"audio.m4a"}]},
+                        {"key":"20260603-150000_300","observed":"today","files":[{"name":"location.jsonl"}]},
+                        {"key":"20260603-145000_300","observed":"today","files":[]},
+                        {"original_key":"20260603-154212_300","observed":"today","files":[{"name":"location.jsonl"}]}
                       ]
                     }
                     """#.utf8
@@ -35,15 +35,15 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
             )
         }
 
-        let result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
 
         XCTAssertEqual(result, .loaded([
             LocationRecentItem(
-                id: "location/20260603-154212_300",
+                id: "20260603-154212_300",
                 timeLabel: self.timeLabel(for: "20260603-154212_300")
             ),
             LocationRecentItem(
-                id: "location/20260603-150000_300",
+                id: "20260603-150000_300",
                 timeLabel: self.timeLabel(for: "20260603-150000_300")
             ),
         ]))
@@ -57,17 +57,17 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
             )
         }
 
-        var result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        var result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
         XCTAssertEqual(result, .loadedEmpty)
 
         LocationRecentURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"segments":[{"key":"audio/20260603-150000_300","files":[{"name":"audio.m4a"}]}]}"#.utf8)
+                Data(#"{"segments":[{"key":"20260603-150000_300","files":[{"name":"audio.m4a"}]}]}"#.utf8)
             )
         }
 
-        result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
         XCTAssertEqual(result, .loadedEmpty)
     }
 
@@ -79,7 +79,7 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
             )
         }
 
-        var result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        var result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
         XCTAssertEqual(result, .failed)
 
         LocationRecentURLProtocol.handler = { request in
@@ -89,7 +89,7 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
             )
         }
 
-        result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
         XCTAssertEqual(result, .failed)
     }
 
@@ -97,15 +97,15 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
         LocationRecentURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"[{"key":"location/20260603-154212_300","files":[{"name":"location.jsonl"}]}]"#.utf8)
+                Data(#"[{"key":"20260603-154212_300","files":[{"name":"location.jsonl"}]}]"#.utf8)
             )
         }
 
-        let result = await self.client.fetchToday(localPort: 7071, key: "observer-key")
+        let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
 
         XCTAssertEqual(result, .loaded([
             LocationRecentItem(
-                id: "location/20260603-154212_300",
+                id: "20260603-154212_300",
                 timeLabel: self.timeLabel(for: "20260603-154212_300")
             )
         ]))
@@ -184,6 +184,8 @@ private final class LocationRecentURLProtocol: URLProtocol, @unchecked Sendable 
     }
 
     override func startLoading() {
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer observer-key")
+        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/manifest/\(locationRecentTestDayString())")
         guard let handler = Self.handler else {
             XCTFail("LocationRecentURLProtocol handler not set")
             return
@@ -200,4 +202,12 @@ private final class LocationRecentURLProtocol: URLProtocol, @unchecked Sendable 
     }
 
     override func stopLoading() {}
+}
+
+nonisolated private func locationRecentTestDayString() -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.timeZone = .current
+    formatter.dateFormat = "yyyyMMdd"
+    return formatter.string(from: Date())
 }

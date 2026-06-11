@@ -166,7 +166,8 @@ nonisolated final class LocationUploaderTests: XCTestCase {
 
         let body = try await self.waitForCapturedBody()
         let bodyString = String(decoding: body, as: UTF8.self)
-        XCTAssertEqual(try self.extractField("meta", from: bodyString), #"{"stream":"location"}"#)
+        XCTAssertFalse(bodyString.contains(#"name="meta""#))
+        XCTAssertFalse(bodyString.contains(#""stream""#))
         XCTAssertEqual(try self.extractField("platform", from: bodyString), "ios")
         XCTAssertEqual(try self.extractField("day", from: bodyString), "20260602")
         XCTAssertEqual(try self.extractField("segment", from: bodyString), "235800_300")
@@ -493,7 +494,7 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         try self.writeLocationFile(status: "failed", filename: "20260601-120000_60.upload", data: Data("body".utf8))
         LocationUploaderURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "DELETE")
-            XCTAssertEqual(request.url?.path, "/app/observer/source/location/test-location-key-abc")
+            XCTAssertEqual(request.url?.path, "/app/observer/source/location")
             return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 12))
         }
         let uploader = self.makeUploader()
@@ -938,6 +939,7 @@ private final class LocationUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     }
 
     override func startLoading() {
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-location-key-abc")
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
         guard let handler = Self.handler else {

@@ -32,7 +32,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     func testEnqueueUploadsAndCleansPendingFiles() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/app/observer/ingest/test-observer-key-abc")
+            XCTAssertEqual(request.url?.path, "/app/observer/ingest")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data("ok".utf8)
@@ -471,6 +471,7 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     }
 
     override func startLoading() {
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-observer-key-abc")
         Self.callCountBox.withLock { $0 += 1 }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
