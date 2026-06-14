@@ -175,12 +175,13 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSeededOnThisPhoneCountsUsePerSourceNouns() {
+    func testSeededOnThisPhoneSummaryUsesSendStatePills() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
-        XCTAssertTrue(app.staticTexts["2 conversations"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["3 places"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["1 thing"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["5 on this phone"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["1 needs attention"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["onThisPhone.summary.savedOnThisPhone"].exists)
+        XCTAssertTrue(app.staticTexts["onThisPhone.summary.needsAttention"].exists)
     }
 
     @MainActor

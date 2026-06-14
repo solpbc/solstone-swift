@@ -24,13 +24,15 @@ struct OnThisPhoneView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(SourceVocabulary.onThisPhoneScope)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if !self.isShowingNotBackedUpNudge {
+                    Text(SourceVocabulary.onThisPhoneScope)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
 
                 self.magicMomentSection
 
-                if !self.appConfig.isPaired && !self.isShowingMagicMomentSection {
+                if self.isShowingNotBackedUpNudge {
                     self.notBackedUpNudge
                 }
 
@@ -42,7 +44,7 @@ struct OnThisPhoneView: View {
                     if self.appConfig.isPaired, !migration.isEmpty {
                         self.migrationSection(migration: migration)
                     }
-                    OnThisPhoneCountsHeader(sources: aggregate.sources)
+                    OnThisPhoneStateSummaryView(summary: aggregate.sendStateSummary)
                     if !self.appConfig.isPaired,
                        OnThisPhoneBacklogNudge.shouldShow(items: aggregate.items, now: Date()),
                        !self.backlogNudgeDismissed {
@@ -104,6 +106,10 @@ private extension OnThisPhoneView {
             return true
         }
         return self.shouldShowMagicMomentPending
+    }
+
+    var isShowingNotBackedUpNudge: Bool {
+        !self.appConfig.isPaired && !self.isShowingMagicMomentSection
     }
 
     var shouldShowMagicMomentPending: Bool {
@@ -336,7 +342,7 @@ private extension OnThisPhoneView {
 
             Spacer(minLength: 0)
 
-            Button("connect a journal") {
+            Button("connect") {
                 self.showingConnectJournal = true
             }
             .buttonStyle(.borderedProminent)
@@ -440,29 +446,27 @@ private extension OnThisPhoneView {
     }
 }
 
-private struct OnThisPhoneCountsHeader: View {
-    let sources: [OnThisPhoneSourceSnapshot]
+private struct OnThisPhoneStateSummaryView: View {
+    let summary: [OnThisPhoneSendStateSummary]
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(self.sources, id: \.sourceKind) { source in
-                Text(SourceVocabulary.onThisPhoneCountLabel(
-                    for: source.sourceKind,
-                    count: source.result.count
-                ))
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(source.result.count == nil ? .secondary : .primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color(.secondarySystemBackground), in: Capsule())
-                .accessibilityIdentifier("onThisPhone.counts.\(source.sourceKind.accessibilityID)")
-                .accessibilityLabel(SourceVocabulary.onThisPhoneCountAccessibilityLabel(
-                    for: source.sourceKind,
-                    count: source.result.count
-                ))
+        if !self.summary.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(self.summary) { item in
+                    let style = SendStateStyle.style(for: item.sendState)
+                    let label = "\(item.count) \(style.compactLabel)"
+                    Text(label)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(style.foreground)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(style.chipBackground, in: Capsule())
+                        .accessibilityIdentifier("onThisPhone.summary.\(item.sendState.stateID)")
+                        .accessibilityLabel(label)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -471,20 +475,22 @@ private struct OnThisPhoneRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(SourceVocabulary.onThisPhoneSourceName(for: self.item.sourceKind))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(SourceVocabulary.onThisPhoneSourceName(for: self.item.sourceKind))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(self.item.rowTimestampText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
 
-            Text(self.item.rowPayloadText)
+            Text(self.item.rowDescriptorText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 6) {
-                Image(systemName: self.symbolName)
-                Text(self.item.sendState.label)
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(self.stateColor)
+            SendStateChip(state: self.item.sendState)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -492,27 +498,5 @@ private struct OnThisPhoneRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(self.item.voiceOverText)
         .accessibilityIdentifier("onThisPhone.row.\(self.item.id)")
-    }
-
-    private var symbolName: String {
-        switch self.item.sendState {
-        case .inYourJournal:
-            "checkmark.circle"
-        case .sending:
-            "arrow.up.circle"
-        case .savedOnThisPhone:
-            "internaldrive"
-        case .needsAttention:
-            "exclamationmark.triangle"
-        }
-    }
-
-    private var stateColor: Color {
-        switch self.item.sendState {
-        case .needsAttention:
-            .red
-        case .inYourJournal, .sending, .savedOnThisPhone:
-            .secondary
-        }
     }
 }

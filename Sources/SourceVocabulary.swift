@@ -93,6 +93,9 @@ nonisolated enum SourceVocabulary {
     static let shareDeliveredProgress = "saved to your journal"
     static let sendStateSaved = "saved on this phone"
     static let sendStateSending = "sending"
+    static let sendStateCompactSaved = "on this phone"
+    static let sendStateCompactOnTheWay = "on the way"
+    static let sendStateCompactInJournal = "in your journal"
 
     static let experiencingAlongsideYouHeader = "experiencing alongside you"
     static let bringingInYourselfHeader = "bringing in yourself"
@@ -118,11 +121,10 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
     static let onThisPhoneDeleteReceipt = "deleted from this phone"
-    static let onThisPhoneNotBackedUp = "on this phone only — not backed up. connect a journal to keep a copy."
+    static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let migrationStageOnThisPhone = "on this phone"
     static let migrationStageOnItsWay = "on its way"
     static let migrationStageInYourJournal = "your journal"
-    static let onThisPhoneSourceGapAccessibilityLabel = "couldn't read this source right now"
     static let magicMomentShownHeadline = "it's on your phone now"
     static let magicMomentShownBody = "sol just took in your first observation and kept it here — yours, and nowhere else."
     static let magicMomentShownSecondary = "connect a journal whenever →"
@@ -203,26 +205,5 @@ nonisolated enum SourceVocabulary {
         case .share:
             Self.shareSheetDisplayName
         }
-    }
-
-    static func onThisPhoneCountNoun(for sourceKind: OnThisPhoneSourceKind, count: Int) -> String {
-        switch sourceKind {
-        case .audio:
-            count == 1 ? "conversation" : "conversations"
-        case .location:
-            count == 1 ? "place" : "places"
-        case .share:
-            count == 1 ? "thing" : "things"
-        }
-    }
-
-    static func onThisPhoneCountLabel(for sourceKind: OnThisPhoneSourceKind, count: Int?) -> String {
-        guard let count else { return "—" }
-        return "\(count) \(Self.onThisPhoneCountNoun(for: sourceKind, count: count))"
-    }
-
-    static func onThisPhoneCountAccessibilityLabel(for sourceKind: OnThisPhoneSourceKind, count: Int?) -> String {
-        guard count != nil else { return Self.onThisPhoneSourceGapAccessibilityLabel }
-        return Self.onThisPhoneCountLabel(for: sourceKind, count: count)
     }
 }

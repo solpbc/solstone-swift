@@ -38,6 +38,26 @@ nonisolated enum OnThisPhoneSendState: Equatable, Sendable {
             SourceVocabulary.needsAttention
         }
     }
+
+    var stateID: String {
+        switch self {
+        case .savedOnThisPhone:
+            "savedOnThisPhone"
+        case .sending:
+            "sending"
+        case .inYourJournal:
+            "inYourJournal"
+        case .needsAttention:
+            "needsAttention"
+        }
+    }
+
+    static let summaryOrder: [OnThisPhoneSendState] = [
+        .savedOnThisPhone,
+        .sending,
+        .inYourJournal,
+        .needsAttention,
+    ]
 }
 
 nonisolated enum OnThisPhoneLocation: Equatable, Sendable {
@@ -121,6 +141,25 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         self.rawFileURL != nil
     }
 
+    var rowTimestampText: String {
+        (self.itemTime ?? self.deliveredAt)?.formatted(date: .omitted, time: .shortened) ?? ""
+    }
+
+    var rowDescriptorText: String {
+        switch self.sourceKind {
+        case .audio:
+            Self.formattedDuration(self.audioDurationS)
+                ?? self.filename
+                ?? SourceVocabulary.notProvided
+        case .location:
+            self.locationFixCount.map {
+                SourceVocabulary.onThisPhoneLocationRowLabel(count: $0)
+            } ?? SourceVocabulary.notProvided
+        case .share:
+            self.filename ?? SourceVocabulary.notProvided
+        }
+    }
+
     var voiceOverText: String {
         [
             SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind),
@@ -189,6 +228,23 @@ nonisolated struct OnThisPhoneSourceSnapshot: Equatable, Sendable {
 nonisolated struct OnThisPhoneAggregateSnapshot: Equatable, Sendable {
     let sources: [OnThisPhoneSourceSnapshot]
     let items: [OnThisPhoneItem]
+
+    var sendStateSummary: [OnThisPhoneSendStateSummary] {
+        OnThisPhoneSendState.summaryOrder.compactMap { state in
+            let count = self.items.filter { $0.sendState == state }.count
+            guard count > 0 else { return nil }
+            return OnThisPhoneSendStateSummary(sendState: state, count: count)
+        }
+    }
+}
+
+nonisolated struct OnThisPhoneSendStateSummary: Identifiable, Sendable, Equatable {
+    let sendState: OnThisPhoneSendState
+    let count: Int
+
+    var id: String {
+        self.sendState.stateID
+    }
 }
 
 nonisolated enum OnThisPhoneItemSort {

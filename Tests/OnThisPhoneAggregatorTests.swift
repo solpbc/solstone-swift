@@ -126,18 +126,53 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let location = try self.result(for: .location, in: snapshot)
         XCTAssertNil(audio.count)
         XCTAssertEqual(location.count, 0)
-        XCTAssertEqual(
-            SourceVocabulary.onThisPhoneCountLabel(for: .audio, count: audio.count),
-            "—"
+        XCTAssertEqual(snapshot.sendStateSummary, [])
+    }
+
+    @MainActor
+    func testSendStateSummaryCountsSuppressesZeroAndUsesFixedOrder() {
+        let saved1 = Self.item(
+            id: "saved-1",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 40),
+            sendState: .savedOnThisPhone
         )
-        XCTAssertNotEqual(
-            SourceVocabulary.onThisPhoneCountLabel(for: .audio, count: audio.count),
-            SourceVocabulary.onThisPhoneCountLabel(for: .location, count: location.count)
+        let needsAttention = Self.item(
+            id: "attention",
+            sourceKind: .location,
+            itemTime: Date(timeIntervalSince1970: 30),
+            sendState: .needsAttention
         )
-        XCTAssertEqual(
-            SourceVocabulary.onThisPhoneCountAccessibilityLabel(for: .audio, count: audio.count),
-            SourceVocabulary.onThisPhoneSourceGapAccessibilityLabel
+        let sending = Self.item(
+            id: "sending",
+            sourceKind: .share,
+            itemTime: Date(timeIntervalSince1970: 20),
+            sendState: .sending
         )
+        let saved2 = Self.item(
+            id: "saved-2",
+            sourceKind: .share,
+            itemTime: Date(timeIntervalSince1970: 10),
+            sendState: .savedOnThisPhone
+        )
+
+        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(sources: [
+            OnThisPhoneSourceSnapshot(sourceKind: .audio, result: .loaded(items: [saved1])),
+            OnThisPhoneSourceSnapshot(sourceKind: .location, result: .failed),
+            OnThisPhoneSourceSnapshot(sourceKind: .share, result: .loaded(items: [needsAttention, sending, saved2])),
+        ])
+
+        XCTAssertEqual(snapshot.sendStateSummary.map(\.sendState), [
+            .savedOnThisPhone,
+            .sending,
+            .needsAttention,
+        ])
+        XCTAssertEqual(snapshot.sendStateSummary.map(\.count), [2, 1, 1])
+        XCTAssertEqual(snapshot.sendStateSummary.map(\.id), [
+            "savedOnThisPhone",
+            "sending",
+            "needsAttention",
+        ])
     }
 
     @MainActor
@@ -192,6 +227,46 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertTrue(plural.voiceOverText.contains("2 observations"))
         XCTAssertFalse(singular.rowPayloadText.contains("place"))
         XCTAssertFalse(plural.rowPayloadText.contains("place"))
+    }
+
+    func testRowDescriptorAndTimestampText() {
+        let itemTime = Date(timeIntervalSince1970: 1_780_480_800)
+        let deliveredAt = Date(timeIntervalSince1970: 1_780_481_200)
+        let audio = Self.item(
+            id: "audio.m4a",
+            sourceKind: .audio,
+            itemTime: itemTime,
+            audioDurationS: 75
+        )
+        let location = Self.item(
+            id: "location",
+            sourceKind: .location,
+            itemTime: itemTime,
+            locationFixCount: 2
+        )
+        let share = Self.item(
+            id: "share.pdf",
+            sourceKind: .share,
+            itemTime: itemTime
+        )
+        let deliveredOnly = Self.item(
+            id: "delivered.pdf",
+            sourceKind: .share,
+            itemTime: nil,
+            deliveredAt: deliveredAt
+        )
+        let nilTime = Self.item(
+            id: "nil-time",
+            sourceKind: .share,
+            itemTime: nil
+        )
+
+        XCTAssertEqual(audio.rowDescriptorText, "1m 15s")
+        XCTAssertEqual(location.rowDescriptorText, "2 observations")
+        XCTAssertEqual(share.rowDescriptorText, "share.pdf")
+        XCTAssertEqual(audio.rowTimestampText, itemTime.formatted(date: .omitted, time: .shortened))
+        XCTAssertEqual(deliveredOnly.rowTimestampText, deliveredAt.formatted(date: .omitted, time: .shortened))
+        XCTAssertEqual(nilTime.rowTimestampText, "")
     }
 
     func testOnThisPhoneItemIDParsing() throws {
@@ -347,13 +422,16 @@ private extension OnThisPhoneAggregatorTests {
     static func item(
         id: String,
         sourceKind: OnThisPhoneSourceKind,
-        itemTime: Date,
+        itemTime: Date?,
+        sendState: OnThisPhoneSendState = .savedOnThisPhone,
+        deliveredAt: Date? = nil,
+        audioDurationS: Double? = nil,
         locationFixCount: Int? = nil
     ) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: id,
             sourceKind: sourceKind,
-            sendState: .savedOnThisPhone,
+            sendState: sendState,
             contentType: "application/octet-stream",
             filename: id,
             bytes: nil,
@@ -364,8 +442,9 @@ private extension OnThisPhoneAggregatorTests {
             stream: nil,
             day: nil,
             segment: nil,
-            deliveredAt: nil,
+            deliveredAt: deliveredAt,
             rawFileURL: nil,
+            audioDurationS: audioDurationS,
             locationFixCount: locationFixCount
         )
     }

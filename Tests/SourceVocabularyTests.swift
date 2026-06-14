@@ -24,6 +24,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.sourcesConnectBanner, "kept here until you connect a journal · connect →")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
+        XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "on this phone")
+        XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
+        XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, "in your journal")
         XCTAssertEqual(
             SourceVocabulary.audioEnrollmentValue,
             "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you."
@@ -53,7 +56,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneDeleteReceipt, "deleted from this phone")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneNotBackedUp,
-            "on this phone only — not backed up. connect a journal to keep a copy."
+            "nothing here is backed up yet. connect a journal to keep a copy."
         )
         XCTAssertEqual(SourceVocabulary.migrationStageOnThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.migrationStageOnItsWay, "on its way")
@@ -176,7 +179,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "what sol made from it",
             "open in convey ↗",
             "open your journal in convey ↗",
-            "in your journal",
             "journal dashboard",
         ]
 
@@ -207,6 +209,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.shareDeliveredProgress,
             SourceVocabulary.sendStateSaved,
             SourceVocabulary.sendStateSending,
+            SourceVocabulary.sendStateCompactSaved,
+            SourceVocabulary.sendStateCompactOnTheWay,
+            SourceVocabulary.sendStateCompactInJournal,
             SourceVocabulary.experiencingAlongsideYouHeader,
             SourceVocabulary.bringingInYourselfHeader,
             SourceVocabulary.trustLineUnpaired,
@@ -232,7 +237,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.migrationStageCount(2, stage: SourceVocabulary.migrationStageOnItsWay),
             SourceVocabulary.onThisPhoneAgedBacklog(count: 2),
             SourceVocabulary.onThisPhoneLocationRowLabel(count: 2),
-            SourceVocabulary.onThisPhoneSourceGapAccessibilityLabel,
             SourceVocabulary.yourJournalSection,
             SourceVocabulary.onThisPhoneSource,
             SourceVocabulary.onThisPhonePlacement,
