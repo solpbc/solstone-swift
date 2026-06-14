@@ -98,6 +98,8 @@ final class PairFlowCoordinator {
             "this isn't your solstone — re-pair if you intended to."
         case PairError.nonceExpired:
             "this pairing code has expired."
+        case PairError.pairingWindowClosed:
+            "the pairing window closed — generate a new code on your solstone."
 
         // Default catch-all — lowercase fix folded into this lode for voice
         // consistency (was "Try again.").

@@ -239,7 +239,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
-            deviceToken: "device-token",
+            relayEnrollment: .enrolled(deviceToken: "device-token"),
             localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )

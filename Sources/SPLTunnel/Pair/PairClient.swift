@@ -2,12 +2,17 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import os
+
+private let pairLog = Logger(subsystem: "app.solstone.observer.spl", category: "pair")
 
 public struct PairClient: Sendable {
     private let session: URLSession?
+    private let lanTransport: any LANPairTransport
 
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, lanTransport: any LANPairTransport = CertlessPairExchange()) {
         self.session = session
+        self.lanTransport = lanTransport
     }
 
     public func pair(pairURL: PairURL, deviceLabel: String, relayEndpoint: URL) async throws -> StoredPairing {
@@ -19,10 +24,17 @@ public struct PairClient: Sendable {
         }
 
         let lanResponse = try await postLAN(pairURL: pairURL, csrPEM: generated.csrPEM, deviceLabel: deviceLabel)
-        let relayResponse = try await postRelay(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
         let certificates = try? CertChain.certificates(fromPEM: lanResponse.clientCert)
         guard let clientCertificate = certificates?.first else {
             throw PairError.lanResponseInvalid(status: nil)
+        }
+        let relayEnrollment: RelayEnrollment
+        do {
+            let relayResponse = try await postRelay(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
+            relayEnrollment = .enrolled(deviceToken: relayResponse.deviceToken)
+        } catch {
+            pairLog.error("relay enrollment failed: \(String(describing: error), privacy: .public)")
+            relayEnrollment = .unavailable
         }
 
         return StoredPairing(
@@ -33,52 +45,52 @@ public struct PairClient: Sendable {
             clientCertPEM: lanResponse.clientCert,
             clientKeyPEM: generated.privateKeyPEM,
             caChainPEM: Self.joinPEMChain(lanResponse.caChain),
-            deviceToken: relayResponse.deviceToken,
+            relayEnrollment: relayEnrollment,
             localEndpoints: lanResponse.localEndpoints,
             pairedAt: Date()
         )
     }
 
     private func postLAN(pairURL: PairURL, csrPEM: String, deviceLabel: String) async throws -> LANPairResponse {
-        let request = try Self.makeLANRequest(pairURL: pairURL, csrPEM: csrPEM, deviceLabel: deviceLabel)
-        let session: URLSession
-        if let injected = self.session {
-            session = injected
-        } else {
-            let delegate = PinningDelegate(expectedFingerprintBytes: pairURL.caFingerprintBytes)
-            session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-        }
-
-        let data: Data
-        let response: URLResponse
+        let jsonBody = try Self.encodeLANRequestBody(pairURL: pairURL, csrPEM: csrPEM, deviceLabel: deviceLabel)
+        let requestBytes = CertlessPairExchange.encodeRequest(
+            host: pairURL.addressString,
+            path: "/app/link/pair",
+            jsonBody: jsonBody
+        )
+        let response: (status: Int, body: Data)
         do {
-            (data, response) = try await session.data(for: request)
+            response = try await lanTransport.send(
+                host: pairURL.addressString,
+                port: Int(pairURL.port),
+                caFingerprintBytes: pairURL.caFingerprintBytes,
+                requestBytes: requestBytes
+            )
+        } catch InnerTLSError.caFingerprintMismatch {
+            throw PairError.lanCAFingerprintMismatch
+        } catch CertlessPairError.closedBeforeStatus {
+            throw PairError.pairingWindowClosed
+        } catch CertlessPairError.malformedResponse {
+            throw PairError.lanResponseInvalid(status: nil)
         } catch {
-            if (error as? URLError)?.code == .cancelled {
-                throw PairError.lanCAFingerprintMismatch
-            }
             throw PairError.lanRequestFailed(underlying: error)
         }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw PairError.lanResponseInvalid(status: nil)
-        }
-
-        switch http.statusCode {
+        switch response.status {
         case 200:
             do {
-                return try Self.decodeLANResponse(data: data)
+                return try Self.decodeLANResponse(data: response.body)
             } catch {
-                throw PairError.lanResponseInvalid(status: http.statusCode)
+                throw PairError.lanResponseInvalid(status: response.status)
             }
         case 400, 404:
-            throw PairError.lanResponseInvalid(status: http.statusCode)
+            throw PairError.lanResponseInvalid(status: response.status)
         case 410:
             throw PairError.nonceExpired
         case 500...599:
             throw PairError.lanRequestFailed(underlying: nil)
         default:
-            throw PairError.lanResponseInvalid(status: http.statusCode)
+            throw PairError.lanResponseInvalid(status: response.status)
         }
     }
 
@@ -118,18 +130,14 @@ public struct PairClient: Sendable {
         }
     }
 
-    static func makeLANRequest(pairURL: PairURL, csrPEM: String, deviceLabel: String) throws -> URLRequest {
-        // Dotted-quad IPv4 plus UInt16 port and fixed path are parser-controlled.
-        let url = URL(string: "https://\(pairURL.addressString):\(pairURL.port)/app/link/pair")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(LANPairRequest(
+    static func encodeLANRequestBody(pairURL: PairURL, csrPEM: String, deviceLabel: String) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(LANPairRequest(
             nonce: CertChain.hex(pairURL.nonceBytes),
             csr: csrPEM,
             deviceLabel: deviceLabel
         ))
-        return request
     }
 
     static func makeRelayRequest(relayEndpoint: URL, response: LANPairResponse, userAgent: String) throws -> URLRequest {
@@ -241,6 +249,7 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
     case lanCAFingerprintMismatch
     case lanResponseInvalid(status: Int?)
     case nonceExpired
+    case pairingWindowClosed
     case relayRequestFailed(underlying: (any Error & Sendable)?)
     case relayResponseInvalid(status: Int?)
     case attestationRejected(status: Int)
@@ -257,6 +266,8 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
             return "solstone returned an invalid pairing response."
         case .nonceExpired:
             return "this pairing code has expired. generate a new one on your solstone."
+        case .pairingWindowClosed:
+            return "the pairing window closed — generate a new code on your solstone."
         case .relayRequestFailed:
             return "couldn't reach the relay."
         case .relayResponseInvalid:
@@ -272,6 +283,7 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
              (.lanRequestFailed, .lanRequestFailed),
              (.lanCAFingerprintMismatch, .lanCAFingerprintMismatch),
              (.nonceExpired, .nonceExpired),
+             (.pairingWindowClosed, .pairingWindowClosed),
              (.relayRequestFailed, .relayRequestFailed):
             return true
         case (.lanResponseInvalid(let lhsStatus), .lanResponseInvalid(let rhsStatus)):

@@ -5,9 +5,9 @@ import Crypto
 import Foundation
 import Security
 
-/// Certificate helpers for pair-response storage and leaf-certificate pinning.
-/// PairClient stores the issued client certificate SHA-256 fingerprint, while
-/// PinningDelegate compares the first 16 bytes of the presented leaf DER hash.
+/// Certificate helpers for pair-response storage and CA-chain pinning.
+/// Pairing pins the first 16 bytes of the presented CA certificate DER SHA-256,
+/// while established sessions anchor trust to the stored private CA chain.
 public enum CertChain {
     public static func certificates(fromPEM pem: String) throws -> [SecCertificate] {
         let blocks = try pemBlocks(from: pem, label: "CERTIFICATE")

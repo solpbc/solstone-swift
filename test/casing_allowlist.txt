@@ -29,6 +29,8 @@ PairFlowCoordinator.swift|Try again.
 *|HTTP
 *|Authorization
 *|Content-Type
+CertlessPairExchange.swift|Host:
+CertlessPairExchange.swift|Content-Length
 *|Bearer
 *|CFBundleShortVersionString
 *|CFBundleVersion

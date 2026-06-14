@@ -16,6 +16,7 @@ public enum InnerTLSError: Error, Equatable, Sendable {
     case invalidCertificate
     case invalidPrivateKey
     case peerNotPinned
+    case caFingerprintMismatch
     case handshakeFailed(String)
     case sendFailed(String)
     case receiveFailed(String)
@@ -83,6 +84,40 @@ public actor InnerTLS {
 
         let elapsed = startedAt.duration(to: .now).milliseconds
         logger.debug("handshake transport=\("lan", privacy: .public) duration_ms=\(elapsed, privacy: .public)")
+
+        let tls = InnerTLS(connection: connection)
+        await tls.startReceiveLoop()
+        return tls
+    }
+
+    public static func connectLANCertless(host: String, port: Int, caFingerprintBytes: [UInt8]) async throws -> InnerTLS {
+        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)), 1...65535 ~= port else {
+            throw InnerTLSError.invalidPort(port)
+        }
+
+        let verifyFailure = TLSVerifyFailure()
+        let options = makeCertlessTLSOptions(caFingerprintBytes: caFingerprintBytes, verifyFailure: verifyFailure)
+        let parameters = NWParameters(tls: options, tcp: NWProtocolTCP.Options())
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: parameters)
+        let startedAt = ContinuousClock.now
+        do {
+            try await startAndWaitReady(connection)
+        } catch let error as InnerTLSError {
+            connection.cancel()
+            if let reason = verifyFailure.reason {
+                throw reason
+            }
+            throw error
+        } catch {
+            connection.cancel()
+            if let reason = verifyFailure.reason {
+                throw reason
+            }
+            throw InnerTLSError.handshakeFailed(error.localizedDescription)
+        }
+
+        let elapsed = startedAt.duration(to: .now).milliseconds
+        logger.debug("handshake transport=\("lan-certless", privacy: .public) duration_ms=\(elapsed, privacy: .public)")
 
         let tls = InnerTLS(connection: connection)
         await tls.startReceiveLoop()
@@ -233,6 +268,51 @@ public actor InnerTLS {
             complete(trusted)
         }, tlsQueue)
         return options
+    }
+
+    private static func makeCertlessTLSOptions(caFingerprintBytes: [UInt8], verifyFailure: TLSVerifyFailure) -> NWProtocolTLS.Options {
+        let options = NWProtocolTLS.Options()
+        let secOptions = options.securityProtocolOptions
+        sec_protocol_options_set_min_tls_protocol_version(secOptions, .TLSv13)
+        sec_protocol_options_set_max_tls_protocol_version(secOptions, .TLSv13)
+        // why: pairing pins the presented CA by DER hash; the client has no cert yet.
+        sec_protocol_options_set_verify_block(secOptions, { _, trust, complete in
+            let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+            let chain = (SecTrustCopyCertificateChain(secTrust) as? [SecCertificate]) ?? []
+            let trusted = certlessTrustAccepts(chain: chain, caFingerprintBytes: caFingerprintBytes)
+            if !trusted {
+                verifyFailure.set(.caFingerprintMismatch)
+            }
+            complete(trusted)
+        }, tlsQueue)
+        return options
+    }
+
+    static func certlessTrustAccepts(chain: [SecCertificate], caFingerprintBytes: [UInt8]) -> Bool {
+        guard caFingerprintBytes.count == 16 else {
+            return false
+        }
+        guard let anchor = chain.first(where: { certificate in
+            let data = SecCertificateCopyData(certificate) as Data
+            let digest = Array(SHA256.hash(data: data))
+            return Array(digest.prefix(16)) == caFingerprintBytes
+        }) else {
+            return false
+        }
+
+        var trust: SecTrust?
+        guard SecTrustCreateWithCertificates(chain as CFArray, SecPolicyCreateBasicX509(), &trust) == errSecSuccess,
+              let trust else {
+            return false
+        }
+        guard SecTrustSetAnchorCertificates(trust, [anchor] as CFArray) == errSecSuccess else {
+            return false
+        }
+        guard SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess else {
+            return false
+        }
+        var error: CFError?
+        return SecTrustEvaluateWithError(trust, &error)
     }
 
     static func makeIdentity(pairing: StoredPairing) throws -> sec_identity_t {
