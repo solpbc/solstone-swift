@@ -123,6 +123,8 @@ final class PairFlowCoordinator {
             "this isn't your solstone — re-pair if you intended to."
         case PairError.nonceExpired:
             "this pairing code has expired."
+        case PairError.pairingWindowClosed:
+            "the pairing window closed — generate a new code on your solstone."
         case PairError.relayInstanceMismatch:
             "the relay connected to the wrong solstone."
 

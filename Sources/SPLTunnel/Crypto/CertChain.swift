@@ -20,10 +20,10 @@ public struct PairingCAPin: Sendable, Equatable, Hashable {
     }
 }
 
-/// Certificate helpers for pair-response storage and CA-boundary pinning.
+/// Certificate helpers for pair-response storage and CA-chain pinning.
 /// Direct links carry a CA cert DER hash prefix; relay links carry a CA SPKI
-/// hash prefix. PairClient verifies one of those CA pins before sending nonce
-/// material over the secure-listener channel.
+/// hash prefix. Established sessions anchor trust to the stored private CA
+/// chain.
 public enum CertChain {
     public static func certificates(fromPEM pem: String) throws -> [SecCertificate] {
         let blocks = try pemBlocks(from: pem, label: "CERTIFICATE")

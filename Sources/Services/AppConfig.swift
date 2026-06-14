@@ -122,7 +122,7 @@ final class AppConfig {
             clientCertPEM: Self.syntheticCertificatePEM,
             clientKeyPEM: Self.syntheticPrivateKeyPEM,
             caChainPEM: Self.syntheticCertificatePEM,
-            deviceToken: sessionKey ?? "ui-test-device-token",
+            relayEnrollment: .enrolled(deviceToken: sessionKey ?? "ui-test-device-token"),
             localEndpoints: [
                 LocalEndpoint(host: endpointHost, port: endpointPort, scope: "")
             ],

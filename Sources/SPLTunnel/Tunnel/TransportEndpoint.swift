@@ -11,17 +11,20 @@ public enum TransportEndpoint: Sendable, Equatable {
         let local = pairing.localEndpoints.map {
             TransportEndpoint.lan(host: $0.host, port: $0.port, scope: $0.scope)
         }
+        guard case .enrolled(let deviceToken) = pairing.relayEnrollment else {
+            return local
+        }
         guard let relayEndpoint = URL(string: pairing.relayEndpoint) else {
             throw SessionError.invalidRelayURL(pairing.relayEndpoint)
         }
-        guard !pairing.deviceToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !deviceToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return local
         }
         return local + [
             .relay(
                 endpoint: relayEndpoint,
                 instanceID: pairing.instanceID,
-                deviceToken: pairing.deviceToken
+                deviceToken: deviceToken
             ),
         ]
     }

@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import XCTest
+import SPLTunnel
 
 nonisolated final class PairFlowViewTests: XCTestCase {
     @MainActor
@@ -40,5 +41,13 @@ nonisolated final class PairFlowViewTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(60))
 
         XCTAssertTrue(timer.shouldShowCodeFallback)
+    }
+
+    @MainActor
+    func testPairingWindowClosedMessage() {
+        XCTAssertEqual(
+            PairFlowCoordinator.message(for: PairError.pairingWindowClosed),
+            "the pairing window closed — generate a new code on your solstone."
+        )
     }
 }
