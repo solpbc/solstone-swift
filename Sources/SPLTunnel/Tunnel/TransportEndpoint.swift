@@ -14,6 +14,9 @@ public enum TransportEndpoint: Sendable, Equatable {
         guard let relayEndpoint = URL(string: pairing.relayEndpoint) else {
             throw SessionError.invalidRelayURL(pairing.relayEndpoint)
         }
+        guard !pairing.deviceToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return local
+        }
         return local + [
             .relay(
                 endpoint: relayEndpoint,

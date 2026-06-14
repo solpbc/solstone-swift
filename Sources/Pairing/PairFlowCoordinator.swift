@@ -58,6 +58,27 @@ final class PairFlowCoordinator {
         }
     }
 
+    func handleManualCode(_ code: String, homeURL: URL) async throws {
+        state = .pairing
+        do {
+            let pairing = try await pairClient.pair(
+                manualCode: code,
+                homeURL: homeURL,
+                deviceLabel: Self.deviceLabel(),
+                relayEndpoint: SPLPairingConstants.relayEndpoint
+            )
+            try SPLKeychain.save(pairing)
+            await endpointCache.bootstrap(from: pairing)
+            state = .success
+            pairFlowLog.info("manual-code pairing saved for \(pairing.homeLabel, privacy: .public)")
+        } catch {
+            let message = Self.message(for: error)
+            state = .failed(error: message)
+            pairFlowLog.error("manual-code pairing failed: \(String(describing: error), privacy: .public)")
+            throw error
+        }
+    }
+
     func unpair() async {
         do {
             try SPLKeychain.delete()
@@ -92,12 +113,18 @@ final class PairFlowCoordinator {
             "this pairing link is from a newer version of solstone."
         case PairURLError.unsupportedAddrType:
             "this pairing link uses an unsupported address format."
+        case PairURLError.unsupportedCAFingerprintTag:
+            "this pairing link uses an unsupported verification format."
+        case PairURLError.invalidRelayOrigin:
+            "this pairing link is damaged."
 
         // Existing live cases — unchanged.
         case PairError.lanCAFingerprintMismatch:
             "this isn't your solstone — re-pair if you intended to."
         case PairError.nonceExpired:
             "this pairing code has expired."
+        case PairError.relayInstanceMismatch:
+            "the relay connected to the wrong solstone."
 
         // Default catch-all — lowercase fix folded into this lode for voice
         // consistency (was "Try again.").

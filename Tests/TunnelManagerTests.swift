@@ -122,6 +122,24 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testCandidateListOmitsRelayWhenDeviceTokenIsEmpty() async {
+        let transport = MockCFTunnelTransport()
+        let pairing = Self.fixturePairing(deviceToken: "")
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            pairing: pairing
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(Self.lanCandidates(from: transport.capturedCandidates), [
+            .lan(host: "127.0.0.1", port: 8676, scope: ""),
+        ])
+        XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 0)
+    }
+
+    @MainActor
     func testSuccessfulRelayConnectPublishesLoopbackPort() async {
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plViaSpl
@@ -230,7 +248,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             .appendingPathComponent("endpoints.json")
     }
 
-    private static func fixturePairing(localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")]) -> StoredPairing {
+    private static func fixturePairing(
+        localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
+        deviceToken: String = "device-token"
+    ) -> StoredPairing {
         StoredPairing(
             instanceID: "instance-123",
             homeLabel: "sol",
@@ -239,7 +260,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
-            deviceToken: "device-token",
+            deviceToken: deviceToken,
             localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )

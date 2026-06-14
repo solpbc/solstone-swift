@@ -151,6 +151,68 @@ public actor InnerTLS {
         return tls
     }
 
+    public static func connectPairingViaTransport(transport: any ByteTransport, caPin: PairingCAPin) async throws -> InnerTLS {
+        let verifyFailure = TLSVerifyFailure()
+        let options = makePairingTLSOptions(caPin: caPin, verifyFailure: verifyFailure)
+        let listener = try NWListener(using: .tcp, on: .any)
+        let acceptor = OneShotConnectionAcceptor()
+        listener.newConnectionHandler = { connection in
+            acceptor.complete(connection)
+        }
+        try await startAndWaitReady(listener)
+        guard let port = listener.port else {
+            listener.cancel()
+            await transport.close()
+            throw InnerTLSError.handshakeFailed("loopback listener did not bind")
+        }
+
+        let parameters = NWParameters(tls: options, tcp: NWProtocolTCP.Options())
+        let connection = NWConnection(host: "127.0.0.1", port: port, using: parameters)
+        let connectionWaiter = startAndReturnReadyWaiter(connection)
+
+        let peer = try await acceptor.wait()
+        try await startAndWaitReady(peer)
+
+        let pumps = makePumpTasks(transport: transport, peer: peer)
+        let startedAt = ContinuousClock.now
+        do {
+            try await connectionWaiter.wait()
+        } catch let error as InnerTLSError {
+            pumps.forEach { $0.cancel() }
+            peer.cancel()
+            connection.cancel()
+            listener.cancel()
+            await transport.close()
+            if let reason = verifyFailure.reason {
+                throw reason
+            }
+            throw error
+        } catch {
+            pumps.forEach { $0.cancel() }
+            peer.cancel()
+            connection.cancel()
+            listener.cancel()
+            await transport.close()
+            if let reason = verifyFailure.reason {
+                throw reason
+            }
+            throw InnerTLSError.handshakeFailed(error.localizedDescription)
+        }
+
+        let elapsed = startedAt.duration(to: .now).milliseconds
+        logger.debug("pairing handshake transport=\(transport.transportKind, privacy: .public) duration_ms=\(elapsed, privacy: .public)")
+
+        let tls = InnerTLS(
+            connection: connection,
+            relayTransport: transport,
+            listener: listener,
+            peerConnection: peer,
+            pumpTasks: pumps
+        )
+        await tls.startReceiveLoop()
+        return tls
+    }
+
     public func send(_ plaintext: Data) async throws {
         guard !isClosed else {
             throw InnerTLSError.closed
@@ -224,6 +286,33 @@ public actor InnerTLS {
             let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
             SecTrustSetPolicies(secTrust, SecPolicyCreateBasicX509())
             SecTrustSetAnchorCertificates(secTrust, caCertificates as CFArray)
+            SecTrustSetAnchorCertificatesOnly(secTrust, true)
+            var error: CFError?
+            let trusted = SecTrustEvaluateWithError(secTrust, &error)
+            if !trusted {
+                verifyFailure.set(.peerNotPinned)
+            }
+            complete(trusted)
+        }, tlsQueue)
+        return options
+    }
+
+    private static func makePairingTLSOptions(caPin: PairingCAPin, verifyFailure: TLSVerifyFailure) -> NWProtocolTLS.Options {
+        let options = NWProtocolTLS.Options()
+        let secOptions = options.securityProtocolOptions
+        sec_protocol_options_set_min_tls_protocol_version(secOptions, .TLSv13)
+        sec_protocol_options_set_max_tls_protocol_version(secOptions, .TLSv13)
+        // why: pairing obtains its client identity after this cert-less, CA-pinned channel is established.
+        sec_protocol_options_set_verify_block(secOptions, { _, trust, complete in
+            let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+            SecTrustSetPolicies(secTrust, SecPolicyCreateBasicX509())
+            guard let chain = SecTrustCopyCertificateChain(secTrust) as? [SecCertificate],
+                  let pinnedCA = chain.first(where: { CertChain.pinMatches(certificate: $0, pin: caPin) }) else {
+                verifyFailure.set(.peerNotPinned)
+                complete(false)
+                return
+            }
+            SecTrustSetAnchorCertificates(secTrust, [pinnedCA] as CFArray)
             SecTrustSetAnchorCertificatesOnly(secTrust, true)
             var error: CFError?
             let trusted = SecTrustEvaluateWithError(secTrust, &error)

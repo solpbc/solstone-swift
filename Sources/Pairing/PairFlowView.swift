@@ -107,9 +107,9 @@ struct PairFlowView: View {
                     )
                     .frame(minHeight: 320)
                 case .code:
-                    ManualCodeEntryView { pairURL in
+                    ManualCodeEntryView { code, homeURL in
                         Task {
-                            await self.handle(pairURL)
+                            await self.handleManualCode(code, homeURL: homeURL)
                         }
                     }
                 case .paste:
@@ -232,6 +232,20 @@ struct PairFlowView: View {
         self.fallbackTimer.cancel()
         do {
             try await self.coordinator.handlePairURL(pairURL)
+            if let pairing = try SPLKeychain.load() {
+                try self.appConfig.applyPairing(pairing)
+            }
+            self.errorMessage = nil
+            self.onComplete()
+        } catch {
+            self.errorMessage = PairFlowCoordinator.message(for: error)
+        }
+    }
+
+    private func handleManualCode(_ code: String, homeURL: URL) async {
+        self.fallbackTimer.cancel()
+        do {
+            try await self.coordinator.handleManualCode(code, homeURL: homeURL)
             if let pairing = try SPLKeychain.load() {
                 try self.appConfig.applyPairing(pairing)
             }

@@ -1,42 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-import SPLTunnel
+import Foundation
 import SwiftUI
 
 struct ManualCodeEntryView: View {
     private enum ManualCodeError: Error {
         case invalidFormat
-        case network
-        case codeExpired
-        case codeInvalid
+        case invalidAddress
+        case relayAddress
     }
 
-    private struct CodeRequest: Encodable {
-        let code: String
-    }
-
-    private struct CodeResponse: Decodable {
-        let url: String?
-        let link: String?
-        let universalLink: String?
-
-        enum CodingKeys: String, CodingKey {
-            case url
-            case link
-            case universalLink = "universal_link"
-        }
-
-        var linkString: String? {
-            url ?? link ?? universalLink
-        }
-    }
-
-    let onPairURL: @MainActor (PairURL) -> Void
+    let onSubmit: @MainActor (String, URL) -> Void
 
     @State private var code = ""
+    @State private var homeAddress = ""
     @State private var errorMessage: String?
-    @State private var isSubmitting = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -50,14 +29,19 @@ struct ManualCodeEntryView: View {
                     self.code = Self.formatted(newValue)
                 }
 
-            Button(self.isSubmitting ? "checking…" : "pair with code") {
-                Task {
-                    await self.submit()
-                }
+            TextField("http://192.168.1.44:5015", text: self.$homeAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .padding(12)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+
+            Button("pair with code") {
+                self.submit()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(self.isSubmitting || !Self.isValid(self.code))
+            .disabled(!Self.isValid(self.code))
             .frame(maxWidth: .infinity, minHeight: 44)
 
             if let errorMessage {
@@ -69,65 +53,41 @@ struct ManualCodeEntryView: View {
         }
     }
 
-    private func submit() async {
+    private func submit() {
         guard Self.isValid(self.code) else {
             self.errorMessage = Self.message(for: .invalidFormat)
             return
         }
 
-        self.isSubmitting = true
-        defer { self.isSubmitting = false }
-
         do {
-            guard let pairURL = try await self.lookup(code: self.code) else { return }
+            let homeURL = try Self.homeURL(from: self.homeAddress)
             self.errorMessage = nil
-            self.onPairURL(pairURL)
+            self.onSubmit(self.code, homeURL)
         } catch let error as ManualCodeError {
             self.errorMessage = Self.message(for: error)
         } catch {
-            self.errorMessage = Self.message(for: .network)
+            self.errorMessage = Self.message(for: .invalidAddress)
         }
     }
 
-    private func lookup(code: String) async throws -> PairURL? {
-        let url = try Self.endpointURL()
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(CodeRequest(code: code))
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ManualCodeError.network
+    static func homeURL(from value: String) throws -> URL {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ManualCodeError.invalidAddress
         }
 
-        switch http.statusCode {
-        case 200..<300:
-            let decoded = try JSONDecoder().decode(CodeResponse.self, from: data)
-            guard let link = decoded.linkString,
-                  let url = URL(string: link),
-                  let result = UniversalLinkRouter.route(url) else {
-                throw ManualCodeError.network
-            }
-            switch result {
-            case .success(let pairURL):
-                return pairURL
-            case .failure(let error):
-                self.errorMessage = PairFlowCoordinator.message(for: error)
-                return nil
-            }
-        case 410:
-            throw ManualCodeError.codeExpired
-        case 400, 401, 404:
-            throw ManualCodeError.codeInvalid
-        default:
-            throw ManualCodeError.network
+        let raw = trimmed.range(of: "://") == nil ? "http://\(trimmed)" : trimmed
+        guard let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host?.lowercased(),
+              !host.isEmpty else {
+            throw ManualCodeError.invalidAddress
         }
-    }
 
-    private static func endpointURL() throws -> URL {
-        guard let url = URL(string: "/app/link/by-code", relativeTo: SPLPairingConstants.relayEndpoint)?.absoluteURL else {
-            throw ManualCodeError.network
+        let relayHost = SPLPairingConstants.relayEndpoint.host?.lowercased()
+        guard host != relayHost, host != "link.solpbc.org" else {
+            throw ManualCodeError.relayAddress
         }
         return url
     }
@@ -148,12 +108,10 @@ struct ManualCodeEntryView: View {
         switch error {
         case .invalidFormat:
             "enter the 8-character pairing code."
-        case .network:
-            "network error while pairing."
-        case .codeExpired:
-            "this pairing code has expired."
-        case .codeInvalid:
-            "this pairing code is invalid."
+        case .invalidAddress:
+            "enter the network address shown by your solstone."
+        case .relayAddress:
+            "paste the pairing link for remote pairing."
         }
     }
 }

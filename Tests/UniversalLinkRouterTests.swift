@@ -22,6 +22,19 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
     }
 
     @MainActor
+    func testValidRelayFragmentParses() throws {
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.wellKnownRelayBlob)))
+        guard case .success(let pairURL) = result else {
+            return XCTFail("expected successful relay pair URL parse, got \(result)")
+        }
+
+        XCTAssertEqual(pairURL.kind, .relay)
+        XCTAssertEqual(pairURL.instanceID, "12345678-1234-5678-1234-567812345678")
+        XCTAssertEqual(pairURL.totp, "123456")
+        XCTAssertEqual(pairURL.caFingerprintKind, .spkiSHA256)
+    }
+
+    @MainActor
     func testUnrelatedURLReturnsNil() {
         XCTAssertNil(UniversalLinkRouter.route(URL(string: "https://example.com/p#\(Self.canonicalBlob)")!))
     }
@@ -44,7 +57,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testInvalidVersionReturnsFailure() throws {
-        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x03]))))
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x05]))))
 
         guard case .failure(.invalidVersion(_)) = result else {
             return XCTFail("expected invalidVersion failure, got \(result)")
@@ -75,6 +88,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
     }
 
     private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
+    private static let wellKnownRelayBlob = "0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY00"
     private static let canonicalBytes: [UInt8] = [
         0x04, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
         0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
