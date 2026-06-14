@@ -98,12 +98,26 @@ private extension SourceDetailView {
     @ViewBuilder
     var stateBlock: some View {
         VStack(spacing: 16) {
-            HStack(spacing: 8) {
-                Image(systemName: self.currentSourceState.symbol)
-                Text(self.currentSourceState.label)
+            if self.isActiveState {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color("SendState/NeedsAttention/Dot"))
+                        .frame(width: 10, height: 10)
+                    Text(SourceDetailPresentation.listeningIndicatorWord)
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(SourceDetailPresentation.listeningIndicatorWord)
+                .accessibilityIdentifier("source.listening")
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: self.currentSourceState.symbol)
+                    Text(self.currentSourceState.label)
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.headline)
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             Picker("mode", selection: self.selectedModeBinding) {
                 ForEach(ObserverMode.allCases, id: \.self) { mode in
@@ -111,6 +125,11 @@ private extension SourceDetailView {
                 }
             }
             .pickerStyle(.segmented)
+
+            Text(SourceDetailPresentation.modeExplanation)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 Task {
@@ -148,9 +167,16 @@ private extension SourceDetailView {
             .disabled(self.observerManager.state == .stopping)
 
             if let elapsedText = self.elapsedText {
-                Text(elapsedText)
-                    .font(.custom("Comfortaa-Bold", size: 16, relativeTo: .callout))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color("SendState/NeedsAttention/Dot"))
+                        .frame(width: 8, height: 8)
+                    Text(SourceDetailPresentation.elapsedLine(formatted: elapsedText))
+                        .font(.custom("Comfortaa-Bold", size: 16, relativeTo: .callout))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(SourceDetailPresentation.elapsedLine(formatted: elapsedText))
             }
 
             if let errorMessage = self.errorMessage {

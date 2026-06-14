@@ -48,6 +48,7 @@ CryptoCSR.swift|PRIVATE KEY
 WebRTCManager.swift|Location
 ObserverMode.swift|Meeting
 ObserverMode.swift|Voice memo
+SourceVocabulary.swift|Meeting keeps going
 ObserverLiveActivity.swift|Meeting
 ObserverLiveActivity.swift|Voice memo
 ObserverLiveActivity.swift|Listening
