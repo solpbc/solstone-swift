@@ -26,15 +26,6 @@ struct NoJournalPlaceholderView: View {
             }
         }
 
-        var bodyText: String {
-            switch self {
-            case .today:
-                "your observations stay on this phone. connect a journal to see your day come together here."
-            case .ask:
-                SourceVocabulary.askEmptyBody
-            }
-        }
-
         var buttonText: String {
             switch self {
             case .today:
@@ -63,6 +54,15 @@ struct NoJournalPlaceholderView: View {
         self.count = count
     }
 
+    private var bodyText: String {
+        switch self.kind {
+        case .today:
+            "your observations stay on this phone. connect a journal to see your day come together here."
+        case .ask:
+            SourceVocabulary.askEmptyBody(count: self.count)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 18) {
             if let systemImage = self.kind.systemImage {
@@ -77,20 +77,12 @@ struct NoJournalPlaceholderView: View {
                     .multilineTextAlignment(.center)
             }
 
-            Text(self.kind.bodyText)
+            Text(self.bodyText)
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
                 .accessibilityIdentifier(self.kind.accessibilityIdentifier)
-
-            if self.kind == .ask, self.count > 0 {
-                Text(SourceVocabulary.askWaitingObservations(count: self.count))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("placeholder.ask.count")
-            }
 
             Button(self.kind.buttonText) {
                 self.showingConnectJournal = true

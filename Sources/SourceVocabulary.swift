@@ -130,8 +130,16 @@ nonisolated enum SourceVocabulary {
     static let magicMomentShownSecondary = "connect a journal whenever →"
     static let magicMomentPendingHeadline = "your first audio observation is getting ready"
     static let magicMomentPendingBody = "when you stop listening, it will rest here on this phone."
-    static let askEmptyHeadline = "nothing to ask yet"
-    static let askEmptyBody = "sol answers from your journal. connect one, and sol can read everything your phone has gathered."
+    static let askEmptyHeadline = "sol answers from your journal"
+    static func askEmptyBody(count: Int) -> String {
+        if count == 0 {
+            return "connect a journal and sol can read everything your phone gathers."
+        }
+        if count == 1 {
+            return "your phone has gathered 1 observation, resting here. connect a journal and sol can read all of them and answer."
+        }
+        return "your phone has gathered \(count) observations, resting here. connect a journal and sol can read all of them and answer."
+    }
     static let askEmptyButton = "connect a journal"
     static let askEmptyIconName = "internaldrive"
     static let yourJournalSection = "your journal"

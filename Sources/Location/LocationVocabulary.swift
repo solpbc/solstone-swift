@@ -6,7 +6,7 @@ import Foundation
 nonisolated enum LocationVocabulary {
     static let sourceDisplayName = "location"
     static let activeSubtext = "adds where your day happens to your journal while this is on."
-    static let preEnrollmentValue = "where your day happens — kept by you, in your journal, and nowhere else. as light or as complete as you want."
+    static let preEnrollmentValue = "where your day happens — kept in your journal, yours alone. as light or complete as you want."
     static let tierDialHeader = "how much of your day to keep"
     static let tierDialSubhead = "your day, your call. you can change this any time."
     static let lightLabel = "places only"
@@ -16,7 +16,7 @@ nonisolated enum LocationVocabulary {
     static let balancedDefaultBadge = "recommended"
     static let fullLabel = "the complete picture"
     static let fullBody = "the full, detailed picture of where your day happened. uses more battery."
-    static let batteryHonesty = "the fuller settings keep solstone aware in the background, which uses more battery. iOS shows its location arrow whenever location is on — that's iOS keeping you honest."
+    static let batteryHonesty = "fuller settings run in the background and use more battery. iOS shows its location arrow whenever location is on."
     static let alwaysBackgroundPrimer = "to keep this when solstone isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings."
     static let turnOnLocation = "turn on location"
     static let alwaysPrimerHeader = "before iOS asks"

@@ -73,10 +73,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.magicMomentShownSecondary, "connect a journal whenever →")
         XCTAssertEqual(SourceVocabulary.magicMomentPendingHeadline, "your first audio observation is getting ready")
         XCTAssertEqual(SourceVocabulary.magicMomentPendingBody, "when you stop listening, it will rest here on this phone.")
-        XCTAssertEqual(SourceVocabulary.askEmptyHeadline, "nothing to ask yet")
+        XCTAssertEqual(SourceVocabulary.askEmptyHeadline, "sol answers from your journal")
         XCTAssertEqual(
-            SourceVocabulary.askEmptyBody,
-            "sol answers from your journal. connect one, and sol can read everything your phone has gathered."
+            SourceVocabulary.askEmptyBody(count: 0),
+            "connect a journal and sol can read everything your phone gathers."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.askEmptyBody(count: 1),
+            "your phone has gathered 1 observation, resting here. connect a journal and sol can read all of them and answer."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.askEmptyBody(count: 6),
+            "your phone has gathered 6 observations, resting here. connect a journal and sol can read all of them and answer."
         )
         XCTAssertEqual(SourceVocabulary.askEmptyButton, "connect a journal")
         XCTAssertEqual(SourceVocabulary.askEmptyIconName, "internaldrive")

@@ -108,12 +108,10 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
         app.tabBars.buttons["ask"].tap()
-        XCTAssertTrue(app.staticTexts["placeholder.ask"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["nothing to ask yet"].waitForExistence(timeout: 5))
-
-        let count = app.staticTexts["placeholder.ask.count"]
-        XCTAssertTrue(count.waitForExistence(timeout: 5))
-        XCTAssertEqual(count.label, "6 observations are waiting on this phone.")
+        let body = app.staticTexts["placeholder.ask"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["sol answers from your journal"].waitForExistence(timeout: 5))
+        XCTAssertEqual(body.label, "your phone has gathered 6 observations, resting here. connect a journal and sol can read all of them and answer.")
     }
 
     @MainActor

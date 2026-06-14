@@ -165,6 +165,12 @@ struct MoreView: View {
                 }
                 .disabled(!self.tunnelManager.state.isConnected)
                 .hoverEffect(.highlight)
+
+                if !self.tunnelManager.state.isConnected {
+                    Text("available once your journal's connected.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if self.appConfig.isPaired {

@@ -9,7 +9,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
     func testLockedLocationCopyVerbatim() {
         XCTAssertEqual(LocationVocabulary.sourceDisplayName, "location")
         XCTAssertEqual(LocationVocabulary.activeSubtext, "adds where your day happens to your journal while this is on.")
-        XCTAssertEqual(LocationVocabulary.preEnrollmentValue, "where your day happens — kept by you, in your journal, and nowhere else. as light or as complete as you want.")
+        XCTAssertEqual(LocationVocabulary.preEnrollmentValue, "where your day happens — kept in your journal, yours alone. as light or complete as you want.")
         XCTAssertEqual(LocationVocabulary.tierDialHeader, "how much of your day to keep")
         XCTAssertEqual(LocationVocabulary.tierDialSubhead, "your day, your call. you can change this any time.")
         XCTAssertEqual(LocationVocabulary.lightLabel, "places only")
@@ -19,7 +19,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.balancedDefaultBadge, "recommended")
         XCTAssertEqual(LocationVocabulary.fullLabel, "the complete picture")
         XCTAssertEqual(LocationVocabulary.fullBody, "the full, detailed picture of where your day happened. uses more battery.")
-        XCTAssertEqual(LocationVocabulary.batteryHonesty, "the fuller settings keep solstone aware in the background, which uses more battery. iOS shows its location arrow whenever location is on — that's iOS keeping you honest.")
+        XCTAssertEqual(LocationVocabulary.batteryHonesty, "fuller settings run in the background and use more battery. iOS shows its location arrow whenever location is on.")
         XCTAssertEqual(LocationVocabulary.alwaysBackgroundPrimer, "to keep this when solstone isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings.")
         XCTAssertEqual(LocationVocabulary.turnOnLocation, "turn on location")
         XCTAssertEqual(LocationVocabulary.alwaysPrimerHeader, "before iOS asks")
