@@ -31,6 +31,10 @@ PairFlowCoordinator.swift|Try again.
 *|Content-Type
 CertlessPairExchange.swift|Host:
 CertlessPairExchange.swift|Content-Length
+PairClient.swift|Host:
+PairClient.swift|User-Agent
+PairClient.swift|Content-Length
+PairClient.swift|Connection:
 *|Bearer
 *|CFBundleShortVersionString
 *|CFBundleVersion
