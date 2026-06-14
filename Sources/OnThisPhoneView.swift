@@ -21,6 +21,8 @@ struct OnThisPhoneView: View {
     @State private var magicMomentDismissed = false
     @State private var migrationSawUndelivered = false
     @State private var migrationCompletionDismissed = false
+    @State private var openRowID: String?
+    @State private var pendingDropItem: OnThisPhoneItem?
 
     var body: some View {
         ScrollView {
@@ -61,6 +63,21 @@ struct OnThisPhoneView: View {
         .overlay(alignment: .bottom) {
             self.dropSnackbar
         }
+        .confirmationDialog(
+            SourceVocabulary.onThisPhoneDropConfirmTitle,
+            isPresented: self.isPresentingSwipeDropConfirm,
+            titleVisibility: .visible,
+            presenting: self.pendingDropItem
+        ) { item in
+            Button(SourceVocabulary.drop, role: .destructive) {
+                self.requestDrop(item)
+            }
+            .accessibilityIdentifier("onThisPhone.swipe.drop.confirm")
+
+            Button(SourceVocabulary.cancel, role: .cancel) {}
+        } message: { item in
+            Text(SourceVocabulary.onThisPhoneDropConfirmMessage(noun: item.dropConfirmNoun))
+        }
         .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
         .accessibilityIdentifier("onThisPhone.surface")
         .navigationTitle(SourceVocabulary.onThisPhone)
@@ -99,6 +116,19 @@ struct OnThisPhoneView: View {
 private extension OnThisPhoneView {
     var displayAggregate: OnThisPhoneAggregateSnapshot? {
         self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
+    }
+
+    var isPresentingSwipeDropConfirm: Binding<Bool> {
+        Binding(
+            get: {
+                self.pendingDropItem != nil
+            },
+            set: { isPresented in
+                if !isPresented {
+                    self.pendingDropItem = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -440,29 +470,31 @@ private extension OnThisPhoneView {
         } else {
             LazyVStack(alignment: .leading, spacing: 10) {
                 ForEach(snapshot.items) { item in
-                    NavigationLink {
-                        OnThisPhoneItemDetailView(item: item) { item in
-                            guard let commit = makeDropCommit(
-                                for: item,
-                                importQueue: self.importQueue,
-                                observerUploader: self.observerUploader,
-                                locationUploader: self.locationUploader
-                            ) else {
-                                return
-                            }
-                            self.dropController.requestDrop(
-                                itemID: item.id,
-                                descriptor: item.dropDescriptor,
-                                commit: commit
-                            )
-                        }
-                    } label: {
-                        OnThisPhoneRow(item: item)
-                    }
-                    .buttonStyle(.plain)
+                    SwipeToDropRow(
+                        item: item,
+                        openRowID: self.$openRowID,
+                        onRequestDrop: { item in self.requestDrop(item) },
+                        onDrop: { item in self.pendingDropItem = item }
+                    )
                 }
             }
         }
+    }
+
+    private func requestDrop(_ item: OnThisPhoneItem) {
+        guard let commit = makeDropCommit(
+            for: item,
+            importQueue: self.importQueue,
+            observerUploader: self.observerUploader,
+            locationUploader: self.locationUploader
+        ) else {
+            return
+        }
+        self.dropController.requestDrop(
+            itemID: item.id,
+            descriptor: item.dropDescriptor,
+            commit: commit
+        )
     }
 
     func loadSnapshot() {
@@ -523,6 +555,132 @@ private struct OnThisPhoneStateSummaryView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct SwipeToDropRow: View {
+    let item: OnThisPhoneItem
+    @Binding var openRowID: String?
+    let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
+    let onDrop: @MainActor (OnThisPhoneItem) -> Void
+    @State private var offset: CGFloat = 0
+    @State private var dragStartOffset: CGFloat?
+
+    private let actionWidth: CGFloat = 88
+    private var maxPull: CGFloat { self.actionWidth * 1.3 }
+    private var halfThreshold: CGFloat { self.actionWidth / 2 }
+    private var fullSwipeThreshold: CGFloat { self.actionWidth * 1.1 }
+    private var spring: Animation {
+        .spring(response: 0.26, dampingFraction: 0.88, blendDuration: 0)
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            self.dropActionButton
+            self.foregroundCard
+        }
+        .onChange(of: self.openRowID) { _, newValue in
+            self.syncOffset(openRowID: newValue)
+        }
+    }
+}
+
+private extension SwipeToDropRow {
+    var dropActionButton: some View {
+        Button {
+            self.promptDrop()
+        } label: {
+            Label {
+                Text(SourceVocabulary.drop)
+            } icon: {
+                Image(systemName: "trash")
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .frame(width: self.actionWidth)
+        .frame(minHeight: 44)
+        .background(Color.red, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier("onThisPhone.swipe.drop.\(self.item.id)")
+    }
+
+    var foregroundCard: some View {
+        NavigationLink {
+            OnThisPhoneItemDetailView(item: self.item) { item in
+                self.onRequestDrop(item)
+            }
+        } label: {
+            OnThisPhoneRow(item: self.item)
+                .simultaneousGesture(self.dragGesture)
+                .accessibilityAction(named: Text(SourceVocabulary.onThisPhoneDropFromPhone)) {
+                    self.promptDrop()
+                }
+        }
+        .buttonStyle(.plain)
+        .offset(x: self.offset)
+        .simultaneousGesture(
+            TapGesture()
+                .onEnded {
+                    self.openRowID = nil
+                }
+        )
+    }
+
+    var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                guard value.translation.width < 0 || self.dragStartOffset != nil else { return }
+                if self.dragStartOffset == nil {
+                    self.dragStartOffset = self.offset
+                    self.openRowID = self.item.id
+                }
+                let proposed = (self.dragStartOffset ?? 0) + value.translation.width
+                self.offset = min(0, max(-self.maxPull, proposed))
+            }
+            .onEnded { value in
+                self.dragStartOffset = nil
+                if value.translation.width < -self.fullSwipeThreshold {
+                    self.openRowID = nil
+                    withAnimation(self.spring) {
+                        self.offset = 0
+                    }
+                    self.onDrop(self.item)
+                } else if self.offset < -self.halfThreshold {
+                    self.openRowID = self.item.id
+                    withAnimation(self.spring) {
+                        self.offset = -self.actionWidth
+                    }
+                } else {
+                    self.openRowID = nil
+                    withAnimation(self.spring) {
+                        self.offset = 0
+                    }
+                }
+            }
+    }
+
+    func promptDrop() {
+        self.openRowID = nil
+        withAnimation(self.spring) {
+            self.offset = 0
+        }
+        self.onDrop(self.item)
+    }
+
+    func syncOffset(openRowID: String?) {
+        guard self.dragStartOffset == nil else { return }
+        if openRowID != self.item.id {
+            withAnimation(self.spring) {
+                self.offset = 0
+            }
+        } else {
+            withAnimation(self.spring) {
+                self.offset = -self.actionWidth
+            }
         }
     }
 }

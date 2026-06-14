@@ -209,6 +209,40 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
+    func testSeededOnThisPhoneSwipeToDropThenUndo() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        let rowID = "onThisPhone.row.audio:00000000-0000-0000-0000-000000000001:seed-audio-1"
+        let row = app.descendants(matching: .any)[rowID]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), rowID)
+
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(
+            forDuration: 0.05,
+            thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+        )
+        let confirmTitle = app.staticTexts["drop this from this phone?"]
+        XCTAssertTrue(confirmTitle.waitForExistence(timeout: 5), rowID)
+
+        let confirmButtons = app.descendants(matching: .any).matching(identifier: "onThisPhone.swipe.drop.confirm")
+        let confirmButton = confirmButtons.firstMatch
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), rowID)
+        let actionableConfirmButton = confirmButtons.count > 1
+            ? confirmButtons.element(boundBy: 1)
+            : confirmButton
+        actionableConfirmButton.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.drop.snackbar"].waitForExistence(timeout: 5), rowID)
+        XCTAssertTrue(app.staticTexts["dropped “1m 15s of audio”."].waitForExistence(timeout: 5), rowID)
+        XCTAssertTrue(app.descendants(matching: .any)[rowID].waitForNonExistence(timeout: 0.5), rowID)
+
+        let undoButton = app.descendants(matching: .any)["onThisPhone.drop.undo"]
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 5), rowID)
+        undoButton.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)[rowID].waitForExistence(timeout: 3), rowID)
+        XCTAssertFalse(app.descendants(matching: .any)["onThisPhone.drop.snackbar"].waitForExistence(timeout: 2), rowID)
+    }
+
+    @MainActor
     func testOnThisPhoneNotBackedUpNudgeOpensConnectSheet() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
