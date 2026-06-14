@@ -47,6 +47,7 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
         let retiredSubstrings = [
             "open in convey",
             "back online",
+            "what sol made from it",
         ]
 
         for file in files {

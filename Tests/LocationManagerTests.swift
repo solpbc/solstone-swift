@@ -170,6 +170,80 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testEmptySegmentSkippedOnTimer() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        self.clock.advance(by: 300)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(self.uploader.batchCount(), 0)
+        guard case .active(let session) = manager.state else {
+            return XCTFail("Expected active state")
+        }
+        XCTAssertEqual(session.currentSegmentIndex, 0)
+        XCTAssertTrue(self.liveActivity.updateCalls.isEmpty)
+    }
+
+    @MainActor
+    func testGapOnlySegmentIsEnqueued() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .light)
+        await self.yieldToMainActor()
+
+        self.provider.emitGap()
+        await self.yieldToMainActor()
+        self.clock.advance(by: 300)
+        await self.yieldToMainActor()
+
+        let batches = self.uploader.batches()
+        XCTAssertEqual(batches.count, 1)
+        XCTAssertTrue(batches[0].gap)
+    }
+
+    @MainActor
+    func testSegmentWithFixIsEnqueued() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .light)
+        await self.yieldToMainActor()
+
+        let fix = MockLocationProvider.fix()
+        self.provider.emitFix(fix)
+        await self.yieldToMainActor()
+        self.clock.advance(by: 300)
+        await self.yieldToMainActor()
+
+        let batches = self.uploader.batches()
+        XCTAssertEqual(batches.count, 1)
+        XCTAssertEqual(batches[0].fixes, [fix])
+    }
+
+    @MainActor
+    func testCoveredSecondsNotInflatedAfterSkippedEmptyWindow() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .light)
+        await self.yieldToMainActor()
+
+        self.clock.advance(by: 300)
+        await self.yieldToMainActor()
+        XCTAssertEqual(self.uploader.batchCount(), 0)
+
+        self.provider.emitFix(MockLocationProvider.fix())
+        await self.yieldToMainActor()
+        self.clock.advance(by: 300)
+        await self.yieldToMainActor()
+
+        let batches = self.uploader.batches()
+        XCTAssertEqual(batches.count, 1)
+        XCTAssertEqual(batches[0].coveredSeconds, 300)
+    }
+
+    @MainActor
     func testStopFlushesFinalPartialSegment() async {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
@@ -198,9 +272,8 @@ nonisolated final class LocationManagerTests: XCTestCase {
         await self.yieldToMainActor()
 
         let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 2)
+        XCTAssertEqual(batches.count, 1)
         XCTAssertTrue(batches[0].gap)
-        XCTAssertFalse(batches[1].gap)
     }
 
     @MainActor
@@ -419,7 +492,11 @@ nonisolated final class LocationManagerTests: XCTestCase {
         await manager.start(tier: .balanced)
         await self.yieldToMainActor()
 
+        self.provider.emitFix(MockLocationProvider.fix())
+        await self.yieldToMainActor()
         self.clock.advance(by: 300)
+        await self.yieldToMainActor()
+        self.provider.emitFix(MockLocationProvider.fix())
         await self.yieldToMainActor()
         self.clock.advance(by: 300)
         await self.yieldToMainActor()

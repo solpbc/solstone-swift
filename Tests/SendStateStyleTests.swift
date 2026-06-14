@@ -45,30 +45,6 @@ nonisolated final class SendStateStyleTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(darkRatio, 4.5, pair.foregroundAssetName)
         }
 
-        let orangeLightRatio = try self.contrastRatio(
-            foregroundAssetName: "SendState/Sending/Foreground",
-            backgroundAssetName: "SendState/Sending/ChipBackground",
-            in: bundle,
-            traits: lightTraits
-        )
-        let orangeDarkRatio = try self.contrastRatio(
-            foregroundAssetName: "SendState/Sending/Foreground",
-            backgroundAssetName: "SendState/Sending/ChipBackground",
-            in: bundle,
-            traits: darkTraits
-        )
-        let orangeReport = String(
-            format: "orange send-state contrast: light %.3f:1, dark %.3f:1",
-            Double(orangeLightRatio),
-            Double(orangeDarkRatio)
-        )
-        XCTContext.runActivity(named: orangeReport) { activity in
-            let attachment = XCTAttachment(string: orangeReport)
-            attachment.lifetime = .keepAlways
-            activity.add(attachment)
-            print(orangeReport)
-        }
-
         let lightForegrounds = try Self.foregroundAssetNames.map {
             try self.resolvedComponents(assetName: $0, in: bundle, traits: lightTraits)
         }
@@ -202,6 +178,10 @@ private extension SendStateStyleTests {
             backgroundAssetName: "SendState/SavedOnThisPhone/ChipBackground"
         ),
         ContrastPair(
+            foregroundAssetName: "SendState/Sending/Foreground",
+            backgroundAssetName: "SendState/Sending/ChipBackground"
+        ),
+        ContrastPair(
             foregroundAssetName: "SendState/InYourJournal/Foreground",
             backgroundAssetName: "SendState/InYourJournal/ChipBackground"
         ),
@@ -229,7 +209,7 @@ private extension SendStateStyleTests {
         ),
         ExpectedColor(
             assetName: "SendState/Sending/Foreground",
-            light: RGBA(red: 0.690, green: 0.416, blue: 0.102, alpha: 1.000),
+            light: RGBA(red: 0.596, green: 0.357, blue: 0.078, alpha: 1.000),
             dark: RGBA(red: 0.988, green: 0.827, blue: 0.302, alpha: 1.000)
         ),
         ExpectedColor(
@@ -264,6 +244,11 @@ private extension SendStateStyleTests {
         ),
         ExpectedColor(
             assetName: "SendState/NeedsAttention/Dot",
+            light: RGBA(red: 0.753, green: 0.224, blue: 0.169, alpha: 1.000),
+            dark: RGBA(red: 0.973, green: 0.443, blue: 0.443, alpha: 1.000)
+        ),
+        ExpectedColor(
+            assetName: "Listening/Dot",
             light: RGBA(red: 0.753, green: 0.224, blue: 0.169, alpha: 1.000),
             dark: RGBA(red: 0.973, green: 0.443, blue: 0.443, alpha: 1.000)
         ),

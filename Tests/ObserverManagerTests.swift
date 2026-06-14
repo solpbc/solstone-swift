@@ -118,6 +118,19 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testEmptyChunkOnStopSessionIsSkippedAndCleanedUp() async throws {
+        await self.manager.startSession(mode: .meeting)
+        let inProgressDirectory = try XCTUnwrap(self.recorder.lastStartURL?.deletingLastPathComponent())
+        self.recorder.nextChunkDuration = 0
+
+        await self.manager.stopSession()
+
+        XCTAssertEqual(self.uploader.pendingCount, 0)
+        XCTAssertEqual(try self.pendingFileCount(pathExtension: "m4a"), 0)
+        XCTAssertTrue(try self.m4aFiles(in: inProgressDirectory).isEmpty)
+    }
+
+    @MainActor
     func testStopSessionEndsLiveActivityWhenRecorderStopThrows() async {
         await self.manager.startSession(mode: .meeting)
         self.recorder.stopError = ObserverManagerTestError.stopFailed
@@ -151,6 +164,53 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         }
         XCTAssertEqual(session.currentChunkIndex, 1)
         XCTAssertEqual(self.recorder.rotateCallCount, 1)
+    }
+
+    @MainActor
+    func testEmptyChunkOnRotationIsSkippedAndCleanedUp() async throws {
+        await self.manager.startSession(mode: .meeting)
+        let inProgressDirectory = try XCTUnwrap(self.recorder.lastStartURL?.deletingLastPathComponent())
+        self.recorder.nextChunkDuration = 0
+        try? await Task.sleep(for: .milliseconds(20))
+
+        self.clock.advance(by: 300)
+        try? await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertEqual(self.recorder.rotateCallCount, 1)
+        XCTAssertEqual(self.uploader.pendingCount, 0)
+        XCTAssertEqual(try self.pendingFileCount(pathExtension: "m4a"), 0)
+
+        await self.manager.stopSession()
+        XCTAssertTrue(try self.m4aFiles(in: inProgressDirectory).isEmpty)
+    }
+
+    @MainActor
+    func testAboveThresholdChunkIsEnqueued() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ObserverManagerURLProtocol.self]
+        let uploader = ObserverUploader(
+            cacheRootURL: self.tempDirectory,
+            sessionConfiguration: configuration,
+            ensureRegistered: { "test-observer-key-abc" },
+            isJournalConfigured: { true },
+            localPortProvider: { nil },
+            retryDelays: [0],
+            sleep: { _ in },
+            startPathMonitor: false
+        )
+        let manager = ObserverManager(
+            recorder: self.recorder,
+            uploader: uploader,
+            clock: self.clock,
+            liveActivity: self.liveActivity
+        )
+        self.recorder.nextChunkDuration = 5
+
+        await manager.startSession(mode: .meeting)
+        await manager.stopSession()
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(try self.pendingFileCount(pathExtension: "m4a"), 1)
     }
 
     @MainActor
@@ -372,5 +432,18 @@ private extension ObserverManagerTests {
             }
         }
         return count
+    }
+
+    func m4aFiles(in directory: URL?) throws -> [URL] {
+        guard let directory,
+              FileManager.default.fileExists(atPath: directory.path)
+        else {
+            return []
+        }
+
+        return try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "m4a" }
     }
 }

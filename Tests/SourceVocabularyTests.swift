@@ -107,7 +107,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintSaved,
-            "sol added this to your journal automatically. open it to read what sol made from it."
+            "sol added this to your journal automatically. open it to read the full thing."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintLocationSaved, "open it to see these places on a map.")
         XCTAssertEqual(
@@ -144,8 +144,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "audio · 9:30 AM"
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneAudioSummary(duration: "1m 15s"), "1m 15s of audio")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 1), "1 place")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 3), "3 places")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 1), "1 observation")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 3), "3 observations")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneObservedSummary(relativeDay: "today", shortTime: "9:30 AM"),
             "observed on this phone · today at 9:30 AM"
