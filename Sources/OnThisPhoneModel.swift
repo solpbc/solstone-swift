@@ -160,6 +160,42 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         }
     }
 
+    var dropDescriptor: String {
+        guard let itemID = OnThisPhoneItemID(sourceKind: self.sourceKind, id: self.id) else {
+            return self.filename ?? SourceVocabulary.notProvided
+        }
+
+        switch itemID {
+        case .audio:
+            guard let duration = Self.formattedDuration(self.audioDurationS) else {
+                return self.filename ?? SourceVocabulary.notProvided
+            }
+            return SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: duration)
+        case .location:
+            guard let locationFixCount else {
+                return self.filename ?? SourceVocabulary.notProvided
+            }
+            return SourceVocabulary.onThisPhoneDropLocationDescriptor(count: locationFixCount)
+        case .share:
+            return self.filename ?? SourceVocabulary.notProvided
+        }
+    }
+
+    var dropConfirmNoun: String {
+        guard let itemID = OnThisPhoneItemID(sourceKind: self.sourceKind, id: self.id) else {
+            return SourceVocabulary.onThisPhoneDropShareNoun
+        }
+
+        switch itemID {
+        case .audio:
+            return SourceVocabulary.onThisPhoneDropAudioNoun
+        case .location:
+            return SourceVocabulary.onThisPhoneDropLocationNoun
+        case .share:
+            return SourceVocabulary.onThisPhoneDropShareNoun
+        }
+    }
+
     var voiceOverText: String {
         [
             SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind),
@@ -228,6 +264,27 @@ nonisolated struct OnThisPhoneSourceSnapshot: Equatable, Sendable {
 nonisolated struct OnThisPhoneAggregateSnapshot: Equatable, Sendable {
     let sources: [OnThisPhoneSourceSnapshot]
     let items: [OnThisPhoneItem]
+
+    func filteringOutPending(_ pendingIDs: Set<String>) -> OnThisPhoneAggregateSnapshot {
+        guard !pendingIDs.isEmpty else { return self }
+
+        let filteredSources = self.sources.map { source in
+            switch source.result {
+            case .loaded(let items):
+                OnThisPhoneSourceSnapshot(
+                    sourceKind: source.sourceKind,
+                    result: .loaded(items: items.filter { !pendingIDs.contains($0.id) })
+                )
+            case .failed:
+                source
+            }
+        }
+
+        return OnThisPhoneAggregateSnapshot(
+            sources: filteredSources,
+            items: self.items.filter { !pendingIDs.contains($0.id) }
+        )
+    }
 
     var sendStateSummary: [OnThisPhoneSendStateSummary] {
         OnThisPhoneSendState.summaryOrder.compactMap { state in

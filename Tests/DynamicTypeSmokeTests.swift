@@ -143,7 +143,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerRegistration)
         }
         let onThisPhoneItemDetailView = NavigationStack {
-            OnThisPhoneItemDetailView(item: Self.onThisPhoneItem())
+            OnThisPhoneItemDetailView(item: Self.onThisPhoneItem(), onRequestDrop: { _ in })
                 .environment(importQueue)
                 .environment(observerManager)
                 .environment(observerUploader)

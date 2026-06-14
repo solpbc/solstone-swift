@@ -185,28 +185,29 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSeededOnThisPhoneDeletesItemsByKind() {
+    func testSeededOnThisPhoneDropGuardrailShowsSnackbar() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        let rowID = "onThisPhone.row.audio:00000000-0000-0000-0000-000000000001:seed-audio-1"
+        let row = app.descendants(matching: .any)[rowID]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), rowID)
+        row.tap()
 
-        let rows = [
-            "onThisPhone.row.audio:00000000-0000-0000-0000-000000000001:seed-audio-1",
-            "onThisPhone.row.location:20260603-110000_300",
-            "onThisPhone.row.11111111-1111-1111-1111-111111111111",
-        ]
+        let dropButton = app.buttons["onThisPhone.drop.button"]
+        XCTAssertTrue(dropButton.waitForExistence(timeout: 5), rowID)
+        dropButton.tap()
+        XCTAssertTrue(app.staticTexts["drop this from this phone?"].waitForExistence(timeout: 5), rowID)
 
-        for rowID in rows {
-            let row = app.descendants(matching: .any)[rowID]
-            XCTAssertTrue(row.waitForExistence(timeout: 10), rowID)
-            row.tap()
+        let confirmButtons = app.buttons.matching(identifier: "onThisPhone.drop.confirm")
+        let confirmButton = confirmButtons.firstMatch
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), rowID)
+        let actionableConfirmButton = confirmButtons.count > 1
+            ? confirmButtons.element(boundBy: 1)
+            : confirmButton
+        actionableConfirmButton.tap()
 
-            let dropButton = app.buttons["drop from this phone"]
-            XCTAssertTrue(dropButton.waitForExistence(timeout: 5), rowID)
-            dropButton.tap()
-            XCTAssertTrue(app.staticTexts["deleted from this phone"].waitForExistence(timeout: 5), rowID)
-
-            app.navigationBars.buttons.element(boundBy: 0).tap()
-            XCTAssertFalse(app.descendants(matching: .any)[rowID].waitForExistence(timeout: 2), rowID)
-        }
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.drop.snackbar"].waitForExistence(timeout: 5), rowID)
+        XCTAssertTrue(app.staticTexts["dropped “1m 15s of audio”."].waitForExistence(timeout: 5), rowID)
+        XCTAssertFalse(app.descendants(matching: .any)[rowID].waitForExistence(timeout: 2), rowID)
     }
 
     @MainActor

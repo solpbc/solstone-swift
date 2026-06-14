@@ -5,8 +5,6 @@ import SwiftUI
 
 struct OnThisPhoneItemDetailView: View {
     @Environment(ImportQueue.self) private var importQueue
-    @Environment(ObserverUploader.self) private var observerUploader
-    @Environment(LocationUploader.self) private var locationUploader
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -14,12 +12,12 @@ struct OnThisPhoneItemDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
 
     let item: OnThisPhoneItem
-    let onLocalMutation: @MainActor () -> Void
-    @State private var deleteReceipt: String?
+    let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
+    @State private var showingDropConfirm = false
 
-    init(item: OnThisPhoneItem, onLocalMutation: @escaping @MainActor () -> Void = {}) {
+    init(item: OnThisPhoneItem, onRequestDrop: @escaping @MainActor (OnThisPhoneItem) -> Void) {
         self.item = item
-        self.onLocalMutation = onLocalMutation
+        self.onRequestDrop = onRequestDrop
     }
 
     var body: some View {
@@ -160,27 +158,32 @@ private extension OnThisPhoneItemDetailView {
                     .accessibilityHint("Tries sending this again.")
                 }
             }
-
-            self.deleteReceiptBlock
         }
     }
 
     var dropButton: some View {
         Button(SourceVocabulary.onThisPhoneDropFromPhone, role: .destructive) {
-            self.drop()
+            self.showingDropConfirm = true
         }
         .buttonStyle(.bordered)
         .frame(minHeight: 44)
         .accessibilityHint("Removes this from this phone.")
-    }
+        .accessibilityIdentifier("onThisPhone.drop.button")
+        .confirmationDialog(
+            SourceVocabulary.onThisPhoneDropConfirmTitle,
+            isPresented: self.$showingDropConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(SourceVocabulary.drop, role: .destructive) {
+                self.onRequestDrop(self.item)
+                self.dismiss()
+            }
+            .accessibilityIdentifier("onThisPhone.drop.confirm")
 
-    @ViewBuilder
-    var deleteReceiptBlock: some View {
-        if let deleteReceipt {
-            Text(deleteReceipt)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
+            Button(SourceVocabulary.cancel, role: .cancel) {}
+                .accessibilityIdentifier("onThisPhone.drop.cancel")
+        } message: {
+            Text(SourceVocabulary.onThisPhoneDropConfirmMessage(noun: self.item.dropConfirmNoun))
         }
     }
 
@@ -197,19 +200,5 @@ private extension OnThisPhoneItemDetailView {
             try? await self.importQueue.requeueFailedItem(itemID: itemID)
             self.dismiss()
         }
-    }
-
-    func drop() {
-        guard let parsedID = OnThisPhoneItemID(sourceKind: self.item.sourceKind, id: self.item.id) else { return }
-        switch parsedID {
-        case .share(let itemID):
-            self.importQueue.dropItem(itemID: itemID)
-        case .audio(let sessionID, let chunkID):
-            self.observerUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
-        case .location(let fileID):
-            self.locationUploader.dropItem(fileID: fileID)
-        }
-        self.deleteReceipt = SourceVocabulary.onThisPhoneDeleteReceipt
-        self.onLocalMutation()
     }
 }

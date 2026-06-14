@@ -14,6 +14,7 @@ struct OnThisPhoneView: View {
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @AppStorage(AudioStorageKey.magicMomentFirstSeen) private var magicMomentFirstSeen = false
     @State private var aggregate: OnThisPhoneAggregateSnapshot?
+    @State private var dropController = OnThisPhoneDropController()
     @State private var showingConnectJournal = false
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
@@ -36,27 +37,31 @@ struct OnThisPhoneView: View {
                     self.notBackedUpNudge
                 }
 
-                if let aggregate {
+                if let displayAggregate = self.displayAggregate {
                     let migration = onThisPhoneMigration(
-                        snapshot: aggregate,
+                        snapshot: displayAggregate,
                         journalConnected: self.observerRegistration.activeLocalPort != nil
                     )
                     if self.appConfig.isPaired, !migration.isEmpty {
                         self.migrationSection(migration: migration)
                     }
-                    OnThisPhoneStateSummaryView(summary: aggregate.sendStateSummary)
+                    OnThisPhoneStateSummaryView(summary: displayAggregate.sendStateSummary)
                     if !self.appConfig.isPaired,
-                       OnThisPhoneBacklogNudge.shouldShow(items: aggregate.items, now: Date()),
+                       OnThisPhoneBacklogNudge.shouldShow(items: displayAggregate.items, now: Date()),
                        !self.backlogNudgeDismissed {
-                        self.agedBacklogNudge(count: aggregate.items.count)
+                        self.agedBacklogNudge(count: displayAggregate.items.count)
                     }
-                    self.content(aggregate: aggregate)
+                    self.content(snapshot: displayAggregate)
                 }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .overlay(alignment: .bottom) {
+            self.dropSnackbar
+        }
+        .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
         .accessibilityIdentifier("onThisPhone.surface")
         .navigationTitle(SourceVocabulary.onThisPhone)
         .navigationBarTitleDisplayMode(.inline)
@@ -92,6 +97,10 @@ struct OnThisPhoneView: View {
 }
 
 private extension OnThisPhoneView {
+    var displayAggregate: OnThisPhoneAggregateSnapshot? {
+        self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
+    }
+
     @ViewBuilder
     var magicMomentSection: some View {
         if let magicMomentItem, !self.magicMomentDismissed {
@@ -117,7 +126,7 @@ private extension OnThisPhoneView {
               !self.magicMomentFirstSeen,
               !self.magicMomentDismissed,
               self.magicMomentItem == nil,
-              self.aggregate?.items.contains(where: { $0.sourceKind == .audio }) == false
+              self.displayAggregate?.items.contains(where: { $0.sourceKind == .audio }) == false
         else {
             return false
         }
@@ -388,17 +397,64 @@ private extension OnThisPhoneView {
     }
 
     @ViewBuilder
-    func content(aggregate: OnThisPhoneAggregateSnapshot) -> some View {
-        if aggregate.items.isEmpty {
+    var dropSnackbar: some View {
+        if let surfaced = self.dropController.surfaced {
+            let snackbarText = SourceVocabulary.onThisPhoneDropSnackbar(descriptor: surfaced.descriptor)
+            HStack(spacing: 12) {
+                Text(snackbarText)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("onThisPhone.drop.snackbar")
+
+                Spacer(minLength: 0)
+
+                Button(SourceVocabulary.undo) {
+                    self.dropController.undo(itemID: surfaced.id)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("onThisPhone.drop.undo")
+            }
+            .padding(12)
+            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+            }
+            .padding()
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    @ViewBuilder
+    func content(snapshot: OnThisPhoneAggregateSnapshot) -> some View {
+        if snapshot.items.isEmpty {
             Text(SourceVocabulary.onThisPhoneEmpty)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         } else {
             LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(aggregate.items) { item in
+                ForEach(snapshot.items) { item in
                     NavigationLink {
-                        OnThisPhoneItemDetailView(item: item) {
-                            self.loadSnapshot()
+                        OnThisPhoneItemDetailView(item: item) { item in
+                            guard let commit = makeDropCommit(
+                                for: item,
+                                importQueue: self.importQueue,
+                                observerUploader: self.observerUploader,
+                                locationUploader: self.locationUploader
+                            ) else {
+                                return
+                            }
+                            self.dropController.requestDrop(
+                                itemID: item.id,
+                                descriptor: item.dropDescriptor,
+                                commit: commit
+                            )
                         }
                     } label: {
                         OnThisPhoneRow(item: item)
@@ -416,9 +472,10 @@ private extension OnThisPhoneView {
             locationUploader: self.locationUploader
         )
         self.aggregate = aggregate
-        self.updateMagicMoment(from: aggregate)
+        let displayAggregate = self.displayAggregate ?? aggregate
+        self.updateMagicMoment(from: displayAggregate)
         let migration = onThisPhoneMigration(
-            snapshot: aggregate,
+            snapshot: displayAggregate,
             journalConnected: self.observerRegistration.activeLocalPort != nil
         )
         if !migration.isEmpty && !migration.isAllDelivered {
@@ -427,7 +484,7 @@ private extension OnThisPhoneView {
         }
     }
 
-    func updateMagicMoment(from aggregate: OnThisPhoneAggregateSnapshot) {
+    func updateMagicMoment(from snapshot: OnThisPhoneAggregateSnapshot) {
         guard self.audioEnrolled,
               !self.magicMomentFirstSeen,
               !self.magicMomentDismissed,
@@ -437,7 +494,7 @@ private extension OnThisPhoneView {
             return
         }
 
-        guard let audioItem = aggregate.items.first(where: { $0.sourceKind == .audio }) else {
+        guard let audioItem = snapshot.items.first(where: { $0.sourceKind == .audio }) else {
             return
         }
 

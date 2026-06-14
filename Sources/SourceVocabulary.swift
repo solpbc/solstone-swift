@@ -120,7 +120,6 @@ nonisolated enum SourceVocabulary {
     static let onThisPhone = "on this phone"
     static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
-    static let onThisPhoneDeleteReceipt = "deleted from this phone"
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let migrationStageOnThisPhone = "on this phone"
     static let migrationStageOnItsWay = "on its way"
@@ -147,6 +146,11 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneJournalHintUnreachable = "connect your journal first."
     static let onThisPhoneJournalHintLocationUnreachable = "connect your journal to see these places on a map."
     static let onThisPhoneDropFromPhone = "drop from this phone"
+    static let onThisPhoneDropConfirmTitle = "drop this from this phone?"
+    static let onThisPhoneDropConfirmMessageTemplate = "removes {noun} from this phone. if it already reached your journal, the journal keeps its copy. this part can't be undone once it commits."
+    static let onThisPhoneDropAudioNoun = "this audio"
+    static let onThisPhoneDropLocationNoun = "these places"
+    static let onThisPhoneDropShareNoun = "this file"
     static let onThisPhoneFileLabel = "file"
     static let onThisPhoneWhenLabel = "when"
     static let onThisPhoneObservationsLabel = "observations"
@@ -161,6 +165,8 @@ nonisolated enum SourceVocabulary {
     static let connectDoorHostedSubtitle = "a journal sol pbc keeps for you. on by you, off by you, yours either way."
     static let retry = "retry"
     static let drop = "drop"
+    static let cancel = "cancel"
+    static let undo = "undo"
     static let turnOn = "turn on"
     static let pause = "pause"
     static let resume = "resume"
@@ -191,6 +197,22 @@ nonisolated enum SourceVocabulary {
 
     static func onThisPhoneLocationRowLabel(count: Int) -> String {
         count == 1 ? "1 observation" : "\(count) observations"
+    }
+
+    static func onThisPhoneDropConfirmMessage(noun: String) -> String {
+        self.onThisPhoneDropConfirmMessageTemplate.replacingOccurrences(of: "{noun}", with: noun)
+    }
+
+    static func onThisPhoneDropSnackbar(descriptor: String) -> String {
+        "dropped “\(descriptor)”."
+    }
+
+    static func onThisPhoneDropAudioDescriptor(duration: String) -> String {
+        "\(duration) of audio"
+    }
+
+    static func onThisPhoneDropLocationDescriptor(count: Int) -> String {
+        "\(count) observations"
     }
 
     static func onThisPhoneNavigationTitle(source: String, shortTime: String?) -> String {

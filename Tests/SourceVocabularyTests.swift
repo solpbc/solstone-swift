@@ -54,7 +54,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneEmpty,
             "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
         )
-        XCTAssertEqual(SourceVocabulary.onThisPhoneDeleteReceipt, "deleted from this phone")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneNotBackedUp,
             "nothing here is backed up yet. connect a journal to keep a copy."
@@ -113,6 +112,17 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "connect your journal to see these places on a map."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropFromPhone, "drop from this phone")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropConfirmTitle, "drop this from this phone?")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneDropConfirmMessage(noun: "this audio"),
+            "removes this audio from this phone. if it already reached your journal, the journal keeps its copy. this part can't be undone once it commits."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropAudioNoun, "this audio")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropLocationNoun, "these places")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropShareNoun, "this file")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropSnackbar(descriptor: "1m 15s of audio"), "dropped “1m 15s of audio”.")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: "1m 15s"), "1m 15s of audio")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2), "2 observations")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFileLabel, "file")
         XCTAssertEqual(SourceVocabulary.onThisPhoneWhenLabel, "when")
         XCTAssertEqual(SourceVocabulary.onThisPhoneObservationsLabel, "observations")
@@ -162,6 +172,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneFixCount(count: 1), "1 fix")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFixCount(count: 3), "3 fixes")
+        XCTAssertEqual(SourceVocabulary.cancel, "cancel")
+        XCTAssertEqual(SourceVocabulary.undo, "undo")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
     }
 
@@ -296,7 +308,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhone,
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneEmpty,
-            SourceVocabulary.onThisPhoneDeleteReceipt,
             SourceVocabulary.onThisPhoneNotBackedUp,
             SourceVocabulary.migrationStageOnThisPhone,
             SourceVocabulary.migrationStageOnItsWay,
@@ -318,6 +329,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneJournalHintUnreachable,
             SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
             SourceVocabulary.onThisPhoneDropFromPhone,
+            SourceVocabulary.onThisPhoneDropConfirmTitle,
+            SourceVocabulary.onThisPhoneDropConfirmMessage(noun: SourceVocabulary.onThisPhoneDropAudioNoun),
+            SourceVocabulary.onThisPhoneDropAudioNoun,
+            SourceVocabulary.onThisPhoneDropLocationNoun,
+            SourceVocabulary.onThisPhoneDropShareNoun,
+            SourceVocabulary.onThisPhoneDropSnackbar(descriptor: "1m 15s of audio"),
+            SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: "1m 15s"),
+            SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2),
             SourceVocabulary.onThisPhoneFileLabel,
             SourceVocabulary.onThisPhoneWhenLabel,
             SourceVocabulary.onThisPhoneObservationsLabel,
@@ -339,6 +358,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.connectDoorHostedSubtitle,
             SourceVocabulary.retry,
             SourceVocabulary.drop,
+            SourceVocabulary.cancel,
+            SourceVocabulary.undo,
             SourceVocabulary.turnOn,
             SourceVocabulary.pause,
             SourceVocabulary.resume,

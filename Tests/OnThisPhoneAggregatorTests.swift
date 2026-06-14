@@ -176,6 +176,63 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
     }
 
     @MainActor
+    func testFilteringOutPendingRemovesItemsSourcesAndUpdatesSummary() throws {
+        let audio = Self.item(
+            id: "audio:00000000-0000-0000-0000-000000000001:chunk",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 40),
+            sendState: .savedOnThisPhone
+        )
+        let location = Self.item(
+            id: "location:20260603-110000_300",
+            sourceKind: .location,
+            itemTime: Date(timeIntervalSince1970: 30),
+            sendState: .needsAttention
+        )
+        let share = Self.item(
+            id: "11111111-1111-1111-1111-111111111111",
+            sourceKind: .share,
+            itemTime: Date(timeIntervalSince1970: 20),
+            sendState: .sending
+        )
+
+        let sources = [
+            OnThisPhoneSourceSnapshot(sourceKind: .audio, result: .loaded(items: [audio])),
+            OnThisPhoneSourceSnapshot(sourceKind: .location, result: .loaded(items: [location])),
+            OnThisPhoneSourceSnapshot(sourceKind: .share, result: .loaded(items: [share])),
+        ]
+        let snapshot = OnThisPhoneAggregateSnapshot(
+            sources: sources,
+            items: [share, location, audio]
+        )
+
+        let filtered = snapshot.filteringOutPending([location.id])
+
+        XCTAssertEqual(filtered.items.map(\.id), [share.id, audio.id])
+        XCTAssertEqual(try self.count(for: .audio, in: filtered), 1)
+        XCTAssertEqual(try self.count(for: .location, in: filtered), 0)
+        XCTAssertEqual(try self.count(for: .share, in: filtered), 1)
+        XCTAssertEqual(filtered.sendStateSummary.map(\.sendState), [.savedOnThisPhone, .sending])
+        XCTAssertEqual(filtered.sendStateSummary.map(\.count), [1, 1])
+    }
+
+    @MainActor
+    func testFilteringOutPendingUnknownIDIsNoOp() {
+        let audio = Self.item(
+            id: "audio:00000000-0000-0000-0000-000000000001:chunk",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 40)
+        )
+        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(sources: [
+            OnThisPhoneSourceSnapshot(sourceKind: .audio, result: .loaded(items: [audio])),
+            OnThisPhoneSourceSnapshot(sourceKind: .location, result: .failed),
+            OnThisPhoneSourceSnapshot(sourceKind: .share, result: .loaded(items: [])),
+        ])
+
+        XCTAssertEqual(snapshot.filteringOutPending(["missing"]), snapshot)
+    }
+
+    @MainActor
     func testPureSnapshotPartialFailureMergesLoadedItems() {
         let audio = Self.item(id: "audio", sourceKind: .audio, itemTime: Date(timeIntervalSince1970: 30))
         let share = Self.item(id: "share", sourceKind: .share, itemTime: Date(timeIntervalSince1970: 20))
@@ -267,6 +324,62 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(audio.rowTimestampText, itemTime.formatted(date: .omitted, time: .shortened))
         XCTAssertEqual(deliveredOnly.rowTimestampText, deliveredAt.formatted(date: .omitted, time: .shortened))
         XCTAssertEqual(nilTime.rowTimestampText, "")
+    }
+
+    func testDropDescriptorAndConfirmNounForParseableItems() throws {
+        let sessionID = UUID()
+        let audioDuration: Double = 75
+        let audioDurationText = try XCTUnwrap(OnThisPhoneItem.formattedDuration(audioDuration))
+        let audio = Self.item(
+            id: "audio:\(sessionID.uuidString):chunk-a",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800),
+            audioDurationS: audioDuration
+        )
+        let location = Self.item(
+            id: "location:20260603-110000_300",
+            sourceKind: .location,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800),
+            locationFixCount: 2
+        )
+        let shareID = UUID()
+        let share = Self.item(
+            id: shareID.uuidString,
+            sourceKind: .share,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+
+        XCTAssertEqual(audio.dropDescriptor, SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: audioDurationText))
+        XCTAssertEqual(audio.dropConfirmNoun, SourceVocabulary.onThisPhoneDropAudioNoun)
+        XCTAssertEqual(location.dropDescriptor, SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2))
+        XCTAssertEqual(location.dropConfirmNoun, SourceVocabulary.onThisPhoneDropLocationNoun)
+        XCTAssertEqual(share.dropDescriptor, share.filename)
+        XCTAssertEqual(share.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
+    }
+
+    func testDropDescriptorAndConfirmNounUseParseFailureFallbacks() {
+        let audio = Self.item(
+            id: "audio:not-a-uuid:chunk",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+        let location = Self.item(
+            id: "20260603-110000_300",
+            sourceKind: .location,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+        let share = Self.item(
+            id: "location:20260603-110000_300",
+            sourceKind: .share,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+
+        XCTAssertEqual(audio.dropDescriptor, audio.filename)
+        XCTAssertEqual(audio.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
+        XCTAssertEqual(location.dropDescriptor, location.filename)
+        XCTAssertEqual(location.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
+        XCTAssertEqual(share.dropDescriptor, share.filename)
+        XCTAssertEqual(share.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
     }
 
     func testOnThisPhoneItemIDParsing() throws {
