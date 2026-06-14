@@ -135,18 +135,25 @@ nonisolated enum SourceVocabulary {
     static let askEmptyButton = "connect a journal"
     static let askEmptyIconName = "internaldrive"
     static let yourJournalSection = "your journal"
-    static let onThisPhoneSource = "source"
-    static let onThisPhonePlacement = "placement"
-    static let failedImportSubtext = "this didn't reach your journal. you can retry or drop it."
+    static let details = "details"
     static let notProvided = "not provided"
     static let originAppNotProvided = "origin app not provided"
     static let rawOriginalUnavailable = "raw original is no longer on this phone."
-    static let derivedNotInJournalYet = "not in your journal yet"
     static let openJournalInConvey = "open journal ↗"
-    static let filenameLabel = "filename"
-    static let originAppLabel = "origin app"
-    static let sendStateLabel = "send state"
-    static let deliveredAtLabel = "delivered at"
+    static let onThisPhoneLocationC3Hint = "the map of where your day happened lives in your journal — this screen just confirms what your phone sensed. no live dot, nothing tracked here."
+    static let onThisPhoneJournalHintSaved = "sol added this to your journal automatically. open it to read what sol made from it."
+    static let onThisPhoneJournalHintLocationSaved = "open it to see these places on a map."
+    static let onThisPhoneJournalHintPending = "not in your journal yet — it'll appear once it's sent."
+    static let onThisPhoneJournalHintUnreachable = "connect your journal first."
+    static let onThisPhoneJournalHintLocationUnreachable = "connect your journal to see these places on a map."
+    static let onThisPhoneDropFromPhone = "drop from this phone"
+    static let onThisPhoneFileLabel = "file"
+    static let onThisPhoneWhenLabel = "when"
+    static let onThisPhoneObservationsLabel = "observations"
+    static let audioPlaybackObserverActiveHint = "pause listening to play this"
+    static let audioPlaybackPlayLabel = "play audio"
+    static let audioPlaybackPauseLabel = "pause audio"
+    static let audioPlaybackHint = "plays this audio from this phone."
     static let connectJournalIntro = "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
     static let connectDoorOwnTitle = "your own journal"
     static let connectDoorOwnSubtitle = "pair this phone to a solstone running on your computer."
@@ -186,6 +193,49 @@ nonisolated enum SourceVocabulary {
         count == 1 ? "1 observation" : "\(count) observations"
     }
 
+    static func onThisPhoneNavigationTitle(source: String, shortTime: String?) -> String {
+        guard let shortTime else { return source }
+        return "\(source) · \(shortTime)"
+    }
+
+    static func onThisPhoneAudioSummary(duration: String) -> String {
+        "\(duration) of audio"
+    }
+
+    static func onThisPhoneLocationSummary(count: Int) -> String {
+        count == 1 ? "1 place" : "\(count) places"
+    }
+
+    static func onThisPhoneObservedSummary(relativeDay: String?, shortTime: String?) -> String {
+        guard let datePhrase = self.onThisPhoneDatePhrase(relativeDay: relativeDay, shortTime: shortTime) else {
+            return "observed on this phone"
+        }
+        return "observed on this phone · \(datePhrase)"
+    }
+
+    static func onThisPhoneShareSummary(originApp: String?, relativeDay: String?, shortTime: String?) -> String {
+        let origin = originApp.flatMap { $0.isEmpty ? nil : $0 }
+        let datePhrase = self.onThisPhoneDatePhrase(relativeDay: relativeDay, shortTime: shortTime)
+        switch (origin, datePhrase) {
+        case (.some(let origin), .some(let datePhrase)):
+            return "from \(origin) · \(datePhrase)"
+        case (.some(let origin), .none):
+            return "from \(origin)"
+        case (.none, .some(let datePhrase)):
+            return datePhrase
+        case (.none, .none):
+            return Self.notProvided
+        }
+    }
+
+    static func onThisPhoneFileDetail(filename: String, size: String) -> String {
+        "\(filename) · \(size)"
+    }
+
+    static func onThisPhoneFixCount(count: Int) -> String {
+        count == 1 ? "1 fix" : "\(count) fixes"
+    }
+
     static func migrationReached(count: Int) -> String {
         count == 1
             ? "1 observation just reached your journal."
@@ -205,5 +255,11 @@ nonisolated enum SourceVocabulary {
         case .share:
             Self.shareSheetDisplayName
         }
+    }
+
+    private static func onThisPhoneDatePhrase(relativeDay: String?, shortTime: String?) -> String? {
+        guard let relativeDay else { return nil }
+        guard let shortTime else { return relativeDay }
+        return "\(relativeDay) at \(shortTime)"
     }
 }

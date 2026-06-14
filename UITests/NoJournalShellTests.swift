@@ -199,7 +199,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             XCTAssertTrue(row.waitForExistence(timeout: 10), rowID)
             row.tap()
 
-            let dropButton = app.buttons["drop"]
+            let dropButton = app.buttons["drop from this phone"]
             XCTAssertTrue(dropButton.waitForExistence(timeout: 5), rowID)
             dropButton.tap()
             XCTAssertTrue(app.staticTexts["deleted from this phone"].waitForExistence(timeout: 5), rowID)

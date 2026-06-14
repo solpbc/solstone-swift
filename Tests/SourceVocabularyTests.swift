@@ -34,6 +34,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.turnOnAudio, "turn on audio")
         XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
+        XCTAssertEqual(SourceVocabulary.details, "details")
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
             "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
@@ -92,8 +93,75 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.askWaitingObservations(count: 238), "238 observations are waiting on this phone.")
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 1), "1 observation")
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 observations")
-        XCTAssertEqual(SourceVocabulary.derivedNotInJournalYet, "not in your journal yet")
         XCTAssertEqual(SourceVocabulary.openJournalInConvey, "open journal ↗")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneLocationC3Hint,
+            "the map of where your day happened lives in your journal — this screen just confirms what your phone sensed. no live dot, nothing tracked here."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneJournalHintSaved,
+            "sol added this to your journal automatically. open it to read what sol made from it."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintLocationSaved, "open it to see these places on a map.")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneJournalHintPending,
+            "not in your journal yet — it'll appear once it's sent."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintUnreachable, "connect your journal first.")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
+            "connect your journal to see these places on a map."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropFromPhone, "drop from this phone")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFileLabel, "file")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneWhenLabel, "when")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneObservationsLabel, "observations")
+        XCTAssertEqual(SourceVocabulary.audioPlaybackObserverActiveHint, "pause listening to play this")
+        XCTAssertEqual(SourceVocabulary.audioPlaybackPlayLabel, "play audio")
+        XCTAssertEqual(SourceVocabulary.audioPlaybackPauseLabel, "pause audio")
+        XCTAssertEqual(SourceVocabulary.audioPlaybackHint, "plays this audio from this phone.")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneNavigationTitle(source: "audio", shortTime: nil), "audio")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneNavigationTitle(source: "audio", shortTime: "9:30 AM"),
+            "audio · 9:30 AM"
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneAudioSummary(duration: "1m 15s"), "1m 15s of audio")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 1), "1 place")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 3), "3 places")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneObservedSummary(relativeDay: "today", shortTime: "9:30 AM"),
+            "observed on this phone · today at 9:30 AM"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneObservedSummary(relativeDay: "today", shortTime: nil),
+            "observed on this phone · today"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneObservedSummary(relativeDay: nil, shortTime: nil),
+            "observed on this phone"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneShareSummary(originApp: "Files", relativeDay: "today", shortTime: "9:30 AM"),
+            "from Files · today at 9:30 AM"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneShareSummary(originApp: nil, relativeDay: "today", shortTime: "9:30 AM"),
+            "today at 9:30 AM"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneShareSummary(originApp: "Files", relativeDay: nil, shortTime: nil),
+            "from Files"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneShareSummary(originApp: nil, relativeDay: nil, shortTime: nil),
+            SourceVocabulary.notProvided
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneFileDetail(filename: "item.pdf", size: "2 KB"),
+            "item.pdf · 2 KB"
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFixCount(count: 1), "1 fix")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFixCount(count: 3), "3 fixes")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
     }
 
@@ -238,18 +306,32 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneAgedBacklog(count: 2),
             SourceVocabulary.onThisPhoneLocationRowLabel(count: 2),
             SourceVocabulary.yourJournalSection,
-            SourceVocabulary.onThisPhoneSource,
-            SourceVocabulary.onThisPhonePlacement,
-            SourceVocabulary.failedImportSubtext,
+            SourceVocabulary.details,
             SourceVocabulary.notProvided,
             SourceVocabulary.originAppNotProvided,
             SourceVocabulary.rawOriginalUnavailable,
-            SourceVocabulary.derivedNotInJournalYet,
             SourceVocabulary.openJournalInConvey,
-            SourceVocabulary.filenameLabel,
-            SourceVocabulary.originAppLabel,
-            SourceVocabulary.sendStateLabel,
-            SourceVocabulary.deliveredAtLabel,
+            SourceVocabulary.onThisPhoneLocationC3Hint,
+            SourceVocabulary.onThisPhoneJournalHintSaved,
+            SourceVocabulary.onThisPhoneJournalHintLocationSaved,
+            SourceVocabulary.onThisPhoneJournalHintPending,
+            SourceVocabulary.onThisPhoneJournalHintUnreachable,
+            SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
+            SourceVocabulary.onThisPhoneDropFromPhone,
+            SourceVocabulary.onThisPhoneFileLabel,
+            SourceVocabulary.onThisPhoneWhenLabel,
+            SourceVocabulary.onThisPhoneObservationsLabel,
+            SourceVocabulary.audioPlaybackObserverActiveHint,
+            SourceVocabulary.audioPlaybackPlayLabel,
+            SourceVocabulary.audioPlaybackPauseLabel,
+            SourceVocabulary.audioPlaybackHint,
+            SourceVocabulary.onThisPhoneNavigationTitle(source: "audio", shortTime: "9:30 AM"),
+            SourceVocabulary.onThisPhoneAudioSummary(duration: "1m 15s"),
+            SourceVocabulary.onThisPhoneLocationSummary(count: 2),
+            SourceVocabulary.onThisPhoneObservedSummary(relativeDay: "today", shortTime: "9:30 AM"),
+            SourceVocabulary.onThisPhoneShareSummary(originApp: "Files", relativeDay: "today", shortTime: "9:30 AM"),
+            SourceVocabulary.onThisPhoneFileDetail(filename: "item.pdf", size: "2 KB"),
+            SourceVocabulary.onThisPhoneFixCount(count: 2),
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOwnTitle,
             SourceVocabulary.connectDoorOwnSubtitle,

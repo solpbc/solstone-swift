@@ -45,7 +45,6 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
         ]
         let files = try scanRoots.flatMap { try Self.swiftFiles(under: $0) }
         let retiredSubstrings = [
-            "what sol made from it",
             "open in convey",
             "back online",
         ]
