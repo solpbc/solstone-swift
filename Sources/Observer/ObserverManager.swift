@@ -217,6 +217,10 @@ extension ObserverManager {
 }
 
 private extension ObserverManager {
+    // Empty chunks finalize at 0s (or a stray ~20ms buffer); 0.1s is far
+    // below any real utterance, so we never drop real audio.
+    static let minChunkDurationSeconds: TimeInterval = 0.1
+
     func startSegmentationTask() {
         self.segmentationTask?.cancel()
         self.segmentationTask = Task { @MainActor [weak self] in
@@ -288,6 +292,12 @@ private extension ObserverManager {
         startedAt: Date,
         mode: ObserverMode
     ) async {
+        guard finalized.duration >= Self.minChunkDurationSeconds else {
+            managerLog.notice("observer: empty chunk skipped (duration=\(finalized.duration, privacy: .public))")
+            try? FileManager.default.removeItem(at: finalized.url)
+            return
+        }
+
         let sidecar = ChunkSidecar(
             segment: Self.segmentString(for: startedAt),
             day: Self.dayString(for: startedAt),

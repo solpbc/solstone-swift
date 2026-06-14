@@ -383,6 +383,12 @@ private extension LocationManager {
         guard let segmentStartedAt else { return }
 
         let now = self.clock.now()
+        if self.segmentFixes.isEmpty && self.segmentVisits.isEmpty && !self.segmentHasGap {
+            locationLog.notice("location: empty segment skipped")
+            self.segmentStartedAt = now
+            return
+        }
+
         let batch = LocationSegmentBatch(
             tier: self.tier,
             accuracy: self.currentAccuracy(),
@@ -402,9 +408,7 @@ private extension LocationManager {
     }
 
     func flushSegmentIfNeeded() async {
-        guard self.segmentStartedAt != nil,
-              !self.segmentFixes.isEmpty || !self.segmentVisits.isEmpty || self.segmentHasGap
-        else { return }
+        // enqueueCurrentSegment self-guards nil and empty segments.
         await self.enqueueCurrentSegment()
     }
 
