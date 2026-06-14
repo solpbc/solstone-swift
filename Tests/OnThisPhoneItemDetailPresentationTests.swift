@@ -110,13 +110,13 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.summaryBig(
                 for: Self.item(sourceKind: .location, locationFixCount: 1)
             ),
-            "1 place"
+            "1 observation"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summaryBig(
                 for: Self.item(sourceKind: .location, locationFixCount: 3)
             ),
-            "3 places"
+            "3 observations"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summaryBig(

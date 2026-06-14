@@ -101,7 +101,7 @@ private extension SourceDetailView {
             if self.isActiveState {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(Color("SendState/NeedsAttention/Dot"))
+                        .fill(Color("Listening/Dot"))
                         .frame(width: 10, height: 10)
                     Text(SourceDetailPresentation.listeningIndicatorWord)
                 }
@@ -169,7 +169,7 @@ private extension SourceDetailView {
             if let elapsedText = self.elapsedText {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(Color("SendState/NeedsAttention/Dot"))
+                        .fill(Color("Listening/Dot"))
                         .frame(width: 8, height: 8)
                     Text(SourceDetailPresentation.elapsedLine(formatted: elapsedText))
                         .font(.custom("Comfortaa-Bold", size: 16, relativeTo: .callout))

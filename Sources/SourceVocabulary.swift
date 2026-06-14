@@ -149,7 +149,7 @@ nonisolated enum SourceVocabulary {
     static let rawOriginalUnavailable = "raw original is no longer on this phone."
     static let openJournalInConvey = "open journal ↗"
     static let onThisPhoneLocationC3Hint = "the map of where your day happened lives in your journal — this screen just confirms what your phone sensed. no live dot, nothing tracked here."
-    static let onThisPhoneJournalHintSaved = "sol added this to your journal automatically. open it to read what sol made from it."
+    static let onThisPhoneJournalHintSaved = "sol added this to your journal automatically. open it to read the full thing."
     static let onThisPhoneJournalHintLocationSaved = "open it to see these places on a map."
     static let onThisPhoneJournalHintPending = "not in your journal yet — it'll appear once it's sent."
     static let onThisPhoneJournalHintUnreachable = "connect your journal first."
@@ -234,7 +234,7 @@ nonisolated enum SourceVocabulary {
     }
 
     static func onThisPhoneLocationSummary(count: Int) -> String {
-        count == 1 ? "1 place" : "\(count) places"
+        count == 1 ? "1 observation" : "\(count) observations"
     }
 
     static func onThisPhoneObservedSummary(relativeDay: String?, shortTime: String?) -> String {
