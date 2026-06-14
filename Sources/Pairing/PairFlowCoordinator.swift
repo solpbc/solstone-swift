@@ -10,7 +10,7 @@ import os
 private let pairFlowLog = Logger(subsystem: "app.solstone.swift", category: "pair-flow")
 
 enum SPLPairingConstants {
-    static let relayEndpoint = URL(string: "https://spl-relay-staging.jer-3f2.workers.dev")!
+    static let relayEndpoint = URL(string: "https://link.solstone.app")!
 }
 
 enum PairFlowState: Equatable, Sendable {
