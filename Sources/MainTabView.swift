@@ -21,9 +21,6 @@ struct MainTabView: View {
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @State private var selectedTab: AppTab
     @State private var lastPortalTab = AppTab.today
-    @State private var debugVoiceState: VoiceState?
-    @State private var debugBrainStatus: BrainStatus?
-    @State private var debugCycleCount = 0
     @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
@@ -136,21 +133,6 @@ struct MainTabView: View {
             self.healthDot
                 .allowsHitTesting(false)
         }
-        .overlay(alignment: .bottomTrailing) {
-            VoiceButton(
-                stateOverride: self.debugVoiceState,
-                brainStatusOverride: self.debugBrainStatus,
-                onTap: {
-                    guard self.tunnelManager.state.isConnected else { return }
-                    Task {
-                        await self.voiceManager.startSession(localPort: self.localPort)
-                    }
-                },
-                onDebugLongPress: self.cycleDebugVoiceState
-            )
-                .padding(.trailing, 20)
-                .padding(.bottom, 20)
-        }
         .overlay(alignment: .top) {
             if self.selectedTab == .today && self.tunnelManager.state.isConnected {
                 DayZeroOverlayView(
@@ -173,7 +155,7 @@ struct MainTabView: View {
                 self.apply(route)
             }
             if !self.tunnelManager.state.isConnected {
-                mainTabLog.info("voice button showing disconnected shell state")
+                mainTabLog.info("showing disconnected shell state")
             }
         }
         .onChange(of: self.localPort) { _, port in
@@ -190,7 +172,7 @@ struct MainTabView: View {
                     self.apply(route)
                 }
             } else if !isConnected {
-                mainTabLog.info("voice button showing disconnected shell state")
+                mainTabLog.info("showing disconnected shell state")
             }
         }
         .onChange(of: self.bannerPresenter.showDiagnostics) { _, show in
@@ -302,27 +284,6 @@ struct MainTabView: View {
     private func loadPortalIfReady(port: Int? = nil) {
         guard self.appConfig.isPaired, self.tunnelManager.state.isConnected else { return }
         self.portalPage.load(port: port ?? self.localPort)
-    }
-
-    private func cycleDebugVoiceState() {
-        let states: [VoiceState] = [
-            .idle,
-            .connecting,
-            .listening,
-            .speaking,
-            .error(.connectionFailed("debug"))
-        ]
-        let nextIndex: Int
-        if let debugVoiceState,
-           let currentIndex = states.firstIndex(of: debugVoiceState)
-        {
-            nextIndex = (currentIndex + 1) % states.count
-        } else {
-            nextIndex = 0
-        }
-        self.debugVoiceState = states[nextIndex]
-        self.debugCycleCount += 1
-        self.debugBrainStatus = self.debugCycleCount.isMultiple(of: 2) ? .refreshing : nil
     }
 }
 

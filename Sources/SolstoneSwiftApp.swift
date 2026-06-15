@@ -284,20 +284,6 @@ struct SolstoneSwiftApp: App {
                     }
                 }
         }
-        .commands {
-            CommandMenu("hub") {
-                Button("refresh brain") {
-                    guard case .connected(let port, _) = self.tunnelManager.state else { return }
-                    Task {
-                        guard let url = VoiceServerURL.url(localPort: port, path: "/api/voice/refresh-brain") else { return }
-                        var request = URLRequest(url: url)
-                        request.httpMethod = "POST"
-                        _ = try? await URLSession.shared.data(for: request)
-                    }
-                }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
-            }
-        }
         .onChange(of: self.scenePhase) { _, newPhase in
             switch newPhase {
             case .active:

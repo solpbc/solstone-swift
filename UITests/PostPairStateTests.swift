@@ -48,7 +48,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
 
     
     @MainActor
-    func testOfflineShellShowsBannerAndVoiceButton() throws {
+    func testOfflineShellShowsBannerAndWarmCard() throws {
         let app = try self.makeApp(extraArguments: ["--ui-test-shell-disconnected", "--ui-test-network-unsatisfied"])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
@@ -60,7 +60,6 @@ nonisolated final class PostPairStateTests: XCTestCase {
             bannerText.waitForExistence(timeout: 10) || bannerElement.waitForExistence(timeout: 10)
         )
         XCTAssertTrue(app.staticTexts["portal.warmCard"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["voice"].waitForExistence(timeout: 5))
 
         app.tabBars.buttons["sense"].tap()
         XCTAssertTrue(app.navigationBars["sources"].waitForExistence(timeout: 5))

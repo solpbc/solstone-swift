@@ -147,6 +147,15 @@ struct MoreView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink {
+                    SettingsView()
+                } label: {
+                    Text("settings")
+                }
+                .hoverEffect(.highlight)
+            }
+
             if !self.appConfig.isPaired {
                 Section {
                     Button("connect a journal") {
@@ -154,22 +163,6 @@ struct MoreView: View {
                     }
                     .hoverEffect(.highlight)
                     .accessibilityHint("opens journal connection options")
-                }
-            }
-
-            Section {
-                Button("refresh brain") {
-                    Task {
-                        await self.refreshBrain()
-                    }
-                }
-                .disabled(!self.tunnelManager.state.isConnected)
-                .hoverEffect(.highlight)
-
-                if !self.tunnelManager.state.isConnected {
-                    Text("available once your journal's connected.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -350,15 +343,6 @@ struct MoreView: View {
                 .hoverEffect(.highlight)
             }
 
-            Section {
-                NavigationLink {
-                    SettingsView()
-                } label: {
-                    Text("settings")
-                }
-                .hoverEffect(.highlight)
-            }
-
             Section("identity") {
                 LabeledContent("owner", value: self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity)
                 LabeledContent("device", value: self.appConfig.deviceID.isEmpty ? "unpaired" : self.appConfig.deviceID)
@@ -435,13 +419,6 @@ struct MoreView: View {
                 UINotificationFeedbackGenerator().notificationOccurred(.warning)
             }
         }
-    }
-
-    private func refreshBrain() async {
-        guard let url = VoiceServerURL.url(localPort: self.localPort, path: "/api/voice/refresh-brain") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func saveBriefingTime() async {
