@@ -17,26 +17,8 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
     }
 
     func testImporterSourceStateMapping() {
-        XCTAssertEqual(
-            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: false, isPaused: false), failedCount: 0),
-            .off
-        )
-        XCTAssertEqual(
-            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: false), failedCount: 0),
-            .active
-        )
-        XCTAssertEqual(
-            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: true), failedCount: 0),
-            .paused
-        )
-        XCTAssertEqual(
-            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: false), failedCount: 1),
-            .needsAttention
-        )
-        XCTAssertEqual(
-            importerSourceState(shareState: AppGroupMirror.ShareSourceState(isActivated: true, isPaused: true), failedCount: 1),
-            .paused
-        )
+        XCTAssertEqual(importerSourceState(failedCount: 0), .active)
+        XCTAssertEqual(importerSourceState(failedCount: 1), .needsAttention)
     }
 
     func testImporterActiveSubtextMapping() {

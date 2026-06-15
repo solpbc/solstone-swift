@@ -13,8 +13,6 @@ struct SourcesView: View {
     @State private var selectedSourceRoute: SourceRoute?
     @State private var showingConnectJournal = false
 
-    private let appGroupMirror = AppGroupMirror()
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -143,13 +141,12 @@ private extension SourcesView {
     }
 
     var shareSource: Source {
-        let shareState = self.appGroupMirror.shareSourceState()
         return Source(
             id: "share-sheet",
             displayName: SourceVocabulary.shareSheetDisplayName,
             kind: .importer,
             group: .bringingInYourself,
-            state: importerSourceState(shareState: shareState, failedCount: self.importQueue.failedCount),
+            state: importerSourceState(failedCount: self.importQueue.failedCount),
             activeSubtext: importerActiveSubtext(
                 pendingCount: self.importQueue.pendingCount,
                 lastDeliveredAt: self.importQueue.lastDeliveredAt

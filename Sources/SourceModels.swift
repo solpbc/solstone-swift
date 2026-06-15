@@ -63,20 +63,8 @@ final class ObserverSourcePauseState {
     var isPaused = false
 }
 
-nonisolated func importerSourceState(
-    shareState: AppGroupMirror.ShareSourceState,
-    failedCount: Int
-) -> SourceState {
-    if !shareState.isActivated {
-        return .off
-    }
-    if shareState.isPaused {
-        return .paused
-    }
-    if failedCount > 0 {
-        return .needsAttention
-    }
-    return .active
+nonisolated func importerSourceState(failedCount: Int) -> SourceState {
+    failedCount == 0 ? .active : .needsAttention
 }
 
 nonisolated func importerActiveSubtext(

@@ -14,7 +14,6 @@ final class ShareViewController: UIViewController {
     enum Screen: Equatable {
         case loading
         case noJournal
-        case paused
         case confirm(journalName: String)
         case saving
         case failure(String)
@@ -47,11 +46,6 @@ final class ShareViewController: UIViewController {
             return
         }
 
-        if self.mirror.shareSourceState().isPaused {
-            self.render(.paused)
-            return
-        }
-
         self.render(.confirm(journalName: journalName))
     }
 
@@ -64,9 +58,6 @@ final class ShareViewController: UIViewController {
             },
             onSend: { [weak self] in
                 self?.acceptShare()
-            },
-            onResumeAndSend: { [weak self] in
-                self?.resumeAndSend()
             },
             onCancel: { [weak self] in
                 self?.complete()
@@ -108,11 +99,6 @@ final class ShareViewController: UIViewController {
         }
     }
 
-    private func resumeAndSend() {
-        self.mirror.resumeShareSourceAndActivate()
-        self.acceptShare()
-    }
-
     private func acceptShare() {
         guard let provider else {
             self.showFailure(.unsupported)
@@ -130,7 +116,6 @@ final class ShareViewController: UIViewController {
             let result = await self.coordinator.accept(provider: provider, journalName: journalName)
             switch result {
             case .success:
-                self.mirror.activateShareSource()
                 self.coordinator.saveCommitted()
                 self.complete()
             case .failure(let failure):
@@ -165,7 +150,6 @@ private struct ShareExtensionView: View {
     let screen: ShareViewController.Screen
     let onConnect: () -> Void
     let onSend: () -> Void
-    let onResumeAndSend: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -184,19 +168,6 @@ private struct ShareExtensionView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.solOrangeAccessible)
                     .accessibilityHint("Connects your journal.")
-            case .paused:
-                Text(ShareImportCopy.pausedBody)
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                HStack(spacing: 12) {
-                    Button(ShareImportCopy.cancel, action: self.onCancel)
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Closes this without sending.")
-                    Button(ShareImportCopy.resumeAndSend, action: self.onResumeAndSend)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.solOrangeAccessible)
-                        .accessibilityHint("Resumes share sheet and sends this to your journal.")
-                }
             case .confirm(let journalName):
                 Text(ShareImportCopy.sendToYourJournal)
                     .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))

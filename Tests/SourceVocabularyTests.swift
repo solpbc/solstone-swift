@@ -208,10 +208,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "deleted. removed from your journal: {N} items you sent · the originals + a note of where each came from."
         )
         XCTAssertEqual(
-            SourceVocabulary.deleteSourceOffLine,
-            "share sheet is now off — turn it back on any time."
-        )
-        XCTAssertEqual(
             SourceVocabulary.deleteJournalUnreachableLine,
             "couldn't reach your journal — nothing was deleted."
         )
@@ -229,7 +225,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.deleteConfirmBody,
             SourceVocabulary.deleteConfirmButton,
             SourceVocabulary.deleteReceiptHeadlineTemplate,
-            SourceVocabulary.deleteSourceOffLine,
             SourceVocabulary.deleteJournalUnreachableLine,
         ]
 
@@ -249,12 +244,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "connect your journal first — then you can send things to it."
         )
         XCTAssertEqual(ShareImportCopy.connectJournalButton, "connect your journal")
-        XCTAssertEqual(
-            ShareImportCopy.pausedBody,
-            "share sheet is paused. resume it to send this, or cancel."
-        )
-        XCTAssertEqual(ShareImportCopy.cancel, "cancel")
-        XCTAssertEqual(ShareImportCopy.resumeAndSend, "resume & send")
         XCTAssertEqual(ShareImportCopy.sendToYourJournal, "send to your journal")
         XCTAssertEqual(
             ShareImportCopy.solCanReadBody,
@@ -377,14 +366,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.deleteConfirmBody,
             SourceVocabulary.deleteConfirmButton,
             SourceVocabulary.deleteReceiptHeadlineTemplate,
-            SourceVocabulary.deleteSourceOffLine,
             SourceVocabulary.deleteJournalUnreachableLine,
             ShareImportCopy.dismiss,
             ShareImportCopy.connectFirstBody,
             ShareImportCopy.connectJournalButton,
-            ShareImportCopy.pausedBody,
-            ShareImportCopy.cancel,
-            ShareImportCopy.resumeAndSend,
             ShareImportCopy.sendToYourJournal,
             ShareImportCopy.solCanReadBody,
         ]

@@ -184,7 +184,6 @@ nonisolated enum SourceVocabulary {
     static let deleteConfirmBody = "delete everything share sheet added to your journal? this removes the originals you sent and what sol added from them. other things in your journal stay. this can't be undone."
     static let deleteConfirmButton = "delete share sheet's contributions"
     static let deleteReceiptHeadlineTemplate = "deleted. removed from your journal: {N} items you sent · the originals + a note of where each came from."
-    static let deleteSourceOffLine = "share sheet is now off — turn it back on any time."
     static let deleteJournalUnreachableLine = "couldn't reach your journal — nothing was deleted."
 
     static func deleteReceiptHeadline(originals: Int) -> String {

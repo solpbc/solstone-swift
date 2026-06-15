@@ -20,16 +20,9 @@ nonisolated struct AppGroupMirror: Sendable {
         let isPaired: Bool
     }
 
-    struct ShareSourceState: Equatable, Sendable {
-        let isActivated: Bool
-        let isPaused: Bool
-    }
-
     private enum Key {
         static let pairingIsPaired = "appGroupMirror.pairing.isPaired"
         static let pairingJournalName = "appGroupMirror.pairing.journalName"
-        static let shareSourceIsActivated = "appGroupMirror.shareSource.isActivated"
-        static let shareSourceIsPaused = "appGroupMirror.shareSource.isPaused"
     }
 
     private let defaultsBox: AppGroupMirrorDefaultsBox
@@ -67,48 +60,5 @@ nonisolated struct AppGroupMirror: Sendable {
 
         defaults.set(false, forKey: Key.pairingIsPaired)
         defaults.removeObject(forKey: Key.pairingJournalName)
-    }
-
-    nonisolated func shareSourceState() -> ShareSourceState {
-        guard let defaults = self.defaultsBox.defaults else {
-            return ShareSourceState(isActivated: false, isPaused: false)
-        }
-
-        return ShareSourceState(
-            isActivated: defaults.bool(forKey: Key.shareSourceIsActivated),
-            isPaused: defaults.bool(forKey: Key.shareSourceIsPaused)
-        )
-    }
-
-    nonisolated func setShareActivated(_ value: Bool) {
-        guard let defaults = self.defaultsBox.defaults else {
-            appGroupMirrorLog.error("share source activation write skipped: app group defaults unavailable")
-            return
-        }
-
-        defaults.set(value, forKey: Key.shareSourceIsActivated)
-    }
-
-    nonisolated func setSharePaused(_ value: Bool) {
-        guard let defaults = self.defaultsBox.defaults else {
-            appGroupMirrorLog.error("share source pause write skipped: app group defaults unavailable")
-            return
-        }
-
-        defaults.set(value, forKey: Key.shareSourceIsPaused)
-    }
-
-    nonisolated func activateShareSource() {
-        self.setShareActivated(true)
-    }
-
-    nonisolated func resumeShareSourceAndActivate() {
-        guard let defaults = self.defaultsBox.defaults else {
-            appGroupMirrorLog.error("share source resume write skipped: app group defaults unavailable")
-            return
-        }
-
-        defaults.set(false, forKey: Key.shareSourceIsPaused)
-        defaults.set(true, forKey: Key.shareSourceIsActivated)
     }
 }

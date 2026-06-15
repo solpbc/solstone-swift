@@ -6,13 +6,11 @@ import SwiftUI
 struct ImporterSourceDetailView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var refreshToken = UUID()
     @State private var showingDeleteConfirm = false
     @State private var isDeleting = false
     @State private var deleteResult: DeleteShareSourceResult?
 
     let source: Source
-    private let appGroupMirror = AppGroupMirror()
 
     init(source: Source) {
         self.source = source
@@ -79,9 +77,6 @@ struct ImporterSourceDetailView: View {
         } message: {
             Text(SourceVocabulary.deleteConfirmBody)
         }
-        .onAppear {
-            self.refreshToken = UUID()
-        }
     }
 }
 
@@ -97,12 +92,6 @@ private extension ImporterSourceDetailView {
 
             LabeledContent("pending", value: "\(self.importQueue.pendingCount)")
             LabeledContent("failed", value: "\(self.importQueue.failedCount)")
-
-            Button(self.stateActionLabel) {
-                self.handleStateAction()
-            }
-            .buttonStyle(.bordered)
-            .accessibilityHint(self.stateActionHint)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -138,10 +127,6 @@ private extension ImporterSourceDetailView {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    Text(SourceVocabulary.deleteSourceOffLine)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
                     ForEach(deleteResult.notRemovedIssues, id: \.self) { issue in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(issue.what)
@@ -168,46 +153,7 @@ private extension ImporterSourceDetailView {
     }
 
     var currentState: SourceState {
-        importerSourceState(shareState: self.currentShareSourceState, failedCount: self.importQueue.failedCount)
-    }
-
-    var currentShareSourceState: AppGroupMirror.ShareSourceState {
-        _ = self.refreshToken
-        return self.appGroupMirror.shareSourceState()
-    }
-
-    var stateActionLabel: String {
-        switch self.currentState {
-        case .off:
-            SourceVocabulary.turnOn
-        case .paused:
-            SourceVocabulary.resume
-        case .active, .needsAttention, .enrolling:
-            SourceVocabulary.pause
-        }
-    }
-
-    var stateActionHint: String {
-        switch self.currentState {
-        case .off:
-            "turns on share sheet."
-        case .paused:
-            "resumes share sheet."
-        case .active, .needsAttention, .enrolling:
-            "pauses share sheet."
-        }
-    }
-
-    func handleStateAction() {
-        switch self.currentState {
-        case .off:
-            self.appGroupMirror.activateShareSource()
-        case .paused:
-            self.appGroupMirror.setSharePaused(false)
-        case .active, .needsAttention, .enrolling:
-            self.appGroupMirror.setSharePaused(true)
-        }
-        self.refreshToken = UUID()
+        importerSourceState(failedCount: self.importQueue.failedCount)
     }
 
     func runDelete() async {
@@ -217,11 +163,6 @@ private extension ImporterSourceDetailView {
         }
 
         let result = await self.importQueue.deleteShareSource()
-        if result.shouldFlipOff {
-            self.appGroupMirror.setShareActivated(false)
-            self.appGroupMirror.setSharePaused(false)
-        }
         self.deleteResult = result
-        self.refreshToken = UUID()
     }
 }
