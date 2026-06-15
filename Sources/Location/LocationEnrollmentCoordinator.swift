@@ -64,8 +64,13 @@ final class LocationEnrollmentCoordinator {
             self.emit(.startRequested(self.selectedTier))
             await self.manager.start(tier: self.selectedTier)
         case .always:
-            self.showingPrimer = true
-            self.emit(.primerShown)
+            if self.manager.isAuthorizationSufficient(for: self.selectedTier) {
+                self.emit(.startRequested(self.selectedTier))
+                await self.manager.start(tier: self.selectedTier)
+            } else {
+                self.showingPrimer = true
+                self.emit(.primerShown)
+            }
         }
     }
 

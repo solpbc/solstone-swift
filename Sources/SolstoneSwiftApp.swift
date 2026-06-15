@@ -279,6 +279,9 @@ struct SolstoneSwiftApp: App {
                     await self.importQueue.resumeFromDisk()
                 }
                 .task {
+                    await self.locationManager.resumeIfEnabled()
+                }
+                .task {
                     if case .idle = self.observerManager.state {
                         await self.observerManager.endStaleObserverActivities()
                     }

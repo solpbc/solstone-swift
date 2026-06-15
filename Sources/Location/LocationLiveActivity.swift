@@ -18,6 +18,7 @@ protocol LocationLiveActivitying: AnyObject {
     func start(tierLabel: String, sessionID: String) async
     func update(tierLabel: String, segmentCount: Int) async
     func end() async
+    func endAll() async
 }
 
 actor LocationLiveActivity: LocationLiveActivitying {
@@ -25,10 +26,7 @@ actor LocationLiveActivity: LocationLiveActivitying {
     private var activitySessionID: String?
 
     func start(tierLabel: String, sessionID: String) async {
-        if let activitySessionID {
-            await Self.endActivity(sessionID: activitySessionID)
-            self.activitySessionID = nil
-        }
+        await self.endAll()
 
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             self.log.error("location live activity unavailable")
@@ -63,6 +61,13 @@ actor LocationLiveActivity: LocationLiveActivitying {
     func end() async {
         guard let activitySessionID else { return }
         await Self.endActivity(sessionID: activitySessionID)
+        self.activitySessionID = nil
+    }
+
+    func endAll() async {
+        for activity in Activity<LocationActivityAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
         self.activitySessionID = nil
     }
 

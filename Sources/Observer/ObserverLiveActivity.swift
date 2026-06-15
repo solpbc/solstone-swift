@@ -26,6 +26,8 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
     private var activitySessionID: String?
 
     func start(mode: ObserverMode, sessionID: UUID, elapsed: TimeInterval) async {
+        await self.endAll()
+
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             self.log.error("observer live activity unavailable")
             return

@@ -8,6 +8,7 @@ final class MockLocationLiveActivity: LocationLiveActivitying {
     var startCalls: [(tierLabel: String, sessionID: String)] = []
     var updateCalls: [(tierLabel: String, segmentCount: Int)] = []
     var endCallCount = 0
+    var endAllCallCount = 0
 
     func start(tierLabel: String, sessionID: String) async {
         self.startCalls.append((tierLabel, sessionID))
@@ -19,5 +20,9 @@ final class MockLocationLiveActivity: LocationLiveActivitying {
 
     func end() async {
         self.endCallCount += 1
+    }
+
+    func endAll() async {
+        self.endAllCallCount += 1
     }
 }

@@ -8,6 +8,7 @@ import XCTest
 nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
     @MainActor private lazy var provider = MockLocationProvider()
     @MainActor private lazy var clock = MockObserverClock()
+    @MainActor private lazy var liveActivity = MockLocationLiveActivity()
     private lazy var uploader = RecordingLocationUploader()
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -72,6 +73,42 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testBalancedConfirmOneTapsWhenAuthorizationAlreadySufficient() async {
+        self.provider.capability = .always(accuracy: .reduced)
+        let recorder = LocationEnrollmentEventRecorder()
+        let manager = self.makeManager()
+        let coordinator = self.makeCoordinator(manager: manager, recorder: recorder)
+
+        await coordinator.confirm()
+
+        XCTAssertEqual(recorder.events(), [.startRequested(.balanced)])
+        XCTAssertFalse(coordinator.showingPrimer)
+        XCTAssertEqual(manager.sourceState, .active)
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
+    }
+
+    @MainActor
+    func testLightConfirmOneTapsWhenAuthorizationAlreadySufficient() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let recorder = LocationEnrollmentEventRecorder()
+        let manager = self.makeManager()
+        let coordinator = self.makeCoordinator(manager: manager, recorder: recorder)
+
+        coordinator.selectTier(.light)
+        await coordinator.confirm()
+
+        XCTAssertEqual(recorder.events(), [
+            .tierSelected(.light),
+            .startRequested(.light)
+        ])
+        XCTAssertFalse(coordinator.showingPrimer)
+        XCTAssertEqual(manager.sourceState, .active)
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+    }
+
+    @MainActor
     func testRepeatedBalancedConfirmOnlyShowsPrimerOnce() async {
         let recorder = LocationEnrollmentEventRecorder()
         let coordinator = self.makeCoordinator(recorder: recorder)
@@ -83,6 +120,22 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.showingPrimer)
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+    }
+
+    @MainActor
+    func testDismissingAlwaysPrimerDoesNotStartLocation() async {
+        let recorder = LocationEnrollmentEventRecorder()
+        let manager = self.makeManager()
+        let coordinator = self.makeCoordinator(manager: manager, recorder: recorder)
+
+        await coordinator.confirm()
+        XCTAssertTrue(coordinator.showingPrimer)
+        coordinator.showingPrimer = false
+
+        XCTAssertEqual(recorder.events(), [.primerShown])
+        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor
@@ -200,7 +253,8 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
             provider: self.provider,
             uploader: self.uploader,
             clock: self.clock,
-            defaults: self.defaults
+            defaults: self.defaults,
+            liveActivity: self.liveActivity
         )
     }
 

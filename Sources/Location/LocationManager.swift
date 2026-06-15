@@ -72,6 +72,8 @@ final class LocationManager {
     @ObservationIgnored private var lastCapability: LocationCapability
 
     private enum Key {
+        static let enabled = "location.enabled"
+        static let paused = "location.paused"
         static let tier = "location.tier"
     }
 
@@ -163,18 +165,57 @@ final class LocationManager {
 
     func stopForDelete() async {
         self.paused = false
+        self.persistEnabled(false)
+        self.persistPaused(false)
         await self.stop()
     }
 
     func pause() async {
         self.paused = true
+        self.persistPaused(true)
         await self.stop()
     }
 
     func resume() async {
         self.paused = false
+        self.persistPaused(false)
         self.watchdogTripped = false
         await self.start(tier: self.tier)
+    }
+
+    func resumeIfEnabled() async {
+        switch self.state {
+        case .idle, .error:
+            break
+        case .starting, .active, .stopping:
+            return
+        }
+
+        guard Self.readEnabled(defaults: self.defaults) else {
+            self.paused = false
+            self.state = .idle
+            await self.liveActivity.endAll()
+            return
+        }
+
+        guard !Self.readPaused(defaults: self.defaults) else {
+            self.paused = true
+            self.state = .idle
+            await self.liveActivity.endAll()
+            return
+        }
+
+        self.paused = false
+        let capability = self.effectiveCapability()
+        guard self.tier.isSatisfied(by: capability) else {
+            self.state = .error(.capabilityInsufficient)
+            return
+        }
+        await self.activateSessionIfAllowed(capability: capability)
+    }
+
+    func isAuthorizationSufficient(for tier: LocationTier) -> Bool {
+        tier.isSatisfied(by: self.effectiveCapability())
     }
 
     func changeTier(_ tier: LocationTier) async {
@@ -250,9 +291,25 @@ private extension LocationManager {
         return tier
     }
 
+    static func readEnabled(defaults: UserDefaults?) -> Bool {
+        defaults?.bool(forKey: Key.enabled) ?? false
+    }
+
+    static func readPaused(defaults: UserDefaults?) -> Bool {
+        defaults?.bool(forKey: Key.paused) ?? false
+    }
+
     func persistTier(_ tier: LocationTier) {
         self.tier = tier
         self.defaults?.set(tier.rawValue, forKey: Key.tier)
+    }
+
+    func persistEnabled(_ enabled: Bool) {
+        self.defaults?.set(enabled, forKey: Key.enabled)
+    }
+
+    func persistPaused(_ paused: Bool) {
+        self.defaults?.set(paused, forKey: Key.paused)
     }
 
     func effectiveCapability() -> LocationCapability {
@@ -338,6 +395,8 @@ private extension LocationManager {
                 currentSegmentIndex: 0,
                 elapsed: 0
             ))
+            self.persistEnabled(true)
+            self.persistPaused(false)
             if self.isLiveActivityEligible {
                 await self.liveActivity.start(tierLabel: self.tier.label, sessionID: sessionID.uuidString)
             }

@@ -315,6 +315,22 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testAuthorizationSufficientUsesEffectiveCapability() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager(watchdogThreshold: .seconds(10))
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+        XCTAssertTrue(manager.isAuthorizationSufficient(for: .balanced))
+
+        manager.noteAppDidEnterBackground()
+        await self.yieldToMainActor()
+        self.clock.advance(by: 10)
+        await self.yieldToMainActor()
+
+        XCTAssertFalse(manager.isAuthorizationSufficient(for: .balanced))
+    }
+
+    @MainActor
     func testTierChangePersistsRestartsModesAndDoesNotEnqueue() async {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
@@ -344,6 +360,156 @@ nonisolated final class LocationManagerTests: XCTestCase {
         )
 
         XCTAssertEqual(nextManager.tier, .full)
+    }
+
+    @MainActor
+    func testEnabledPausedPersistenceWritePoints() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), true)
+        XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), false)
+
+        await manager.pause()
+        XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), true)
+        XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), true)
+        XCTAssertEqual(manager.sourceState, .paused)
+
+        await manager.resume()
+        XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), true)
+        XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), false)
+        XCTAssertEqual(manager.sourceState, .active)
+
+        await manager.stopForDelete()
+        XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), false)
+        XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), false)
+        XCTAssertEqual(manager.sourceState, .off)
+    }
+
+    @MainActor
+    func testChangeTierDoesNotTouchEnabledPausedPersistence() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        self.defaults.set(false, forKey: "location.enabled")
+        self.defaults.set(true, forKey: "location.paused")
+
+        await manager.changeTier(.full)
+
+        XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), false)
+        XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), true)
+    }
+
+    @MainActor
+    func testResumeIfEnabledRearmsWithoutPromptAndStartsOneLiveActivity() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .always(accuracy: .reduced)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .active)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endAllCallCount, 0)
+    }
+
+    @MainActor
+    func testResumeIfEnabledPausedRestoresPausedWithoutStarting() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(true, forKey: "location.paused")
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .paused)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+        XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
+    }
+
+    @MainActor
+    func testResumeIfNeverEnabledStaysOffAndEndsOrphans() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+        XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
+    }
+
+    @MainActor
+    func testResumeIfEnabledNotDeterminedDoesNotRequestPermission() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .notDetermined
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+    }
+
+    @MainActor
+    func testResumeIfEnabledDeniedDoesNotRequestPermission() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .denied
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+    }
+
+    @MainActor
+    func testResumeIfEnabledWhenInUseForBalancedDoesNotRequestAlways() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+    }
+
+    @MainActor
+    func testResumeIfEnabledNoopsWhenAlreadyActive() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        let startCallCount = self.provider.startCallCount
+        let liveActivityStartCount = self.liveActivity.startCalls.count
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(self.provider.startCallCount, startCallCount)
+        XCTAssertEqual(self.liveActivity.startCalls.count, liveActivityStartCount)
     }
 
     @MainActor

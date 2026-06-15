@@ -363,6 +363,8 @@ private struct LocationEnrollmentContent: View {
     }
 
     var body: some View {
+        @Bindable var coordinator = self.coordinator
+
         VStack(alignment: .leading, spacing: 16) {
             self.valueBlock
 
@@ -388,30 +390,20 @@ private struct LocationEnrollmentContent: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(self.coordinator.showingPrimer)
                     .accessibilityHint("Starts adding location updates to your journal.")
                 }
             }
-
-            if self.coordinator.showingPrimer {
-                SourceDetailBlock(title: self.presentation.alwaysPrimerHeader) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(self.presentation.alwaysBackgroundPrimer)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        Button(self.presentation.alwaysPrimerContinue) {
-                            Task {
-                                await self.coordinator.acknowledgePrimer()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .accessibilityHint("Continues to the iOS location permission step.")
-                    }
+        }
+        .alert(self.presentation.alwaysPrimerHeader, isPresented: $coordinator.showingPrimer) {
+            Button(self.presentation.alwaysPrimerContinue) {
+                Task {
+                    await coordinator.acknowledgePrimer()
                 }
             }
+            .accessibilityHint("Continues to the iOS location permission step.")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(self.presentation.alwaysBackgroundPrimer)
         }
     }
 }
