@@ -81,6 +81,7 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
         "create" + " account",
         "sign" + " up",
         "sign" + "up",
+        "account" + "_id",
     ]
 
     private static var pattern: String {

@@ -8,7 +8,6 @@ import os
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
     let pushManager = PushNotificationManager()
-    lazy var pushEnablement = PushEnablement(pushManager: self.pushManager)
     let pendingRoute = PendingNotificationRouteState()
     weak var observerUploader: ObserverUploader?
     weak var importQueue: ImportQueue?
@@ -70,6 +69,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             self?.pushManager.handleRemoteRegistrationFailure(error)
         }
     }
+
+    // TODO(push-cutover): add silent cross-device dedup through application(_:didReceiveRemoteNotification:fetchCompletionHandler:).
 
     nonisolated func application(
         _ application: UIApplication,

@@ -4,45 +4,35 @@
 import Foundation
 
 enum NotificationRoute: Sendable, Equatable {
-    case today
-    case commitment(id: String)
-    case preMeeting(eventId: String)
-    case agentAlert(customPath: String?)
+    enum PortalNavTarget: Sendable, Equatable {
+        case hash(String)
+        case path(String)
 
-    var portalHash: String {
-        switch self {
-        case .today:
-            return "today"
-        case .commitment(let id):
-            return id.isEmpty ? "today" : "today/commitment/\(id)"
-        case .preMeeting(let eventId):
-            return eventId.isEmpty ? "today" : "today/prep/\(eventId)"
-        case .agentAlert(let customPath):
-            return Self.sanitize(customPath) ?? "today"
+        var logLabel: String {
+            switch self {
+            case .hash(let hash):
+                return hash
+            case .path(let path):
+                return path
+            }
         }
     }
-}
 
-private extension NotificationRoute {
-    static func sanitize(_ customPath: String?) -> String? {
-        guard var path = customPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty
-        else {
-            return nil
+    static let solChatPath = "/app/chat/"
+
+    case today
+    case solChatRequest
+
+    var portalNavTarget: PortalNavTarget {
+        switch self {
+        case .today:
+            return .hash("today")
+        case .solChatRequest:
+            return .path(Self.solChatPath)
         }
+    }
 
-        if path.hasPrefix("#") {
-            path.removeFirst()
-        }
-
-        let lowered = path.lowercased()
-        guard !path.isEmpty,
-              !lowered.hasPrefix("javascript:"),
-              !path.contains("://")
-        else {
-            return nil
-        }
-
-        return path
+    var logLabel: String {
+        self.portalNavTarget.logLabel
     }
 }

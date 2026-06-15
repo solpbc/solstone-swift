@@ -239,6 +239,7 @@ struct MainTabView: View {
     }
 
     private func tabForRoute(_ route: String, currentPortalTab: AppTab) -> AppTab {
+        if self.isSolChatRoute(route) { return .ask }
         if route.hasPrefix("today") { return .today }
         if route.hasPrefix("ask") { return .ask }
         if route.hasPrefix("entity/") { return currentPortalTab }
@@ -250,6 +251,9 @@ struct MainTabView: View {
         switch tab {
         case .today, .ask:
             self.lastPortalTab = tab
+            if tab == .ask, self.isSolChatRoute(self.portalPage.currentRoute) {
+                return
+            }
             if !self.portalPage.currentRoute.hasPrefix(tab.route) {
                 self.portalPage.navigate(to: tab.route)
             }
@@ -275,15 +279,27 @@ struct MainTabView: View {
 
     private func apply(_ route: NotificationRoute) {
         guard self.appConfig.isPaired, self.tunnelManager.state.isConnected else { return }
-        self.selectedTab = .today
-        self.lastPortalTab = .today
-        self.portalPage.navigate(to: route.portalHash)
+        switch route.portalNavTarget {
+        case .hash(let hash):
+            self.selectedTab = .today
+            self.lastPortalTab = .today
+            self.portalPage.navigate(to: hash)
+        case .path(let path):
+            self.selectedTab = .ask
+            self.lastPortalTab = .ask
+            self.portalPage.navigate(toPath: path)
+        }
         self.pendingRoute.route = nil
     }
 
     private func loadPortalIfReady(port: Int? = nil) {
         guard self.appConfig.isPaired, self.tunnelManager.state.isConnected else { return }
         self.portalPage.load(port: port ?? self.localPort)
+    }
+
+    private func isSolChatRoute(_ route: String) -> Bool {
+        let normalizedRoute = route.hasPrefix("/") ? route : "/\(route)"
+        return normalizedRoute == "/app/chat" || normalizedRoute.hasPrefix(NotificationRoute.solChatPath)
     }
 }
 

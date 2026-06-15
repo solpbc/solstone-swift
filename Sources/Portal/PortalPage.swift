@@ -76,13 +76,22 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func navigate(to route: String) {
         guard route != self.currentRoute else { return }
-        let escapedRoute = route
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
+        let escapedRoute = Self.javaScriptEscaped(route)
         self.currentRoute = route
         self.engine.evaluateJavaScript("window.location.hash = '\(escapedRoute)'") { _, error in
             if let error {
                 log.error("[solstone-swift] portal: route navigation failed \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    func navigate(toPath path: String) {
+        guard path != self.currentRoute else { return }
+        let escapedPath = Self.javaScriptEscaped(path)
+        self.currentRoute = path
+        self.engine.evaluateJavaScript("window.location.href = '\(escapedPath)'") { _, error in
+            if let error {
+                log.error("[solstone-swift] portal: path navigation failed \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -146,6 +155,12 @@ final class PortalPage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 }
 
 extension PortalPage {
+    private static func javaScriptEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+    }
+
     func handleNavigationFailure(error: Error, kind: String) {
         log.error("[solstone-swift] portal: \(kind, privacy: .public) failed \(error.localizedDescription, privacy: .public)")
         if let url = URL(string: "http://127.0.0.1:\(self.currentPort)\(devMockPortalPath)"),

@@ -238,7 +238,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.diagnosticLog)
                 .environment(self.bannerPresenter)
                 .environment(self.appDelegate.pushManager)
-                .environment(self.appDelegate.pushEnablement)
                 .environment(self.appDelegate.pendingRoute)
                 .onOpenURL { url in
                     if let result = UniversalLinkRouter.route(url) {

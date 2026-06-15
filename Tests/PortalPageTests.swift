@@ -90,6 +90,23 @@ nonisolated final class PortalPageTests: XCTestCase {
     }
 
     @MainActor
+    func test_navigateToPath_emitsHrefJSAndUpdatesRoute() {
+        self.portalPage.navigate(toPath: "/app/chat/")
+
+        XCTAssertEqual(self.mockEngine.lastEvaluatedScript, "window.location.href = '/app/chat/'")
+        XCTAssertEqual(self.portalPage.currentRoute, "/app/chat/")
+        XCTAssertEqual(self.mockEngine.evaluateJavaScriptCallCount, 1)
+    }
+
+    @MainActor
+    func test_navigateToPath_samePathIsIdempotent() {
+        self.portalPage.navigate(toPath: "/app/chat/")
+        self.portalPage.navigate(toPath: "/app/chat/")
+
+        XCTAssertEqual(self.mockEngine.evaluateJavaScriptCallCount, 1)
+    }
+
+    @MainActor
     func test_handleNavigationFailure_loadsErrorPageForNonTunnelError() {
         self.portalPage.load(port: 7071)
         let initialLoadHTMLStringCallCount = self.mockEngine.loadHTMLStringCallCount

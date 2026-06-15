@@ -127,11 +127,8 @@ targets:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
           NSExtensionAttributes:
-            UNNotificationExtensionCategory:
-              - SOLSTONE_DAILY_BRIEFING
-              - SOLSTONE_COMMITMENT_NUDGE
-              - SOLSTONE_PRE_MEETING_PREP
-              - SOLSTONE_AGENT_ALERT
+            # No categories currently use this no-op shell; target removal is an out-of-scope follow-up.
+            UNNotificationExtensionCategory: []
             UNNotificationExtensionInitialContentSizeRatio: 1.0
             UNNotificationExtensionDefaultContentHidden: false
   SolstoneShareExtension:
