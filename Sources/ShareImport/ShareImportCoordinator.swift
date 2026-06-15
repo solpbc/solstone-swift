@@ -29,7 +29,6 @@ extension ImportQueue: ShareImportQueueing {}
 nonisolated enum ShareImportCopy {
     static let dismiss = "dismiss"
     static let connectFirstBody = "connect your journal first — then you can send things to it."
-    static let connectJournalButton = "connect your journal"
     static let sendToYourJournal = "send to your journal"
     static let solCanReadBody = "sol can read it so you can find and ask about it later."
 

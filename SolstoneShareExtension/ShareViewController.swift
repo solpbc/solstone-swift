@@ -2,12 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
-import os
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
-
-nonisolated private let shareExtensionLog = Logger(subsystem: "app.solstone.swift", category: "share-extension")
 
 @objc(ShareViewController)
 final class ShareViewController: UIViewController {
@@ -53,9 +50,6 @@ final class ShareViewController: UIViewController {
         self.screen = screen
         let view = ShareExtensionView(
             screen: screen,
-            onConnect: { [weak self] in
-                self?.openPairingLink()
-            },
             onSend: { [weak self] in
                 self?.acceptShare()
             },
@@ -81,22 +75,6 @@ final class ShareViewController: UIViewController {
             hostingController.view.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
         ])
         hostingController.didMove(toParent: self)
-    }
-
-    private func openPairingLink() {
-        guard let url = URL(string: "https://link.solpbc.org/pair/connect") else {
-            self.complete()
-            return
-        }
-
-        self.extensionContext?.open(url) { [weak self] success in
-            Task { @MainActor in
-                if !success {
-                    shareExtensionLog.error("pairing link open failed")
-                }
-                self?.complete()
-            }
-        }
     }
 
     private func acceptShare() {
@@ -148,7 +126,6 @@ final class ShareViewController: UIViewController {
 
 private struct ShareExtensionView: View {
     let screen: ShareViewController.Screen
-    let onConnect: () -> Void
     let onSend: () -> Void
     let onCancel: () -> Void
 
@@ -164,10 +141,9 @@ private struct ShareExtensionView: View {
                 Text(ShareImportCopy.connectFirstBody)
                     .font(.body)
                     .multilineTextAlignment(.center)
-                Button(ShareImportCopy.connectJournalButton, action: self.onConnect)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.solOrangeAccessible)
-                    .accessibilityHint("Connects your journal.")
+                Button(ShareImportCopy.dismiss, action: self.onCancel)
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Closes this message.")
             case .confirm(let journalName):
                 Text(ShareImportCopy.sendToYourJournal)
                     .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))

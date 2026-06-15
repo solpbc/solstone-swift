@@ -243,7 +243,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             ShareImportCopy.connectFirstBody,
             "connect your journal first — then you can send things to it."
         )
-        XCTAssertEqual(ShareImportCopy.connectJournalButton, "connect your journal")
         XCTAssertEqual(ShareImportCopy.sendToYourJournal, "send to your journal")
         XCTAssertEqual(
             ShareImportCopy.solCanReadBody,
@@ -369,7 +368,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.deleteJournalUnreachableLine,
             ShareImportCopy.dismiss,
             ShareImportCopy.connectFirstBody,
-            ShareImportCopy.connectJournalButton,
             ShareImportCopy.sendToYourJournal,
             ShareImportCopy.solCanReadBody,
         ]
