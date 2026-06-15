@@ -28,9 +28,7 @@ extension ImportQueue: ShareImportQueueing {}
 
 nonisolated enum ShareImportCopy {
     static let dismiss = "dismiss"
-    static let connectFirstBody = "connect your journal first — then you can send things to it."
-    static let sendToYourJournal = "send to your journal"
-    static let solCanReadBody = "sol can read it so you can find and ask about it later."
+    static let savedAccessibilityLabel = "saved"
 
     static func failureMessage(plainReason: String) -> String {
         "couldn't save this — \(plainReason). nothing was added."
@@ -102,7 +100,7 @@ final class ShareImportCoordinator {
         self.recordEvent = recordEvent
     }
 
-    func accept(provider: any ShareItemProvider, journalName: String) async -> ShareImportResult {
+    func accept(provider: any ShareItemProvider) async -> ShareImportResult {
         guard let contentType = provider.registeredContentType(),
               Self.isSupportedContentType(contentType)
         else {
@@ -148,7 +146,7 @@ final class ShareImportCoordinator {
                 fileURL: fileURL,
                 source: "share",
                 stream: "import.share",
-                targetJournal: journalName,
+                targetJournal: "",
                 contentType: contentType,
                 originalFilename: originalFilename,
                 originApp: nil

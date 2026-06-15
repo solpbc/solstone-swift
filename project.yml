@@ -145,7 +145,6 @@ targets:
       - Sources/Observer/ObserverAuthorizedRequest.swift
       - Sources/SourceVocabulary.swift
       - Sources/Design/Colors.swift
-      - Sources/Services/AppGroupMirror.swift
       - Sources/ShareImport/ShareImportCoordinator.swift
     entitlements:
       path: SolstoneShareExtension/SolstoneShareExtension.entitlements

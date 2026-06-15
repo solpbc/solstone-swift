@@ -36,7 +36,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             recorder.append(event)
         }
 
-        let result = await coordinator.accept(provider: provider, journalName: "sol")
+        let result = await coordinator.accept(provider: provider)
         coordinator.saveCommitted()
 
         guard case .success(let itemID) = result else {
@@ -47,6 +47,10 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         XCTAssertNil(result.failureMessage)
         let itemIDString = itemID.uuidString.lowercased()
         XCTAssertTrue(FileManager.default.fileExists(atPath: queueRoot.appendingPathComponent("pending/\(itemIDString)/raw.bin").path))
+        let itemJSONURL = queueRoot.appendingPathComponent("pending/\(itemIDString)/item.json")
+        let itemJSONData = try Data(contentsOf: itemJSONURL)
+        let itemJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: itemJSONData) as? [String: Any])
+        XCTAssertEqual(itemJSON["target_journal"] as? String, "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(recorder.events(), [
             .resolved,
@@ -115,7 +119,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             recorder.append(event)
         }
 
-        let result = await coordinator.accept(provider: provider, journalName: "sol")
+        let result = await coordinator.accept(provider: provider)
 
         XCTAssertEqual(result, .failure(.unreadable))
         XCTAssertEqual(result.failureMessage, "couldn't save this — couldn't read it. nothing was added.")
@@ -148,7 +152,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             recorder.append(event)
         }
 
-        let result = await coordinator.accept(provider: provider, journalName: "sol")
+        let result = await coordinator.accept(provider: provider)
 
         XCTAssertEqual(result, .failure(expectedFailure))
         XCTAssertEqual(result.failureMessage, "couldn't save this — \(expectedFailure.plainReason). nothing was added.")

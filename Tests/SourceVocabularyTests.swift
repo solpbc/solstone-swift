@@ -235,18 +235,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     func testLockedShareImportCopy() {
         XCTAssertEqual(ShareImportCopy.dismiss, "dismiss")
+        XCTAssertEqual(ShareImportCopy.savedAccessibilityLabel, "saved")
         XCTAssertEqual(
             ShareImportCopy.failureMessage(plainReason: "{plain reason}"),
             "couldn't save this — {plain reason}. nothing was added."
-        )
-        XCTAssertEqual(
-            ShareImportCopy.connectFirstBody,
-            "connect your journal first — then you can send things to it."
-        )
-        XCTAssertEqual(ShareImportCopy.sendToYourJournal, "send to your journal")
-        XCTAssertEqual(
-            ShareImportCopy.solCanReadBody,
-            "sol can read it so you can find and ask about it later."
         )
     }
 
@@ -367,9 +359,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.deleteReceiptHeadlineTemplate,
             SourceVocabulary.deleteJournalUnreachableLine,
             ShareImportCopy.dismiss,
-            ShareImportCopy.connectFirstBody,
-            ShareImportCopy.sendToYourJournal,
-            ShareImportCopy.solCanReadBody,
+            ShareImportCopy.savedAccessibilityLabel,
         ]
     }
 }

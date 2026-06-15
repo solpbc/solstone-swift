@@ -3,57 +3,53 @@
 
 import Foundation
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
 
 @objc(ShareViewController)
 final class ShareViewController: UIViewController {
     enum Screen: Equatable {
-        case loading
-        case noJournal
-        case confirm(journalName: String)
-        case saving
+        case working
+        case success
         case failure(String)
     }
 
-    private let mirror = AppGroupMirror()
     private lazy var queue = ImportQueue(startPathMonitor: false)
     private lazy var coordinator = ShareImportCoordinator(queue: self.queue)
-    private var provider: (any ShareItemProvider)?
     private var hostingController: UIHostingController<ShareExtensionView>?
-    private var screen: Screen = .loading
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.render(.loading)
+        self.render(.working)
         self.prepare()
     }
 
     private func prepare() {
-        self.provider = self.firstProvider()
-        let pairing = self.mirror.pairingSnapshot()
-
-        guard pairing.isPaired, let journalName = pairing.journalName, !journalName.isEmpty else {
-            self.render(.noJournal)
+        guard let provider = self.firstProvider(), provider.registeredContentType() != nil else {
+            self.render(.failure(ShareImportFailure.unsupported.message))
             return
         }
 
-        guard self.provider?.registeredContentType() != nil else {
-            self.showFailure(.unsupported)
-            return
+        self.render(.working)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.coordinator.accept(provider: provider)
+            switch result {
+            case .success:
+                self.coordinator.saveCommitted()
+                self.render(.success)
+            case .failure(let failure):
+                self.render(.failure(failure.message))
+            }
         }
-
-        self.render(.confirm(journalName: journalName))
     }
 
     private func render(_ screen: Screen) {
-        self.screen = screen
         let view = ShareExtensionView(
             screen: screen,
-            onSend: { [weak self] in
-                self?.acceptShare()
-            },
             onCancel: { [weak self] in
+                self?.complete()
+            },
+            onAutoDismiss: { [weak self] in
                 self?.complete()
             }
         )
@@ -77,35 +73,6 @@ final class ShareViewController: UIViewController {
         hostingController.didMove(toParent: self)
     }
 
-    private func acceptShare() {
-        guard let provider else {
-            self.showFailure(.unsupported)
-            return
-        }
-        let pairing = self.mirror.pairingSnapshot()
-        guard pairing.isPaired, let journalName = pairing.journalName, !journalName.isEmpty else {
-            self.render(.noJournal)
-            return
-        }
-
-        self.render(.saving)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let result = await self.coordinator.accept(provider: provider, journalName: journalName)
-            switch result {
-            case .success:
-                self.coordinator.saveCommitted()
-                self.complete()
-            case .failure(let failure):
-                self.render(.failure(failure.message))
-            }
-        }
-    }
-
-    private func showFailure(_ failure: ShareImportFailure) {
-        self.render(.failure(failure.message))
-    }
-
     private func complete() {
         self.extensionContext?.completeRequest(returningItems: nil)
     }
@@ -126,38 +93,25 @@ final class ShareViewController: UIViewController {
 
 private struct ShareExtensionView: View {
     let screen: ShareViewController.Screen
-    let onSend: () -> Void
-    let onCancel: () -> Void
+    let onCancel: @MainActor @Sendable () -> Void
+    let onAutoDismiss: @MainActor @Sendable () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
             switch self.screen {
-            case .loading:
-                ProgressView()
-            case .saving:
+            case .working:
                 ProgressView()
                     .accessibilityLabel(SourceVocabulary.shareSendingProgress)
-            case .noJournal:
-                Text(ShareImportCopy.connectFirstBody)
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                Button(ShareImportCopy.dismiss, action: self.onCancel)
-                    .buttonStyle(.bordered)
-                    .accessibilityHint("Closes this message.")
-            case .confirm(let journalName):
-                Text(ShareImportCopy.sendToYourJournal)
-                    .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))
-                Text(ShareImportCopy.solCanReadBody)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                Text("journal: \(journalName)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Button(ShareImportCopy.sendToYourJournal, action: self.onSend)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.solOrangeAccessible)
-                    .accessibilityHint("Sends this to your journal.")
+            case .success:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(Color.solSavedGreen)
+                    .symbolEffect(.bounce)
+                    .accessibilityLabel(ShareImportCopy.savedAccessibilityLabel)
+                    .task {
+                        try? await Task.sleep(for: .seconds(0.9))
+                        await self.onAutoDismiss()
+                    }
             case .failure(let message):
                 Text(message)
                     .font(.body)
