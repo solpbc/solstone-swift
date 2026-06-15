@@ -86,7 +86,7 @@ struct ManualCodeEntryView: View {
         }
 
         let relayHost = SPLPairingConstants.relayEndpoint.host?.lowercased()
-        guard host != relayHost, host != "link.solpbc.org" else {
+        guard host != relayHost, host != "go.solstone.app" else {
             throw ManualCodeError.relayAddress
         }
         return url

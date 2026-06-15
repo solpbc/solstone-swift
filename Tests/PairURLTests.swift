@@ -56,7 +56,7 @@ nonisolated final class PairURLTests: XCTestCase {
     }
 
     func testWrongSchemeThrows() {
-        XCTAssertThrowsError(try PairURL.parse(URL(string: "http://link.solpbc.org/p#\(Self.canonicalBlob)")!)) {
+        XCTAssertThrowsError(try PairURL.parse(URL(string: "http://go.solstone.app/p#\(Self.canonicalBlob)")!)) {
             XCTAssertEqual($0 as? PairURLError, .wrongScheme("http"))
         }
     }
@@ -68,13 +68,13 @@ nonisolated final class PairURLTests: XCTestCase {
     }
 
     func testWrongPathThrows() {
-        XCTAssertThrowsError(try PairURL.parse(URL(string: "https://link.solpbc.org/wrong#\(Self.canonicalBlob)")!)) {
+        XCTAssertThrowsError(try PairURL.parse(URL(string: "https://go.solstone.app/wrong#\(Self.canonicalBlob)")!)) {
             XCTAssertEqual($0 as? PairURLError, .wrongPath("/wrong"))
         }
     }
 
     func testMissingFragmentThrows() {
-        XCTAssertThrowsError(try PairURL.parse(URL(string: "https://link.solpbc.org/p")!)) {
+        XCTAssertThrowsError(try PairURL.parse(URL(string: "https://go.solstone.app/p")!)) {
             XCTAssertEqual($0 as? PairURLError, .missingFragment)
         }
     }
@@ -181,7 +181,7 @@ nonisolated final class PairURLTests: XCTestCase {
     ]
 
     private static func url(fragment: String) -> URL {
-        URL(string: "https://link.solpbc.org/p#\(fragment)")!
+        URL(string: "https://go.solstone.app/p#\(fragment)")!
     }
 
     private static func relayBytes(selector: String = "") -> [UInt8] {

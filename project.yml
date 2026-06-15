@@ -54,7 +54,7 @@ targets:
           - group.app.solstone.swift
         aps-environment: development
         com.apple.developer.associated-domains:
-          - applinks:link.solpbc.org
+          - applinks:go.solstone.app
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

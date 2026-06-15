@@ -8,7 +8,7 @@ public enum UniversalLinkRouter {
     // nil = not a pair link (caller falls through). .failure = pair link by host/path but body failed to parse (caller shows variant-specific message).
     public nonisolated static func route(_ url: URL) -> Result<PairURL, PairURLError>? {
         guard url.scheme?.lowercased() == "https",
-              url.host?.lowercased() == "link.solpbc.org",
+              url.host?.lowercased() == "go.solstone.app",
               url.path == "/p" else {
             return nil
         }

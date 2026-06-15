@@ -305,7 +305,7 @@ nonisolated final class PairClientTests: XCTestCase {
     }
 
     private static func canonicalURL() -> URL {
-        URL(string: "https://link.solpbc.org/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
+        URL(string: "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
     }
 
     private static let relayEndpoint = URL(string: "https://relay.example.com")!

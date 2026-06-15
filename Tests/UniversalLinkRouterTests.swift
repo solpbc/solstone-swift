@@ -41,7 +41,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testBadBlobReturnsFailure_invalidBase32() throws {
-        let result = try XCTUnwrap(UniversalLinkRouter.route(URL(string: "https://link.solpbc.org/p#?")!))
+        let result = try XCTUnwrap(UniversalLinkRouter.route(URL(string: "https://go.solstone.app/p#?")!))
 
         XCTAssertEqual(result, .failure(.invalidBase32(.outOfAlphabet("?"))))
     }
@@ -84,7 +84,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testWrongSchemeReturnsNilBeforeParsing() {
-        XCTAssertNil(UniversalLinkRouter.route(URL(string: "http://link.solpbc.org/p#\(Self.canonicalBlob)")!))
+        XCTAssertNil(UniversalLinkRouter.route(URL(string: "http://go.solstone.app/p#\(Self.canonicalBlob)")!))
     }
 
     private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
@@ -98,11 +98,11 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
     ]
 
     private static func canonicalURL() -> URL {
-        URL(string: "https://link.solpbc.org/p#\(canonicalBlob)")!
+        URL(string: "https://go.solstone.app/p#\(canonicalBlob)")!
     }
 
     private static func url(fragment: String) -> URL {
-        URL(string: "https://link.solpbc.org/p#\(fragment)")!
+        URL(string: "https://go.solstone.app/p#\(fragment)")!
     }
 
     private static func encode(_ bytes: [UInt8]) -> String {

@@ -113,7 +113,7 @@ struct PairFlowView: View {
                         }
                     }
                 case .paste:
-                    TextField("https://link.solpbc.org/p#...", text: self.$pastedURL, axis: .vertical)
+                    TextField("https://go.solstone.app/p#...", text: self.$pastedURL, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .padding(12)
