@@ -122,6 +122,7 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
+    static let onThisPhoneTurnOnSourceButton = "turn on a source"
     static let migrationStageOnThisPhone = "on this phone"
     static let migrationStageOnItsWay = "on its way"
     static let migrationStageInYourJournal = "your journal"

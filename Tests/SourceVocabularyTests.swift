@@ -58,6 +58,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneNotBackedUp,
             "nothing here is backed up yet. connect a journal to keep a copy."
         )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneTurnOnSourceButton, "turn on a source")
         XCTAssertEqual(SourceVocabulary.migrationStageOnThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.migrationStageOnItsWay, "on its way")
         XCTAssertEqual(SourceVocabulary.migrationStageInYourJournal, "your journal")
@@ -317,6 +318,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneNotBackedUp,
+            SourceVocabulary.onThisPhoneTurnOnSourceButton,
             SourceVocabulary.migrationStageOnThisPhone,
             SourceVocabulary.migrationStageOnItsWay,
             SourceVocabulary.migrationStageInYourJournal,

@@ -28,6 +28,18 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
+    func testOnThisPhoneEmptyShowsTurnOnSourceAndNoBackedUpBanner() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
+
+        let turnOnSource = app.buttons["onThisPhone.turnOnSource"]
+        XCTAssertTrue(turnOnSource.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["onThisPhone.notBackedUp"].exists)
+
+        turnOnSource.tap()
+        XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testFreshOnboardingLookAroundLandsInNoJournalShell() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-onboarding-step=welcome"]

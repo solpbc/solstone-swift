@@ -13,6 +13,7 @@ struct OnThisPhoneView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @AppStorage(AudioStorageKey.magicMomentFirstSeen) private var magicMomentFirstSeen = false
+    let onTurnOnSource: () -> Void
     @State private var aggregate: OnThisPhoneAggregateSnapshot?
     @State private var dropController = OnThisPhoneDropController()
     @State private var showingConnectJournal = false
@@ -24,10 +25,14 @@ struct OnThisPhoneView: View {
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
 
+    init(onTurnOnSource: @escaping () -> Void = {}) {
+        self.onTurnOnSource = onTurnOnSource
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if !self.isShowingNotBackedUpNudge {
+                if self.hasItems, !self.isShowingNotBackedUpNudge {
                     Text(SourceVocabulary.onThisPhoneScope)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -35,7 +40,7 @@ struct OnThisPhoneView: View {
 
                 self.magicMomentSection
 
-                if self.isShowingNotBackedUpNudge {
+                if self.hasItems, self.isShowingNotBackedUpNudge {
                     self.notBackedUpNudge
                 }
 
@@ -116,6 +121,10 @@ struct OnThisPhoneView: View {
 private extension OnThisPhoneView {
     var displayAggregate: OnThisPhoneAggregateSnapshot? {
         self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
+    }
+
+    var hasItems: Bool {
+        self.displayAggregate?.items.isEmpty == false
     }
 
     var isPresentingSwipeDropConfirm: Binding<Bool> {
@@ -464,9 +473,19 @@ private extension OnThisPhoneView {
     @ViewBuilder
     func content(snapshot: OnThisPhoneAggregateSnapshot) -> some View {
         if snapshot.items.isEmpty {
-            Text(SourceVocabulary.onThisPhoneEmpty)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(SourceVocabulary.onThisPhoneEmpty)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Button(SourceVocabulary.onThisPhoneTurnOnSourceButton) {
+                    self.onTurnOnSource()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("onThisPhone.turnOnSource")
+            }
         } else {
             LazyVStack(alignment: .leading, spacing: 10) {
                 ForEach(snapshot.items) { item in

@@ -15,6 +15,7 @@ enum OnThisPhoneUITestSeeder {
     private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
     private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
+    private static let resetOnThisPhoneFlag = "--ui-test-reset-on-this-phone"
 
     static func runIfRequested(
         arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -32,11 +33,16 @@ enum OnThisPhoneUITestSeeder {
         let seedDefault = arguments.contains(Self.defaultSeedFlag)
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
         let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
-        guard seedDefault || seedAgedBacklog || seedAudioMagic else { return }
+        let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
+        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
+            guard seedDefault || seedAgedBacklog || seedAudioMagic else {
+                onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
+                return
+            }
             if seedAudioMagic {
                 try Self.seedAudioMagic(
                     roots: roots,
