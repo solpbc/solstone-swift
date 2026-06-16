@@ -37,18 +37,27 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
 
     var message: String {
         switch self {
-        case .differentNetwork:
-            "your solstone is on a different network. connect this phone to the same wi-fi as your computer, then try again."
-        case .hostUnreachable:
-            "couldn't reach your solstone. make sure it's on and connected to the same network, then try again."
+        case .differentNetwork(let phoneAddress, let targetAddress):
+            """
+            this phone and your solstone are on different networks.
+            this phone: \(phoneAddress)
+            your solstone: \(targetAddress)
+            connect both to the same wi-fi, then try again.
+            """
+        case .hostUnreachable(let targetAddress):
+            if let targetAddress {
+                "couldn't reach your solstone at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly."
+            } else {
+                "couldn't reach your solstone. make sure it's running and on the same wi-fi, then try again."
+            }
         case .loopbackAddress:
-            "that address points back at this phone. enter the network address shown on your computer."
+            "that address points back at this phone. paste the pairing link shown on your solstone instead."
         case .codeExpired:
-            "the pairing window closed — generate a new code on your solstone."
+            "the pairing window closed. show a new pairing code on your solstone, then try again."
         case .wrongSolstone:
-            "this isn't your solstone — re-pair if you intended to."
+            "this solstone's identity doesn't match the pairing code. double-check which solstone you're pairing, then try again with a new code."
         case .generic:
-            "pairing failed. try again."
+            "pairing didn't go through. show a new pairing code on your solstone and try again."
         }
     }
 

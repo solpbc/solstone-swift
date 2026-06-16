@@ -7,13 +7,13 @@ import SPLTunnel
 
 nonisolated final class PairFlowViewTests: XCTestCase {
     @MainActor
-    func testFallbackTimerSurfacesCodeAffordanceAfterDelay() async {
+    func testFallbackTimerSurfacesPasteAffordanceAfterDelay() async {
         let timer = PairFlowFallbackTimer(delay: .milliseconds(20))
 
         timer.start()
         try? await Task.sleep(for: .milliseconds(60))
 
-        XCTAssertTrue(timer.shouldShowCodeFallback)
+        XCTAssertTrue(timer.shouldShowPasteFallback)
     }
 
     @MainActor
@@ -24,7 +24,7 @@ nonisolated final class PairFlowViewTests: XCTestCase {
         timer.cancel()
         try? await Task.sleep(for: .milliseconds(80))
 
-        XCTAssertFalse(timer.shouldShowCodeFallback)
+        XCTAssertFalse(timer.shouldShowPasteFallback)
     }
 
     @MainActor
@@ -33,21 +33,21 @@ nonisolated final class PairFlowViewTests: XCTestCase {
 
         timer.start()
         try? await Task.sleep(for: .milliseconds(60))
-        XCTAssertTrue(timer.shouldShowCodeFallback)
+        XCTAssertTrue(timer.shouldShowPasteFallback)
 
         timer.reset()
-        XCTAssertFalse(timer.shouldShowCodeFallback)
+        XCTAssertFalse(timer.shouldShowPasteFallback)
         timer.start()
         try? await Task.sleep(for: .milliseconds(60))
 
-        XCTAssertTrue(timer.shouldShowCodeFallback)
+        XCTAssertTrue(timer.shouldShowPasteFallback)
     }
 
     @MainActor
     func testPairingWindowClosedMessage() {
         XCTAssertEqual(
             PairFlowCoordinator.message(for: PairError.pairingWindowClosed, targetAddress: nil, interfaces: []),
-            "the pairing window closed — generate a new code on your solstone."
+            "the pairing window closed. show a new pairing code on your solstone, then try again."
         )
     }
 

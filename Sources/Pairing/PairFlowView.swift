@@ -16,7 +16,7 @@ final class PairingHandoffState {
 @MainActor
 @Observable
 final class PairFlowFallbackTimer {
-    var shouldShowCodeFallback = false
+    var shouldShowPasteFallback = false
 
     private let delay: Duration
     @ObservationIgnored
@@ -27,7 +27,7 @@ final class PairFlowFallbackTimer {
     }
 
     func start() {
-        guard task == nil, !shouldShowCodeFallback else {
+        guard task == nil, !shouldShowPasteFallback else {
             return
         }
         task = Task { @MainActor in
@@ -39,7 +39,7 @@ final class PairFlowFallbackTimer {
             guard !Task.isCancelled else {
                 return
             }
-            shouldShowCodeFallback = true
+            shouldShowPasteFallback = true
             task = nil
         }
     }
@@ -51,14 +51,13 @@ final class PairFlowFallbackTimer {
 
     func reset() {
         cancel()
-        shouldShowCodeFallback = false
+        shouldShowPasteFallback = false
     }
 }
 
 struct PairFlowView: View {
     enum EntryMode: String, CaseIterable, Identifiable {
         case scan
-        case code
         case paste
 
         var id: String { rawValue }
@@ -106,12 +105,11 @@ struct PairFlowView: View {
     var body: some View {
         OnboardingScaffold(
             title: "pair your solstone",
-            subtitle: "scan the pairing code, enter the short code, or paste the pairing link from your solstone."
+            subtitle: "scan the pairing code, or paste the pairing link from your solstone."
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 Picker("pairing method", selection: self.$mode) {
                     Text("scan").tag(EntryMode.scan)
-                    Text("code").tag(EntryMode.code)
                     Text("paste").tag(EntryMode.paste)
                 }
                 .pickerStyle(.segmented)
@@ -125,18 +123,12 @@ struct PairFlowView: View {
                             }
                         },
                         onUnavailable: {
-                            self.errorMessage = "camera access is unavailable on this device. Type a code instead."
+                            self.errorMessage = "camera access is unavailable on this device. paste a pairing link instead."
                             self.fallbackTimer.cancel()
-                            self.mode = .code
+                            self.mode = .paste
                         }
                     )
                     .frame(minHeight: 320)
-                case .code:
-                    ManualCodeEntryView { code, homeURL in
-                        Task {
-                            await self.handleManualCode(code, homeURL: homeURL)
-                        }
-                    }
                 case .paste:
                     TextField("https://go.solstone.app/p#...", text: self.$pastedURL, axis: .vertical)
                         .textInputAutocapitalization(.never)
@@ -153,10 +145,10 @@ struct PairFlowView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
 
-                if self.fallbackTimer.shouldShowCodeFallback, self.mode != .code {
-                    Button("type a code instead") {
+                if self.fallbackTimer.shouldShowPasteFallback, self.mode != .paste {
+                    Button("paste a link instead") {
                         self.fallbackTimer.cancel()
-                        self.mode = .code
+                        self.mode = .paste
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -265,24 +257,6 @@ struct PairFlowView: View {
         }
         do {
             try await self.coordinator.handlePairURL(pairURL)
-            if let pairing = try SPLKeychain.load() {
-                try self.appConfig.applyPairing(pairing)
-            }
-            self.errorMessage = nil
-            self.onComplete()
-        } catch {
-            if case .failed(let message) = self.coordinator.state {
-                self.errorMessage = message
-            } else {
-                self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
-            }
-        }
-    }
-
-    private func handleManualCode(_ code: String, homeURL: URL) async {
-        self.fallbackTimer.cancel()
-        do {
-            try await self.coordinator.handleManualCode(code, homeURL: homeURL)
             if let pairing = try SPLKeychain.load() {
                 try self.appConfig.applyPairing(pairing)
             }
