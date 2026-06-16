@@ -16,7 +16,6 @@ enum SPLPairingConstants {
 enum PairFlowState: Equatable, Sendable {
     case idle
     case scanning
-    case entering
     case pairing
     case failed(error: String)
     case success
@@ -61,31 +60,6 @@ final class PairFlowCoordinator {
             )
             state = .failed(error: message)
             pairFlowLog.error("pairing failed: \(String(describing: error), privacy: .public)")
-            throw error
-        }
-    }
-
-    func handleManualCode(_ code: String, homeURL: URL) async throws {
-        state = .pairing
-        do {
-            let pairing = try await pairClient.pair(
-                manualCode: code,
-                homeURL: homeURL,
-                deviceLabel: Self.deviceLabel(),
-                relayEndpoint: SPLPairingConstants.relayEndpoint
-            )
-            try SPLKeychain.save(pairing)
-            await endpointCache.bootstrap(from: pairing)
-            state = .success
-            pairFlowLog.info("manual-code pairing saved for \(pairing.homeLabel, privacy: .public)")
-        } catch {
-            let message = Self.message(
-                for: error,
-                targetAddress: homeURL.host,
-                interfaces: networkReader.interfaces()
-            )
-            state = .failed(error: message)
-            pairFlowLog.error("manual-code pairing failed: \(String(describing: error), privacy: .public)")
             throw error
         }
     }

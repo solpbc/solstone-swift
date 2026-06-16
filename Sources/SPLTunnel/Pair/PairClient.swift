@@ -25,18 +25,6 @@ public struct PairClient: Sendable {
         }
     }
 
-    public func pair(manualCode code: String, homeURL: URL, deviceLabel: String, relayEndpoint: URL) async throws -> StoredPairing {
-        let generated = try Self.generatePairingMaterial(deviceLabel: deviceLabel)
-        let lanResponse = try await postManualCode(homeURL: homeURL, code: code, csrPEM: generated.csrPEM, deviceLabel: deviceLabel)
-        let relayEnrollment = await optionalRelayEnrollment(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
-        return try Self.makeStoredPairing(
-            lanResponse: lanResponse,
-            generated: generated,
-            relayEndpoint: relayEndpoint,
-            relayEnrollment: relayEnrollment
-        )
-    }
-
     private func pairDirect(
         pairURL: PairURL,
         generated: PairingMaterial,
@@ -117,25 +105,6 @@ public struct PairClient: Sendable {
         }
 
         return try Self.decodePairResponse(status: response.status, body: response.body)
-    }
-
-    private func postManualCode(homeURL: URL, code: String, csrPEM: String, deviceLabel: String) async throws -> LANPairResponse {
-        var request = try Self.makeManualCodeRequest(homeURL: homeURL, code: code, csrPEM: csrPEM, deviceLabel: deviceLabel)
-        request.setValue(Self.userAgent(), forHTTPHeaderField: "User-Agent")
-        let pairSession = session ?? URLSession.shared
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await pairSession.data(for: request)
-        } catch {
-            throw PairError.lanRequestFailed(underlying: error)
-        }
-
-        guard let http = response as? HTTPURLResponse else {
-            throw PairError.lanResponseInvalid(status: nil)
-        }
-        return try Self.decodePairResponse(status: http.statusCode, body: data)
     }
 
     private func postPairTicket(relayEndpoint: URL, instanceID: String, totp: String) async throws -> RelayPairTicketResponse {
@@ -276,19 +245,6 @@ public struct PairClient: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         return try encoder.encode(LANPairRequest(csr: csrPEM, deviceLabel: deviceLabel))
-    }
-
-    static func makeManualCodeRequest(homeURL: URL, code: String, csrPEM: String, deviceLabel: String) throws -> URLRequest {
-        let url = try controlURL(homeURL, path: "app/link/by-code")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(ManualCodePairRequest(
-            code: code,
-            csr: csrPEM,
-            deviceLabel: deviceLabel
-        ))
-        return request
     }
 
     static func makePairTicketRequest(relayEndpoint: URL, instanceID: String, totp: String, userAgent: String = userAgent()) throws -> URLRequest {
@@ -531,18 +487,6 @@ struct LANPairRequest: Encodable {
     let deviceLabel: String
 
     enum CodingKeys: String, CodingKey {
-        case csr
-        case deviceLabel = "device_label"
-    }
-}
-
-struct ManualCodePairRequest: Encodable {
-    let code: String
-    let csr: String
-    let deviceLabel: String
-
-    enum CodingKeys: String, CodingKey {
-        case code
         case csr
         case deviceLabel = "device_label"
     }

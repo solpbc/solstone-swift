@@ -234,7 +234,7 @@ nonisolated final class PairClientTests: XCTestCase {
                 XCTAssertFalse(literal.contains("https://") && literal.contains("/app/link/pair"))
             }
         }
-        let postDirectPair = try Self.slice(text, from: "private func postDirectPair", to: "private func postManualCode")
+        let postDirectPair = try Self.slice(text, from: "private func postDirectPair", to: "private func postPairTicket")
         XCTAssertFalse(postDirectPair.contains("URLSession"))
         XCTAssertFalse(postDirectPair.contains("data(for:"))
     }
