@@ -5,7 +5,6 @@ import Foundation
 
 enum SolstoneDeepLink: Equatable {
     case observerStop
-    case locationPause
 
     nonisolated static func parse(_ url: URL) -> SolstoneDeepLink? {
         guard url.scheme == "solstone" else { return nil }
@@ -13,8 +12,6 @@ enum SolstoneDeepLink: Equatable {
         switch (url.host, url.path) {
         case ("observer", "/stop"):
             return .observerStop
-        case ("location", "/pause"):
-            return .locationPause
         default:
             return nil
         }

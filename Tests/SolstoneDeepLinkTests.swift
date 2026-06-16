@@ -7,9 +7,8 @@ import XCTest
 
 nonisolated final class SolstoneDeepLinkTests: XCTestCase {
     @MainActor
-    func testObserverAndLocationDeepLinksParse() {
+    func testObserverDeepLinkParses() {
         XCTAssertEqual(SolstoneDeepLink.parse(URL(string: "solstone://observer/stop")!), .observerStop)
-        XCTAssertEqual(SolstoneDeepLink.parse(URL(string: "solstone://location/pause")!), .locationPause)
         XCTAssertNil(SolstoneDeepLink.parse(URL(string: "solstone://observer/unknown")!))
         XCTAssertNil(SolstoneDeepLink.parse(URL(string: "solstone://random/thing")!))
     }
@@ -23,8 +22,7 @@ nonisolated final class SolstoneDeepLinkTests: XCTestCase {
     }
 
     @MainActor
-    func testLocationPauseAndUnknownCustomURLRoutingSemantics() {
-        XCTAssertEqual(SolstoneDeepLink.parse(URL(string: "solstone://location/pause")!), .locationPause)
+    func testUnknownCustomURLRoutingSemantics() {
         XCTAssertNil(SolstoneDeepLink.parse(URL(string: "solstone://location/unknown")!))
     }
 }

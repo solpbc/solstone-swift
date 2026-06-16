@@ -9,7 +9,6 @@ import WidgetKit
 struct SolstoneLiveActivityBundle: WidgetBundle {
     var body: some Widget {
         SolstoneLiveActivityWidget()
-        LocationLiveActivityWidget()
     }
 }
 

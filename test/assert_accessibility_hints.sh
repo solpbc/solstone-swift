@@ -26,7 +26,6 @@ required_hints=(
   'Sources/Location/LocationSourceDetailView.swift:Chooses places only for location.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses places plus comings and goings for location. This is the recommended default.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses the complete picture for location.'
-  'SolstoneLiveActivityWidget/LocationLiveActivityWidget.swift:Pauses location updates to your journal.'
   'Sources/MoreView.swift:Chooses the time for your morning briefing'
   'Sources/MoreView.swift:Saves your morning briefing time'
   'Sources/MoreView.swift:Turns interface haptics on or off'

@@ -52,7 +52,6 @@ final class LocationManager {
     @ObservationIgnored private let provider: any LocationProviding
     @ObservationIgnored private let uploader: any LocationUploading
     @ObservationIgnored private let clock: any ObserverClock
-    @ObservationIgnored private let liveActivity: any LocationLiveActivitying
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let watchdogThreshold: Duration
     @ObservationIgnored private var segmentationTask: Task<Void, Never>?
@@ -82,13 +81,11 @@ final class LocationManager {
         uploader: any LocationUploading = LocationUploader(),
         clock: any ObserverClock = SystemObserverClock(),
         defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier),
-        watchdogThreshold: Duration = LocationManager.provisionalAlwaysWatchdogThreshold,
-        liveActivity: any LocationLiveActivitying = LocationLiveActivity()
+        watchdogThreshold: Duration = LocationManager.provisionalAlwaysWatchdogThreshold
     ) {
         self.provider = provider
         self.uploader = uploader
         self.clock = clock
-        self.liveActivity = liveActivity
         self.defaults = defaults
         self.watchdogThreshold = watchdogThreshold
         self.tier = Self.readTier(defaults: defaults)
@@ -156,7 +153,6 @@ final class LocationManager {
 
         self.cancelTasks()
         await self.flushSegmentIfNeeded()
-        await self.liveActivity.end()
         await self.provider.stopObservation()
         await self.provider.endBackgroundSustain()
         self.resetRuntime()
@@ -194,14 +190,12 @@ final class LocationManager {
         guard Self.readEnabled(defaults: self.defaults) else {
             self.paused = false
             self.state = .idle
-            await self.liveActivity.endAll()
             return
         }
 
         guard !Self.readPaused(defaults: self.defaults) else {
             self.paused = true
             self.state = .idle
-            await self.liveActivity.endAll()
             return
         }
 
@@ -219,18 +213,9 @@ final class LocationManager {
     }
 
     func changeTier(_ tier: LocationTier) async {
-        let wasLiveActivityEligible = self.isLiveActivityEligible
         self.persistTier(tier)
         self.watchdogTripped = false
-        guard case .active(let session) = self.state else { return }
-        let isLiveActivityEligible = self.isLiveActivityEligible
-        if wasLiveActivityEligible, !isLiveActivityEligible {
-            await self.liveActivity.end()
-        } else if !wasLiveActivityEligible, isLiveActivityEligible {
-            await self.liveActivity.start(tierLabel: self.tier.label, sessionID: session.sessionID.uuidString)
-        } else if wasLiveActivityEligible, isLiveActivityEligible {
-            await self.liveActivity.update(tierLabel: self.tier.label, segmentCount: self.currentSegmentIndex)
-        }
+        guard case .active = self.state else { return }
         if tier.isSatisfied(by: self.effectiveCapability()) {
             await self.restartObservationForCurrentTier()
         } else {
@@ -261,11 +246,6 @@ final class LocationManager {
 }
 
 private extension LocationManager {
-    var isLiveActivityEligible: Bool {
-        guard case .active = self.state else { return false }
-        return self.tier.requiredAuthorization == .always
-    }
-
     var sourcePresentation: (state: SourceState, attention: SourceAttention?) {
         switch self.state {
         case .idle:
@@ -397,9 +377,6 @@ private extension LocationManager {
             ))
             self.persistEnabled(true)
             self.persistPaused(false)
-            if self.isLiveActivityEligible {
-                await self.liveActivity.start(tierLabel: self.tier.label, sessionID: sessionID.uuidString)
-            }
             self.startSegmentationTask()
             self.armWatchdogIfNeeded()
         } catch {
@@ -479,9 +456,6 @@ private extension LocationManager {
             currentSegmentIndex: self.currentSegmentIndex,
             elapsed: now.timeIntervalSince(session.startedAt)
         ))
-        if self.tier.requiredAuthorization == .always {
-            await self.liveActivity.update(tierLabel: self.tier.label, segmentCount: self.currentSegmentIndex)
-        }
     }
 
     func handleFix(_ fix: LocationFix, context: LocationDeliveryContext) {

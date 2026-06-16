@@ -38,7 +38,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.matchToAllowedAction, "match it to what's allowed")
         XCTAssertEqual(LocationVocabulary.restrictedBody, "location is turned off for solstone by a restriction on this device. solstone can't keep your day until that's lifted.")
         XCTAssertEqual(LocationVocabulary.honestGap, "gap here — location wasn't available.")
-        XCTAssertEqual(LocationVocabulary.liveActivityText, "solstone is adding where your day happens")
         XCTAssertEqual(LocationVocabulary.deleteConfirmBody, "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone.")
         XCTAssertEqual(LocationVocabulary.deleteConfirmButton, "delete location's contributions")
         XCTAssertEqual(LocationVocabulary.deleteReceiptHeadlineTemplate, "deleted. removed from your journal: where your day happened, across {N} days.")
@@ -138,7 +137,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.matchToAllowedAction,
             LocationVocabulary.restrictedBody,
             LocationVocabulary.honestGap,
-            LocationVocabulary.liveActivityText,
             LocationVocabulary.deleteConfirmBody,
             LocationVocabulary.deleteConfirmButton,
             LocationVocabulary.deleteReceiptHeadlineTemplate,

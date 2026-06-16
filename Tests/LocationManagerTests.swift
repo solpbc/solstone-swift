@@ -8,7 +8,6 @@ import XCTest
 nonisolated final class LocationManagerTests: XCTestCase {
     @MainActor private lazy var provider = MockLocationProvider()
     @MainActor private lazy var clock = MockObserverClock()
-    @MainActor private lazy var liveActivity = MockLocationLiveActivity()
     private lazy var uploader = RecordingLocationUploader()
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -184,7 +183,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
             return XCTFail("Expected active state")
         }
         XCTAssertEqual(session.currentSegmentIndex, 0)
-        XCTAssertTrue(self.liveActivity.updateCalls.isEmpty)
     }
 
     @MainActor
@@ -402,7 +400,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testResumeIfEnabledRearmsWithoutPromptAndStartsOneLiveActivity() async {
+    func testResumeIfEnabledRearmsWithoutPromptAndStartsObservation() async {
         self.defaults.set(true, forKey: "location.enabled")
         self.defaults.set(false, forKey: "location.paused")
         self.provider.capability = .always(accuracy: .reduced)
@@ -414,8 +412,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 1)
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.endAllCallCount, 0)
     }
 
     @MainActor
@@ -431,8 +427,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 0)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
-        XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
     }
 
     @MainActor
@@ -446,8 +440,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 0)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
-        XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
     }
 
     @MainActor
@@ -463,7 +455,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 0)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor
@@ -479,7 +470,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 0)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor
@@ -495,7 +485,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 0)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor
@@ -504,12 +493,10 @@ nonisolated final class LocationManagerTests: XCTestCase {
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
         let startCallCount = self.provider.startCallCount
-        let liveActivityStartCount = self.liveActivity.startCalls.count
 
         await manager.resumeIfEnabled()
 
         XCTAssertEqual(self.provider.startCallCount, startCallCount)
-        XCTAssertEqual(self.liveActivity.startCalls.count, liveActivityStartCount)
     }
 
     @MainActor
@@ -584,159 +571,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testLiveActivityStartsOnActiveForBalancedTier() async {
-        self.provider.capability = .always(accuracy: .reduced)
-        let manager = self.makeManager()
-
-        await manager.start(tier: .balanced)
-
-        guard case .active(let session) = manager.state else {
-            return XCTFail("Expected active state")
-        }
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.startCalls.first?.tierLabel, LocationTier.balanced.label)
-        XCTAssertEqual(self.liveActivity.startCalls.first?.sessionID, session.sessionID.uuidString)
-    }
-
-    @MainActor
-    func testLiveActivityStartsOnActiveForFullTier() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-
-        await manager.start(tier: .full)
-
-        guard case .active(let session) = manager.state else {
-            return XCTFail("Expected active state")
-        }
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.startCalls.first?.tierLabel, LocationTier.full.label)
-        XCTAssertEqual(self.liveActivity.startCalls.first?.sessionID, session.sessionID.uuidString)
-    }
-
-    @MainActor
-    func testLiveActivityDoesNotStartOrUpdateForLightTier() async {
-        self.provider.capability = .whenInUse(accuracy: .full)
-        let manager = self.makeManager()
-
-        await manager.start(tier: .light)
-        await manager.stop()
-
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
-        XCTAssertTrue(self.liveActivity.updateCalls.isEmpty)
-        XCTAssertEqual(self.liveActivity.endCallCount, 1)
-    }
-
-    @MainActor
-    func testLiveActivityEndsExactlyOnceOnStop() async {
-        self.provider.capability = .always(accuracy: .reduced)
-        let manager = self.makeManager()
-
-        await manager.start(tier: .balanced)
-        await manager.stop()
-
-        XCTAssertEqual(self.liveActivity.endCallCount, 1)
-        XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
-        XCTAssertEqual(manager.state, .idle)
-    }
-
-    @MainActor
-    func testLiveActivityPauseEndsExactlyOnceThroughStop() async {
-        self.provider.capability = .always(accuracy: .reduced)
-        let manager = self.makeManager()
-
-        await manager.start(tier: .balanced)
-        await manager.pause()
-
-        XCTAssertEqual(self.liveActivity.endCallCount, 1)
-        XCTAssertEqual(manager.sourceState, .paused)
-    }
-
-    @MainActor
-    func testLiveActivityUpdatesOnSegmentBoundaries() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-        await manager.start(tier: .balanced)
-        await self.yieldToMainActor()
-
-        self.provider.emitFix(MockLocationProvider.fix())
-        await self.yieldToMainActor()
-        self.clock.advance(by: 300)
-        await self.yieldToMainActor()
-        self.provider.emitFix(MockLocationProvider.fix())
-        await self.yieldToMainActor()
-        self.clock.advance(by: 300)
-        await self.yieldToMainActor()
-
-        XCTAssertEqual(self.liveActivity.updateCalls.count, 2)
-        guard self.liveActivity.updateCalls.count == 2 else { return }
-        XCTAssertEqual(self.liveActivity.updateCalls[0].tierLabel, LocationTier.balanced.label)
-        XCTAssertEqual(self.liveActivity.updateCalls[0].segmentCount, 1)
-        XCTAssertEqual(self.liveActivity.updateCalls[1].tierLabel, LocationTier.balanced.label)
-        XCTAssertEqual(self.liveActivity.updateCalls[1].segmentCount, 2)
-    }
-
-    @MainActor
-    func testLiveActivityDoesNotUpdateDuringStopFlush() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-        await manager.start(tier: .balanced)
-        self.provider.emitFix(MockLocationProvider.fix())
-        await self.yieldToMainActor()
-
-        await manager.stop()
-
-        XCTAssertTrue(self.liveActivity.updateCalls.isEmpty)
-        XCTAssertEqual(self.liveActivity.endCallCount, 1)
-        XCTAssertEqual(self.uploader.batchCount(), 1)
-    }
-
-    @MainActor
-    func testLiveActivityEndsWhenChangingFromFullToLight() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-        await manager.start(tier: .full)
-
-        await manager.changeTier(.light)
-
-        XCTAssertEqual(self.liveActivity.endCallCount, 1)
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
-        XCTAssertTrue(self.liveActivity.updateCalls.isEmpty)
-    }
-
-    @MainActor
-    func testLiveActivityStartsWhenChangingFromLightToBalanced() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-        await manager.start(tier: .light)
-        guard case .active(let session) = manager.state else {
-            return XCTFail("Expected active state")
-        }
-
-        await manager.changeTier(.balanced)
-
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.startCalls.first?.tierLabel, LocationTier.balanced.label)
-        XCTAssertEqual(self.liveActivity.startCalls.first?.sessionID, session.sessionID.uuidString)
-        XCTAssertEqual(self.liveActivity.endCallCount, 0)
-    }
-
-    @MainActor
-    func testLiveActivityUpdatesWhenChangingFromBalancedToFull() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-        await manager.start(tier: .balanced)
-
-        await manager.changeTier(.full)
-
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.updateCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.updateCalls.first?.tierLabel, LocationTier.full.label)
-        XCTAssertEqual(self.liveActivity.updateCalls.first?.segmentCount, 0)
-        XCTAssertEqual(self.liveActivity.endCallCount, 0)
-    }
-
-    @MainActor
-    func testStopEndsLiveActivityAfterTierRestartFailure() async {
+    func testStopAfterTierRestartFailure() async {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
@@ -748,7 +583,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         }
         await manager.stop()
 
-        XCTAssertEqual(self.liveActivity.endCallCount, 1)
         XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
         XCTAssertEqual(manager.state, .idle)
     }
@@ -768,16 +602,14 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
     @MainActor
     private func makeManager(
-        watchdogThreshold: Duration = .seconds(600),
-        liveActivity: (any LocationLiveActivitying)? = nil
+        watchdogThreshold: Duration = .seconds(600)
     ) -> LocationManager {
         LocationManager(
             provider: self.provider,
             uploader: self.uploader,
             clock: self.clock,
             defaults: self.defaults,
-            watchdogThreshold: watchdogThreshold,
-            liveActivity: liveActivity ?? self.liveActivity
+            watchdogThreshold: watchdogThreshold
         )
     }
 

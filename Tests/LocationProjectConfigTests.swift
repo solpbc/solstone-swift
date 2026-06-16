@@ -26,8 +26,6 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
             "      - Sources/Observer/ObserverMode.swift",
             "      - Sources/Observer/ObserverLiveActivity.swift",
             "      - Sources/Design/Colors.swift",
-            "      - Sources/Location/LocationLiveActivity.swift",
-            "      - Sources/Location/LocationVocabulary.swift",
         ] {
             XCTAssertTrue(widgetBlock.contains(required), required)
         }

@@ -8,7 +8,6 @@ import XCTest
 nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
     @MainActor private lazy var provider = MockLocationProvider()
     @MainActor private lazy var clock = MockObserverClock()
-    @MainActor private lazy var liveActivity = MockLocationLiveActivity()
     private lazy var uploader = RecordingLocationUploader()
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -85,7 +84,6 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.showingPrimer)
         XCTAssertEqual(manager.sourceState, .active)
         XCTAssertEqual(self.provider.startCallCount, 1)
-        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
     }
 
     @MainActor
@@ -105,7 +103,6 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.showingPrimer)
         XCTAssertEqual(manager.sourceState, .active)
         XCTAssertEqual(self.provider.startCallCount, 1)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor
@@ -135,7 +132,6 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
         XCTAssertEqual(recorder.events(), [.primerShown])
         XCTAssertEqual(manager.sourceState, .off)
         XCTAssertEqual(self.provider.startCallCount, 0)
-        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor
@@ -253,8 +249,7 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
             provider: self.provider,
             uploader: self.uploader,
             clock: self.clock,
-            defaults: self.defaults,
-            liveActivity: self.liveActivity
+            defaults: self.defaults
         )
     }
 

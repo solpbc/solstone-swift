@@ -176,8 +176,6 @@ targets:
       - SolstoneLiveActivityWidget
       - Sources/Observer/ObserverMode.swift
       - Sources/Observer/ObserverLiveActivity.swift
-      - Sources/Location/LocationLiveActivity.swift
-      - Sources/Location/LocationVocabulary.swift
       - Sources/Design/Colors.swift
     entitlements:
       path: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements

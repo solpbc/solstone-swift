@@ -35,7 +35,6 @@ nonisolated enum LocationVocabulary {
     static let matchToAllowedAction = "match it to what's allowed"
     static let restrictedBody = "location is turned off for solstone by a restriction on this device. solstone can't keep your day until that's lifted."
     static let honestGap = "gap here — location wasn't available."
-    static let liveActivityText = "solstone is adding where your day happens"
     static let deleteConfirmBody = "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone."
     static let deleteConfirmButton = "delete location's contributions"
     static let deleteReceiptHeadlineTemplate = "deleted. removed from your journal: where your day happened, across {N} days."
