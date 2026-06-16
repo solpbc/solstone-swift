@@ -155,7 +155,7 @@ struct PairFlowView: View {
             guard !self.didAutoPair else { return }
             if let pairURLError = self.handoff.pairURLError {
                 self.fallbackTimer.cancel()
-                self.errorMessage = PairFlowCoordinator.message(for: pairURLError)
+                self.errorMessage = PairFlowCoordinator.message(for: pairURLError, targetAddress: nil, interfaces: [])
                 self.handoff.pairURLError = nil
             } else if let pairURL = self.handoff.pairURL {
                 self.fallbackTimer.cancel()
@@ -182,7 +182,7 @@ struct PairFlowView: View {
         .onChange(of: self.handoff.pairURLError) { _, pairURLError in
             guard let pairURLError else { return }
             self.fallbackTimer.cancel()
-            self.errorMessage = PairFlowCoordinator.message(for: pairURLError)
+            self.errorMessage = PairFlowCoordinator.message(for: pairURLError, targetAddress: nil, interfaces: [])
             self.handoff.pairURLError = nil
         }
         .onChange(of: self.mode) { _, mode in
@@ -224,12 +224,16 @@ struct PairFlowView: View {
         case .success(let pairURL):
             await self.handle(pairURL)
         case .failure(let error):
-            self.errorMessage = PairFlowCoordinator.message(for: error)
+            self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
         }
     }
 
     private func handle(_ pairURL: PairURL) async {
         self.fallbackTimer.cancel()
+        if isLoopbackHost(pairURL.addressString) {
+            self.errorMessage = PairFailureReason.loopbackAddress.message
+            return
+        }
         do {
             try await self.coordinator.handlePairURL(pairURL)
             if let pairing = try SPLKeychain.load() {
@@ -238,7 +242,11 @@ struct PairFlowView: View {
             self.errorMessage = nil
             self.onComplete()
         } catch {
-            self.errorMessage = PairFlowCoordinator.message(for: error)
+            if case .failed(let message) = self.coordinator.state {
+                self.errorMessage = message
+            } else {
+                self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
+            }
         }
     }
 
@@ -252,7 +260,11 @@ struct PairFlowView: View {
             self.errorMessage = nil
             self.onComplete()
         } catch {
-            self.errorMessage = PairFlowCoordinator.message(for: error)
+            if case .failed(let message) = self.coordinator.state {
+                self.errorMessage = message
+            } else {
+                self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
+            }
         }
     }
 

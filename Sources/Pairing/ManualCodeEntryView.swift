@@ -59,6 +59,12 @@ struct ManualCodeEntryView: View {
             return
         }
 
+        let trimmedAddress = self.homeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isLoopbackHost(trimmedAddress) {
+            self.errorMessage = PairFailureReason.loopbackAddress.message
+            return
+        }
+
         do {
             let homeURL = try Self.homeURL(from: self.homeAddress)
             self.errorMessage = nil

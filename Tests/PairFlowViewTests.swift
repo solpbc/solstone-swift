@@ -46,7 +46,7 @@ nonisolated final class PairFlowViewTests: XCTestCase {
     @MainActor
     func testPairingWindowClosedMessage() {
         XCTAssertEqual(
-            PairFlowCoordinator.message(for: PairError.pairingWindowClosed),
+            PairFlowCoordinator.message(for: PairError.pairingWindowClosed, targetAddress: nil, interfaces: []),
             "the pairing window closed — generate a new code on your solstone."
         )
     }

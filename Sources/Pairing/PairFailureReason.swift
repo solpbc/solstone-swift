@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import Foundation
+import SPLTunnel
+
+nonisolated struct IPv4Interface: Equatable, Sendable {
+    let address: String
+    let netmask: String
+}
+
+nonisolated enum PairFailureReason: Equatable, Sendable {
+    case differentNetwork(phoneAddress: String, targetAddress: String)
+    case hostUnreachable(targetAddress: String?)
+    case loopbackAddress
+    case codeExpired
+    case wrongSolstone
+    case generic
+
+    static func classify(error: Error, targetAddress: String?, interfaces: [IPv4Interface]) -> PairFailureReason {
+        switch error {
+        case PairError.nonceExpired,
+             PairError.pairingWindowClosed:
+            return .codeExpired
+        case PairError.lanCAFingerprintMismatch:
+            return .wrongSolstone
+        case PairError.lanResponseInvalid:
+            return .generic
+        case PairError.lanRequestFailed(underlying: nil):
+            return .generic
+        case PairError.lanRequestFailed(underlying: .some):
+            return classifyConnectivityFailure(targetAddress: targetAddress, interfaces: interfaces)
+        default:
+            return .generic
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .differentNetwork:
+            "your solstone is on a different network. connect this phone to the same wi-fi as your computer, then try again."
+        case .hostUnreachable:
+            "couldn't reach your solstone. make sure it's on and connected to the same network, then try again."
+        case .loopbackAddress:
+            "that address points back at this phone. enter the network address shown on your computer."
+        case .codeExpired:
+            "the pairing window closed — generate a new code on your solstone."
+        case .wrongSolstone:
+            "this isn't your solstone — re-pair if you intended to."
+        case .generic:
+            "pairing failed. try again."
+        }
+    }
+
+    private static func classifyConnectivityFailure(
+        targetAddress: String?,
+        interfaces: [IPv4Interface]
+    ) -> PairFailureReason {
+        guard let targetOctets = parseIPv4(targetAddress),
+              !interfaces.isEmpty else {
+            return .hostUnreachable(targetAddress: targetAddress)
+        }
+
+        let target = packIPv4(targetOctets)
+        let usableInterfaces = interfaces.compactMap { interface -> (address: String, addressValue: UInt32, netmaskValue: UInt32)? in
+            guard let addressOctets = parseIPv4(interface.address),
+                  let netmaskOctets = parseIPv4(interface.netmask) else {
+                return nil
+            }
+            return (
+                address: interface.address,
+                addressValue: packIPv4(addressOctets),
+                netmaskValue: packIPv4(netmaskOctets)
+            )
+        }
+        guard let firstUsable = usableInterfaces.first else {
+            return .hostUnreachable(targetAddress: targetAddress)
+        }
+
+        if usableInterfaces.contains(where: { (target & $0.netmaskValue) == ($0.addressValue & $0.netmaskValue) }) {
+            return .hostUnreachable(targetAddress: targetAddress)
+        }
+
+        return .differentNetwork(
+            phoneAddress: firstUsable.address,
+            targetAddress: dottedIPv4(targetOctets)
+        )
+    }
+}
+
+nonisolated func parseIPv4(_ string: String?) -> [UInt8]? {
+    guard let string else {
+        return nil
+    }
+    let parts = string.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 4 else {
+        return nil
+    }
+
+    var octets: [UInt8] = []
+    octets.reserveCapacity(4)
+    for part in parts {
+        guard !part.isEmpty,
+              part.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+              let value = UInt8(part) else {
+            return nil
+        }
+        octets.append(value)
+    }
+    return octets
+}
+
+nonisolated func packIPv4(_ octets: [UInt8]) -> UInt32 {
+    precondition(octets.count == 4)
+    return UInt32(octets[0]) << 24
+        | UInt32(octets[1]) << 16
+        | UInt32(octets[2]) << 8
+        | UInt32(octets[3])
+}
+
+nonisolated func isLoopbackHost(_ raw: String) -> Bool {
+    var host = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if let schemeRange = host.range(of: "://") {
+        host = String(host[schemeRange.upperBound...])
+    }
+    if let slashIndex = host.firstIndex(of: "/") {
+        host = String(host[..<slashIndex])
+    }
+    if host.hasPrefix("["),
+       let closingBracket = host.firstIndex(of: "]") {
+        host = String(host[host.index(after: host.startIndex)..<closingBracket])
+    } else if host.filter({ $0 == ":" }).count == 1,
+              let colonIndex = host.firstIndex(of: ":") {
+        host = String(host[..<colonIndex])
+    }
+
+    if host == "localhost" || host == "::1" {
+        return true
+    }
+    return parseIPv4(host)?.first == 127
+}
+
+private nonisolated func dottedIPv4(_ octets: [UInt8]) -> String {
+    octets.map(String.init).joined(separator: ".")
+}

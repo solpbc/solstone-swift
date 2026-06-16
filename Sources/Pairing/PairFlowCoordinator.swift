@@ -29,13 +29,16 @@ final class PairFlowCoordinator {
 
     private let pairClient: PairClient
     private let endpointCache: EndpointCache
+    private let networkReader: any OwnNetworkReading
 
     init(
         pairClient: PairClient = PairClient(),
-        endpointCache: EndpointCache = EndpointCache()
+        endpointCache: EndpointCache = EndpointCache(),
+        networkReader: any OwnNetworkReading = GetifaddrsNetworkReader()
     ) {
         self.pairClient = pairClient
         self.endpointCache = endpointCache
+        self.networkReader = networkReader
     }
 
     func handlePairURL(_ pairURL: PairURL) async throws {
@@ -51,7 +54,11 @@ final class PairFlowCoordinator {
             state = .success
             pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
         } catch {
-            let message = Self.message(for: error)
+            let message = Self.message(
+                for: error,
+                targetAddress: pairURL.addressString,
+                interfaces: networkReader.interfaces()
+            )
             state = .failed(error: message)
             pairFlowLog.error("pairing failed: \(String(describing: error), privacy: .public)")
             throw error
@@ -72,7 +79,11 @@ final class PairFlowCoordinator {
             state = .success
             pairFlowLog.info("manual-code pairing saved for \(pairing.homeLabel, privacy: .public)")
         } catch {
-            let message = Self.message(for: error)
+            let message = Self.message(
+                for: error,
+                targetAddress: homeURL.host,
+                interfaces: networkReader.interfaces()
+            )
             state = .failed(error: message)
             pairFlowLog.error("manual-code pairing failed: \(String(describing: error), privacy: .public)")
             throw error
@@ -93,7 +104,7 @@ final class PairFlowCoordinator {
         "\(UIDevice.current.name)'s \(UIDevice.current.model)"
     }
 
-    internal static func message(for error: Error) -> String {
+    internal static func message(for error: Error, targetAddress: String?, interfaces: [IPv4Interface]) -> String {
         switch error {
         // PairURLError surface cases — router pre-validation makes these unreachable
         // via UniversalLinkRouter; reachable only if PairURL.parse is called directly.
@@ -118,20 +129,11 @@ final class PairFlowCoordinator {
         case PairURLError.invalidRelayOrigin:
             "this pairing link is damaged."
 
-        // Existing live cases — unchanged.
-        case PairError.lanCAFingerprintMismatch:
-            "this isn't your solstone — re-pair if you intended to."
-        case PairError.nonceExpired:
-            "this pairing code has expired."
-        case PairError.pairingWindowClosed:
-            "the pairing window closed — generate a new code on your solstone."
         case PairError.relayInstanceMismatch:
             "the relay connected to the wrong solstone."
 
-        // Default catch-all — lowercase fix folded into this lode for voice
-        // consistency (was "Try again.").
         default:
-            "pairing failed. try again."
+            PairFailureReason.classify(error: error, targetAddress: targetAddress, interfaces: interfaces).message
         }
     }
 }
