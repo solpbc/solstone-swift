@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import Foundation
 import SPLTunnel
 import XCTest
 
@@ -22,6 +23,7 @@ nonisolated final class PairURLTests: XCTestCase {
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
         ])
         XCTAssertEqual(pairURL.caFingerprintKind, .certificateSHA256)
+        XCTAssertEqual(pairURL.candidates, [PairCandidate(address: "192.0.2.42", port: 0x1B9E)])
         XCTAssertNil(pairURL.instanceID)
         XCTAssertNil(pairURL.totp)
         XCTAssertNil(pairURL.relayOrigin)
@@ -43,6 +45,7 @@ nonisolated final class PairURLTests: XCTestCase {
             0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
         ])
+        XCTAssertEqual(pairURL.candidates, [])
         XCTAssertNil(pairURL.relayOrigin)
     }
 
@@ -53,6 +56,41 @@ nonisolated final class PairURLTests: XCTestCase {
         XCTAssertEqual(pairURL.instanceID, "12345678-1234-5678-1234-567812345678")
         XCTAssertEqual(pairURL.totp, "123456")
         XCTAssertEqual(pairURL.relayOrigin?.absoluteString, "https://relay.example")
+    }
+
+    func testMultiAddressReferenceVectorParses() throws {
+        let pairURL = try PairURL.parse(Self.url(fragment: Self.multiAddressBlob))
+
+        XCTAssertEqual(pairURL.version, 0x05)
+        XCTAssertEqual(pairURL.kind, .direct)
+        XCTAssertEqual(pairURL.addressBytes, [0xC0, 0x00, 0x02, 0x0A])
+        XCTAssertEqual(pairURL.addressString, "192.0.2.10")
+        XCTAssertEqual(pairURL.port, 7657)
+        XCTAssertEqual(pairURL.candidates, [
+            PairCandidate(address: "192.0.2.10", port: 7657),
+            PairCandidate(address: "198.51.100.20", port: 7657)
+        ])
+        XCTAssertEqual(pairURL.nonceBytes, (0x00...0x0F).map(UInt8.init))
+        XCTAssertEqual(pairURL.caFingerprintBytes, (0xA0...0xAF).map(UInt8.init))
+        XCTAssertEqual(pairURL.caFingerprintKind, .certificateSHA256)
+        XCTAssertNil(pairURL.instanceID)
+        XCTAssertNil(pairURL.totp)
+        XCTAssertNil(pairURL.relayOrigin)
+    }
+
+    func testMultiAddressReferenceVectorReconstructsExactBlob() throws {
+        let pairURL = try PairURL.parse(Self.url(fragment: Self.multiAddressBlob))
+
+        XCTAssertEqual(Self.hex(Self.reconstructedMultiBytes(from: pairURL)), Self.multiAddressHex)
+    }
+
+    func testAlternateV04VectorParsesOneCandidate() throws {
+        let pairURL = try PairURL.parse(Self.url(fragment: Self.alternateDirectBlob))
+
+        XCTAssertEqual(pairURL.version, 0x04)
+        XCTAssertEqual(pairURL.addressString, "192.0.2.10")
+        XCTAssertEqual(pairURL.port, 7657)
+        XCTAssertEqual(pairURL.candidates, [PairCandidate(address: "192.0.2.10", port: 7657)])
     }
 
     func testWrongSchemeThrows() {
@@ -169,7 +207,55 @@ nonisolated final class PairURLTests: XCTestCase {
         }
     }
 
+    func testMultiAddressZeroCountThrowsInvalidLength() {
+        var bytes = Self.multiAddressBytes
+        bytes[2] = 0
+
+        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
+            XCTAssertEqual($0 as? PairURLError, .invalidLength(bytes.count))
+        }
+    }
+
+    func testMultiAddressTruncatedLengthThrowsInvalidLength() {
+        var bytes = Self.multiAddressBytes
+        bytes.removeLast()
+
+        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
+            XCTAssertEqual($0 as? PairURLError, .invalidLength(bytes.count))
+        }
+    }
+
+    func testMultiAddressExtraByteThrowsInvalidLength() {
+        var bytes = Self.multiAddressBytes
+        bytes.append(0x00)
+
+        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
+            XCTAssertEqual($0 as? PairURLError, .invalidLength(bytes.count))
+        }
+    }
+
+    func testMultiAddressUnsupportedAddressTypeThrows() {
+        var bytes = Self.multiAddressBytes
+        bytes[1] = 0x02
+
+        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
+            XCTAssertEqual($0 as? PairURLError, .unsupportedAddrType(0x02))
+        }
+    }
+
+    func testFutureVersionThrowsInvalidVersion() {
+        var bytes = Self.multiAddressBytes
+        bytes[0] = 0x06
+
+        XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
+            XCTAssertEqual($0 as? PairURLError, .invalidVersion(0x06))
+        }
+    }
+
     private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
+    private static let alternateDirectBlob = "0G0W000218EYJ001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF"
+    private static let multiAddressBlob = "0M0G47F9R00042P66DJ18001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF"
+    private static let multiAddressHex = "0501021de9c000020ac6336414000102030405060708090a0b0c0d0e0fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
     private static let wellKnownRelayBlob = "0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY00"
     private static let customRelayBlob = "0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY5B8EHT70WST5WQQ4SBCC5WJWSBRC5PQ0V35"
     private static let canonicalBytes: [UInt8] = [
@@ -178,6 +264,15 @@ nonisolated final class PairURLTests: XCTestCase {
         0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
         0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+    ]
+    private static let multiAddressBytes: [UInt8] = [
+        0x05, 0x01, 0x02, 0x1D, 0xE9,
+        0xC0, 0x00, 0x02, 0x0A,
+        0xC6, 0x33, 0x64, 0x14,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+        0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF
     ]
 
     private static func url(fragment: String) -> URL {
@@ -198,6 +293,26 @@ nonisolated final class PairURLTests: XCTestCase {
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
             UInt8(selectorBytes.count)
         ] + selectorBytes
+    }
+
+    private static func reconstructedMultiBytes(from pairURL: PairURL) -> [UInt8] {
+        var bytes: [UInt8] = [
+            pairURL.version,
+            0x01,
+            UInt8(pairURL.candidates.count),
+            UInt8(pairURL.port >> 8),
+            UInt8(pairURL.port & 0x00FF)
+        ]
+        for candidate in pairURL.candidates {
+            bytes.append(contentsOf: candidate.address.split(separator: ".").map { UInt8($0)! })
+        }
+        bytes.append(contentsOf: pairURL.nonceBytes)
+        bytes.append(contentsOf: pairURL.caFingerprintBytes)
+        return bytes
+    }
+
+    private static func hex(_ bytes: [UInt8]) -> String {
+        bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     private static func encode(_ bytes: [UInt8]) -> String {

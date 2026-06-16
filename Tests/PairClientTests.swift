@@ -199,6 +199,7 @@ nonisolated final class PairClientTests: XCTestCase {
         XCTAssertEqual(pairing.relayEnrollment, .unavailable)
         let candidates = try TransportEndpoint.candidates(for: pairing)
         XCTAssertEqual(candidates, [
+            .lan(host: "192.0.2.42", port: 7070, scope: ""),
             .lan(host: "10.0.0.2", port: 9443, scope: "wifi"),
         ])
     }
@@ -217,9 +218,178 @@ nonisolated final class PairClientTests: XCTestCase {
 
         XCTAssertEqual(pairing.relayEnrollment, .enrolled(deviceToken: "relay-token"))
         let candidates = try TransportEndpoint.candidates(for: pairing)
-        XCTAssertEqual(candidates.count, 2)
+        XCTAssertEqual(candidates.count, 3)
+        XCTAssertTrue(candidates.contains(.lan(host: "192.0.2.42", port: 7070, scope: "")))
         XCTAssertTrue(candidates.contains(.lan(host: "10.0.0.2", port: 9443, scope: "wifi")))
         XCTAssertTrue(candidates.contains(.relay(endpoint: Self.relayEndpoint, instanceID: "instance-123", deviceToken: "relay-token")))
+    }
+
+    func testDirectPairHonorsInjectedCandidateOrderAndStopsOnSuccess() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                return (status: 200, body: try Self.lanSuccessData(localEndpoints: []))
+            }
+        )
+
+        let pairing = try await client.pair(
+            pairURL: try PairURL.parse(Self.multiAddressURL()),
+            deviceLabel: "test phone",
+            relayEndpoint: Self.relayEndpoint,
+            orderCandidates: { Array($0.reversed()) }
+        )
+
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["198.51.100.20"])
+        XCTAssertEqual(pairing.localEndpoints.first, LocalEndpoint(host: "198.51.100.20", port: 7657, scope: ""))
+    }
+
+    func testDirectPairRecordsSecondCandidateWhenFirstFails() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                if host == "192.0.2.10" {
+                    throw URLError(.cannotConnectToHost)
+                }
+                return (status: 200, body: try Self.lanSuccessData(localEndpoints: [
+                    LocalEndpoint(host: "198.51.100.20", port: 7657, scope: "wifi"),
+                    LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+                ]))
+            }
+        )
+
+        let pairing = try await client.pair(
+            pairURL: try PairURL.parse(Self.multiAddressURL()),
+            deviceLabel: "test phone",
+            relayEndpoint: Self.relayEndpoint
+        )
+
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["192.0.2.10", "198.51.100.20"])
+        XCTAssertEqual(pairing.localEndpoints.first, LocalEndpoint(host: "198.51.100.20", port: 7657, scope: "wifi"))
+    }
+
+    func testDirectPairDialsEveryCandidateBeforeConnectivityExhaustion() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                throw URLError(.cannotConnectToHost)
+            }
+        )
+
+        do {
+            _ = try await client.pair(
+                pairURL: try PairURL.parse(Self.multiAddressURL()),
+                deviceLabel: "test phone",
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected candidate exhaustion")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .lanCandidatesExhausted(sawCAFingerprintMismatch: false))
+        }
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["192.0.2.10", "198.51.100.20"])
+    }
+
+    func testDirectPairRetainsCAMismatchAcrossExhaustion() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                if host == "192.0.2.10" {
+                    throw InnerTLSError.caFingerprintMismatch
+                }
+                throw URLError(.cannotConnectToHost)
+            }
+        )
+
+        do {
+            _ = try await client.pair(
+                pairURL: try PairURL.parse(Self.multiAddressURL()),
+                deviceLabel: "test phone",
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected candidate exhaustion")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .lanCandidatesExhausted(sawCAFingerprintMismatch: true))
+        }
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["192.0.2.10", "198.51.100.20"])
+    }
+
+    func testDirectPairNonceExpiredOnFirstCandidateStopsLoop() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                return (status: 410, body: Data())
+            }
+        )
+
+        do {
+            _ = try await client.pair(
+                pairURL: try PairURL.parse(Self.multiAddressURL()),
+                deviceLabel: "test phone",
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected nonceExpired")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .nonceExpired)
+        }
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["192.0.2.10"])
+    }
+
+    func testDirectPairNonceExpiredOnLaterCandidateStopsWithoutExhaustion() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                if host == "192.0.2.10" {
+                    throw URLError(.cannotConnectToHost)
+                }
+                return (status: 410, body: Data())
+            }
+        )
+
+        do {
+            _ = try await client.pair(
+                pairURL: try PairURL.parse(Self.multiAddressURL()),
+                deviceLabel: "test phone",
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected nonceExpired")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .nonceExpired)
+        }
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["192.0.2.10", "198.51.100.20"])
+    }
+
+    func testDirectPairSingleCandidateRethrowsRawError() async throws {
+        let seenHosts = OSAllocatedUnfairLock(initialState: [String]())
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: StubLANPairTransport { host, _, _, _ in
+                seenHosts.withLock { $0.append(host) }
+                throw URLError(.cannotConnectToHost)
+            }
+        )
+
+        do {
+            _ = try await client.pair(
+                pairURL: try PairURL.parse(Self.alternateDirectURL()),
+                deviceLabel: "test phone",
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected raw request failure")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .lanRequestFailed(underlying: nil))
+        }
+        XCTAssertEqual(seenHosts.withLock { $0 }, ["192.0.2.10"])
     }
 
     func testLANPairPostNoLongerUsesURLSessionOrHTTPSRequestBuilder() throws {
@@ -289,14 +459,16 @@ nonisolated final class PairClientTests: XCTestCase {
         return URLSession(configuration: configuration)
     }
 
-    private static func lanSuccessData() throws -> Data {
+    private static func lanSuccessData(
+        localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")]
+    ) throws -> Data {
         try JSONEncoder().encode(LANResponsePayload(
             instanceID: "instance-123",
             homeLabel: "sol",
             clientCert: CertlessTrustFixtures.leafPEM,
             caChain: [CertlessTrustFixtures.caPEM],
             homeAttestation: "attestation",
-            localEndpoints: [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")]
+            localEndpoints: localEndpoints
         ))
     }
 
@@ -306,6 +478,14 @@ nonisolated final class PairClientTests: XCTestCase {
 
     private static func canonicalURL() -> URL {
         URL(string: "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
+    }
+
+    private static func alternateDirectURL() -> URL {
+        URL(string: "https://go.solstone.app/p#0G0W000218EYJ001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF")!
+    }
+
+    private static func multiAddressURL() -> URL {
+        URL(string: "https://go.solstone.app/p#0M0G47F9R00042P66DJ18001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF")!
     }
 
     private static let relayEndpoint = URL(string: "https://relay.example.com")!

@@ -57,7 +57,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testInvalidVersionReturnsFailure() throws {
-        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x05]))))
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x06]))))
 
         guard case .failure(.invalidVersion(_)) = result else {
             return XCTFail("expected invalidVersion failure, got \(result)")

@@ -15,11 +15,22 @@ public struct PairClient: Sendable {
         self.lanTransport = lanTransport
     }
 
-    public func pair(pairURL: PairURL, deviceLabel: String, relayEndpoint: URL) async throws -> StoredPairing {
+    public func pair(
+        pairURL: PairURL,
+        deviceLabel: String,
+        relayEndpoint: URL,
+        orderCandidates: @Sendable ([PairCandidate]) -> [PairCandidate] = { $0 }
+    ) async throws -> StoredPairing {
         let generated = try Self.generatePairingMaterial(deviceLabel: deviceLabel)
         switch pairURL.kind {
         case .direct:
-            return try await pairDirect(pairURL: pairURL, generated: generated, deviceLabel: deviceLabel, relayEndpoint: relayEndpoint)
+            return try await pairDirect(
+                pairURL: pairURL,
+                generated: generated,
+                deviceLabel: deviceLabel,
+                relayEndpoint: relayEndpoint,
+                orderCandidates: orderCandidates
+            )
         case .relay:
             return try await pairViaRelay(pairURL: pairURL, generated: generated, deviceLabel: deviceLabel, defaultRelayEndpoint: relayEndpoint)
         }
@@ -29,16 +40,53 @@ public struct PairClient: Sendable {
         pairURL: PairURL,
         generated: PairingMaterial,
         deviceLabel: String,
-        relayEndpoint: URL
+        relayEndpoint: URL,
+        orderCandidates: @Sendable ([PairCandidate]) -> [PairCandidate]
     ) async throws -> StoredPairing {
-        let lanResponse = try await postDirectPair(pairURL: pairURL, csrPEM: generated.csrPEM, deviceLabel: deviceLabel)
-        let relayEnrollment = await optionalRelayEnrollment(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
-        return try Self.makeStoredPairing(
-            lanResponse: lanResponse,
-            generated: generated,
-            relayEndpoint: relayEndpoint,
-            relayEnrollment: relayEnrollment
-        )
+        let ordered = orderCandidates(pairURL.candidates)
+        var sawCAFingerprintMismatch = false
+        var lastError: PairError?
+
+        for (index, candidate) in ordered.enumerated() {
+            let candidatePort = Int(candidate.port)
+            pairLog.info("dialing candidate \(index + 1, privacy: .public) of \(ordered.count, privacy: .public): \(candidate.address, privacy: .public):\(candidatePort, privacy: .public)")
+            do {
+                let lanResponse = try await postDirectPair(
+                    pairURL: pairURL,
+                    host: candidate.address,
+                    port: candidatePort,
+                    csrPEM: generated.csrPEM,
+                    deviceLabel: deviceLabel
+                )
+                pairLog.info("paired via \(candidate.address, privacy: .public):\(candidatePort, privacy: .public)")
+                let relayEnrollment = await optionalRelayEnrollment(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
+                return try Self.makeStoredPairing(
+                    lanResponse: lanResponse,
+                    generated: generated,
+                    relayEndpoint: relayEndpoint,
+                    relayEnrollment: relayEnrollment,
+                    dialedEndpoint: LocalEndpoint(host: candidate.address, port: candidatePort, scope: "")
+                )
+            } catch let error as PairError {
+                switch error {
+                case .nonceExpired,
+                     .pairingWindowClosed:
+                    throw error
+                case .lanCAFingerprintMismatch:
+                    sawCAFingerprintMismatch = true
+                    lastError = error
+                    pairLog.info("ca-mismatch on \(candidate.address, privacy: .public):\(candidatePort, privacy: .public), advancing")
+                default:
+                    lastError = error
+                }
+            }
+        }
+
+        pairLog.info("all \(ordered.count, privacy: .public) candidates exhausted")
+        if ordered.count == 1, let lastError {
+            throw lastError
+        }
+        throw PairError.lanCandidatesExhausted(sawCAFingerprintMismatch: sawCAFingerprintMismatch)
     }
 
     private func pairViaRelay(
@@ -78,16 +126,16 @@ public struct PairClient: Sendable {
         )
     }
 
-    private func postDirectPair(pairURL: PairURL, csrPEM: String, deviceLabel: String) async throws -> LANPairResponse {
+    private func postDirectPair(pairURL: PairURL, host: String, port: Int, csrPEM: String, deviceLabel: String) async throws -> LANPairResponse {
         let jsonBody = try Self.encodePairRequestBody(csrPEM: csrPEM, deviceLabel: deviceLabel)
         let response: (status: Int, body: Data)
         do {
             response = try await lanTransport.send(
-                host: pairURL.addressString,
-                port: Int(pairURL.port),
+                host: host,
+                port: port,
                 caFingerprintBytes: pairURL.caFingerprintBytes,
                 requestBytes: CertlessPairExchange.encodeRequest(
-                    host: pairURL.addressString,
+                    host: host,
                     path: "/app/link/pair?token=\(CertChain.hex(pairURL.nonceBytes))",
                     jsonBody: jsonBody
                 )
@@ -404,11 +452,30 @@ public struct PairClient: Sendable {
         lanResponse: LANPairResponse,
         generated: PairingMaterial,
         relayEndpoint: URL,
-        relayEnrollment: RelayEnrollment
+        relayEnrollment: RelayEnrollment,
+        dialedEndpoint: LocalEndpoint? = nil
     ) throws -> StoredPairing {
         let certificates = try? CertChain.certificates(fromPEM: lanResponse.clientCert)
         guard let clientCertificate = certificates?.first else {
             throw PairError.lanResponseInvalid(status: nil)
+        }
+
+        var localEndpoints = lanResponse.localEndpoints
+        if let dialedEndpoint {
+            let existingScope = localEndpoints.first {
+                $0.host == dialedEndpoint.host && $0.port == dialedEndpoint.port
+            }?.scope
+            localEndpoints.removeAll {
+                $0.host == dialedEndpoint.host && $0.port == dialedEndpoint.port
+            }
+            localEndpoints.insert(
+                LocalEndpoint(
+                    host: dialedEndpoint.host,
+                    port: dialedEndpoint.port,
+                    scope: existingScope ?? dialedEndpoint.scope
+                ),
+                at: 0
+            )
         }
 
         return StoredPairing(
@@ -420,7 +487,7 @@ public struct PairClient: Sendable {
             clientKeyPEM: generated.privateKeyPEM,
             caChainPEM: joinPEMChain(lanResponse.caChain),
             relayEnrollment: relayEnrollment,
-            localEndpoints: lanResponse.localEndpoints,
+            localEndpoints: localEndpoints,
             pairedAt: Date()
         )
     }
@@ -570,6 +637,7 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
     case lanResponseInvalid(status: Int?)
     case nonceExpired
     case pairingWindowClosed
+    case lanCandidatesExhausted(sawCAFingerprintMismatch: Bool)
     case relayRequestFailed(underlying: (any Error & Sendable)?)
     case relayResponseInvalid(status: Int?)
     case relayInstanceMismatch
@@ -589,6 +657,8 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
             return "this pairing code has expired. generate a new one on your solstone."
         case .pairingWindowClosed:
             return "the pairing window closed. generate a new code on your solstone."
+        case .lanCandidatesExhausted:
+            return "couldn't reach solstone on this network."
         case .relayRequestFailed:
             return "couldn't reach the relay."
         case .relayResponseInvalid:
@@ -610,6 +680,8 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
              (.relayRequestFailed, .relayRequestFailed),
              (.relayInstanceMismatch, .relayInstanceMismatch):
             return true
+        case (.lanCandidatesExhausted(let lhsSawCA), .lanCandidatesExhausted(let rhsSawCA)):
+            return lhsSawCA == rhsSawCA
         case (.lanResponseInvalid(let lhsStatus), .lanResponseInvalid(let rhsStatus)):
             return lhsStatus == rhsStatus
         case (.relayResponseInvalid(let lhsStatus), .relayResponseInvalid(let rhsStatus)):

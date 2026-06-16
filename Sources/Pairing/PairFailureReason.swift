@@ -35,6 +35,38 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         }
     }
 
+    static func classifyExhausted(
+        sawCAFingerprintMismatch: Bool,
+        candidateAddresses: [String],
+        interfaces: [IPv4Interface]
+    ) -> PairFailureReason {
+        if sawCAFingerprintMismatch {
+            return .wrongSolstone
+        }
+
+        let usableInterfaces = usableIPv4Interfaces(from: interfaces)
+        guard let firstUsable = usableInterfaces.first else {
+            return .hostUnreachable(targetAddress: candidateAddresses.first)
+        }
+
+        for address in candidateAddresses {
+            guard let targetOctets = parseIPv4(address) else {
+                continue
+            }
+            let target = packIPv4(targetOctets)
+            if usableInterfaces.contains(where: {
+                isOnSameSubnet(targetValue: target, addressValue: $0.addressValue, netmaskValue: $0.netmaskValue)
+            }) {
+                return .hostUnreachable(targetAddress: address)
+            }
+        }
+
+        return .differentNetwork(
+            phoneAddress: firstUsable.address,
+            targetAddress: candidateAddresses.first ?? ""
+        )
+    }
+
     var message: String {
         switch self {
         case .differentNetwork(let phoneAddress, let targetAddress):
@@ -71,22 +103,14 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         }
 
         let target = packIPv4(targetOctets)
-        let usableInterfaces = interfaces.compactMap { interface -> (address: String, addressValue: UInt32, netmaskValue: UInt32)? in
-            guard let addressOctets = parseIPv4(interface.address),
-                  let netmaskOctets = parseIPv4(interface.netmask) else {
-                return nil
-            }
-            return (
-                address: interface.address,
-                addressValue: packIPv4(addressOctets),
-                netmaskValue: packIPv4(netmaskOctets)
-            )
-        }
+        let usableInterfaces = usableIPv4Interfaces(from: interfaces)
         guard let firstUsable = usableInterfaces.first else {
             return .hostUnreachable(targetAddress: targetAddress)
         }
 
-        if usableInterfaces.contains(where: { (target & $0.netmaskValue) == ($0.addressValue & $0.netmaskValue) }) {
+        if usableInterfaces.contains(where: {
+            isOnSameSubnet(targetValue: target, addressValue: $0.addressValue, netmaskValue: $0.netmaskValue)
+        }) {
             return .hostUnreachable(targetAddress: targetAddress)
         }
 
@@ -95,6 +119,55 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             targetAddress: dottedIPv4(targetOctets)
         )
     }
+}
+
+private typealias UsableIPv4Interface = (address: String, addressValue: UInt32, netmaskValue: UInt32)
+
+private nonisolated func usableIPv4Interfaces(from interfaces: [IPv4Interface]) -> [UsableIPv4Interface] {
+    interfaces.compactMap { interface -> UsableIPv4Interface? in
+        guard let addressOctets = parseIPv4(interface.address),
+              let netmaskOctets = parseIPv4(interface.netmask) else {
+            return nil
+        }
+        return (
+            address: interface.address,
+            addressValue: packIPv4(addressOctets),
+            netmaskValue: packIPv4(netmaskOctets)
+        )
+    }
+}
+
+nonisolated func isOnSameSubnet(targetValue: UInt32, addressValue: UInt32, netmaskValue: UInt32) -> Bool {
+    (targetValue & netmaskValue) == (addressValue & netmaskValue)
+}
+
+nonisolated func orderCandidatesBySubnet(_ candidates: [PairCandidate], interfaces: [IPv4Interface]) -> [PairCandidate] {
+    let usableInterfaces = usableIPv4Interfaces(from: interfaces)
+    guard !usableInterfaces.isEmpty else {
+        return candidates
+    }
+
+    var onSubnet: [PairCandidate] = []
+    var offSubnet: [PairCandidate] = []
+    onSubnet.reserveCapacity(candidates.count)
+    offSubnet.reserveCapacity(candidates.count)
+
+    for candidate in candidates {
+        guard let targetOctets = parseIPv4(candidate.address) else {
+            offSubnet.append(candidate)
+            continue
+        }
+        let target = packIPv4(targetOctets)
+        if usableInterfaces.contains(where: {
+            isOnSameSubnet(targetValue: target, addressValue: $0.addressValue, netmaskValue: $0.netmaskValue)
+        }) {
+            onSubnet.append(candidate)
+        } else {
+            offSubnet.append(candidate)
+        }
+    }
+
+    return onSubnet + offSubnet
 }
 
 nonisolated func parseIPv4(_ string: String?) -> [UInt8]? {

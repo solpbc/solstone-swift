@@ -8,14 +8,26 @@ public enum PairLinkKind: Sendable, Equatable, Hashable {
     case relay
 }
 
+public struct PairCandidate: Sendable, Equatable, Hashable {
+    public let address: String
+    public let port: UInt16
+
+    public init(address: String, port: UInt16) {
+        self.address = address
+        self.port = port
+    }
+}
+
 public struct PairURL: Sendable, Equatable, Hashable {
     private static let directVersion: UInt8 = 0x04
+    private static let multiVersion: UInt8 = 0x05
     private static let relayVersion: UInt8 = 0x03
 
     public let version: UInt8
     public let kind: PairLinkKind
     public let addressBytes: [UInt8]
     public let port: UInt16
+    public let candidates: [PairCandidate]
     public let nonceBytes: [UInt8]
     public let caFingerprintBytes: [UInt8]
     public let caFingerprintKind: PairingCAPinKind
@@ -72,6 +84,8 @@ public struct PairURL: Sendable, Equatable, Hashable {
         switch bytes[0] {
         case Self.directVersion:
             try self.init(directBytes: bytes)
+        case Self.multiVersion:
+            try self.init(multiBytes: bytes)
         case Self.relayVersion:
             try self.init(relayBytes: bytes)
         default:
@@ -90,12 +104,56 @@ public struct PairURL: Sendable, Equatable, Hashable {
             throw PairURLError.invalidLength(bytes.count)
         }
 
+        let parsedAddressBytes = Array(bytes[2..<6])
+        let parsedPort = UInt16(bytes[6]) << 8 | UInt16(bytes[7])
+
         version = bytes[0]
         kind = .direct
-        addressBytes = Array(bytes[2..<6])
-        port = UInt16(bytes[6]) << 8 | UInt16(bytes[7])
+        addressBytes = parsedAddressBytes
+        port = parsedPort
+        candidates = [PairCandidate(address: parsedAddressBytes.map(String.init).joined(separator: "."), port: parsedPort)]
         nonceBytes = Array(bytes[8..<24])
         caFingerprintBytes = Array(bytes[24..<40])
+        caFingerprintKind = .certificateSHA256
+        instanceID = nil
+        totp = nil
+        relayOrigin = nil
+    }
+
+    private init(multiBytes bytes: [UInt8]) throws {
+        guard bytes.count >= 3 else {
+            throw PairURLError.invalidLength(bytes.count)
+        }
+        guard bytes[1] == 0x01 else {
+            throw PairURLError.unsupportedAddrType(bytes[1])
+        }
+        let count = Int(bytes[2])
+        guard count != 0 else {
+            throw PairURLError.invalidLength(bytes.count)
+        }
+        guard bytes.count == 5 + 4 * count + 32 else {
+            throw PairURLError.invalidLength(bytes.count)
+        }
+
+        let parsedPort = UInt16(bytes[3]) << 8 | UInt16(bytes[4])
+        var parsedCandidates: [PairCandidate] = []
+        parsedCandidates.reserveCapacity(count)
+        for index in 0..<count {
+            let start = 5 + 4 * index
+            let address = bytes[start..<(start + 4)].map(String.init).joined(separator: ".")
+            parsedCandidates.append(PairCandidate(address: address, port: parsedPort))
+        }
+
+        let nonceStart = 5 + 4 * count
+        let fingerprintStart = nonceStart + 16
+
+        version = bytes[0]
+        kind = .direct
+        addressBytes = Array(bytes[5..<9])
+        port = parsedPort
+        candidates = parsedCandidates
+        nonceBytes = Array(bytes[nonceStart..<fingerprintStart])
+        caFingerprintBytes = Array(bytes[fingerprintStart..<bytes.endIndex])
         caFingerprintKind = .certificateSHA256
         instanceID = nil
         totp = nil
@@ -142,6 +200,7 @@ public struct PairURL: Sendable, Equatable, Hashable {
         kind = .relay
         addressBytes = []
         port = 0
+        candidates = []
         nonceBytes = Array(bytes[20..<36])
         caFingerprintBytes = Array(bytes[37..<53])
         caFingerprintKind = .spkiSHA256

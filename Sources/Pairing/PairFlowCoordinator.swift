@@ -42,22 +42,33 @@ final class PairFlowCoordinator {
 
     func handlePairURL(_ pairURL: PairURL) async throws {
         state = .pairing
+        let interfaces = networkReader.interfaces()
         do {
             let pairing = try await pairClient.pair(
                 pairURL: pairURL,
                 deviceLabel: Self.deviceLabel(),
-                relayEndpoint: SPLPairingConstants.relayEndpoint
+                relayEndpoint: SPLPairingConstants.relayEndpoint,
+                orderCandidates: { orderCandidatesBySubnet($0, interfaces: interfaces) }
             )
             try SPLKeychain.save(pairing)
             await endpointCache.bootstrap(from: pairing)
             state = .success
             pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
         } catch {
-            let message = Self.message(
-                for: error,
-                targetAddress: pairURL.addressString,
-                interfaces: networkReader.interfaces()
-            )
+            let message: String
+            if case PairError.lanCandidatesExhausted(let sawCAFingerprintMismatch) = error {
+                message = PairFailureReason.classifyExhausted(
+                    sawCAFingerprintMismatch: sawCAFingerprintMismatch,
+                    candidateAddresses: pairURL.candidates.map(\.address),
+                    interfaces: interfaces
+                ).message
+            } else {
+                message = Self.message(
+                    for: error,
+                    targetAddress: pairURL.addressString,
+                    interfaces: interfaces
+                )
+            }
             state = .failed(error: message)
             pairFlowLog.error("pairing failed: \(String(describing: error), privacy: .public)")
             throw error

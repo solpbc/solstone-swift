@@ -216,6 +216,97 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertFalse(isLoopbackHost("10.0.0.1"))
     }
 
+    func testOrderCandidatesBySubnetStablePartitionKeepsOffSubnet() {
+        let candidates = [
+            PairCandidate(address: "198.51.100.10", port: 7657),
+            PairCandidate(address: "192.168.1.90", port: 7657),
+            PairCandidate(address: "203.0.113.8", port: 7657),
+            PairCandidate(address: "10.0.250.9", port: 7657),
+            PairCandidate(address: "journal.local", port: 7657)
+        ]
+        let interfaces = [
+            IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0"),
+            IPv4Interface(address: "10.0.5.4", netmask: "255.255.0.0")
+        ]
+
+        XCTAssertEqual(
+            orderCandidatesBySubnet(candidates, interfaces: interfaces),
+            [
+                PairCandidate(address: "192.168.1.90", port: 7657),
+                PairCandidate(address: "10.0.250.9", port: 7657),
+                PairCandidate(address: "198.51.100.10", port: 7657),
+                PairCandidate(address: "203.0.113.8", port: 7657),
+                PairCandidate(address: "journal.local", port: 7657)
+            ]
+        )
+    }
+
+    func testOrderCandidatesBySubnetWithEmptyInterfacesKeepsOriginalOrder() {
+        let candidates = [
+            PairCandidate(address: "198.51.100.10", port: 7657),
+            PairCandidate(address: "192.168.1.90", port: 7657)
+        ]
+
+        XCTAssertEqual(orderCandidatesBySubnet(candidates, interfaces: []), candidates)
+    }
+
+    func testClassifyExhaustedPrecedence() {
+        let interfaces = [IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0")]
+
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: true,
+                candidateAddresses: ["192.168.1.90"],
+                interfaces: interfaces
+            ),
+            .wrongSolstone
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["10.0.0.5", "192.168.1.90"],
+                interfaces: interfaces
+            ),
+            .hostUnreachable(targetAddress: "192.168.1.90")
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["10.0.0.5", "198.51.100.10"],
+                interfaces: interfaces
+            ),
+            .differentNetwork(phoneAddress: "192.168.1.20", targetAddress: "10.0.0.5")
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["10.0.0.5"],
+                interfaces: []
+            ),
+            .hostUnreachable(targetAddress: "10.0.0.5")
+        )
+    }
+
+    func testPairFailureMessageCopyIsLocked() {
+        XCTAssertEqual(
+            PairFailureReason.differentNetwork(phoneAddress: "192.168.1.20", targetAddress: "10.0.0.5").message,
+            """
+            this phone and your solstone are on different networks.
+            this phone: 192.168.1.20
+            your solstone: 10.0.0.5
+            connect both to the same wi-fi, then try again.
+            """
+        )
+        XCTAssertEqual(
+            PairFailureReason.hostUnreachable(targetAddress: "192.168.1.99").message,
+            "couldn't reach your solstone at 192.168.1.99. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly."
+        )
+        XCTAssertEqual(
+            PairFailureReason.wrongSolstone.message,
+            "this solstone's identity doesn't match the pairing code. double-check which solstone you're pairing, then try again with a new code."
+        )
+    }
+
     @MainActor
     func testCoordinatorPassesPairURLAddressToClassifier() async throws {
         let client = PairClient(lanTransport: ThrowingLANPairTransport(error: DummyError()))
