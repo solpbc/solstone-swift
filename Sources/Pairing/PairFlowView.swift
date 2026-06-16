@@ -64,6 +64,31 @@ struct PairFlowView: View {
         var id: String { rawValue }
     }
 
+    nonisolated enum PastedLinkOutcome: Equatable {
+        case loopback
+        case pair(PairURL)
+        case routeFailure(PairURLError)
+        case invalid
+    }
+
+    nonisolated static func classifyPastedLink(_ raw: String) -> PastedLinkOutcome {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isLoopbackHost(trimmed) {
+            return .loopback
+        }
+        guard let url = URL(string: trimmed) else {
+            return .invalid
+        }
+        switch UniversalLinkRouter.route(url) {
+        case nil:
+            return .invalid
+        case .success(let pairURL):
+            return .pair(pairURL)
+        case .failure(let error):
+            return .routeFailure(error)
+        }
+    }
+
     @Environment(AppConfig.self) private var appConfig
     @Environment(PairingHandoffState.self) private var handoff
     @Environment(\.scenePhase) private var scenePhase
@@ -206,12 +231,16 @@ struct PairFlowView: View {
 
     private func handlePastedURL() async {
         self.fallbackTimer.cancel()
-        let trimmed = self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed) else {
+        switch Self.classifyPastedLink(self.pastedURL) {
+        case .loopback:
+            self.errorMessage = PairFailureReason.loopbackAddress.message
+        case .invalid:
             self.errorMessage = "enter a valid pairing link."
-            return
+        case .pair(let pairURL):
+            await self.handle(pairURL)
+        case .routeFailure(let error):
+            self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
         }
-        await self.handle(url)
     }
 
     private func handle(_ url: URL) async {

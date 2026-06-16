@@ -50,4 +50,29 @@ nonisolated final class PairFlowViewTests: XCTestCase {
             "the pairing window closed — generate a new code on your solstone."
         )
     }
+
+    nonisolated func testClassifyPastedLinkRejectsLoopbackBeforeRouting() {
+        for raw in [
+            "http://localhost:5015/app/link/",
+            "http://127.0.0.1:5015/",
+            "http://127.0.0.2/",
+            "http://[::1]:5015/"
+        ] {
+            XCTAssertEqual(PairFlowView.classifyPastedLink(raw), .loopback)
+        }
+    }
+
+    nonisolated func testClassifyPastedLinkRejectsInvalidInputs() {
+        XCTAssertEqual(PairFlowView.classifyPastedLink("https://example.com/x"), .invalid)
+        XCTAssertEqual(PairFlowView.classifyPastedLink(""), .invalid)
+    }
+
+    nonisolated func testClassifyPastedLinkAcceptsCanonicalPairingLink() {
+        let outcome = PairFlowView.classifyPastedLink(Self.canonicalPairingLink)
+        guard case .pair = outcome else {
+            return XCTFail("expected pair, got \(outcome)")
+        }
+    }
+
+    private static let canonicalPairingLink = "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
 }
