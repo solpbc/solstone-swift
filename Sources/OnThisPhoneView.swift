@@ -38,98 +38,108 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var migrationCompletionDismissed = false
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
+    private let showsAskBar: Bool
     private let header: Header
 
-    init(onTurnOnSource: @escaping () -> Void = {}, @ViewBuilder header: () -> Header) {
+    init(onTurnOnSource: @escaping () -> Void = {}, showsAskBar: Bool = false, @ViewBuilder header: () -> Header) {
         self.onTurnOnSource = onTurnOnSource
+        self.showsAskBar = showsAskBar
         self.header = header()
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                self.header
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    self.header
 
-                if self.hasItems, !self.isShowingNotBackedUpNudge {
-                    Text(SourceVocabulary.onThisPhoneScope)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                self.magicMomentSection
-
-                if self.hasItems, self.isShowingNotBackedUpNudge {
-                    self.notBackedUpNudge
-                }
-
-                if let displayAggregate = self.displayAggregate {
-                    let migration = onThisPhoneMigration(
-                        snapshot: displayAggregate,
-                        journalConnected: self.observerRegistration.activeLocalPort != nil
-                    )
-                    if self.appConfig.isPaired, !migration.isEmpty {
-                        self.migrationSection(migration: migration)
+                    if self.hasItems, !self.isShowingNotBackedUpNudge {
+                        Text(SourceVocabulary.onThisPhoneScope)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
-                    OnThisPhoneStateSummaryView(summary: displayAggregate.sendStateSummary)
-                    if !self.appConfig.isPaired,
-                       OnThisPhoneBacklogNudge.shouldShow(items: displayAggregate.items, now: Date()),
-                       !self.backlogNudgeDismissed {
-                        self.agedBacklogNudge(count: displayAggregate.items.count)
-                    }
-                    self.content(snapshot: displayAggregate)
-                }
-            }
-            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-            .padding()
-            .frame(maxWidth: .infinity)
-        }
-        .overlay(alignment: .bottom) {
-            self.dropSnackbar
-        }
-        .confirmationDialog(
-            SourceVocabulary.onThisPhoneDropConfirmTitle,
-            isPresented: self.isPresentingSwipeDropConfirm,
-            titleVisibility: .visible,
-            presenting: self.pendingDropItem
-        ) { item in
-            Button(SourceVocabulary.drop, role: .destructive) {
-                self.requestDrop(item)
-            }
-            .accessibilityIdentifier("onThisPhone.swipe.drop.confirm")
 
-            Button(SourceVocabulary.cancel, role: .cancel) {}
-        } message: { item in
-            Text(SourceVocabulary.onThisPhoneDropConfirmMessage(noun: item.dropConfirmNoun))
-        }
-        .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
-        .accessibilityIdentifier("onThisPhone.surface")
-        .onAppear {
-            self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
-            self.loadSnapshot()
-        }
-        .onChange(of: self.observerUploader.pendingCount) { _, _ in
-            self.loadSnapshot()
-        }
-        .onChange(of: self.observerUploader.failedCount) { _, _ in
-            self.loadSnapshot()
-        }
-        .onChange(of: self.importQueue.pendingCount) { _, _ in
-            self.loadSnapshot()
-        }
-        .onChange(of: self.importQueue.failedCount) { _, _ in
-            self.loadSnapshot()
-        }
-        .onChange(of: self.locationUploader.pendingCount) { _, _ in
-            self.loadSnapshot()
-        }
-        .onChange(of: self.locationUploader.failedCount) { _, _ in
-            self.loadSnapshot()
-        }
-        .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
-            self.loadSnapshot()
-        }
-        .sheet(isPresented: self.$showingConnectJournal) {
-            ConnectJournalSheet(isPresented: self.$showingConnectJournal)
+                    self.magicMomentSection
+
+                    if self.hasItems, self.isShowingNotBackedUpNudge {
+                        self.notBackedUpNudge
+                    }
+
+                    if let displayAggregate = self.displayAggregate {
+                        let migration = onThisPhoneMigration(
+                            snapshot: displayAggregate,
+                            journalConnected: self.observerRegistration.activeLocalPort != nil
+                        )
+                        if self.appConfig.isPaired, !migration.isEmpty {
+                            self.migrationSection(migration: migration)
+                        }
+                        OnThisPhoneStateSummaryView(summary: displayAggregate.sendStateSummary)
+                        if !self.appConfig.isPaired,
+                           OnThisPhoneBacklogNudge.shouldShow(items: displayAggregate.items, now: Date()),
+                           !self.backlogNudgeDismissed {
+                            self.agedBacklogNudge(count: displayAggregate.items.count)
+                        }
+                        self.content(snapshot: displayAggregate)
+                    }
+                }
+                .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+                .padding()
+                .frame(maxWidth: .infinity)
+            }
+            .overlay(alignment: .bottom) {
+                self.dropSnackbar
+            }
+            .confirmationDialog(
+                SourceVocabulary.onThisPhoneDropConfirmTitle,
+                isPresented: self.isPresentingSwipeDropConfirm,
+                titleVisibility: .visible,
+                presenting: self.pendingDropItem
+            ) { item in
+                Button(SourceVocabulary.drop, role: .destructive) {
+                    self.requestDrop(item)
+                }
+                .accessibilityIdentifier("onThisPhone.swipe.drop.confirm")
+
+                Button(SourceVocabulary.cancel, role: .cancel) {}
+            } message: { item in
+                Text(SourceVocabulary.onThisPhoneDropConfirmMessage(noun: item.dropConfirmNoun))
+            }
+            .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
+            .accessibilityIdentifier("onThisPhone.surface")
+            .onAppear {
+                self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
+                self.loadSnapshot()
+            }
+            .onChange(of: self.observerUploader.pendingCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.observerUploader.failedCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.importQueue.pendingCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.importQueue.failedCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.locationUploader.pendingCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.locationUploader.failedCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
+                self.loadSnapshot()
+            }
+            .sheet(isPresented: self.$showingConnectJournal) {
+                ConnectJournalSheet(isPresented: self.$showingConnectJournal)
+            }
+
+            if self.showsAskBar {
+                DayHomeAskBar(action: { self.showingConnectJournal = true })
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
         }
     }
 }

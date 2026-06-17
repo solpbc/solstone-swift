@@ -16,7 +16,7 @@ struct DayHomeView: View {
     @State private var showingJournalLives = false
 
     var body: some View {
-        OnThisPhoneMomentsView(onTurnOnSource: self.onTurnOnSource) {
+        OnThisPhoneMomentsView(onTurnOnSource: self.onTurnOnSource, showsAskBar: true) {
             self.header
         }
         .navigationBarTitleDisplayMode(.inline)

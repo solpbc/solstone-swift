@@ -35,6 +35,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
         XCTAssertEqual(SourceVocabulary.details, "details")
+        XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
             "your observations are kept on this phone. connect a journal and everything gathered so far flows in."

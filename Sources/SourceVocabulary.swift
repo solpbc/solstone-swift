@@ -125,6 +125,7 @@ nonisolated enum SourceVocabulary {
     static let dayLocality = "your journal · on this phone"
     static let dayToday = "today"
     static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
+    static let dayHomeAskBarHint = "connect a journal to ask sol"
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let onThisPhoneTurnOnSourceButton = "turn on a source"
