@@ -4,6 +4,20 @@
 import SwiftUI
 
 struct OnThisPhoneView: View {
+    let onTurnOnSource: () -> Void
+
+    init(onTurnOnSource: @escaping () -> Void = {}) {
+        self.onTurnOnSource = onTurnOnSource
+    }
+
+    var body: some View {
+        OnThisPhoneMomentsView(onTurnOnSource: self.onTurnOnSource) { EmptyView() }
+            .navigationTitle(SourceVocabulary.onThisPhone)
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ImportQueue.self) private var importQueue
     @Environment(ObserverManager.self) private var observerManager
@@ -24,14 +38,18 @@ struct OnThisPhoneView: View {
     @State private var migrationCompletionDismissed = false
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
+    private let header: Header
 
-    init(onTurnOnSource: @escaping () -> Void = {}) {
+    init(onTurnOnSource: @escaping () -> Void = {}, @ViewBuilder header: () -> Header) {
         self.onTurnOnSource = onTurnOnSource
+        self.header = header()
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                self.header
+
                 if self.hasItems, !self.isShowingNotBackedUpNudge {
                     Text(SourceVocabulary.onThisPhoneScope)
                         .font(.subheadline)
@@ -85,8 +103,6 @@ struct OnThisPhoneView: View {
         }
         .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
         .accessibilityIdentifier("onThisPhone.surface")
-        .navigationTitle(SourceVocabulary.onThisPhone)
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
             self.loadSnapshot()
@@ -118,7 +134,7 @@ struct OnThisPhoneView: View {
     }
 }
 
-private extension OnThisPhoneView {
+private extension OnThisPhoneMomentsView {
     var displayAggregate: OnThisPhoneAggregateSnapshot? {
         self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
     }

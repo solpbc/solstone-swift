@@ -108,7 +108,13 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.navigationBars["on this phone"].waitForExistence(timeout: 5))
+        let greeting = app.staticTexts["dayHome.greeting"]
+        XCTAssertTrue(greeting.waitForExistence(timeout: 5))
+        XCTAssertTrue(["good morning", "good afternoon", "good evening"].contains(greeting.label))
+        let locality = app.staticTexts["dayHome.locality"]
+        XCTAssertTrue(locality.waitForExistence(timeout: 5))
+        XCTAssertEqual(locality.label, "your journal · on this phone")
+        XCTAssertFalse(app.navigationBars["on this phone"].exists)
         XCTAssertFalse(app.staticTexts["placeholder.today"].exists)
 
         app.tabBars.buttons["ask"].tap()

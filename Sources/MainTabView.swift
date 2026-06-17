@@ -199,7 +199,7 @@ struct MainTabView: View {
                 AskNoJournalPlaceholderContainer()
             } else {
                 NavigationStack {
-                    OnThisPhoneView(onTurnOnSource: { self.selectedTab = .sense })
+                    DayHomeView(onTurnOnSource: { self.selectedTab = .sense })
                 }
             }
         } else if !self.tunnelManager.state.isConnected {
