@@ -13,6 +13,7 @@ func greeting(forHour hour: Int) -> String {
 
 struct DayHomeView: View {
     let onTurnOnSource: () -> Void
+    @State private var showingJournalLives = false
 
     var body: some View {
         OnThisPhoneMomentsView(onTurnOnSource: self.onTurnOnSource) {
@@ -33,11 +34,19 @@ struct DayHomeView: View {
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("dayHome.greeting")
 
-            Text(SourceVocabulary.dayLocality)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .accessibilityIdentifier("dayHome.locality")
+            Button {
+                self.showingJournalLives = true
+            } label: {
+                Text(SourceVocabulary.dayLocality)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("dayHome.locality")
+            .sheet(isPresented: self.$showingJournalLives) {
+                JournalLivesSheet(isPresented: self.$showingJournalLives)
+            }
 
             self.statCardsSlot
 

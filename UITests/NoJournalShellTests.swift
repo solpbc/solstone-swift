@@ -111,7 +111,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let greeting = app.staticTexts["dayHome.greeting"]
         XCTAssertTrue(greeting.waitForExistence(timeout: 5))
         XCTAssertTrue(["good morning", "good afternoon", "good evening"].contains(greeting.label))
-        let locality = app.staticTexts["dayHome.locality"]
+        let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
         XCTAssertEqual(locality.label, "your journal · on this phone")
         XCTAssertFalse(app.navigationBars["on this phone"].exists)
@@ -119,6 +119,46 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         app.tabBars.buttons["ask"].tap()
         XCTAssertTrue(app.staticTexts["placeholder.ask"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testJournalLivesSheetShowsPositionsAndDismisses() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+
+        app.buttons["dayHome.locality"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+
+        let promise = app.descendants(matching: .any)["journalLives.promise"]
+        XCTAssertTrue(promise.exists)
+        XCTAssertEqual(promise.label, "your journal is always private, only yours.")
+
+        XCTAssertTrue(app.staticTexts["your observations rest here, yours and nowhere else."].exists)
+        XCTAssertTrue(app.staticTexts["pair to a solstone on your computer — everything gathered so far flows in."].exists)
+        XCTAssertTrue(app.staticTexts["a journal sol pbc keeps for you. operated by sol pbc."].exists)
+
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.onThisPhone.current"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.ownJournal.current"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.hosted.current"].exists)
+
+        XCTAssertFalse(app.buttons["journalLives.hosted"].exists)
+        let comingLater = app.descendants(matching: .any)["journalLives.hosted.comingLater"]
+        XCTAssertTrue(comingLater.exists)
+        XCTAssertEqual(comingLater.label, "coming later")
+
+        app.buttons["done"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].exists)
+    }
+
+    @MainActor
+    func testJournalLivesConnectReachesPairFlow() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+
+        app.buttons["dayHome.locality"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+        app.buttons["journalLives.ownJournal"].tap()
+
+        XCTAssertTrue(app.staticTexts["pair your solstone"].waitForExistence(timeout: 5))
     }
 
     @MainActor
