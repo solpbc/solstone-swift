@@ -4,6 +4,8 @@
 import SwiftUI
 
 struct DayHomeAskBar: View {
+    let title: String
+    let isEnabled: Bool
     let action: () -> Void
 
     var body: some View {
@@ -15,7 +17,7 @@ struct DayHomeAskBar: View {
                     .frame(width: 22, height: 22)
                     .accessibilityHidden(true)
 
-                Text(SourceVocabulary.dayHomeAskBarHint)
+                Text(self.title)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("dayHome.askBar.hint")
@@ -27,6 +29,7 @@ struct DayHomeAskBar: View {
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(!self.isEnabled)
         .accessibilityIdentifier("dayHome.askBar")
     }
 }

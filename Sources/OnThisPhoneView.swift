@@ -38,12 +38,19 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var migrationCompletionDismissed = false
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
-    private let showsAskBar: Bool
+    private let askBarState: DayHomeJournalState?
+    private let onAskBarChat: () -> Void
     private let header: Header
 
-    init(onTurnOnSource: @escaping () -> Void = {}, showsAskBar: Bool = false, @ViewBuilder header: () -> Header) {
+    init(
+        onTurnOnSource: @escaping () -> Void = {},
+        askBarState: DayHomeJournalState? = nil,
+        onAskBarChat: @escaping () -> Void = {},
+        @ViewBuilder header: () -> Header
+    ) {
         self.onTurnOnSource = onTurnOnSource
-        self.showsAskBar = showsAskBar
+        self.askBarState = askBarState
+        self.onAskBarChat = onAskBarChat
         self.header = header()
     }
 
@@ -135,8 +142,13 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 ConnectJournalSheet(isPresented: self.$showingConnectJournal)
             }
 
-            if self.showsAskBar {
-                DayHomeAskBar(action: { self.showingConnectJournal = true })
+            if let askBarState = self.askBarState {
+                let configuration = self.askBarConfiguration(for: askBarState)
+                DayHomeAskBar(
+                    title: configuration.title,
+                    isEnabled: configuration.isEnabled,
+                    action: configuration.action
+                )
                     .padding(.horizontal)
                     .padding(.bottom, 8)
             }
@@ -347,18 +359,43 @@ private extension OnThisPhoneMomentsView {
                     .accessibilityIdentifier("magicMoment.duration")
             }
 
-            Button(SourceVocabulary.magicMomentShownSecondary) {
-                self.showingConnectJournal = true
+            if !self.appConfig.isPaired {
+                Button(SourceVocabulary.magicMomentShownSecondary) {
+                    self.showingConnectJournal = true
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .frame(minWidth: 44, minHeight: 44)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .frame(minWidth: 44, minHeight: 44)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("magicMoment.card")
+    }
+
+    func askBarConfiguration(for state: DayHomeJournalState) -> (title: String, isEnabled: Bool, action: () -> Void) {
+        switch state {
+        case .noJournal:
+            return (
+                title: SourceVocabulary.dayHomeAskBarHint,
+                isEnabled: true,
+                action: { self.showingConnectJournal = true }
+            )
+        case .linkedOffline:
+            return (
+                title: SourceVocabulary.askBarOffline,
+                isEnabled: false,
+                action: {}
+            )
+        case .linkedOnline:
+            return (
+                title: SourceVocabulary.dayHomeAskBarHint,
+                isEnabled: true,
+                action: self.onAskBarChat
+            )
+        }
     }
 
     var magicMomentPendingCard: some View {

@@ -48,8 +48,12 @@ nonisolated final class PostPairStateTests: XCTestCase {
 
     
     @MainActor
-    func testOfflineShellShowsBannerAndWarmCard() throws {
-        let app = try self.makeApp(extraArguments: ["--ui-test-shell-disconnected", "--ui-test-network-unsatisfied"])
+    func testOfflineShellShowsNativeDayHome() {
+        let app = self.makeSeededApp(extraArguments: [
+            "--ui-test-shell-disconnected",
+            "--ui-test-network-unsatisfied",
+            "--integration-test-push-tap=chat",
+        ])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.openTodayTabIfNeeded(in: app)
@@ -59,17 +63,53 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(
             bannerText.waitForExistence(timeout: 10) || bannerElement.waitForExistence(timeout: 10)
         )
-        XCTAssertTrue(app.staticTexts["portal.warmCard"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 5))
+        let locality = app.buttons["dayHome.locality"]
+        XCTAssertTrue(locality.waitForExistence(timeout: 5))
+        XCTAssertEqual(locality.label, "your journal · offline")
+        let askBar = app.buttons["dayHome.askBar"]
+        XCTAssertTrue(askBar.waitForExistence(timeout: 5))
+        XCTAssertFalse(askBar.isEnabled)
+        let askHint = app.staticTexts["dayHome.askBar.hint"]
+        XCTAssertTrue(askHint.waitForExistence(timeout: 5))
+        XCTAssertEqual(askHint.label, "journal offline")
+        XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
+        XCTAssertFalse(app.buttons["dayHome.openInJournal"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 3))
+    }
 
-        app.tabBars.buttons["sense"].tap()
-        XCTAssertTrue(app.navigationBars["sources"].waitForExistence(timeout: 5))
-        app.buttons["source.row.share-sheet"].tap()
-        XCTAssertTrue(app.buttons["on this phone"].waitForExistence(timeout: 5))
-        app.buttons["on this phone"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
+    @MainActor
+    func testPairedConnectedDayHomeShowsOpenJournalAndAskStub() {
+        let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=briefing"])
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        self.openTodayTabIfNeeded(in: app)
 
-        app.tabBars.buttons["more"].tap()
-        XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["dayHome.openInJournal"].waitForExistence(timeout: 5))
+        app.buttons["dayHome.askBar"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["native ask is coming"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testTodayPushRouteLandsOnNativeDayHome() {
+        let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=briefing"])
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testChatPushRoutePresentsChatStub() {
+        let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=chat"])
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+        XCTAssertTrue(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["native ask is coming"].waitForExistence(timeout: 5))
     }
 }
 
@@ -96,6 +136,20 @@ private extension PostPairStateTests {
             app.launchArguments.append("--ui-test-device-id=device-123")
         }
 
+        app.launchArguments.append(contentsOf: extraArguments)
+        return app
+    }
+
+    func makeSeededApp(extraArguments: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test"]
+        app.launchArguments.append(contentsOf: extraArguments)
+        return app
+    }
+
+    func makeIntegrationApp(extraArguments: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test"]
         app.launchArguments.append(contentsOf: extraArguments)
         return app
     }

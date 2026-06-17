@@ -14,11 +14,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp()
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["placeholder.today"].exists)
         XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
-
-        app.tabBars.buttons["ask"].tap()
-        XCTAssertTrue(app.staticTexts["placeholder.ask"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.tabBars.buttons["today"].exists)
 
         app.tabBars.buttons["sense"].tap()
         XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
@@ -178,7 +175,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSeededNoJournalTodayShowsOnThisPhoneSurfaceAndAskPlaceholder() {
+    func testSeededNoJournalTodayShowsOnThisPhoneSurface() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
@@ -189,10 +186,6 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
         XCTAssertEqual(locality.label, "your journal · on this phone")
         XCTAssertFalse(app.navigationBars["on this phone"].exists)
-        XCTAssertFalse(app.staticTexts["placeholder.today"].exists)
-
-        app.tabBars.buttons["ask"].tap()
-        XCTAssertTrue(app.staticTexts["placeholder.ask"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -233,17 +226,6 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.buttons["journalLives.ownJournal"].tap()
 
         XCTAssertTrue(app.staticTexts["pair your solstone"].waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    func testAskWarmEmptyShowsCountTieBack() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-
-        app.tabBars.buttons["ask"].tap()
-        let body = app.staticTexts["placeholder.ask"]
-        XCTAssertTrue(body.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["sol answers from your journal"].waitForExistence(timeout: 5))
-        XCTAssertEqual(body.label, "your phone has gathered 6 observations, resting here. connect a journal and sol can read all of them and answer.")
     }
 
     @MainActor

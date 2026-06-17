@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -197,27 +197,7 @@ integration-test: sim
 	xcrun simctl install booted $(SIM_APP); \
 	SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test >"$$APP_LOG" 2>&1 & \
 	LAUNCH_PID=$$!; \
-	passed=0; \
-	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "portal: spa ready"; then \
-			passed=1; \
-			break; \
-		fi; \
-		sleep 1; \
-	done; \
-	if [ "$$passed" -ne 1 ]; then \
-		echo "integration-test failed: portal did not become ready"; \
-		echo "--- subsystem log tail ---"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 50; \
-		echo "--- app log tail ---"; \
-		tail -n 50 "$$APP_LOG"; \
-		echo "--- mock log ---"; \
-		cat "$$MOCK_LOG"; \
-		echo "--- voice mock log ---"; \
-		cat "$$VOICE_MOCK_LOG"; \
-		exit 1; \
-	fi; \
-	for pattern in "voice session starting" "listening" "portal: nav hint applied: today" "brain: status ready"; do \
+	for pattern in "voice session starting" "listening" "brain: status ready"; do \
 		matched=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
 			if xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "$$pattern"; then \
@@ -276,6 +256,9 @@ integration-test-live: sim
 integration-test-push: PORT ?= 7071
 integration-test-push: VOICE_PORT ?= 7072
 integration-test-push: PUSH_PORT ?= 8474
+integration-test-push: PUSH_TAP ?= briefing
+integration-test-push: PUSH_ASSERT ?= routed to today
+integration-test-push: PUSH_TARGET_NAME ?= integration-test-push
 integration-test-push: sim
 	@set -eu; \
 		MOCK_PID=""; \
@@ -340,41 +323,38 @@ integration-test-push: sim
 		done; \
 		[ "$$push_ready" -eq 1 ] || { echo "mock push server did not become ready"; cat "$$PUSH_MOCK_LOG"; exit 1; }; \
 		xcrun simctl install booted $(SIM_APP); \
-		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-push-register --integration-test-push-tap=briefing >"$$APP_LOG" 2>&1 & \
+		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-push-register --integration-test-push-tap=$(PUSH_TAP) >"$$APP_LOG" 2>&1 & \
 		LAUNCH_PID=$$!; \
-		app_ready=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10; do \
-			if xcrun simctl spawn booted log show --info --last 2s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "portal: spa ready"; then app_ready=1; break; fi; \
-			sleep 1; \
-		done; \
-		[ "$$app_ready" -eq 1 ] || { echo "integration-test-push failed: app did not become ready"; tail -n 80 "$$APP_LOG"; cat "$$MOCK_LOG"; cat "$$VOICE_MOCK_LOG"; cat "$$PUSH_MOCK_LOG"; exit 1; }; \
 		positive=0; \
-		for _ in 1 2 3 4 5; do \
-			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "$(LOG_SUB)" AND category == "router"' 2>/dev/null | grep -q "routed to today"; then positive=1; break; fi; \
+		for _ in 1 2 3 4 5 6 7 8 9 10; do \
+			if xcrun simctl spawn booted log show --info --last 5s --predicate 'subsystem == "$(LOG_SUB)" AND category == "router"' 2>/dev/null | grep -q "$(PUSH_ASSERT)"; then positive=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$positive" -eq 1 ] || { echo "integration-test-push failed: missing routed to today log"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; exit 1; }; \
+		[ "$$positive" -eq 1 ] || { echo "$(PUSH_TARGET_NAME) failed: missing $(PUSH_ASSERT) log"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; exit 1; }; \
 		sleep 10; \
 		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
-			echo "integration-test-push failed: unexpected voice session start"; \
+			echo "$(PUSH_TARGET_NAME) failed: unexpected voice session start"; \
 			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			exit 1; \
 		fi; \
 		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "listening"; then \
-			echo "integration-test-push failed: unexpected listening log"; \
+			echo "$(PUSH_TARGET_NAME) failed: unexpected listening log"; \
 			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 			exit 1; \
 		fi; \
 		if ! curl -s "http://127.0.0.1:$(PUSH_PORT)/api/push/status" | grep -Eq '"registration_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
-			echo "integration-test-push failed: mock push server never saw registration"; \
+			echo "$(PUSH_TARGET_NAME) failed: mock push server never saw registration"; \
 			cat "$$PUSH_COUNT"; \
 			cat "$$PUSH_MOCK_LOG"; \
 			exit 1; \
 		fi; \
 		echo "--- subsystem log tail ---"; \
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
-		echo "integration-test-push passed"; \
+		echo "$(PUSH_TARGET_NAME) passed"; \
 		tail -n 20 "$$APP_LOG"
+
+integration-test-push-chat:
+	$(MAKE) integration-test-push PUSH_TAP=chat "PUSH_ASSERT=chat stub presented" PUSH_TARGET_NAME=integration-test-push-chat
 
 integration-test-observer: PORT ?= 7071
 integration-test-observer: VOICE_PORT ?= 7072

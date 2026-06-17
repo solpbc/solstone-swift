@@ -36,6 +36,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
         XCTAssertEqual(SourceVocabulary.details, "details")
         XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
+        XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
+        XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
+        XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
+        XCTAssertEqual(SourceVocabulary.askBarOffline, "journal offline")
+        XCTAssertEqual(SourceVocabulary.chatStubBody, "native ask is coming")
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
             "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
@@ -75,21 +80,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.magicMomentShownSecondary, "connect a journal whenever →")
         XCTAssertEqual(SourceVocabulary.magicMomentPendingHeadline, "your first audio observation is getting ready")
         XCTAssertEqual(SourceVocabulary.magicMomentPendingBody, "when you stop listening, it will rest here on this phone.")
-        XCTAssertEqual(SourceVocabulary.askEmptyHeadline, "sol answers from your journal")
-        XCTAssertEqual(
-            SourceVocabulary.askEmptyBody(count: 0),
-            "connect a journal and sol can read everything your phone gathers."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.askEmptyBody(count: 1),
-            "your phone has gathered 1 observation, resting here. connect a journal and sol can read all of them and answer."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.askEmptyBody(count: 6),
-            "your phone has gathered 6 observations, resting here. connect a journal and sol can read all of them and answer."
-        )
-        XCTAssertEqual(SourceVocabulary.askEmptyButton, "connect a journal")
-        XCTAssertEqual(SourceVocabulary.askEmptyIconName, "internaldrive")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneAgedBacklog(count: 1),
             "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
@@ -98,8 +88,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneAgedBacklog(count: 12),
             "12 observations are resting on this phone. connect a journal whenever you'd like a backup."
         )
-        XCTAssertEqual(SourceVocabulary.askWaitingObservations(count: 1), "1 observation is waiting on this phone.")
-        XCTAssertEqual(SourceVocabulary.askWaitingObservations(count: 238), "238 observations are waiting on this phone.")
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 1), "1 observation")
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 observations")
         XCTAssertEqual(SourceVocabulary.openJournalInConvey, "open journal ↗")
@@ -296,6 +284,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.removeSeam,
             SourceVocabulary.importerWhatItAdds,
             SourceVocabulary.onThisPhone,
+            SourceVocabulary.dayLocality,
+            SourceVocabulary.journalConnected,
+            SourceVocabulary.journalOffline,
+            SourceVocabulary.dayHomeAskBarHint,
+            SourceVocabulary.askBarOffline,
+            SourceVocabulary.chatStubBody,
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneNotBackedUp,
@@ -313,6 +307,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.originAppNotProvided,
             SourceVocabulary.rawOriginalUnavailable,
             SourceVocabulary.openJournalInConvey,
+            SourceVocabulary.openInJournal,
             SourceVocabulary.onThisPhoneLocationC3Hint,
             SourceVocabulary.onThisPhoneJournalHintSaved,
             SourceVocabulary.onThisPhoneJournalHintLocationSaved,

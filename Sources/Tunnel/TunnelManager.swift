@@ -234,16 +234,6 @@ final class TunnelManager {
         self.currentInterfaceIsWiFi = isWiFi
     }
 
-    func handleTunnelFailure() async {
-        guard case .connected = self.state else { return }
-        log.error("[solstone-swift] tunnel failure detected by portal")
-        self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "tunnel failure detected by portal")
-        self.state = .error(.muxTeardown)
-        await self.transport.disconnect()
-        guard case .error(.muxTeardown) = self.state else { return }
-        self.scheduleReconnect(for: .muxTeardown)
-    }
-
     func cancelReconnect() {
         self.retryTask?.cancel()
         self.retryTask = nil

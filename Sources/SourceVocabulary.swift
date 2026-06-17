@@ -123,9 +123,13 @@ nonisolated enum SourceVocabulary {
     static let greetingAfternoon = "good afternoon"
     static let greetingEvening = "good evening"
     static let dayLocality = "your journal · on this phone"
+    static let journalConnected = "your journal · connected"
+    static let journalOffline = "your journal · offline"
     static let dayToday = "today"
     static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
     static let dayHomeAskBarHint = "connect a journal to ask sol"
+    static let askBarOffline = "journal offline"
+    static let chatStubBody = "native ask is coming"
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let onThisPhoneTurnOnSourceButton = "turn on a source"
@@ -137,24 +141,13 @@ nonisolated enum SourceVocabulary {
     static let magicMomentShownSecondary = "connect a journal whenever →"
     static let magicMomentPendingHeadline = "your first audio observation is getting ready"
     static let magicMomentPendingBody = "when you stop listening, it will rest here on this phone."
-    static let askEmptyHeadline = "sol answers from your journal"
-    static func askEmptyBody(count: Int) -> String {
-        if count == 0 {
-            return "connect a journal and sol can read everything your phone gathers."
-        }
-        if count == 1 {
-            return "your phone has gathered 1 observation, resting here. connect a journal and sol can read all of them and answer."
-        }
-        return "your phone has gathered \(count) observations, resting here. connect a journal and sol can read all of them and answer."
-    }
-    static let askEmptyButton = "connect a journal"
-    static let askEmptyIconName = "internaldrive"
     static let yourJournalSection = "your journal"
     static let details = "details"
     static let notProvided = "not provided"
     static let originAppNotProvided = "origin app not provided"
     static let rawOriginalUnavailable = "raw original is no longer on this phone."
     static let openJournalInConvey = "open journal ↗"
+    static let openInJournal = "open in journal"
     static let onThisPhoneLocationC3Hint = "the map of where your day happened lives in your journal — this screen just confirms what your phone sensed. no live dot, nothing tracked here."
     static let onThisPhoneJournalHintSaved = "sol added this to your journal automatically. open it to read the full thing."
     static let onThisPhoneJournalHintLocationSaved = "open it to see these places on a map."
@@ -211,13 +204,6 @@ nonisolated enum SourceVocabulary {
             return "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
         }
         return "\(count) observations are resting on this phone. connect a journal whenever you'd like a backup."
-    }
-
-    static func askWaitingObservations(count: Int) -> String {
-        if count == 1 {
-            return "1 observation is waiting on this phone."
-        }
-        return "\(count) observations are waiting on this phone."
     }
 
     static func onThisPhoneLocationRowLabel(count: Int) -> String {

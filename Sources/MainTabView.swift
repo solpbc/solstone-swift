@@ -2,10 +2,10 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
-import UIKit
 import os
 
 private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
+private let routerLog = Logger(subsystem: "app.solstone.swift", category: "router")
 
 struct MainTabView: View {
     let localPort: Int
@@ -14,13 +14,13 @@ struct MainTabView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
-    @Environment(PortalPage.self) private var portalPage
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(ObserverManager.self) private var observerManager
     @Environment(LocationManager.self) private var locationManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
+    @Environment(\.openURL) private var openURL
     @State private var selectedTab: AppTab
-    @State private var lastPortalTab = AppTab.today
+    @State private var showingChatStub = false
     @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
@@ -38,20 +38,11 @@ struct MainTabView: View {
     }
 
     enum AppTab: Hashable {
-        case today, ask, sense, more
-
-        var route: String {
-            switch self {
-            case .today: "today"
-            case .ask: "ask"
-            case .sense, .more: ""
-            }
-        }
+        case today, sense, more
 
         var iconName: String {
             switch self {
             case .today: "sun.max"
-            case .ask: "bubble.left.and.questionmark"
             case .sense: "square.stack.3d.up"
             case .more: "ellipsis.circle"
             }
@@ -60,7 +51,6 @@ struct MainTabView: View {
         var label: String {
             switch self {
             case .today: "today"
-            case .ask: "ask"
             case .sense: "sense"
             case .more: "more"
             }
@@ -69,9 +59,8 @@ struct MainTabView: View {
         var shortcutKey: Character {
             switch self {
             case .today: "1"
-            case .ask: "2"
-            case .sense: "3"
-            case .more: "4"
+            case .sense: "2"
+            case .more: "3"
             }
         }
     }
@@ -91,19 +80,27 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: self.$selectedTab) {
-            self.portalTab(for: .today)
-                .tag(AppTab.today)
-                .tabItem {
-                    Label(AppTab.today.label, systemImage: AppTab.today.iconName)
-                }
-                .keyboardShortcut(KeyEquivalent(AppTab.today.shortcutKey), modifiers: .command)
-
-            self.portalTab(for: .ask)
-                .tag(AppTab.ask)
-                .tabItem {
-                    Label(AppTab.ask.label, systemImage: AppTab.ask.iconName)
-                }
-                .keyboardShortcut(KeyEquivalent(AppTab.ask.shortcutKey), modifiers: .command)
+            NavigationStack {
+                DayHomeView(
+                    journalState: self.dayHomeJournalState,
+                    onTurnOnSource: {
+                        self.selectedTab = .sense
+                    },
+                    onOpenJournal: {
+                        if self.dayHomeJournalState == .linkedOnline {
+                            self.openInJournal()
+                        }
+                    },
+                    onPresentChat: {
+                        self.presentChatStub()
+                    }
+                )
+            }
+            .tag(AppTab.today)
+            .tabItem {
+                Label(AppTab.today.label, systemImage: AppTab.today.iconName)
+            }
+            .keyboardShortcut(KeyEquivalent(AppTab.today.shortcutKey), modifiers: .command)
 
             SourcesView()
                 .environment(self.observerSourcePauseState)
@@ -134,12 +131,11 @@ struct MainTabView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .top) {
-            if self.selectedTab == .today && self.tunnelManager.state.isConnected {
+            if self.selectedTab == .today && self.dayHomeJournalState == .linkedOnline {
                 DayZeroOverlayView(
                     localPort: self.localPort,
                     onBrowseJournal: {
-                        self.selectedTab = .today
-                        self.portalPage.navigate(to: AppTab.today.route)
+                        self.openInJournal()
                     }
                 )
             }
@@ -148,9 +144,10 @@ struct MainTabView: View {
             VoiceHUDOverlay(voiceManager: self.voiceManager)
                 .allowsHitTesting(true)
         }
+        .sheet(isPresented: self.$showingChatStub) {
+            ChatStubView()
+        }
         .onAppear {
-            self.loadPortalIfReady()
-            self.handleTabSelection(self.selectedTab)
             if let route = self.pendingRoute.route {
                 self.apply(route)
             }
@@ -158,16 +155,9 @@ struct MainTabView: View {
                 mainTabLog.info("showing disconnected shell state")
             }
         }
-        .onChange(of: self.localPort) { _, port in
-            self.loadPortalIfReady(port: port)
-        }
-        .onChange(of: self.selectedTab) { _, tab in
-            self.handleTabSelection(tab)
-        }
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
                 self.connectedSince = Date()
-                self.loadPortalIfReady()
                 if let route = self.pendingRoute.route {
                     self.apply(route)
                 }
@@ -182,53 +172,11 @@ struct MainTabView: View {
                 self.bannerPresenter.showDiagnostics = false
             }
         }
-        .onChange(of: self.portalPage.currentRoute) { _, route in
-            self.handlePortalRoute(route)
-        }
         .onChange(of: self.pendingRoute.route) { _, route in
             if let route {
                 self.apply(route)
             }
         }
-    }
-
-    @ViewBuilder
-    private func portalTab(for tab: AppTab) -> some View {
-        if !self.appConfig.isPaired {
-            if tab == .ask {
-                AskNoJournalPlaceholderContainer()
-            } else {
-                NavigationStack {
-                    DayHomeView(onTurnOnSource: { self.selectedTab = .sense })
-                }
-            }
-        } else if !self.tunnelManager.state.isConnected {
-            PortalWarmCardView()
-        } else {
-            ZStack {
-                PortalWebView(portalPage: self.portalPage)
-                    .ignoresSafeArea(edges: .top)
-
-                if !self.portalPage.isReady {
-                    self.loadingOverlay
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var loadingOverlay: some View {
-        ZStack {
-            Image("SolRing")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 40, height: 40)
-                .opacity(0.3)
-            ProgressView()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
-        .accessibilityLabel("loading portal")
     }
 
     private var sourcesBadgeVisible: Bool {
@@ -238,122 +186,37 @@ struct MainTabView: View {
         ].contains(where: \.showsSourcesBadge)
     }
 
-    private func tabForRoute(_ route: String, currentPortalTab: AppTab) -> AppTab {
-        if self.isSolChatRoute(route) { return .ask }
-        if route.hasPrefix("today") { return .today }
-        if route.hasPrefix("ask") { return .ask }
-        if route.hasPrefix("entity/") { return currentPortalTab }
-        return .today
-    }
-
-    private func handleTabSelection(_ tab: AppTab) {
-        guard self.appConfig.isPaired, self.tunnelManager.state.isConnected else { return }
-        switch tab {
-        case .today, .ask:
-            self.lastPortalTab = tab
-            if tab == .ask, self.isSolChatRoute(self.portalPage.currentRoute) {
-                return
-            }
-            if !self.portalPage.currentRoute.hasPrefix(tab.route) {
-                self.portalPage.navigate(to: tab.route)
-            }
-        case .sense, .more:
-            break
+    private var dayHomeJournalState: DayHomeJournalState {
+        if !self.appConfig.isPaired {
+            return .noJournal
         }
-    }
-
-    private func handlePortalRoute(_ route: String) {
-        let matchedTab = self.tabForRoute(route, currentPortalTab: self.lastPortalTab)
-        if matchedTab == .today || matchedTab == .ask {
-            self.lastPortalTab = matchedTab
+        if self.tunnelManager.state.isConnected {
+            return .linkedOnline
         }
-        switch self.selectedTab {
-        case .today, .ask:
-            if matchedTab != self.selectedTab {
-                self.selectedTab = matchedTab
-            }
-        case .sense, .more:
-            break
-        }
+        return .linkedOffline
     }
 
     private func apply(_ route: NotificationRoute) {
-        guard self.appConfig.isPaired, self.tunnelManager.state.isConnected else { return }
-        switch route.portalNavTarget {
-        case .hash(let hash):
+        switch route {
+        case .today:
             self.selectedTab = .today
-            self.lastPortalTab = .today
-            self.portalPage.navigate(to: hash)
-        case .path(let path):
-            self.selectedTab = .ask
-            self.lastPortalTab = .ask
-            self.portalPage.navigate(toPath: path)
+        case .solChatRequest:
+            self.selectedTab = .today
+            if self.dayHomeJournalState == .linkedOnline {
+                self.presentChatStub()
+            }
         }
         self.pendingRoute.route = nil
     }
 
-    private func loadPortalIfReady(port: Int? = nil) {
-        guard self.appConfig.isPaired, self.tunnelManager.state.isConnected else { return }
-        self.portalPage.load(port: port ?? self.localPort)
+    private func presentChatStub() {
+        routerLog.info("chat stub presented")
+        self.showingChatStub = true
     }
 
-    private func isSolChatRoute(_ route: String) -> Bool {
-        let normalizedRoute = route.hasPrefix("/") ? route : "/\(route)"
-        return normalizedRoute == "/app/chat" || normalizedRoute.hasPrefix(NotificationRoute.solChatPath)
-    }
-}
-
-private struct PortalWarmCardView: View {
-    @Environment(TunnelManager.self) private var tunnelManager
-    @State private var showingDetails = false
-
-    var body: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 8) {
-                Text("your journal's connected — waiting for a network")
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("portal.warmCard")
-                Text("safe on this phone.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Button {
-                self.showingDetails = true
-            } label: {
-                HStack(spacing: 4) {
-                    Text("details")
-                        .font(.footnote)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                }
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("connection details")
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
-        .sheet(isPresented: self.$showingDetails) {
-            NavigationStack {
-                ConnectingView(
-                    state: self.tunnelManager.state,
-                    onRetry: {
-                        Task {
-                            await self.tunnelManager.retryNow()
-                        }
-                    },
-                    reconnectCountdown: self.tunnelManager.reconnectCountdown,
-                    consecutiveWiFiFailures: self.tunnelManager.consecutiveWiFiFailures,
-                    currentInterfaceIsWiFi: self.tunnelManager.currentInterfaceIsWiFi ?? false,
-                    connectionStages: self.tunnelManager.connectionStages
-                )
-                .navigationTitle("details")
-                .navigationBarTitleDisplayMode(.inline)
-            }
-        }
+    private func openInJournal() {
+        guard let url = URL(string: "http://127.0.0.1:\(self.localPort)/") else { return }
+        self.openURL(url)
     }
 }
 

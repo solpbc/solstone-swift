@@ -11,12 +11,25 @@ func greeting(forHour hour: Int) -> String {
     }
 }
 
+enum DayHomeJournalState: Equatable {
+    case noJournal
+    case linkedOffline
+    case linkedOnline
+}
+
 struct DayHomeView: View {
+    let journalState: DayHomeJournalState
     let onTurnOnSource: () -> Void
+    let onOpenJournal: () -> Void
+    let onPresentChat: () -> Void
     @State private var showingJournalLives = false
 
     var body: some View {
-        OnThisPhoneMomentsView(onTurnOnSource: self.onTurnOnSource, showsAskBar: true) {
+        OnThisPhoneMomentsView(
+            onTurnOnSource: self.onTurnOnSource,
+            askBarState: self.journalState,
+            onAskBarChat: self.onPresentChat
+        ) {
             self.header
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -37,7 +50,7 @@ struct DayHomeView: View {
             Button {
                 self.showingJournalLives = true
             } label: {
-                Text(SourceVocabulary.dayLocality)
+                Text(self.localityText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -46,6 +59,19 @@ struct DayHomeView: View {
             .accessibilityIdentifier("dayHome.locality")
             .sheet(isPresented: self.$showingJournalLives) {
                 JournalLivesSheet(isPresented: self.$showingJournalLives)
+            }
+
+            if self.journalState == .linkedOnline {
+                Button {
+                    self.onOpenJournal()
+                } label: {
+                    Text("\(SourceVocabulary.openInJournal) ↗")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("dayHome.openInJournal")
             }
 
             self.statCardsSlot
@@ -61,4 +87,15 @@ struct DayHomeView: View {
     }
 
     private var statCardsSlot: some View { EmptyView() }
+
+    private var localityText: String {
+        switch self.journalState {
+        case .noJournal:
+            SourceVocabulary.dayLocality
+        case .linkedOffline:
+            SourceVocabulary.journalOffline
+        case .linkedOnline:
+            SourceVocabulary.journalConnected
+        }
+    }
 }

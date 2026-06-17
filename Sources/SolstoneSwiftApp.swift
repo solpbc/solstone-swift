@@ -14,7 +14,6 @@ struct SolstoneSwiftApp: App {
     @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
     @State private var brainStatusMonitor: BrainStatusMonitor
-    @State private var portalPage: PortalPage
     @State private var diagnosticLog: DiagnosticLog
     @State private var observerRegistration: ObserverRegistration
     @State private var observerUploader: ObserverUploader
@@ -125,10 +124,6 @@ struct SolstoneSwiftApp: App {
             diagnosticLog: log
         )
         let brain = BrainStatusMonitor(diagnosticLog: log)
-        let portal = PortalPage(
-            tunnelManager: tunnel,
-            brainStatusMonitor: brain
-        )
         let observerRegistration = ObserverRegistration(
             hostname: UIDevice.current.name,
             version: AppVersion.shortVersion,
@@ -179,9 +174,6 @@ struct SolstoneSwiftApp: App {
         let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
         let voice = VoiceManager(
             webrtc: Self.makeWebRTCConnector(),
-            onNavHint: { @MainActor hint in
-                portal.applyNavHint(hint)
-            },
             diagnosticLog: log
         )
         voice.onObserverAction = { @MainActor action in
@@ -197,7 +189,6 @@ struct SolstoneSwiftApp: App {
         self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
         self._brainStatusMonitor = State(initialValue: brain)
-        self._portalPage = State(initialValue: portal)
         self._tunnelManager = State(initialValue: tunnel)
         self._observerRegistration = State(initialValue: observerRegistration)
         self._observerUploader = State(initialValue: observerUploader)
@@ -232,7 +223,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
                 .environment(self.brainStatusMonitor)
-                .environment(self.portalPage)
                 .environment(self.diagnosticLog)
                 .environment(self.bannerPresenter)
                 .environment(self.appDelegate.pushManager)

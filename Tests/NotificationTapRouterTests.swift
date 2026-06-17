@@ -15,12 +15,11 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
         )
 
         XCTAssertEqual(route, .today)
-        XCTAssertEqual(route.portalNavTarget, .hash("today"))
         XCTAssertEqual(route.logLabel, "today")
     }
 
     @MainActor
-    func testSolChatRequestRoutesToChatPath() {
+    func testSolChatRequestRoutesToChat() {
         let route = NotificationTapRouter.route(
             from: .init(
                 categoryIdentifier: PushCategory.solChatRequest.rawValue,
@@ -29,7 +28,6 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
         )
 
         XCTAssertEqual(route, .solChatRequest)
-        XCTAssertEqual(route.portalNavTarget, .path(NotificationRoute.solChatPath))
-        XCTAssertEqual(route.logLabel, "/app/chat/")
+        XCTAssertEqual(route.logLabel, "chat")
     }
 }

@@ -4,35 +4,15 @@
 import Foundation
 
 enum NotificationRoute: Sendable, Equatable {
-    enum PortalNavTarget: Sendable, Equatable {
-        case hash(String)
-        case path(String)
-
-        var logLabel: String {
-            switch self {
-            case .hash(let hash):
-                return hash
-            case .path(let path):
-                return path
-            }
-        }
-    }
-
-    static let solChatPath = "/app/chat/"
-
     case today
     case solChatRequest
 
-    var portalNavTarget: PortalNavTarget {
+    var logLabel: String {
         switch self {
         case .today:
-            return .hash("today")
+            "today"
         case .solChatRequest:
-            return .path(Self.solChatPath)
+            "chat"
         }
-    }
-
-    var logLabel: String {
-        self.portalNavTarget.logLabel
     }
 }

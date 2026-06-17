@@ -7,11 +7,10 @@ import SwiftUI
 struct VoiceHUDOverlay: View {
     let voiceManager: VoiceManager
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(PortalPage.self) private var portalPage
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isVisible: Bool {
-        guard self.tunnelManager.state.isConnected, self.portalPage.isReady else { return false }
+        guard self.tunnelManager.state.isConnected else { return false }
         switch self.voiceManager.state {
         case .listening, .speaking:
             return true
