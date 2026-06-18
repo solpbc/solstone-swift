@@ -69,17 +69,20 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertEqual(locality.label, "your journal · offline")
         let askBar = app.buttons["dayHome.askBar"]
         XCTAssertTrue(askBar.waitForExistence(timeout: 5))
-        XCTAssertFalse(askBar.isEnabled)
+        XCTAssertTrue(askBar.isEnabled)
         let askHint = app.staticTexts["dayHome.askBar.hint"]
         XCTAssertTrue(askHint.waitForExistence(timeout: 5))
         XCTAssertEqual(askHint.label, "journal offline")
         XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
         XCTAssertFalse(app.buttons["dayHome.openInJournal"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 3))
+        askBar.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["your journal isn't reachable right now — i'll send your question the moment it's back."].waitForExistence(timeout: 5))
     }
 
     @MainActor
-    func testPairedConnectedDayHomeShowsOpenJournalAndAskStub() {
+    func testPairedConnectedDayHomeShowsOpenJournalAndAskChat() {
         let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=briefing"])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
@@ -88,8 +91,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["dayHome.openInJournal"].waitForExistence(timeout: 5))
         app.buttons["dayHome.askBar"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["native ask is coming"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -99,17 +101,16 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 2))
     }
 
     @MainActor
-    func testChatPushRoutePresentsChatStub() {
+    func testChatPushRoutePresentsChat() {
         let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=chat"])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
-        XCTAssertTrue(app.descendants(matching: .any)["chatStub.surface"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["native ask is coming"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 10))
     }
 }
 

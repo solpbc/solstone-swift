@@ -46,7 +46,27 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your solstone")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
         XCTAssertEqual(SourceVocabulary.askBarOffline, "journal offline")
-        XCTAssertEqual(SourceVocabulary.chatStubBody, "native ask is coming")
+        XCTAssertEqual(SourceVocabulary.chatNavTitle, "ask sol")
+        XCTAssertEqual(SourceVocabulary.chatComposerPlaceholder, "ask sol…")
+        XCTAssertEqual(SourceVocabulary.chatEmptyHeading, "ask sol about your day")
+        XCTAssertEqual(
+            SourceVocabulary.chatEmptyBody,
+            "sol answers from your journal — and tells you where every answer comes from."
+        )
+        XCTAssertEqual(SourceVocabulary.chatEmptySeed1, "what did i agree to this morning?")
+        XCTAssertEqual(SourceVocabulary.chatEmptySeed2, "who did i talk to about the budget?")
+        XCTAssertEqual(
+            SourceVocabulary.chatOfflineBanner,
+            "your journal isn't reachable right now — i'll send your question the moment it's back."
+        )
+        XCTAssertEqual(SourceVocabulary.chatPendingStatusA11y, "waiting — will send automatically")
+        XCTAssertEqual(SourceVocabulary.chatFailedStatusA11y, "tap to retry")
+        XCTAssertEqual(SourceVocabulary.chatTypingA11y, "sol is thinking")
+        XCTAssertEqual(SourceVocabulary.chatSendA11y, "send")
+        XCTAssertEqual(SourceVocabulary.chatErrorEmptyReply, "sol returned an empty reply")
+        XCTAssertEqual(SourceVocabulary.chatErrorServer, "sol hit an error answering")
+        XCTAssertEqual(SourceVocabulary.chatErrorGeneric, "couldn't send")
+        XCTAssertEqual(SourceVocabulary.chatErrorDecode, "sol returned an invalid response")
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
             "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
@@ -298,7 +318,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.yourSolstoneTitle,
             SourceVocabulary.dayHomeAskBarHint,
             SourceVocabulary.askBarOffline,
-            SourceVocabulary.chatStubBody,
+            SourceVocabulary.chatNavTitle,
+            SourceVocabulary.chatComposerPlaceholder,
+            SourceVocabulary.chatEmptyHeading,
+            SourceVocabulary.chatEmptyBody,
+            SourceVocabulary.chatEmptySeed1,
+            SourceVocabulary.chatEmptySeed2,
+            SourceVocabulary.chatOfflineBanner,
+            SourceVocabulary.chatPendingStatusA11y,
+            SourceVocabulary.chatFailedStatusA11y,
+            SourceVocabulary.chatTypingA11y,
+            SourceVocabulary.chatSendA11y,
+            SourceVocabulary.chatErrorEmptyReply,
+            SourceVocabulary.chatErrorServer,
+            SourceVocabulary.chatErrorGeneric,
+            SourceVocabulary.chatErrorDecode,
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneNotBackedUp,

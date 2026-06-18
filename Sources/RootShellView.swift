@@ -21,7 +21,7 @@ struct RootShellView: View {
     @Environment(\.openURL) private var openURL
     @State private var showingSources = false
     @State private var showingYourSolstone = false
-    @State private var showingChatStub = false
+    @State private var showingChat = false
     @State private var navigateToDiagnostics = false
     @State private var didPresentFirstSources = false
     @State private var connectedSince = Date()
@@ -61,7 +61,7 @@ struct RootShellView: View {
                     self.openInJournal()
                 },
                 onPresentChat: {
-                    self.presentChatStub()
+                    self.presentChat()
                 },
                 onOpenSources: {
                     self.showingSources = true
@@ -91,8 +91,8 @@ struct RootShellView: View {
             VoiceHUDOverlay(voiceManager: self.voiceManager)
                 .allowsHitTesting(true)
         }
-        .sheet(isPresented: self.$showingChatStub) {
-            ChatStubView()
+        .sheet(isPresented: self.$showingChat) {
+            ChatView()
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
@@ -177,15 +177,15 @@ struct RootShellView: View {
             self.showingYourSolstone = false
             self.navigateToDiagnostics = false
             if self.dayHomeJournalState == .linkedOnline {
-                self.presentChatStub()
+                self.presentChat()
             }
         }
         self.pendingRoute.route = nil
     }
 
-    private func presentChatStub() {
-        routerLog.info("chat stub presented")
-        self.showingChatStub = true
+    private func presentChat() {
+        routerLog.info("chat presented")
+        self.showingChat = true
     }
 
     private func openInJournal() {

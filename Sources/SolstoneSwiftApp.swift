@@ -24,6 +24,7 @@ struct SolstoneSwiftApp: App {
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var voiceManager: VoiceManager
+    @State private var chatManager: ChatManager
     @State private var bannerPresenter: BannerPresenter
     @State private var backgroundDisconnectTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
@@ -176,6 +177,7 @@ struct SolstoneSwiftApp: App {
             webrtc: Self.makeWebRTCConnector(),
             diagnosticLog: log
         )
+        let chat = ChatManager(isReachable: { tunnel.state.isConnected })
         voice.onObserverAction = { @MainActor action in
             switch action {
             case .startObserver(let mode):
@@ -197,6 +199,7 @@ struct SolstoneSwiftApp: App {
         self._locationManager = State(initialValue: locationManager)
         self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
+        self._chatManager = State(initialValue: chat)
         self._bannerPresenter = State(initialValue: BannerPresenter(
             diagnosticLog: log,
             voiceManager: voice,
@@ -214,6 +217,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.onboardingFlow)
                 .environment(self.tunnelManager)
                 .environment(self.voiceManager)
+                .environment(self.chatManager)
                 .environment(self.observerRegistration)
                 .environment(self.observerUploader)
                 .environment(self.importQueue)

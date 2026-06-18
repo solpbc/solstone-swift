@@ -77,6 +77,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             webrtc: MockWebRTCConnector(),
             diagnosticLog: diagnosticLog
         )
+        let chatManager = ChatManager()
         let moreView = NavigationStack {
             MoreView(
                 localPort: 7071,
@@ -150,6 +151,9 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }
+        let chatView = ChatView()
+            .environment(chatManager)
+            .environment(tunnelManager)
 
         try self.assertHosted(
             WelcomeScreen(onGetStarted: {})
@@ -168,6 +172,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(chatView.environment(\.dynamicTypeSize, .accessibility3))
         await activeLocationManager.stop()
         // ShareExtensionView is private in the extension target; its copy is mechanically covered by lock tests.
         // Hit-target audit: scoped controls are standard Buttons/NavigationLinks/segmented Picker, so no frame assertions are needed here.

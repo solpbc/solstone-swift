@@ -386,8 +386,8 @@ private extension OnThisPhoneMomentsView {
         case .linkedOffline:
             return (
                 title: SourceVocabulary.askBarOffline,
-                isEnabled: false,
-                action: {}
+                isEnabled: true,
+                action: self.onAskBarChat
             )
         case .linkedOnline:
             return (
