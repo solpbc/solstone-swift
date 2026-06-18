@@ -52,4 +52,35 @@ nonisolated enum BLEDiagnosticFormatters {
             return "."
         })
     }
+
+    static func codecLabel(_ byte: UInt8) -> String {
+        switch byte {
+        case 0:
+            "pcm16 16 kHz mono"
+        case 1:
+            "pcm16 8 kHz mono"
+        case 10:
+            "µ-law 16 kHz mono"
+        case 11:
+            "µ-law 8 kHz mono"
+        case 20:
+            "opus 16 kHz mono"
+        case 21:
+            "opus 16 kHz mono (fs320)"
+        default:
+            "unknown (raw \(byte))"
+        }
+    }
+
+    static func rmsLevel(pcm16 samples: [Int16]) -> Double {
+        guard !samples.isEmpty else {
+            return 0
+        }
+
+        let squareSum = samples.reduce(0) { partialResult, sample in
+            let normalized = Double(sample) / 32_768.0
+            return partialResult + (normalized * normalized)
+        }
+        return sqrt(squareSum / Double(samples.count))
+    }
 }

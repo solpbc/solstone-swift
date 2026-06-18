@@ -46,4 +46,14 @@ nonisolated final class BLEDiagnosticFormatterTests: XCTestCase {
         XCTAssertEqual(BLEDiagnosticFormatters.hexDump(data), "48 69 00 21")
         XCTAssertEqual(BLEDiagnosticFormatters.asciiDump(data), "Hi.!")
     }
+
+    func testCodecLabels() {
+        XCTAssertEqual(BLEDiagnosticFormatters.codecLabel(0), "pcm16 16 kHz mono")
+        XCTAssertEqual(BLEDiagnosticFormatters.codecLabel(1), "pcm16 8 kHz mono")
+        XCTAssertEqual(BLEDiagnosticFormatters.codecLabel(10), "µ-law 16 kHz mono")
+        XCTAssertEqual(BLEDiagnosticFormatters.codecLabel(11), "µ-law 8 kHz mono")
+        XCTAssertEqual(BLEDiagnosticFormatters.codecLabel(20), "opus 16 kHz mono")
+        XCTAssertEqual(BLEDiagnosticFormatters.codecLabel(21), "opus 16 kHz mono (fs320)")
+        XCTAssertTrue(BLEDiagnosticFormatters.codecLabel(99).contains("unknown"))
+    }
 }

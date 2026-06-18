@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import CoreBluetooth
+import Foundation
 import SwiftUI
 
 struct BLEDiagnosticView: View {
@@ -12,6 +13,7 @@ struct BLEDiagnosticView: View {
             self.scanSection
             self.deviceInfoSection
             self.gattSection
+            self.audioSection
             self.logSection
         }
         .navigationTitle("omi ble harness")
@@ -147,6 +149,83 @@ struct BLEDiagnosticView: View {
         }
     }
 
+    private var audioSection: some View {
+        Section("codec & live audio") {
+            if self.manager.connectionState != .connected {
+                ContentUnavailableView {
+                    Label("not connected", systemImage: "antenna.radiowaves.left.and.right.slash")
+                } description: {
+                    Text("connect a device to inspect live audio.")
+                }
+            } else {
+                LabeledContent("codec") {
+                    self.readStateValue(self.manager.codec) { info in
+                        "\(info.label) (raw \(info.rawByte))"
+                    }
+                }
+
+                Button("re-read codec") {
+                    self.manager.readCodec()
+                }
+                .hoverEffect(.highlight)
+
+                if self.manager.isAudioSubscribed {
+                    Button("unsubscribe") {
+                        self.manager.unsubscribeAudio()
+                    }
+                    .hoverEffect(.highlight)
+
+                    LabeledContent("packets", value: "\(self.manager.audioPackets)")
+                    LabeledContent("frames", value: "\(self.manager.audioFrames)")
+                    LabeledContent("decode ok", value: "\(self.manager.audioDecodeOK)")
+                    LabeledContent("decode err", value: "\(self.manager.audioDecodeErrors)")
+                    LabeledContent("gaps", value: "\(self.manager.audioGaps)")
+                    LabeledContent("out of order", value: "\(self.manager.audioOutOfOrder)")
+                    LabeledContent("malformed", value: "\(self.manager.audioMalformed)")
+                    LabeledContent("markers", value: "\(self.manager.audioMarkers)")
+                    LabeledContent("last marker") {
+                        if let lastMarkerDate = self.manager.lastMarkerDate {
+                            Text(lastMarkerDate, style: .time)
+                        } else {
+                            Text("none")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("rate", value: self.kbpsText(self.manager.audioThroughputKBps))
+                    LabeledContent("buffer", value: self.secondsText(self.manager.bufferedSeconds))
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("level")
+                            Spacer()
+                            Text(self.percentText(self.manager.audioLevel))
+                                .foregroundStyle(.secondary)
+                        }
+                        ProgressView(value: self.manager.audioLevel, total: 1)
+                    }
+
+                    Button("save last 10s") {
+                        self.manager.saveAudioWindow()
+                    }
+                    .disabled(self.manager.bufferedSeconds <= 0)
+                    .hoverEffect(.highlight)
+
+                    if let audioShareURL = self.manager.audioShareURL {
+                        ShareLink(item: audioShareURL) {
+                            Label("share wav", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } else {
+                    Button("subscribe") {
+                        self.manager.subscribeAudio()
+                    }
+                    .disabled(!self.manager.canSubscribeAudio)
+                    .hoverEffect(.highlight)
+                }
+            }
+        }
+    }
+
     private var logSection: some View {
         Section {
             if self.manager.log.entries.isEmpty {
@@ -259,5 +338,17 @@ struct BLEDiagnosticView: View {
         case .error:
             .red
         }
+    }
+
+    private func kbpsText(_ value: Double) -> String {
+        "\(String(format: "%.1f", value)) kb/s"
+    }
+
+    private func secondsText(_ value: Double) -> String {
+        "\(String(format: "%.1f", value))s"
+    }
+
+    private func percentText(_ value: Double) -> String {
+        "\(Int((value * 100).rounded()))%"
     }
 }

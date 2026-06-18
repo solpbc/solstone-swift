@@ -23,6 +23,21 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     var model: BLEReadState<String> = .notRead
     var hardwareRevision: BLEReadState<String> = .notRead
     var battery: BLEReadState<Int> = .notRead
+    var codec: BLEReadState<BLEAudioCodecInfo> = .notRead
+    var isAudioSubscribed = false
+    var audioPackets = 0
+    var audioFrames = 0
+    var audioDecodeOK = 0
+    var audioDecodeErrors = 0
+    var audioGaps = 0
+    var audioOutOfOrder = 0
+    var audioMalformed = 0
+    var audioMarkers = 0
+    var lastMarkerDate: Date?
+    var audioThroughputKBps = 0.0
+    var audioLevel = 0.0
+    var bufferedSeconds = 0.0
+    var audioShareURL: URL?
     let log = BLEDiagnosticLog()
 
     @ObservationIgnored private var central: CBCentralManager?
@@ -30,11 +45,27 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     @ObservationIgnored private var connectedPeripheral: CBPeripheral?
     @ObservationIgnored private var characteristicsByID: [String: CBCharacteristic] = [:]
     @ObservationIgnored private var connectTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var statsTask: Task<Void, Never>?
     @ObservationIgnored private var pendingConnectionID: UUID?
     @ObservationIgnored private var didLogPoweredOn = false
+    @ObservationIgnored private var reassembler = BLEAudioReassembler()
+    @ObservationIgnored private var opusDecoder: BLEOpusAudioDecoder?
+    @ObservationIgnored private var pcmRing: [Int16] = []
+    @ObservationIgnored private var throughputWindow: [(timestamp: Date, bytes: Int)] = []
+    @ObservationIgnored private var didLogNonOpusSkip = false
+
+    private let pcmRingSampleLimit = 160_000
+    private let throughputWindowSeconds: TimeInterval = 3
 
     var stateLine: String {
         BLEDiagnosticFormatters.stateLine(for: self.managerState)
+    }
+
+    var canSubscribeAudio: Bool {
+        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.audioDataCharacteristic) else {
+            return false
+        }
+        return characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate)
     }
 
     override init() {
@@ -140,6 +171,17 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         self.connectedPeripheral?.readValue(for: characteristic)
     }
 
+    func readCodec() {
+        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.codecCharacteristic),
+              characteristic.properties.contains(.read)
+        else {
+            self.codec = .unavailable
+            self.log.append(severity: .warn, message: "codec unavailable")
+            return
+        }
+        self.connectedPeripheral?.readValue(for: characteristic)
+    }
+
     func read(characteristic node: BLECharacteristicNode) {
         guard let characteristic = self.characteristicsByID[node.id],
               characteristic.properties.contains(.read)
@@ -158,6 +200,32 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
             return
         }
         self.connectedPeripheral?.setNotifyValue(enabled, for: characteristic)
+    }
+
+    func subscribeAudio() {
+        self.setAudioNotify(enabled: true)
+    }
+
+    func unsubscribeAudio() {
+        self.setAudioNotify(enabled: false)
+    }
+
+    func saveAudioWindow() {
+        let samples = self.pcmRing
+        guard !samples.isEmpty else {
+            self.log.append(severity: .warn, message: "wav unavailable: no audio samples")
+            return
+        }
+
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ble-audio.wav")
+        do {
+            let wav = BLEWavWriter.wavData(pcm16: samples)
+            try wav.write(to: url, options: .atomic)
+            self.audioShareURL = url
+            self.log.append(message: "wrote wav: \(samples.count) samples")
+        } catch {
+            self.log.append(severity: .error, message: "wav write failed: \(error.localizedDescription)")
+        }
     }
 
     func clearLog() {
@@ -414,6 +482,13 @@ private extension BLEDiagnosticManager {
         characteristic: CBCharacteristic,
         error: (any Error)?
     ) {
+        if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) {
+            if error == nil, let data = characteristic.value, !data.isEmpty {
+                self.handleAudioData(data)
+            }
+            return
+        }
+
         let id = self.characteristicID(characteristic)
         if let error {
             self.markKnownFieldUnavailable(for: characteristic.uuid)
@@ -451,6 +526,9 @@ private extension BLEDiagnosticManager {
             return
         }
         self.updateNotificationState(id: id, isNotifying: characteristic.isNotifying)
+        if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) {
+            self.handleAudioNotificationStateChanged(isNotifying: characteristic.isNotifying)
+        }
         self.log.append(message: "\(characteristic.isNotifying ? "notify enabled" : "notify disabled") for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid))")
     }
 
@@ -472,6 +550,18 @@ private extension BLEDiagnosticManager {
             return true
         }
 
+        if uuidMatches(uuid, BLEDiagnosticUUIDs.codecCharacteristic) {
+            guard let byte = data.first else {
+                self.codec = .unavailable
+                self.log.append(severity: .warn, message: "codec unavailable")
+                return true
+            }
+            let label = BLEDiagnosticFormatters.codecLabel(byte)
+            self.codec = .value(BLEAudioCodecInfo(rawByte: byte, label: label))
+            self.log.append(message: "codec read: \(label) (raw \(byte))")
+            return true
+        }
+
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
             self.markKnownFieldUnavailable(for: uuid)
             return self.isDeviceInfoCharacteristic(uuid)
@@ -489,6 +579,8 @@ private extension BLEDiagnosticManager {
     func markKnownFieldUnavailable(for uuid: CBUUID) {
         if uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic) {
             self.battery = .unavailable
+        } else if uuidMatches(uuid, BLEDiagnosticUUIDs.codecCharacteristic) {
+            self.codec = .unavailable
         } else if self.isDeviceInfoCharacteristic(uuid) {
             self.setStringField(uuid, state: .unavailable)
         }
@@ -512,6 +604,7 @@ private extension BLEDiagnosticManager {
         self.model = .notRead
         self.hardwareRevision = .notRead
         self.battery = .notRead
+        self.codec = .notRead
     }
 
     func cancelConnectTimeout() {
@@ -526,6 +619,7 @@ private extension BLEDiagnosticManager {
         self.services = []
         self.characteristicsByID.removeAll()
         self.resetReadState()
+        self.clearAudioState()
     }
 
     func characteristic(for uuid: CBUUID) -> CBCharacteristic? {
@@ -574,7 +668,9 @@ private extension BLEDiagnosticManager {
     }
 
     func isAutoReadCharacteristic(_ uuid: CBUUID) -> Bool {
-        self.isDeviceInfoCharacteristic(uuid) || uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic)
+        self.isDeviceInfoCharacteristic(uuid)
+            || uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic)
+            || uuidMatches(uuid, BLEDiagnosticUUIDs.codecCharacteristic)
     }
 
     func markAbsentKnownFieldsUnavailable(for service: CBService, characteristics: [CBCharacteristic]) {
@@ -603,6 +699,173 @@ private extension BLEDiagnosticManager {
             || uuidMatches(uuid, BLEDiagnosticUUIDs.manufacturerNameCharacteristic)
             || uuidMatches(uuid, BLEDiagnosticUUIDs.modelNumberCharacteristic)
             || uuidMatches(uuid, BLEDiagnosticUUIDs.hardwareRevisionCharacteristic)
+    }
+
+    func handleAudioData(_ data: Data) {
+        self.recordAudioThroughput(bytes: data.count)
+        let output = self.reassembler.ingest(data)
+        self.updateAudioCountersFromReassembler()
+
+        for marker in output.markers {
+            self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
+            self.log.append(
+                message: "audio marker: epoch \(marker.epoch)",
+                hex: BLEDiagnosticFormatters.hexDump(data)
+            )
+        }
+
+        for frame in output.completedFrames {
+            self.handleCompletedAudioFrame(frame)
+        }
+    }
+
+    func handleCompletedAudioFrame(_ frame: Data) {
+        guard case .value(let codec) = self.codec else {
+            return
+        }
+
+        guard codec.isOpus else {
+            if !self.didLogNonOpusSkip {
+                self.didLogNonOpusSkip = true
+                self.log.append(message: "live decode skipped: non-opus codec")
+            }
+            return
+        }
+
+        guard let opusDecoder,
+              let samples = opusDecoder.decode(frame)
+        else {
+            self.audioDecodeErrors += 1
+            return
+        }
+
+        self.audioDecodeOK += 1
+        self.appendPCMSamples(samples)
+        self.audioLevel = BLEDiagnosticFormatters.rmsLevel(pcm16: samples)
+    }
+
+    func handleAudioNotificationStateChanged(isNotifying: Bool) {
+        if isNotifying {
+            self.isAudioSubscribed = true
+            self.resetAudioLiveState()
+            do {
+                self.opusDecoder = try BLEOpusAudioDecoder()
+            } catch {
+                self.opusDecoder = nil
+                self.log.append(severity: .error, message: "opus decoder unavailable: \(error.localizedDescription)")
+            }
+            self.startAudioStatsTask()
+        } else {
+            self.isAudioSubscribed = false
+            self.opusDecoder = nil
+            self.cancelAudioStatsTask(appendFinal: true)
+        }
+    }
+
+    func setAudioNotify(enabled: Bool) {
+        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.audioDataCharacteristic),
+              characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate)
+        else {
+            self.log.append(severity: .warn, message: "audio notify unavailable")
+            return
+        }
+        self.connectedPeripheral?.setNotifyValue(enabled, for: characteristic)
+    }
+
+    func resetAudioLiveState() {
+        self.reassembler = BLEAudioReassembler()
+        self.pcmRing.removeAll(keepingCapacity: true)
+        self.throughputWindow.removeAll(keepingCapacity: true)
+        self.didLogNonOpusSkip = false
+        self.audioPackets = 0
+        self.audioFrames = 0
+        self.audioDecodeOK = 0
+        self.audioDecodeErrors = 0
+        self.audioGaps = 0
+        self.audioOutOfOrder = 0
+        self.audioMalformed = 0
+        self.audioMarkers = 0
+        self.lastMarkerDate = nil
+        self.audioThroughputKBps = 0
+        self.audioLevel = 0
+        self.bufferedSeconds = 0
+        self.audioShareURL = nil
+    }
+
+    func clearAudioState() {
+        self.cancelAudioStatsTask(appendFinal: false)
+        self.opusDecoder = nil
+        self.isAudioSubscribed = false
+        self.resetAudioLiveState()
+    }
+
+    func updateAudioCountersFromReassembler() {
+        self.audioPackets = self.reassembler.packets
+        self.audioFrames = self.reassembler.frames
+        self.audioGaps = self.reassembler.gaps
+        self.audioOutOfOrder = self.reassembler.outOfOrder
+        self.audioMalformed = self.reassembler.malformed
+        self.audioMarkers = self.reassembler.markers
+    }
+
+    func appendPCMSamples(_ samples: [Int16]) {
+        guard !samples.isEmpty else {
+            return
+        }
+
+        self.pcmRing.append(contentsOf: samples)
+        if self.pcmRing.count > self.pcmRingSampleLimit {
+            self.pcmRing.removeFirst(self.pcmRing.count - self.pcmRingSampleLimit)
+        }
+        self.bufferedSeconds = Double(self.pcmRing.count) / 16_000.0
+    }
+
+    func recordAudioThroughput(bytes: Int) {
+        let now = Date()
+        self.throughputWindow.append((timestamp: now, bytes: bytes))
+        self.recomputeAudioThroughput(now: now)
+    }
+
+    func recomputeAudioThroughput(now: Date = Date()) {
+        let cutoff = now.addingTimeInterval(-self.throughputWindowSeconds)
+        self.throughputWindow.removeAll { $0.timestamp < cutoff }
+        let bytes = self.throughputWindow.reduce(0) { $0 + $1.bytes }
+        guard let first = self.throughputWindow.first else {
+            self.audioThroughputKBps = 0
+            return
+        }
+
+        let elapsed = max(now.timeIntervalSince(first.timestamp), 0.1)
+        self.audioThroughputKBps = (Double(bytes) / 1_024.0) / elapsed
+    }
+
+    func startAudioStatsTask() {
+        self.cancelAudioStatsTask(appendFinal: false)
+        self.statsTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else {
+                    return
+                }
+                self?.appendAudioStatsSnapshot()
+            }
+        }
+    }
+
+    func cancelAudioStatsTask(appendFinal: Bool) {
+        self.statsTask?.cancel()
+        self.statsTask = nil
+        if appendFinal {
+            self.appendAudioStatsSnapshot()
+        }
+    }
+
+    func appendAudioStatsSnapshot() {
+        self.recomputeAudioThroughput()
+        let kbps = String(format: "%.1f", self.audioThroughputKBps)
+        self.log.append(
+            message: "audio: \(self.audioPackets) pkts, \(self.audioFrames) frames, \(self.audioDecodeOK) ok/\(self.audioDecodeErrors) err, gaps \(self.audioGaps), markers \(self.audioMarkers), \(kbps) kb/s"
+        )
     }
 
     func displayName(for id: UUID) -> String {

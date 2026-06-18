@@ -22,6 +22,9 @@ packages:
   WebRTC:
     url: https://github.com/stasel/WebRTC
     from: "147.0.0"
+  Opus:
+    url: https://github.com/alta/swift-opus.git
+    from: "0.0.2"
 
 targets:
   SPLTunnel:
@@ -101,6 +104,8 @@ targets:
         embed: true
       - package: WebRTC
         product: WebRTC
+      - package: Opus
+        product: Opus
   SolstoneNotificationContent:
     type: app-extension
     platform: iOS

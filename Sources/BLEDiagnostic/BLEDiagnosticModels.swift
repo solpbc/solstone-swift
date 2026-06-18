@@ -81,6 +81,15 @@ nonisolated enum BLEConnectionState: Equatable, Sendable {
     }
 }
 
+nonisolated struct BLEAudioCodecInfo: Equatable, Sendable {
+    let rawByte: UInt8
+    let label: String
+
+    var isOpus: Bool {
+        self.rawByte == 20 || self.rawByte == 21
+    }
+}
+
 nonisolated struct BLEServiceNode: Identifiable, Equatable, Sendable {
     let id: String
     let uuid: String
