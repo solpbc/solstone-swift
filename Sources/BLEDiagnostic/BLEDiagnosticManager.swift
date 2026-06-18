@@ -38,6 +38,21 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     var audioLevel = 0.0
     var bufferedSeconds = 0.0
     var audioShareURL: URL?
+    var sdDrainState: BLEDrainState = .idle
+    var sdFiles: [BLESDFileEntry] = []
+    var isStorageSubscribed = false
+    var sdBytesReceived = 0
+    var sdTotalBytes: Int?
+    var sdProgress = 0.0
+    var sdDrainThroughputKBps = 0.0
+    var sdFramesSplit = 0
+    var sdDecodeOK = 0
+    var sdDecodeErrors = 0
+    var sdMarkersSeen = 0
+    var sdLastMarkerDate: Date?
+    var sdRawShareURL: URL?
+    var sdWavShareURL: URL?
+    var sdDangerEnabled = false
     let log = BLEDiagnosticLog()
 
     @ObservationIgnored private var central: CBCentralManager?
@@ -46,13 +61,21 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     @ObservationIgnored private var characteristicsByID: [String: CBCharacteristic] = [:]
     @ObservationIgnored private var connectTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var statsTask: Task<Void, Never>?
+    @ObservationIgnored private var sdStatsTask: Task<Void, Never>?
     @ObservationIgnored private var pendingConnectionID: UUID?
     @ObservationIgnored private var didLogPoweredOn = false
     @ObservationIgnored private var reassembler = BLEAudioReassembler()
+    @ObservationIgnored private var sdReassembler = BLESDFileReassembler()
     @ObservationIgnored private var opusDecoder: BLEOpusAudioDecoder?
+    @ObservationIgnored private var sdOpusDecoder: BLEOpusAudioDecoder?
     @ObservationIgnored private var pcmRing: [Int16] = []
+    @ObservationIgnored private var sdRawBytes = Data()
+    @ObservationIgnored private var sdPCMSamples: [Int16] = []
     @ObservationIgnored private var throughputWindow: [(timestamp: Date, bytes: Int)] = []
+    @ObservationIgnored private var sdThroughputWindow: [(timestamp: Date, bytes: Int)] = []
     @ObservationIgnored private var didLogNonOpusSkip = false
+    @ObservationIgnored private var sdReadOffset = 0
+    @ObservationIgnored private var didFinishSDArtifacts = false
 
     private let pcmRingSampleLimit = 160_000
     private let throughputWindowSeconds: TimeInterval = 3
@@ -66,6 +89,24 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
             return false
         }
         return characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate)
+    }
+
+    var hasStorageService: Bool {
+        self.services.contains { service in
+            uuidMatches(CBUUID(string: service.uuid), BLEDiagnosticUUIDs.storageService)
+        } || self.characteristic(for: BLEDiagnosticUUIDs.storageDataCharacteristic) != nil
+            || self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic) != nil
+    }
+
+    var canReadStorageMetadata: Bool {
+        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic) else {
+            return false
+        }
+        return characteristic.properties.contains(.read)
+    }
+
+    var canSubscribeStorage: Bool {
+        self.storageNotifyCandidate() != nil
     }
 
     override init() {
@@ -208,6 +249,103 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
     func unsubscribeAudio() {
         self.setAudioNotify(enabled: false)
+    }
+
+    func listStorageFiles() {
+        guard let peripheral = self.connectedPeripheral else {
+            self.log.append(severity: .warn, message: "sd-card list refused: not connected")
+            return
+        }
+
+        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic),
+              characteristic.properties.contains(.read)
+        else {
+            self.sdDrainState = .failed("metadata unavailable")
+            self.log.append(severity: .warn, message: "sd-card metadata unavailable")
+            return
+        }
+
+        self.sdDrainState = .listing
+        self.log.append(message: "sd-card metadata read requested")
+        peripheral.readValue(for: characteristic)
+    }
+
+    func readStorageFile(_ file: BLESDFileEntry, offset: Int = 0) {
+        guard self.isStorageSubscribed else {
+            self.log.append(severity: .warn, message: "sd-card read refused: notify disabled")
+            return
+        }
+
+        let clampedOffset = max(0, min(offset, file.sizeBytes))
+        self.resetSDDrainState()
+        self.sdDrainState = .reading
+        self.sdTotalBytes = file.sizeBytes > 0 ? file.sizeBytes : nil
+        self.sdReadOffset = clampedOffset
+        self.recomputeSDProgress()
+
+        do {
+            self.sdOpusDecoder = try BLEOpusAudioDecoder()
+        } catch {
+            self.sdDrainState = .failed("decoder unavailable")
+            self.log.append(severity: .error, message: "sd-card decoder unavailable: \(error.localizedDescription)")
+            return
+        }
+
+        let command = self.storageReadCommand(fileNumber: file.fileNumber, offset: clampedOffset)
+        guard self.writeStorageCommand(command, actionName: "read file \(file.fileNumber)") else {
+            self.sdDrainState = .failed("read command refused")
+            self.sdOpusDecoder = nil
+            return
+        }
+
+        self.startSDStatsTask()
+    }
+
+    func stopDrain() {
+        let fileNumber = self.sdFiles.first?.fileNumber ?? 0x01
+        let command = Data([0x03, fileNumber])
+        if self.writeStorageCommand(command, actionName: "stop file \(fileNumber)") {
+            self.sdDrainState = .stopped
+            self.finishSDDrainArtifacts()
+            self.log.append(message: "sd-card drain stopped")
+        }
+    }
+
+    func deleteStorageFile(_ file: BLESDFileEntry) {
+        guard self.sdDangerEnabled else {
+            self.log.append(severity: .warn, message: "sd-card delete refused: danger controls disabled")
+            return
+        }
+
+        let command = Data([0x01, file.fileNumber])
+        if self.writeStorageCommand(command, actionName: "delete file \(file.fileNumber)") {
+            self.log.append(message: "sd-card delete requested for file \(file.fileNumber)")
+        }
+    }
+
+    func nukeStorage() {
+        guard self.sdDangerEnabled else {
+            self.log.append(severity: .warn, message: "sd-card erase refused: danger controls disabled")
+            return
+        }
+
+        let command = Data([0x02, 0x01])
+        if self.writeStorageCommand(command, actionName: "erase all") {
+            self.log.append(message: "sd-card erase requested")
+        }
+    }
+
+    func setStorageNotify(enabled: Bool) {
+        guard let peripheral = self.connectedPeripheral else {
+            self.log.append(severity: .warn, message: "sd-card notify refused: not connected")
+            return
+        }
+
+        guard let characteristic = self.storageNotifyCharacteristic() else {
+            return
+        }
+
+        peripheral.setNotifyValue(enabled, for: characteristic)
     }
 
     func saveAudioWindow() {
@@ -490,6 +628,33 @@ private extension BLEDiagnosticManager {
         }
 
         let id = self.characteristicID(characteristic)
+        if self.isStorageCharacteristic(characteristic.uuid) {
+            if let error {
+                self.sdDrainState = .failed(error.localizedDescription)
+                self.log.append(severity: .error, message: "sd-card value failed for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid)): \(error.localizedDescription)")
+                return
+            }
+
+            guard let data = characteristic.value, !data.isEmpty else {
+                self.log.append(severity: .warn, message: "empty sd-card value for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid))")
+                return
+            }
+
+            let hex = BLEDiagnosticFormatters.hexDump(data)
+            let ascii = BLEDiagnosticFormatters.asciiDump(data)
+            self.updateCharacteristicValue(id: id, hex: hex, ascii: ascii)
+
+            if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.storageControlCharacteristic),
+               data.count >= 8,
+               self.sdDrainState == .listing
+            {
+                self.handleStorageMetadata(data)
+            } else {
+                self.handleStorageData(data)
+            }
+            return
+        }
+
         if let error {
             self.markKnownFieldUnavailable(for: characteristic.uuid)
             self.log.append(severity: .error, message: "read failed for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid)): \(error.localizedDescription)")
@@ -528,6 +693,8 @@ private extension BLEDiagnosticManager {
         self.updateNotificationState(id: id, isNotifying: characteristic.isNotifying)
         if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) {
             self.handleAudioNotificationStateChanged(isNotifying: characteristic.isNotifying)
+        } else if self.isStorageCharacteristic(characteristic.uuid) {
+            self.handleStorageNotificationStateChanged(isNotifying: characteristic.isNotifying)
         }
         self.log.append(message: "\(characteristic.isNotifying ? "notify enabled" : "notify disabled") for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid))")
     }
@@ -620,6 +787,7 @@ private extension BLEDiagnosticManager {
         self.characteristicsByID.removeAll()
         self.resetReadState()
         self.clearAudioState()
+        self.clearSDDrainState()
     }
 
     func characteristic(for uuid: CBUUID) -> CBCharacteristic? {
@@ -770,6 +938,355 @@ private extension BLEDiagnosticManager {
             return
         }
         self.connectedPeripheral?.setNotifyValue(enabled, for: characteristic)
+    }
+
+    func handleStorageNotificationStateChanged(isNotifying: Bool) {
+        self.isStorageSubscribed = isNotifying
+        if !isNotifying {
+            self.sdOpusDecoder = nil
+            self.cancelSDStatsTask(appendFinal: true)
+        }
+    }
+
+    func storageNotifyCandidate() -> CBCharacteristic? {
+        if let preferred = self.characteristic(for: BLEDiagnosticUUIDs.storageDataCharacteristic),
+           self.isNotifiable(preferred)
+        {
+            return preferred
+        }
+
+        if let fallback = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic),
+           self.isNotifiable(fallback)
+        {
+            return fallback
+        }
+
+        return nil
+    }
+
+    func storageNotifyCharacteristic() -> CBCharacteristic? {
+        let preferred = self.characteristic(for: BLEDiagnosticUUIDs.storageDataCharacteristic)
+        if let preferred, self.isNotifiable(preferred) {
+            return preferred
+        }
+
+        let fallback = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic)
+        if let fallback, self.isNotifiable(fallback) {
+            self.log.append(severity: .warn, message: "sd-card notify role mismatch: using sd-card control")
+            return fallback
+        }
+
+        if preferred != nil || fallback != nil {
+            self.log.append(severity: .warn, message: "sd-card notify unavailable: characteristic lacks notify/indicate")
+        } else {
+            self.log.append(severity: .warn, message: "sd-card notify unavailable: characteristic missing")
+        }
+        return nil
+    }
+
+    func storageWriteCharacteristic(actionName: String) -> CBCharacteristic? {
+        let preferred = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic)
+        if let preferred, preferred.properties.contains(.write) {
+            return preferred
+        }
+
+        let fallback = self.characteristic(for: BLEDiagnosticUUIDs.storageDataCharacteristic)
+        if let fallback, fallback.properties.contains(.write) {
+            self.log.append(severity: .warn, message: "sd-card write role mismatch: using sd-card data")
+            return fallback
+        }
+
+        if preferred?.properties.contains(.writeWithoutResponse) == true
+            || fallback?.properties.contains(.writeWithoutResponse) == true
+        {
+            self.log.append(severity: .warn, message: "sd-card \(actionName) refused: writeWithoutResponse only")
+        } else if preferred != nil || fallback != nil {
+            self.log.append(severity: .warn, message: "sd-card \(actionName) refused: characteristic lacks write")
+        } else {
+            self.log.append(severity: .warn, message: "sd-card \(actionName) refused: characteristic missing")
+        }
+        return nil
+    }
+
+    @discardableResult
+    func writeStorageCommand(_ command: Data, actionName: String) -> Bool {
+        guard let peripheral = self.connectedPeripheral else {
+            self.log.append(severity: .warn, message: "sd-card \(actionName) refused: not connected")
+            return false
+        }
+
+        guard let characteristic = self.storageWriteCharacteristic(actionName: actionName) else {
+            return false
+        }
+
+        self.log.append(
+            message: "sd-card command issued: \(actionName)",
+            hex: BLEDiagnosticFormatters.hexDump(command)
+        )
+        peripheral.writeValue(command, for: characteristic, type: .withResponse)
+        return true
+    }
+
+    func storageReadCommand(fileNumber: UInt8, offset: Int) -> Data {
+        let boundedOffset = UInt32(max(0, min(offset, Int(UInt32.max))))
+        return Data([
+            0x00,
+            fileNumber,
+            UInt8((boundedOffset >> 24) & 0x000000FF),
+            UInt8((boundedOffset >> 16) & 0x000000FF),
+            UInt8((boundedOffset >> 8) & 0x000000FF),
+            UInt8(boundedOffset & 0x000000FF)
+        ])
+    }
+
+    func handleStorageMetadata(_ data: Data) {
+        guard let totalBytes = self.readUInt32LE(data, offset: 0),
+              let savedOffset = self.readUInt32LE(data, offset: 4)
+        else {
+            self.sdDrainState = .failed("metadata malformed")
+            self.log.append(severity: .error, message: "sd-card metadata malformed", hex: BLEDiagnosticFormatters.hexDump(data))
+            return
+        }
+
+        let fileSize = Int(totalBytes)
+        let boundedSavedOffset = min(Int(savedOffset), fileSize)
+        let file = BLESDFileEntry(
+            id: 0x01,
+            fileNumber: 0x01,
+            sizeBytes: fileSize,
+            savedOffset: boundedSavedOffset
+        )
+        self.sdFiles = [file]
+        self.sdTotalBytes = fileSize > 0 ? fileSize : nil
+        self.sdProgress = 0
+        self.sdDrainState = .ready
+        self.log.append(
+            message: "sd-card metadata: files 1, size \(fileSize) bytes, saved offset \(boundedSavedOffset)",
+            hex: BLEDiagnosticFormatters.hexDump(data)
+        )
+    }
+
+    func handleStorageData(_ data: Data) {
+        if self.handleStorageStatus(data) {
+            return
+        }
+
+        self.sdRawBytes.append(data)
+        self.sdBytesReceived += data.count
+        self.recordSDThroughput(bytes: data.count)
+        self.recomputeSDProgress()
+
+        let output = self.sdReassembler.ingest(data)
+        self.sdFramesSplit += output.completedFrames.count
+
+        for marker in output.markers {
+            self.sdMarkersSeen += 1
+            self.sdLastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
+            self.log.append(
+                message: "sd-card marker: epoch \(marker.epoch)",
+                hex: BLEDiagnosticFormatters.hexDump(data)
+            )
+        }
+
+        for frame in output.completedFrames {
+            self.handleCompletedSDFrame(frame)
+        }
+
+        let kbps = String(format: "%.1f", self.sdDrainThroughputKBps)
+        self.log.append(
+            message: "sd-card data: \(data.count) bytes, \(self.sdBytesReceived) total, \(kbps) kb/s",
+            hex: BLEDiagnosticFormatters.hexDump(data)
+        )
+
+        if let total = self.sdTotalBytes,
+           total > 0,
+           self.sdReadOffset + self.sdBytesReceived >= total,
+           self.sdDrainState == .reading
+        {
+            self.sdDrainState = .completed
+            self.log.append(message: "sd-card drain complete by byte count")
+            self.finishSDDrainArtifacts()
+        }
+    }
+
+    func handleStorageStatus(_ data: Data) -> Bool {
+        guard data.count == 1, let status = data.first else {
+            return false
+        }
+
+        let hex = BLEDiagnosticFormatters.hexDump(data)
+        switch status {
+        case 0:
+            self.log.append(message: "sd-card status: ok", hex: hex)
+        case 100:
+            self.sdDrainState = .completed
+            self.log.append(message: "sd-card status: complete", hex: hex)
+            self.finishSDDrainArtifacts()
+        default:
+            self.log.append(severity: .warn, message: "sd-card status: \(status)", hex: hex)
+        }
+        return true
+    }
+
+    func handleCompletedSDFrame(_ frame: Data) {
+        guard let sdOpusDecoder,
+              let samples = sdOpusDecoder.decode(frame)
+        else {
+            self.sdDecodeErrors += 1
+            self.log.append(
+                severity: .warn,
+                message: "sd-card decode failed",
+                hex: BLEDiagnosticFormatters.hexDump(frame)
+            )
+            return
+        }
+
+        self.sdDecodeOK += 1
+        self.sdPCMSamples.append(contentsOf: samples)
+    }
+
+    func resetSDDrainState() {
+        self.cancelSDStatsTask(appendFinal: false)
+        self.sdReassembler = BLESDFileReassembler()
+        self.sdOpusDecoder = nil
+        self.sdRawBytes.removeAll(keepingCapacity: true)
+        self.sdPCMSamples.removeAll(keepingCapacity: true)
+        self.sdThroughputWindow.removeAll(keepingCapacity: true)
+        self.sdReadOffset = 0
+        self.didFinishSDArtifacts = false
+        self.sdBytesReceived = 0
+        self.sdTotalBytes = nil
+        self.sdProgress = 0
+        self.sdDrainThroughputKBps = 0
+        self.sdFramesSplit = 0
+        self.sdDecodeOK = 0
+        self.sdDecodeErrors = 0
+        self.sdMarkersSeen = 0
+        self.sdLastMarkerDate = nil
+        self.sdRawShareURL = nil
+        self.sdWavShareURL = nil
+        self.sdDrainState = .idle
+    }
+
+    func clearSDDrainState() {
+        self.cancelSDStatsTask(appendFinal: false)
+        self.isStorageSubscribed = false
+        self.sdFiles = []
+        self.sdDangerEnabled = false
+        self.resetSDDrainState()
+    }
+
+    func recordSDThroughput(bytes: Int) {
+        let now = Date()
+        self.sdThroughputWindow.append((timestamp: now, bytes: bytes))
+        self.recomputeSDThroughput(now: now)
+    }
+
+    func recomputeSDThroughput(now: Date = Date()) {
+        let cutoff = now.addingTimeInterval(-self.throughputWindowSeconds)
+        self.sdThroughputWindow.removeAll { $0.timestamp < cutoff }
+        let bytes = self.sdThroughputWindow.reduce(0) { $0 + $1.bytes }
+        guard let first = self.sdThroughputWindow.first else {
+            self.sdDrainThroughputKBps = 0
+            return
+        }
+
+        let elapsed = max(now.timeIntervalSince(first.timestamp), 0.1)
+        self.sdDrainThroughputKBps = (Double(bytes) / 1_024.0) / elapsed
+    }
+
+    func startSDStatsTask() {
+        self.cancelSDStatsTask(appendFinal: false)
+        self.sdStatsTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else {
+                    return
+                }
+                self?.appendSDStatsSnapshot()
+            }
+        }
+    }
+
+    func cancelSDStatsTask(appendFinal: Bool) {
+        self.sdStatsTask?.cancel()
+        self.sdStatsTask = nil
+        if appendFinal {
+            self.appendSDStatsSnapshot()
+        }
+    }
+
+    func appendSDStatsSnapshot() {
+        self.recomputeSDThroughput()
+        let kbps = String(format: "%.1f", self.sdDrainThroughputKBps)
+        self.log.append(
+            message: "sd-card: \(self.sdBytesReceived) bytes, \(self.sdFramesSplit) frames, \(self.sdDecodeOK) ok/\(self.sdDecodeErrors) err, markers \(self.sdMarkersSeen), \(kbps) kb/s"
+        )
+    }
+
+    func finishSDDrainArtifacts() {
+        guard !self.didFinishSDArtifacts else {
+            return
+        }
+        self.didFinishSDArtifacts = true
+        self.cancelSDStatsTask(appendFinal: true)
+        self.sdOpusDecoder = nil
+
+        let directory = FileManager.default.temporaryDirectory
+
+        if !self.sdRawBytes.isEmpty {
+            let rawURL = directory.appendingPathComponent("ble-sd-card-drain.opuspack")
+            do {
+                try self.sdRawBytes.write(to: rawURL, options: .atomic)
+                self.sdRawShareURL = rawURL
+                self.log.append(message: "sd-card raw ready: \(self.sdRawBytes.count) bytes")
+            } catch {
+                self.log.append(severity: .error, message: "sd-card raw write failed: \(error.localizedDescription)")
+            }
+        }
+
+        if !self.sdPCMSamples.isEmpty {
+            let wavURL = directory.appendingPathComponent("ble-sd-card-drain.wav")
+            do {
+                let wav = BLEWavWriter.wavData(pcm16: self.sdPCMSamples)
+                try wav.write(to: wavURL, options: .atomic)
+                self.sdWavShareURL = wavURL
+                self.log.append(message: "sd-card wav ready: \(self.sdPCMSamples.count) samples")
+            } catch {
+                self.log.append(severity: .error, message: "sd-card wav write failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func recomputeSDProgress() {
+        guard let total = self.sdTotalBytes, total > 0 else {
+            self.sdProgress = 0
+            return
+        }
+
+        let completedBytes = min(total, self.sdReadOffset + self.sdBytesReceived)
+        self.sdProgress = Double(completedBytes) / Double(total)
+    }
+
+    func readUInt32LE(_ data: Data, offset: Int) -> UInt32? {
+        guard data.count >= offset + 4 else {
+            return nil
+        }
+
+        let bytes = Array(data.dropFirst(offset).prefix(4))
+        return UInt32(bytes[0])
+            | (UInt32(bytes[1]) << 8)
+            | (UInt32(bytes[2]) << 16)
+            | (UInt32(bytes[3]) << 24)
+    }
+
+    func isStorageCharacteristic(_ uuid: CBUUID) -> Bool {
+        uuidMatches(uuid, BLEDiagnosticUUIDs.storageDataCharacteristic)
+            || uuidMatches(uuid, BLEDiagnosticUUIDs.storageControlCharacteristic)
+    }
+
+    func isNotifiable(_ characteristic: CBCharacteristic) -> Bool {
+        characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate)
     }
 
     func resetAudioLiveState() {

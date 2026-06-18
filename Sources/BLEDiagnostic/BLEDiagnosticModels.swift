@@ -90,6 +90,42 @@ nonisolated struct BLEAudioCodecInfo: Equatable, Sendable {
     }
 }
 
+nonisolated enum BLEDrainState: Equatable, Sendable {
+    case idle
+    case listing
+    case ready
+    case reading
+    case stopped
+    case completed
+    case failed(String)
+
+    var displayString: String {
+        switch self {
+        case .idle:
+            "idle"
+        case .listing:
+            "listing"
+        case .ready:
+            "ready"
+        case .reading:
+            "reading"
+        case .stopped:
+            "stopped"
+        case .completed:
+            "complete"
+        case .failed(let reason):
+            "failed: \(reason)"
+        }
+    }
+}
+
+nonisolated struct BLESDFileEntry: Identifiable, Equatable, Sendable {
+    let id: UInt8
+    let fileNumber: UInt8
+    let sizeBytes: Int
+    let savedOffset: Int
+}
+
 nonisolated struct BLEServiceNode: Identifiable, Equatable, Sendable {
     let id: String
     let uuid: String

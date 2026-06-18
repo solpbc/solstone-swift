@@ -10,6 +10,8 @@ nonisolated enum BLEDiagnosticUUIDs {
     static var speakerCharacteristic: CBUUID { CBUUID(string: "19B10003-E8F2-537E-4F6C-D104768A1214") }
 
     static var storageService: CBUUID { CBUUID(string: "30295780-4301-EABD-2904-2849ADFEAE43") }
+    static var storageDataCharacteristic: CBUUID { CBUUID(string: "30295781-4301-EABD-2904-2849ADFEAE43") }
+    static var storageControlCharacteristic: CBUUID { CBUUID(string: "30295782-4301-EABD-2904-2849ADFEAE43") }
 
     static var batteryService: CBUUID { CBUUID(string: "180F") }
     static var batteryLevelCharacteristic: CBUUID { CBUUID(string: "2A19") }
@@ -36,6 +38,10 @@ nonisolated enum BLEDiagnosticUUIDs {
             "speaker"
         case Self.storageService.uuidString.uppercased():
             "storage service"
+        case Self.storageDataCharacteristic.uuidString.uppercased():
+            "sd-card data"
+        case Self.storageControlCharacteristic.uuidString.uppercased():
+            "sd-card control"
         case Self.batteryService.uuidString.uppercased():
             "battery service"
         case Self.batteryLevelCharacteristic.uuidString.uppercased():

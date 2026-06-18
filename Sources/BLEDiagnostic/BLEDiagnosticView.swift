@@ -7,6 +7,9 @@ import SwiftUI
 
 struct BLEDiagnosticView: View {
     @State private var manager = BLEDiagnosticManager()
+    @State private var pendingDeleteFile: BLESDFileEntry?
+    @State private var isDeleteConfirmationPresented = false
+    @State private var isEraseAllConfirmationPresented = false
 
     var body: some View {
         List {
@@ -14,9 +17,33 @@ struct BLEDiagnosticView: View {
             self.deviceInfoSection
             self.gattSection
             self.audioSection
+            self.sdDrainSection
             self.logSection
         }
         .navigationTitle("omi ble harness")
+        .confirmationDialog("delete sd-card file?", isPresented: self.$isDeleteConfirmationPresented) {
+            Button("delete file", role: .destructive) {
+                if let pendingDeleteFile {
+                    self.manager.deleteStorageFile(pendingDeleteFile)
+                }
+                self.pendingDeleteFile = nil
+            }
+            Button("cancel", role: .cancel) {
+                self.pendingDeleteFile = nil
+            }
+        } message: {
+            if let pendingDeleteFile {
+                Text("file \(pendingDeleteFile.fileNumber), \(self.bytesText(pendingDeleteFile.sizeBytes))")
+            }
+        }
+        .confirmationDialog("erase sd-card?", isPresented: self.$isEraseAllConfirmationPresented) {
+            Button("erase", role: .destructive) {
+                self.manager.nukeStorage()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("this sends the legacy erase-all command.")
+        }
     }
 
     private var scanSection: some View {
@@ -226,6 +253,131 @@ struct BLEDiagnosticView: View {
         }
     }
 
+    private var sdDrainSection: some View {
+        Section("sd-card drain") {
+            if self.manager.connectionState != .connected {
+                ContentUnavailableView {
+                    Label("not connected", systemImage: "antenna.radiowaves.left.and.right.slash")
+                } description: {
+                    Text("connect a device to inspect stored audio.")
+                }
+            } else if !self.manager.hasStorageService {
+                ContentUnavailableView {
+                    Label("sd-card not found", systemImage: "externaldrive")
+                } description: {
+                    Text("connect an omi with sd-card storage.")
+                }
+            } else {
+                LabeledContent("state", value: self.manager.sdDrainState.displayString)
+
+                HStack {
+                    Button("read metadata") {
+                        self.manager.listStorageFiles()
+                    }
+                    .disabled(!self.manager.canReadStorageMetadata)
+
+                    if self.manager.isStorageSubscribed {
+                        Button("stop notify") {
+                            self.manager.setStorageNotify(enabled: false)
+                        }
+                    } else {
+                        Button("notify") {
+                            self.manager.setStorageNotify(enabled: true)
+                        }
+                        .disabled(!self.manager.canSubscribeStorage)
+                    }
+                }
+                .buttonStyle(.borderless)
+
+                if self.manager.sdFiles.isEmpty {
+                    ContentUnavailableView {
+                        Label("no files yet", systemImage: "doc")
+                    } description: {
+                        Text("read metadata to show the stored file.")
+                    }
+                } else {
+                    ForEach(self.manager.sdFiles) { file in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("file \(file.fileNumber)")
+                                .font(.subheadline.weight(.semibold))
+                            LabeledContent("size", value: self.bytesText(file.sizeBytes))
+                            LabeledContent("saved offset", value: self.bytesText(file.savedOffset))
+                            HStack {
+                                Button("read") {
+                                    self.manager.readStorageFile(file)
+                                }
+                                .disabled(!self.manager.isStorageSubscribed || file.sizeBytes <= 0 || self.manager.sdDrainState == .reading)
+
+                                Button("stop") {
+                                    self.manager.stopDrain()
+                                }
+                                .disabled(self.manager.sdDrainState != .reading)
+
+                                Button("delete", role: .destructive) {
+                                    self.pendingDeleteFile = file
+                                    self.isDeleteConfirmationPresented = true
+                                }
+                                .disabled(!self.manager.sdDangerEnabled)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                LabeledContent("received", value: self.bytesText(self.manager.sdBytesReceived))
+                if let totalBytes = self.manager.sdTotalBytes {
+                    LabeledContent("total", value: self.bytesText(totalBytes))
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("progress")
+                            Spacer()
+                            Text(self.percentText(self.manager.sdProgress))
+                                .foregroundStyle(.secondary)
+                        }
+                        ProgressView(value: self.manager.sdProgress, total: 1)
+                    }
+                }
+                LabeledContent("rate", value: self.kbpsText(self.manager.sdDrainThroughputKBps))
+                LabeledContent("frames", value: "\(self.manager.sdFramesSplit)")
+                LabeledContent("decode ok", value: "\(self.manager.sdDecodeOK)")
+                LabeledContent("decode err", value: "\(self.manager.sdDecodeErrors)")
+                LabeledContent("markers", value: "\(self.manager.sdMarkersSeen)")
+                LabeledContent("last marker") {
+                    if let sdLastMarkerDate = self.manager.sdLastMarkerDate {
+                        Text(sdLastMarkerDate, style: .time)
+                    } else {
+                        Text("none")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack {
+                    if let rawURL = self.manager.sdRawShareURL {
+                        ShareLink(item: rawURL) {
+                            Label("share raw", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    if let wavURL = self.manager.sdWavShareURL {
+                        ShareLink(item: wavURL) {
+                            Label("share wav", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                }
+
+                Toggle("enable delete controls", isOn: Binding(
+                    get: { self.manager.sdDangerEnabled },
+                    set: { self.manager.sdDangerEnabled = $0 }
+                ))
+
+                Button("erase sd-card", role: .destructive) {
+                    self.isEraseAllConfirmationPresented = true
+                }
+                .disabled(!self.manager.sdDangerEnabled)
+            }
+        }
+    }
+
     private var logSection: some View {
         Section {
             if self.manager.log.entries.isEmpty {
@@ -350,5 +502,9 @@ struct BLEDiagnosticView: View {
 
     private func percentText(_ value: Double) -> String {
         "\(Int((value * 100).rounded()))%"
+    }
+
+    private func bytesText(_ value: Int) -> String {
+        "\(value) bytes"
     }
 }
