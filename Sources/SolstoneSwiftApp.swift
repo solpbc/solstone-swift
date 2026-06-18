@@ -177,7 +177,20 @@ struct SolstoneSwiftApp: App {
             webrtc: Self.makeWebRTCConnector(),
             diagnosticLog: log
         )
-        let chat = ChatManager(isReachable: { tunnel.state.isConnected })
+        let chatTransport = ConveyChatTransport(
+            localPortProvider: {
+                observerRegistration.activeLocalPort
+            }
+        )
+        let chat = ChatManager(
+            transport: chatTransport,
+            isReachable: {
+                tunnel.state.isConnected
+            },
+            localPortProvider: {
+                observerRegistration.activeLocalPort
+            }
+        )
         voice.onObserverAction = { @MainActor action in
             switch action {
             case .startObserver(let mode):

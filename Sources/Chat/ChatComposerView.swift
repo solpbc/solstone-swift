@@ -15,18 +15,29 @@ struct ChatComposerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let error = self.chatManager.lastError {
-                Button {
-                    self.chatManager.lastError = nil
-                } label: {
+                HStack(spacing: 10) {
                     Text(error)
                         .font(.footnote)
                         .foregroundStyle(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+
+                    if self.chatManager.answerRetryText != nil {
+                        Button(SourceVocabulary.chatRetryAnswer) {
+                            Task {
+                                await self.chatManager.retryAnswer()
+                            }
+                        }
+                        .font(.footnote.weight(.semibold))
+                    }
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+                .onTapGesture {
+                    if self.chatManager.answerRetryText == nil {
+                        self.chatManager.lastError = nil
+                    }
+                }
                 .scaleEffect(self.bannerFlash ? 1.02 : 1)
                 .opacity(self.bannerFlash ? 1 : 0.9)
             }

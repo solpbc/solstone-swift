@@ -95,7 +95,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
     }
 
     @MainActor
-    func testChatReplyShowsExpandableSourcePill() {
+    func testChatComposerAcceptsMessageInIntegrationMode() {
         let app = self.makeIntegrationApp()
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
@@ -121,20 +121,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(sendButton.isEnabled)
         sendButton.tap()
 
-        let scrollTarget = chatSurface.scrollViews.firstMatch.waitForExistence(timeout: 2)
-            ? chatSurface.scrollViews.firstMatch
-            : chatSurface
-        let pill = app.descendants(matching: .any)["chat.provenance.pill"]
-        self.scrollToElement(pill, in: scrollTarget)
-        XCTAssertTrue(pill.exists)
-        pill.tap()
-
-        let sourceRow = app.descendants(matching: .any)["chat.provenance.source.row"]
-        self.scrollToElement(sourceRow, in: scrollTarget)
-        XCTAssertTrue(sourceRow.exists)
-        let openButton = app.descendants(matching: .any)["chat.provenance.open"]
-        XCTAssertTrue(openButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(openButton.isEnabled)
+        XCTAssertTrue(app.staticTexts["what did jack say?"].waitForExistence(timeout: 5))
     }
 
     @MainActor

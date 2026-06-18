@@ -6,40 +6,36 @@ import Foundation
 import XCTest
 
 nonisolated final class AnswerProvenanceTests: XCTestCase {
-    func testShowsPillOnlyForSourcedWithSources() {
-        XCTAssertTrue(Self.sourced(sources: [Self.source], coverage: ["read your journal"]).showsPill)
-        XCTAssertFalse(Self.sourced(sources: [], coverage: ["read your journal"]).showsPill)
-        XCTAssertFalse(AnswerProvenance.unknown(coverage: ["read your journal"]).showsPill)
+    func testShowsPillOnlyWhenSourcesExist() {
+        XCTAssertTrue(AnswerProvenance(state: .answered, sources: [Self.source], coverage: []).showsPill)
+        XCTAssertFalse(AnswerProvenance(state: .answered, sources: [], coverage: []).showsPill)
+        XCTAssertFalse(AnswerProvenance(state: .partial, sources: [], coverage: []).showsPill)
+        XCTAssertFalse(AnswerProvenance(state: .failed, sources: [], coverage: []).showsPill)
     }
 
     func testCoverageLinesPreserveSourceCasingVerbatim() {
         XCTAssertEqual(
-            Self.sourced(sources: [Self.source], coverage: ["Reading your journal"]).coverageLines,
-            ["Reading your journal"]
-        )
-        XCTAssertEqual(
-            AnswerProvenance.unknown(coverage: ["read your journal"]).coverageLines,
-            ["read your journal"]
+            AnswerProvenance(state: .answered, sources: [Self.source], coverage: ["Reading your journal…"]).coverageLines,
+            ["Reading your journal…"]
         )
     }
 
-    private static func sourced(
-        sources: [AnswerProvenance.ProvenanceSource],
-        coverage: [String]
-    ) -> AnswerProvenance {
-        AnswerProvenance.sourced(
-            sources: sources,
-            confidence: .high,
-            coverage: coverage
+    func testSourceIDIsStableRef() {
+        let source = AnswerProvenance.ProvenanceSource(
+            ref: "sol://entry/902",
+            label: "9:02 call with Jack",
+            url: URL(string: "http://127.0.0.1/entry/902")
         )
+
+        XCTAssertEqual(source.id, "sol://entry/902")
+        XCTAssertEqual(source.ref, "sol://entry/902")
     }
 
     private static var source: AnswerProvenance.ProvenanceSource {
         AnswerProvenance.ProvenanceSource(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000902") ?? UUID(),
-            label: "9:02 call with jack",
-            detail: "37 min",
-            openURL: URL(string: "http://127.0.0.1/")
+            ref: "sol://entry/902",
+            label: "9:02 call with Jack",
+            url: URL(string: "http://127.0.0.1/")
         )
     }
 }

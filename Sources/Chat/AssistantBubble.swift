@@ -8,53 +8,75 @@ struct AssistantBubble: View {
         if let provenance = self.message.provenance {
             VStack(alignment: .leading, spacing: 8) {
                 self.coverageTrace(provenance.coverageLines)
-                Text(self.message.text)
-                    .foregroundStyle(provenance.showsPill ? .primary : .secondary)
+                self.answerText
+                    .foregroundStyle(self.answerForeground(for: provenance.state))
                 self.provenanceAffordance(provenance)
             }
             .accessibilityElement(children: .contain)
         } else {
-            Text(self.message.text)
+            self.answerText
         }
     }
 
-    private func coverageTrace(_ lines: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    private var answerText: Text {
+        let sanitized = ChatMarkdown.stripSolCitations(from: self.message.text).text
+        if let attributed = ChatMarkdown.attributedString(from: self.message.text) {
+            return Text(attributed)
         }
-        .accessibilityIdentifier("chat.provenance.coverage")
+        return Text(sanitized)
+    }
+
+    private func answerForeground(for state: AnswerState) -> Color {
+        switch state {
+        case .answered:
+            .primary
+        case .partial:
+            .secondary
+        case .failed:
+            .red
+        }
+    }
+
+    @ViewBuilder
+    private func coverageTrace(_ lines: [String]) -> some View {
+        if !lines.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("chat.provenance.coverage")
+        }
     }
 
     @ViewBuilder
     private func provenanceAffordance(_ provenance: AnswerProvenance) -> some View {
-        switch provenance {
-        case .sourced(let sources, let confidence, _):
+        switch provenance.state {
+        case .answered:
             if provenance.showsPill {
                 ProvenanceSourcesPill(
-                    count: sources.count,
-                    confidence: confidence,
+                    count: provenance.sources.count,
                     isExpanded: self.isExpanded,
                     action: {
                         self.isExpanded.toggle()
                     }
                 )
                 if self.isExpanded {
-                    ProvenanceSourcesPanel(sources: sources)
+                    ProvenanceSourcesPanel(sources: provenance.sources)
                 }
-            } else {
-                self.noSourceLine
             }
-        case .unknown:
-            self.noSourceLine
+        case .partial:
+            self.honestLine(SourceVocabulary.chatPartialHonestLine)
+        case .failed:
+            self.honestLine(SourceVocabulary.chatAnswerFailedLine)
+                .foregroundStyle(.red)
         }
     }
 
-    private var noSourceLine: some View {
-        Text(SourceVocabulary.chatNoSourceLine)
+    private func honestLine(_ text: String) -> some View {
+        Text(text)
             .font(.caption)
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("chat.provenance.noSources")
@@ -63,23 +85,16 @@ struct AssistantBubble: View {
 
 struct ProvenanceSourcesPill: View {
     let count: Int
-    let confidence: AnswerProvenance.Confidence?
     let isExpanded: Bool
     let action: () -> Void
 
-    private var confidenceLabel: String? {
-        self.confidence.map { ConfidenceStyle.style(for: $0).label }
-    }
-
     private var label: String {
-        let sourceCount = SourceVocabulary.chatSourceCount(self.count)
-        guard let confidenceLabel else { return sourceCount }
-        return "\(sourceCount)\(SourceVocabulary.chatSourceSeparator)\(confidenceLabel)"
+        SourceVocabulary.chatSourceCount(self.count)
     }
 
     var body: some View {
         Button(action: self.action) {
-            ConfidenceChip(label: self.label, confidence: self.confidence)
+            NeutralSourceChip(label: self.label)
                 .frame(minHeight: 44)
                 .contentShape(Capsule())
                 .accessibilityIdentifier("chat.provenance.pill")
@@ -91,16 +106,31 @@ struct ProvenanceSourcesPill: View {
 
     private var accessibilityLabel: String {
         if self.isExpanded {
-            SourceVocabulary.chatSourcesPillA11yExpanded(
-                count: self.count,
-                confidence: self.confidenceLabel
-            )
+            SourceVocabulary.chatSourcesPillA11yExpanded(count: self.count)
         } else {
-            SourceVocabulary.chatSourcesPillA11yCollapsed(
-                count: self.count,
-                confidence: self.confidenceLabel
-            )
+            SourceVocabulary.chatSourcesPillA11yCollapsed(count: self.count)
         }
+    }
+}
+
+private struct NeutralSourceChip: View {
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.secondary)
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
+
+            Text(self.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(.tertiarySystemFill), in: Capsule())
     }
 }
 
@@ -113,11 +143,11 @@ struct ProvenanceSourcesPanel: View {
             ForEach(self.sources) { source in
                 HStack(alignment: .center, spacing: 8) {
                     Circle()
-                        .fill(Color("Confidence/Low/Dot"))
+                        .fill(Color.secondary)
                         .frame(width: 6, height: 6)
                         .accessibilityHidden(true)
 
-                    Text(self.rowTitle(for: source))
+                    Text(source.label)
                         .font(.caption)
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -125,17 +155,16 @@ struct ProvenanceSourcesPanel: View {
 
                     Spacer(minLength: 8)
 
-                    Button(SourceVocabulary.chatSourceOpenTitle) {
-                        if let openURL = source.openURL {
-                            self.openURL(openURL)
+                    if let url = source.url {
+                        Button(SourceVocabulary.chatSourceOpenTitle) {
+                            self.openURL(url)
                         }
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(SourceVocabulary.openInJournal)
+                        .accessibilityIdentifier("chat.provenance.open")
                     }
-                    .buttonStyle(.plain)
-                    .font(.caption.weight(.semibold))
-                    .frame(minWidth: 44, minHeight: 44)
-                    .disabled(source.openURL == nil)
-                    .accessibilityLabel(SourceVocabulary.openInJournal)
-                    .accessibilityIdentifier("chat.provenance.open")
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("chat.provenance.source.row")
@@ -144,12 +173,5 @@ struct ProvenanceSourcesPanel: View {
         .padding(.top, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.provenance.panel")
-    }
-
-    private func rowTitle(for source: AnswerProvenance.ProvenanceSource) -> String {
-        if let detail = source.detail, !detail.isEmpty {
-            return "\(source.label)\(SourceVocabulary.chatSourceSeparator)\(detail)"
-        }
-        return source.label
     }
 }

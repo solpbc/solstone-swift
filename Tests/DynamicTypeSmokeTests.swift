@@ -77,7 +77,18 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             webrtc: MockWebRTCConnector(),
             diagnosticLog: diagnosticLog
         )
-        let chatManager = ChatManager()
+        let chatManager = ChatManager(
+            transport: ScriptedChatTransport(),
+            isReachable: { true },
+            localPortProvider: { 7071 }
+        )
+        chatManager.pendingOffer = ChatOffer(text: "I can ask support to help with this.")
+        chatManager.pendingDraft = ChatDraft(
+            id: "draft-1",
+            body: "Please help with journal connection.",
+            fields: [ChatDraftField(id: "summary", label: "summary", value: "journal connection")],
+            diagnosticsIncluded: true
+        )
         let moreView = NavigationStack {
             MoreView(
                 localPort: 7071,
@@ -158,18 +169,25 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             message: ChatMessage(
                 role: .assistant,
                 text: "i can answer here once native ask connects to your journal.",
-                provenance: .sourced(
+                provenance: AnswerProvenance(
+                    state: .answered,
                     sources: [Self.provenanceSource()],
-                    confidence: .low,
                     coverage: ["read your journal"]
                 )
             )
         )
-        let assistantUnknownBubble = AssistantBubble(
+        let assistantPartialBubble = AssistantBubble(
             message: ChatMessage(
                 role: .assistant,
                 text: "i don't have enough to answer that.",
-                provenance: .unknown(coverage: ["read your journal"])
+                provenance: AnswerProvenance(state: .partial, coverage: ["Reading your journal…"])
+            )
+        )
+        let assistantFailedBubble = AssistantBubble(
+            message: ChatMessage(
+                role: .assistant,
+                text: "could not answer",
+                provenance: AnswerProvenance(state: .failed)
             )
         )
         let provenanceSourcesPanel = ProvenanceSourcesPanel(sources: [Self.provenanceSource()])
@@ -193,7 +211,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(chatView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(assistantSourcedBubble.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(assistantUnknownBubble.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(assistantPartialBubble.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(assistantFailedBubble.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(provenanceSourcesPanel.environment(\.dynamicTypeSize, .accessibility3))
         await activeLocationManager.stop()
         // ShareExtensionView is private in the extension target; its copy is mechanically covered by lock tests.
@@ -244,10 +263,9 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
 
     private static func provenanceSource() -> AnswerProvenance.ProvenanceSource {
         AnswerProvenance.ProvenanceSource(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000902") ?? UUID(),
+            ref: "sol://entry/902",
             label: "9:02 call with jack",
-            detail: "37 min",
-            openURL: URL(string: "http://127.0.0.1/")
+            url: URL(string: "http://127.0.0.1/")
         )
     }
 }

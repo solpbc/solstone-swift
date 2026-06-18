@@ -19,7 +19,12 @@ struct ChatView: View {
                     self.offlineBanner
                 }
 
-                if self.chatManager.messages.isEmpty && !self.chatManager.isSending {
+                if self.chatManager.messages.isEmpty
+                    && !self.chatManager.isSending
+                    && self.chatManager.activeTrace == nil
+                    && self.chatManager.pendingOffer == nil
+                    && self.chatManager.pendingDraft == nil
+                {
                     ChatEmptyState()
                 } else {
                     ScrollView {
@@ -27,6 +32,10 @@ struct ChatView: View {
                             ForEach(self.chatManager.messages) { message in
                                 BubbleView(message: message)
                                     .id(message.id)
+                            }
+
+                            if let trace = self.chatManager.activeTrace {
+                                WorkingTraceView(trace: trace)
                             }
 
                             if self.chatManager.isSending {
@@ -69,6 +78,9 @@ struct ChatView: View {
                     }
                 }
 
+                self.queueCapacityLine
+                self.supportSurface
+
                 ChatComposerView(
                     draft: self.$draft,
                     focus: self.$isComposerFocused,
@@ -99,6 +111,53 @@ private extension ChatView {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(Color(.secondarySystemBackground))
+    }
+
+    @ViewBuilder
+    var queueCapacityLine: some View {
+        if let count = self.chatManager.queueDepth, count > 0 {
+            Text(SourceVocabulary.chatQueueCapacityLine(count: count))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground))
+                .accessibilityIdentifier("chat.queueDepth")
+        }
+    }
+
+    @ViewBuilder
+    var supportSurface: some View {
+        if self.chatManager.pendingOffer != nil || self.chatManager.pendingDraft != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                SupportCapacityLine()
+
+                if let offer = self.chatManager.pendingOffer {
+                    SupportOfferView(
+                        offer: offer,
+                        onAccept: self.handleOfferAccept,
+                        onDecline: self.handleOfferDecline
+                    )
+                }
+
+                if let draft = self.chatManager.pendingDraft {
+                    DraftReviewCard(
+                        draft: draft,
+                        onConfirm: {
+                            self.handleDraftConfirm(draft)
+                        },
+                        onCancel: {
+                            self.handleDraftCancel(draft)
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.blue.opacity(0.10))
+            .accessibilityIdentifier("chat.supportSurface")
+        }
     }
 
     func handleMessagesChange(old: [ChatMessage], new: [ChatMessage]) {
@@ -148,6 +207,28 @@ private extension ChatView {
         self.isComposerFocused = true
         Task {
             await self.chatManager.send(text)
+        }
+    }
+
+    func handleOfferAccept() {
+        self.chatManager.acceptOffer()
+    }
+
+    func handleOfferDecline() {
+        Task {
+            await self.chatManager.declineOffer()
+        }
+    }
+
+    func handleDraftConfirm(_ draft: ChatDraft) {
+        Task {
+            await self.chatManager.confirmDraft(id: draft.id)
+        }
+    }
+
+    func handleDraftCancel(_ draft: ChatDraft) {
+        Task {
+            await self.chatManager.cancelDraft(id: draft.id)
         }
     }
 }
@@ -211,5 +292,133 @@ private struct BubbleView: View {
         .padding(10)
         .background(self.bubbleBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: self.message.provenance == nil ? .combine : .contain)
+    }
+}
+
+private struct WorkingTraceView: View {
+    let trace: ChatWorkingTrace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(self.trace.completedLabels, id: \.self) { label in
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(self.trace.activeLabels, id: \.self) { label in
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            ForEach(self.trace.erroredLabels, id: \.self) { label in
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("chat.workingTrace")
+    }
+}
+
+private struct SupportCapacityLine: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(SourceVocabulary.chatSupportCapacityFrom)
+                Spacer(minLength: 8)
+                Text(SourceVocabulary.chatSupportCapacityTo)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.blue)
+
+            Text(SourceVocabulary.chatSupportCapacitySub)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("chat.supportCapacity")
+    }
+}
+
+private struct SupportOfferView: View {
+    let offer: ChatOffer
+    let onAccept: () -> Void
+    let onDecline: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !self.offer.text.isEmpty {
+                Text(self.offer.text)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+            }
+
+            HStack(spacing: 8) {
+                Button(SourceVocabulary.chatOfferYes, action: self.onAccept)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                Button(SourceVocabulary.chatOfferNo, action: self.onDecline)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .accessibilityIdentifier("chat.offer")
+    }
+}
+
+private struct DraftReviewCard: View {
+    let draft: ChatDraft
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(SourceVocabulary.chatDraftReviewTitle)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.blue)
+
+            Text(self.draft.body)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(self.draft.fields) { field in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(field.label)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(field.value)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            if self.draft.diagnosticsIncluded {
+                Text(SourceVocabulary.chatDraftDiagnosticsIncluded)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Button(SourceVocabulary.chatDraftConfirm, action: self.onConfirm)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                Button(SourceVocabulary.chatDraftCancel, action: self.onCancel)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityIdentifier("chat.draft")
     }
 }

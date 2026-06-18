@@ -147,10 +147,18 @@ nonisolated enum SourceVocabulary {
     static let chatErrorServer = "sol hit an error answering"
     static let chatErrorGeneric = "couldn't send"
     static let chatErrorDecode = "sol returned an invalid response"
-    static let chatSourceConfidenceHigh = "high"
-    static let chatSourceConfidenceMedium = "medium"
-    static let chatSourceConfidenceLow = "low"
-    static let chatNoSourceLine = "no source · i'd rather say i don't know than guess."
+    static let chatPartialHonestLine = "no source · i'd rather say i don't know than guess."
+    static let chatAnswerFailedLine = "i couldn't finish that answer."
+    static let chatRetryAnswer = "retry answer"
+    static let chatOfferYes = "yes"
+    static let chatOfferNo = "not now"
+    static let chatSupportCapacityFrom = "sol"
+    static let chatSupportCapacityTo = "solstone support"
+    static let chatSupportCapacitySub = "nothing leaves without your ok."
+    static let chatDraftReviewTitle = "review before sending"
+    static let chatDraftConfirm = "send"
+    static let chatDraftCancel = "cancel"
+    static let chatDraftDiagnosticsIncluded = "diagnostics included"
     static let chatSourceOpenTitle = "open ↗"
     static let chatSourceSeparator = " · "
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
@@ -233,19 +241,17 @@ nonisolated enum SourceVocabulary {
         n == 1 ? "1 source" : "\(n) sources"
     }
 
-    static func chatSourcesPillA11yCollapsed(count: Int, confidence: String?) -> String {
+    static func chatQueueCapacityLine(count: Int) -> String {
+        count == 1 ? "1 message waiting for your journal" : "\(count) messages waiting for your journal"
+    }
+
+    static func chatSourcesPillA11yCollapsed(count: Int) -> String {
         let sourceCount = self.chatSourceCount(count)
-        if let confidence {
-            return "\(sourceCount), \(confidence) confidence, tap to view"
-        }
         return "\(sourceCount), tap to view"
     }
 
-    static func chatSourcesPillA11yExpanded(count: Int, confidence: String?) -> String {
+    static func chatSourcesPillA11yExpanded(count: Int) -> String {
         let sourceCount = self.chatSourceCount(count)
-        if let confidence {
-            return "\(sourceCount), \(confidence) confidence, showing sources"
-        }
         return "\(sourceCount), showing sources"
     }
 

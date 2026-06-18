@@ -354,7 +354,7 @@ integration-test-push: sim
 		tail -n 20 "$$APP_LOG"
 
 integration-test-push-chat:
-	$(MAKE) integration-test-push PUSH_TAP=chat "PUSH_ASSERT=chat stub presented" PUSH_TARGET_NAME=integration-test-push-chat
+	$(MAKE) integration-test-push PUSH_TAP=chat "PUSH_ASSERT=chat presented" PUSH_TARGET_NAME=integration-test-push-chat
 
 integration-test-observer: PORT ?= 7071
 integration-test-observer: VOICE_PORT ?= 7072
