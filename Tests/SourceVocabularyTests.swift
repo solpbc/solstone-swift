@@ -67,6 +67,30 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.chatErrorServer, "sol hit an error answering")
         XCTAssertEqual(SourceVocabulary.chatErrorGeneric, "couldn't send")
         XCTAssertEqual(SourceVocabulary.chatErrorDecode, "sol returned an invalid response")
+        XCTAssertEqual(SourceVocabulary.chatSourceConfidenceHigh, "high")
+        XCTAssertEqual(SourceVocabulary.chatSourceConfidenceMedium, "medium")
+        XCTAssertEqual(SourceVocabulary.chatSourceConfidenceLow, "low")
+        XCTAssertEqual(SourceVocabulary.chatNoSourceLine, "no source · i'd rather say i don't know than guess.")
+        XCTAssertEqual(SourceVocabulary.chatSourceOpenTitle, "open ↗")
+        XCTAssertEqual(SourceVocabulary.chatSourceSeparator, " · ")
+        XCTAssertEqual(SourceVocabulary.chatSourceCount(1), "1 source")
+        XCTAssertEqual(SourceVocabulary.chatSourceCount(2), "2 sources")
+        XCTAssertEqual(
+            SourceVocabulary.chatSourcesPillA11yCollapsed(count: 1, confidence: SourceVocabulary.chatSourceConfidenceHigh),
+            "1 source, high confidence, tap to view"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.chatSourcesPillA11yCollapsed(count: 2, confidence: nil),
+            "2 sources, tap to view"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.chatSourcesPillA11yExpanded(count: 2, confidence: SourceVocabulary.chatSourceConfidenceLow),
+            "2 sources, low confidence, showing sources"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.chatSourcesPillA11yExpanded(count: 1, confidence: nil),
+            "1 source, showing sources"
+        )
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
             "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
@@ -333,6 +357,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.chatErrorServer,
             SourceVocabulary.chatErrorGeneric,
             SourceVocabulary.chatErrorDecode,
+            SourceVocabulary.chatSourceConfidenceHigh,
+            SourceVocabulary.chatSourceConfidenceMedium,
+            SourceVocabulary.chatSourceConfidenceLow,
+            SourceVocabulary.chatNoSourceLine,
+            SourceVocabulary.chatSourceOpenTitle,
+            SourceVocabulary.chatSourceSeparator,
+            SourceVocabulary.chatSourceCount(1),
+            SourceVocabulary.chatSourceCount(2),
+            SourceVocabulary.chatSourcesPillA11yCollapsed(count: 1, confidence: SourceVocabulary.chatSourceConfidenceHigh),
+            SourceVocabulary.chatSourcesPillA11yCollapsed(count: 2, confidence: nil),
+            SourceVocabulary.chatSourcesPillA11yExpanded(count: 2, confidence: SourceVocabulary.chatSourceConfidenceLow),
+            SourceVocabulary.chatSourcesPillA11yExpanded(count: 1, confidence: nil),
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneNotBackedUp,

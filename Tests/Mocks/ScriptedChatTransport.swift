@@ -14,7 +14,7 @@ final class ScriptedChatTransport: ChatTransporting, @unchecked Sendable {
     func send(message: String) async -> ChatReply {
         self.sentMessages.append(message)
         guard !self.replies.isEmpty else {
-            return .ok("scripted reply")
+            return .ok("scripted reply", nil)
         }
         return self.replies.removeFirst()
     }

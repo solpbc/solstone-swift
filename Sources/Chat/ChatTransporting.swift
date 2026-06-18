@@ -1,7 +1,7 @@
 import Foundation
 
 enum ChatReply: Sendable {
-    case ok(String)
+    case ok(String, AnswerProvenance?)
     case serverError(status: Int, reason: String?)
     case decode
     case transport

@@ -106,14 +106,14 @@ private extension ChatManager {
         var shouldContinueQueue = true
 
         switch reply {
-        case .ok(let text):
+        case .ok(let text, let provenance):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 self.updateMessageStatus(id: headID, status: .failed)
                 self.lastError = SourceVocabulary.chatErrorEmptyReply
                 self.logger.info("chat drain empty")
             } else {
-                self.markSentAndInsertAssistant(headID: headID, text: trimmed)
+                self.markSentAndInsertAssistant(headID: headID, text: trimmed, provenance: provenance)
                 self.lastError = nil
                 self.logger.info("chat drain ok")
             }
@@ -163,13 +163,13 @@ private extension ChatManager {
         self.messages[index].status = status
     }
 
-    func markSentAndInsertAssistant(headID: UUID, text: String) {
+    func markSentAndInsertAssistant(headID: UUID, text: String, provenance: AnswerProvenance?) {
         guard let index = self.messages.firstIndex(where: { $0.id == headID }) else {
-            self.messages.append(ChatMessage(role: .assistant, text: text))
+            self.messages.append(ChatMessage(role: .assistant, text: text, provenance: provenance))
             return
         }
         self.messages[index].status = .sent
-        self.messages.insert(ChatMessage(role: .assistant, text: text), at: index + 1)
+        self.messages.insert(ChatMessage(role: .assistant, text: text, provenance: provenance), at: index + 1)
     }
 
     func startRetryTickIfNeeded() {

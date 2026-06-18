@@ -154,6 +154,25 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let chatView = ChatView()
             .environment(chatManager)
             .environment(tunnelManager)
+        let assistantSourcedBubble = AssistantBubble(
+            message: ChatMessage(
+                role: .assistant,
+                text: "i can answer here once native ask connects to your journal.",
+                provenance: .sourced(
+                    sources: [Self.provenanceSource()],
+                    confidence: .low,
+                    coverage: ["read your journal"]
+                )
+            )
+        )
+        let assistantUnknownBubble = AssistantBubble(
+            message: ChatMessage(
+                role: .assistant,
+                text: "i don't have enough to answer that.",
+                provenance: .unknown(coverage: ["read your journal"])
+            )
+        )
+        let provenanceSourcesPanel = ProvenanceSourcesPanel(sources: [Self.provenanceSource()])
 
         try self.assertHosted(
             WelcomeScreen(onGetStarted: {})
@@ -173,6 +192,9 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(onThisPhoneView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(chatView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(assistantSourcedBubble.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(assistantUnknownBubble.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(provenanceSourcesPanel.environment(\.dynamicTypeSize, .accessibility3))
         await activeLocationManager.stop()
         // ShareExtensionView is private in the extension target; its copy is mechanically covered by lock tests.
         // Hit-target audit: scoped controls are standard Buttons/NavigationLinks/segmented Picker, so no frame assertions are needed here.
@@ -217,6 +239,15 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             segment: "morning",
             deliveredAt: Date(),
             rawFileURL: nil
+        )
+    }
+
+    private static func provenanceSource() -> AnswerProvenance.ProvenanceSource {
+        AnswerProvenance.ProvenanceSource(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000902") ?? UUID(),
+            label: "9:02 call with jack",
+            detail: "37 min",
+            openURL: URL(string: "http://127.0.0.1/")
         )
     }
 }

@@ -17,18 +17,21 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
     let text: String
     let timestamp: Date
     var status: Status
+    var provenance: AnswerProvenance?
 
     init(
         id: UUID = UUID(),
         role: Role,
         text: String,
         timestamp: Date = Date(),
-        status: Status = .sent
+        status: Status = .sent,
+        provenance: AnswerProvenance? = nil
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.timestamp = timestamp
         self.status = status
+        self.provenance = provenance
     }
 }

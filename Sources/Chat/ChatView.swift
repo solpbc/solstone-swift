@@ -210,6 +210,6 @@ private struct BubbleView: View {
         .foregroundStyle(.primary)
         .padding(10)
         .background(self.bubbleBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: self.message.provenance == nil ? .combine : .contain)
     }
 }

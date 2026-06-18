@@ -147,6 +147,12 @@ nonisolated enum SourceVocabulary {
     static let chatErrorServer = "sol hit an error answering"
     static let chatErrorGeneric = "couldn't send"
     static let chatErrorDecode = "sol returned an invalid response"
+    static let chatSourceConfidenceHigh = "high"
+    static let chatSourceConfidenceMedium = "medium"
+    static let chatSourceConfidenceLow = "low"
+    static let chatNoSourceLine = "no source · i'd rather say i don't know than guess."
+    static let chatSourceOpenTitle = "open ↗"
+    static let chatSourceSeparator = " · "
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let onThisPhoneTurnOnSourceButton = "turn on a source"
@@ -221,6 +227,26 @@ nonisolated enum SourceVocabulary {
             return "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
         }
         return "\(count) observations are resting on this phone. connect a journal whenever you'd like a backup."
+    }
+
+    static func chatSourceCount(_ n: Int) -> String {
+        n == 1 ? "1 source" : "\(n) sources"
+    }
+
+    static func chatSourcesPillA11yCollapsed(count: Int, confidence: String?) -> String {
+        let sourceCount = self.chatSourceCount(count)
+        if let confidence {
+            return "\(sourceCount), \(confidence) confidence, tap to view"
+        }
+        return "\(sourceCount), tap to view"
+    }
+
+    static func chatSourcesPillA11yExpanded(count: Int, confidence: String?) -> String {
+        let sourceCount = self.chatSourceCount(count)
+        if let confidence {
+            return "\(sourceCount), \(confidence) confidence, showing sources"
+        }
+        return "\(sourceCount), showing sources"
     }
 
     static func onThisPhoneLocationRowLabel(count: Int) -> String {

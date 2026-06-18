@@ -2,12 +2,14 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Foundation
 import XCTest
 
 nonisolated final class ChatManagerTests: XCTestCase {
     @MainActor
     func testOnlineSendInsertsAssistantReply() async {
-        let transport = ScriptedChatTransport(replies: [.ok("hello back")])
+        let provenance = Self.provenance
+        let transport = ScriptedChatTransport(replies: [.ok("hello back", provenance)])
         let manager = ChatManager(transport: transport)
 
         await manager.send("hello")
@@ -16,12 +18,13 @@ nonisolated final class ChatManagerTests: XCTestCase {
         XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant])
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.messages[1].text, "hello back")
+        XCTAssertEqual(manager.messages[1].provenance, provenance)
         XCTAssertNil(manager.lastError)
     }
 
     @MainActor
     func testUnreachableSendStaysPendingUntilReachable() async {
-        let transport = ScriptedChatTransport(replies: [.ok("after reconnect")])
+        let transport = ScriptedChatTransport(replies: [.ok("after reconnect", nil)])
         var reachable = false
         let manager = ChatManager(transport: transport, isReachable: { reachable })
 
@@ -49,7 +52,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
     func testServiceUnavailableKeepsPendingThenRetries() async {
         let transport = ScriptedChatTransport(replies: [
             .serverError(status: 503, reason: nil),
-            .ok("retried")
+            .ok("retried", nil)
         ])
         let manager = ChatManager(transport: transport)
 
@@ -114,7 +117,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
 
     @MainActor
     func testEmptyOkFails() async {
-        let transport = ScriptedChatTransport(replies: [.ok(" \n ")])
+        let transport = ScriptedChatTransport(replies: [.ok(" \n ", nil)])
         let manager = ChatManager(transport: transport)
 
         await manager.send("hello")
@@ -141,5 +144,20 @@ nonisolated final class ChatManagerTests: XCTestCase {
         for _ in 0..<3 {
             await Task.yield()
         }
+    }
+
+    private static var provenance: AnswerProvenance {
+        AnswerProvenance.sourced(
+            sources: [
+                AnswerProvenance.ProvenanceSource(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000902") ?? UUID(),
+                    label: "9:02 call with jack",
+                    detail: "37 min",
+                    openURL: URL(string: "http://127.0.0.1/")
+                )
+            ],
+            confidence: .high,
+            coverage: ["read your journal"]
+        )
     }
 }

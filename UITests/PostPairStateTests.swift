@@ -95,6 +95,49 @@ nonisolated final class PostPairStateTests: XCTestCase {
     }
 
     @MainActor
+    func testChatReplyShowsExpandableSourcePill() {
+        let app = self.makeIntegrationApp()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        self.assertDayHomeRoot(in: app)
+
+        app.buttons["dayHome.askBar"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 5))
+
+        let textField = app.textFields["ask sol…"]
+        if textField.waitForExistence(timeout: 5) {
+            textField.tap()
+            textField.typeText("what did jack say?")
+        } else {
+            let textView = app.textViews["ask sol…"]
+            XCTAssertTrue(textView.waitForExistence(timeout: 5))
+            textView.tap()
+            textView.typeText("what did jack say?")
+        }
+
+        let chatSurface = app.descendants(matching: .any)["chat.surface"]
+        let sendButton = chatSurface.buttons["send"]
+        XCTAssertTrue(sendButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(sendButton.isEnabled)
+        sendButton.tap()
+
+        let scrollTarget = chatSurface.scrollViews.firstMatch.waitForExistence(timeout: 2)
+            ? chatSurface.scrollViews.firstMatch
+            : chatSurface
+        let pill = app.descendants(matching: .any)["chat.provenance.pill"]
+        self.scrollToElement(pill, in: scrollTarget)
+        XCTAssertTrue(pill.exists)
+        pill.tap()
+
+        let sourceRow = app.descendants(matching: .any)["chat.provenance.source.row"]
+        self.scrollToElement(sourceRow, in: scrollTarget)
+        XCTAssertTrue(sourceRow.exists)
+        let openButton = app.descendants(matching: .any)["chat.provenance.open"]
+        XCTAssertTrue(openButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(openButton.isEnabled)
+    }
+
+    @MainActor
     func testTodayPushRouteLandsOnNativeDayHome() {
         let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=briefing"])
         app.launch()
@@ -183,5 +226,17 @@ private extension PostPairStateTests {
 
     func assertDayHomeRoot(in app: XCUIApplication) {
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+    }
+
+    func scrollToElement(_ element: XCUIElement, in surface: XCUIElement) {
+        if element.waitForExistence(timeout: 2) {
+            return
+        }
+        for _ in 1...6 {
+            surface.swipeUp()
+            if element.waitForExistence(timeout: 1) {
+                return
+            }
+        }
     }
 }
