@@ -62,8 +62,8 @@ private extension OnboardingAccessibilityTests {
         app.launchArguments = ["--ui-test"]
         app.launch()
 
-        app.tabBars.buttons["more"].tap()
-        XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 10))
+        app.buttons["dayHome.yourSolstoneEntry"].tap()
+        XCTAssertTrue(app.navigationBars["your solstone"].waitForExistence(timeout: 10))
 
         self.scrollToElement(app.buttons["enable notifications"], in: app)
         self.assertMetadata(for: app.buttons["enable notifications"], in: app)

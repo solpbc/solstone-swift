@@ -9,6 +9,7 @@ struct JournalLivesSheet: View {
     }
 
     @Binding var isPresented: Bool
+    @Environment(AppConfig.self) private var appConfig
     @State private var path: [Destination] = []
 
     var body: some View {
@@ -26,7 +27,7 @@ struct JournalLivesSheet: View {
                         rowID: "journalLives.onThisPhone",
                         title: SourceVocabulary.journalLivesOnThisPhoneTitle,
                         body: SourceVocabulary.journalLivesOnThisPhoneBody,
-                        current: true
+                        current: !self.appConfig.isPaired
                     ) {
                         EmptyView()
                     }
@@ -36,7 +37,7 @@ struct JournalLivesSheet: View {
                             rowID: "journalLives.ownJournal",
                             title: SourceVocabulary.journalLivesOwnTitle,
                             body: SourceVocabulary.journalLivesOwnBody,
-                            current: false
+                            current: self.appConfig.isPaired
                         ) {
                             Text(SourceVocabulary.journalLivesConnectAction)
                                 .font(.subheadline.weight(.semibold))

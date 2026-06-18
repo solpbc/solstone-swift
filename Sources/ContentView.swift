@@ -15,7 +15,6 @@ struct ContentView: View {
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PushNotificationManager.self) private var pushManager
-    @State private var showSettings = false
     @State private var showRepairing = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
@@ -40,11 +39,10 @@ struct ContentView: View {
             if !self.onboardingFlow.isCompleted {
                 OnboardingRootView()
             } else {
-                MainTabView(
+                RootShellView(
                     localPort: self.effectivePort,
                     via: self.effectiveVia,
-                    onOpenSettings: { self.showSettings = true },
-                    initialTab: self.onboardingFlow.choseFirstSource ? .sense : .today
+                    presentSourcesOnFirstAppear: self.onboardingFlow.choseFirstSource
                 )
             }
         }
@@ -57,18 +55,6 @@ struct ContentView: View {
             BannerOverlay()
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.tunnelManager.state.isConnected)
-        .sheet(isPresented: self.$showSettings) {
-            NavigationStack {
-                SettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("done") {
-                                self.showSettings = false
-                            }
-                        }
-                    }
-            }
-        }
         .sheet(isPresented: self.$showRepairing) {
             NavigationStack {
                 PairFlowView(

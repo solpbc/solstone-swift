@@ -7,10 +7,10 @@ import os
 private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
 private let routerLog = Logger(subsystem: "app.solstone.swift", category: "router")
 
-struct MainTabView: View {
+struct RootShellView: View {
     let localPort: Int
     let via: ConnectionEndpoint
-    let onOpenSettings: () -> Void
+    let presentSourcesOnFirstAppear: Bool
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(BannerPresenter.self) private var bannerPresenter
@@ -19,50 +19,22 @@ struct MainTabView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @Environment(\.openURL) private var openURL
-    @State private var selectedTab: AppTab
+    @State private var showingSources = false
+    @State private var showingYourSolstone = false
     @State private var showingChatStub = false
     @State private var navigateToDiagnostics = false
+    @State private var didPresentFirstSources = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
 
     init(
         localPort: Int,
         via: ConnectionEndpoint,
-        onOpenSettings: @escaping () -> Void,
-        initialTab: AppTab = .today
+        presentSourcesOnFirstAppear: Bool
     ) {
         self.localPort = localPort
         self.via = via
-        self.onOpenSettings = onOpenSettings
-        self._selectedTab = State(initialValue: initialTab)
-    }
-
-    enum AppTab: Hashable {
-        case today, sense, more
-
-        var iconName: String {
-            switch self {
-            case .today: "sun.max"
-            case .sense: "square.stack.3d.up"
-            case .more: "ellipsis.circle"
-            }
-        }
-
-        var label: String {
-            switch self {
-            case .today: "today"
-            case .sense: "sense"
-            case .more: "more"
-            }
-        }
-
-        var shortcutKey: Character {
-            switch self {
-            case .today: "1"
-            case .sense: "2"
-            case .more: "3"
-            }
-        }
+        self.presentSourcesOnFirstAppear = presentSourcesOnFirstAppear
     }
 
     @ViewBuilder
@@ -79,59 +51,34 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        TabView(selection: self.$selectedTab) {
-            NavigationStack {
-                DayHomeView(
-                    journalState: self.dayHomeJournalState,
-                    onTurnOnSource: {
-                        self.selectedTab = .sense
-                    },
-                    onOpenJournal: {
-                        if self.dayHomeJournalState == .linkedOnline {
-                            self.openInJournal()
-                        }
-                    },
-                    onPresentChat: {
-                        self.presentChatStub()
-                    }
-                )
-            }
-            .tag(AppTab.today)
-            .tabItem {
-                Label(AppTab.today.label, systemImage: AppTab.today.iconName)
-            }
-            .keyboardShortcut(KeyEquivalent(AppTab.today.shortcutKey), modifiers: .command)
-
-            SourcesView()
-                .environment(self.observerSourcePauseState)
-            .tag(AppTab.sense)
-            .tabItem {
-                Label(AppTab.sense.label, systemImage: AppTab.sense.iconName)
-            }
-            .badge(self.sourcesBadgeVisible ? " " : nil)
-            .keyboardShortcut(KeyEquivalent(AppTab.sense.shortcutKey), modifiers: .command)
-
-            NavigationStack {
-                MoreView(
-                    localPort: self.localPort,
-                    via: self.via,
-                    connectedSince: self.connectedSince,
-                    navigateToDiagnostics: self.$navigateToDiagnostics
-                )
-            }
-            .tag(AppTab.more)
-            .tabItem {
-                Label(AppTab.more.label, systemImage: AppTab.more.iconName)
-            }
-            .keyboardShortcut(KeyEquivalent(AppTab.more.shortcutKey), modifiers: .command)
+        NavigationStack {
+            DayHomeView(
+                journalState: self.dayHomeJournalState,
+                onTurnOnSource: {
+                    self.showingSources = true
+                },
+                onOpenJournal: {
+                    self.openInJournal()
+                },
+                onPresentChat: {
+                    self.presentChatStub()
+                },
+                onOpenSources: {
+                    self.showingSources = true
+                },
+                onOpenYourSolstone: {
+                    self.navigateToDiagnostics = false
+                    self.showingYourSolstone = true
+                },
+                sourcesBadgeVisible: self.sourcesBadgeVisible
+            )
         }
-        .tabViewStyle(.sidebarAdaptable)
         .overlay(alignment: .bottomLeading) {
             self.healthDot
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .top) {
-            if self.selectedTab == .today && self.dayHomeJournalState == .linkedOnline {
+            if self.dayHomeJournalState == .linkedOnline {
                 DayZeroOverlayView(
                     localPort: self.localPort,
                     onBrowseJournal: {
@@ -147,9 +94,29 @@ struct MainTabView: View {
         .sheet(isPresented: self.$showingChatStub) {
             ChatStubView()
         }
+        .sheet(isPresented: self.$showingSources) {
+            SourcesView()
+                .environment(self.observerSourcePauseState)
+        }
+        .sheet(isPresented: self.$showingYourSolstone, onDismiss: {
+            self.navigateToDiagnostics = false
+        }) {
+            NavigationStack {
+                MoreView(
+                    localPort: self.localPort,
+                    via: self.via,
+                    connectedSince: self.connectedSince,
+                    navigateToDiagnostics: self.$navigateToDiagnostics
+                )
+            }
+        }
         .onAppear {
             if let route = self.pendingRoute.route {
                 self.apply(route)
+            }
+            if self.presentSourcesOnFirstAppear && !self.didPresentFirstSources {
+                self.didPresentFirstSources = true
+                self.showingSources = true
             }
             if !self.tunnelManager.state.isConnected {
                 mainTabLog.info("showing disconnected shell state")
@@ -167,8 +134,11 @@ struct MainTabView: View {
         }
         .onChange(of: self.bannerPresenter.showDiagnostics) { _, show in
             if show {
-                self.selectedTab = .more
-                self.navigateToDiagnostics = true
+                self.showingYourSolstone = true
+                Task { @MainActor in
+                    await Task.yield()
+                    self.navigateToDiagnostics = true
+                }
                 self.bannerPresenter.showDiagnostics = false
             }
         }
@@ -199,9 +169,13 @@ struct MainTabView: View {
     private func apply(_ route: NotificationRoute) {
         switch route {
         case .today:
-            self.selectedTab = .today
+            self.showingSources = false
+            self.showingYourSolstone = false
+            self.navigateToDiagnostics = false
         case .solChatRequest:
-            self.selectedTab = .today
+            self.showingSources = false
+            self.showingYourSolstone = false
+            self.navigateToDiagnostics = false
             if self.dayHomeJournalState == .linkedOnline {
                 self.presentChatStub()
             }

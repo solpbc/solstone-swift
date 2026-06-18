@@ -22,6 +22,9 @@ struct DayHomeView: View {
     let onTurnOnSource: () -> Void
     let onOpenJournal: () -> Void
     let onPresentChat: () -> Void
+    let onOpenSources: () -> Void
+    let onOpenYourSolstone: () -> Void
+    let sourcesBadgeVisible: Bool
     @State private var showingJournalLives = false
 
     var body: some View {
@@ -33,6 +36,36 @@ struct DayHomeView: View {
             self.header
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    self.onOpenSources()
+                } label: {
+                    Image(systemName: "square.stack.3d.up")
+                        .overlay(alignment: .topTrailing) {
+                            if self.sourcesBadgeVisible {
+                                Circle()
+                                    .fill(Color.solOrangeAccessible)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 4, y: -4)
+                            }
+                        }
+                }
+                .accessibilityLabel("sources")
+                .accessibilityIdentifier("dayHome.sourcesEntry")
+                .accessibilityValue(self.sourcesBadgeVisible ? "attention" : "clear")
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    self.onOpenYourSolstone()
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel(SourceVocabulary.yourSolstoneTitle)
+                .accessibilityIdentifier("dayHome.yourSolstoneEntry")
+            }
+        }
     }
 
     private var header: some View {

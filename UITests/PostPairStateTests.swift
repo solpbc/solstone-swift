@@ -17,7 +17,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         let app = try self.makeApp()
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
 
         XCTAssertTrue(app.staticTexts["5 segments observed"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["2 meetings detected"].waitForExistence(timeout: 5))
@@ -31,7 +31,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         let app = try self.makeApp()
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
 
         let title = app.staticTexts["your first briefing"]
         XCTAssertTrue(title.waitForExistence(timeout: 10))
@@ -56,7 +56,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         ])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
 
         let bannerText = app.staticTexts["offline — safe on this phone · your journal will catch up"]
         let bannerElement = app.otherElements["Offline. Safe on this phone; your journal will catch up."]
@@ -83,7 +83,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=briefing"])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["dayHome.openInJournal"].waitForExistence(timeout: 5))
@@ -180,10 +180,7 @@ private extension PostPairStateTests {
         return isAvailable.withLock { $0 }
     }
 
-    func openTodayTabIfNeeded(in app: XCUIApplication) {
-        let todayTab = app.tabBars.buttons["today"]
-        if todayTab.waitForExistence(timeout: 5) {
-            todayTab.tap()
-        }
+    func assertDayHomeRoot(in app: XCUIApplication) {
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
     }
 }

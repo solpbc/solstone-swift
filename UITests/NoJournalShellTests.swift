@@ -15,13 +15,14 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
-        XCTAssertTrue(app.tabBars.buttons["today"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].exists)
 
-        app.tabBars.buttons["sense"].tap()
+        app.buttons["dayHome.sourcesEntry"].tap()
         XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
+        self.dismissPresentedSheet(in: app, untilMissingElementID: "source.row.audio")
 
-        app.tabBars.buttons["more"].tap()
-        XCTAssertTrue(app.navigationBars["more"].waitForExistence(timeout: 5))
+        app.buttons["dayHome.yourSolstoneEntry"].tap()
+        XCTAssertTrue(app.navigationBars["your solstone"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -54,7 +55,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testAudioEnrollmentAvailableAtZeroJournal() {
         let app = self.launchNoJournalApp()
 
-        app.tabBars.buttons["sense"].tap()
+        app.buttons["dayHome.sourcesEntry"].tap()
         let audioRow = app.buttons["source.row.audio"]
         XCTAssertTrue(audioRow.waitForExistence(timeout: 5))
         audioRow.tap()
@@ -71,7 +72,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testNoJournalSourcesShowsUnpairedTrustLineAndConnectBanner() {
         let app = self.launchNoJournalApp()
 
-        app.tabBars.buttons["sense"].tap()
+        app.buttons["dayHome.sourcesEntry"].tap()
 
         let footer = app.staticTexts["sources.trustLine"]
         XCTAssertTrue(footer.waitForExistence(timeout: 5))
@@ -165,13 +166,14 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testStandaloneOnThisPhoneViewHasNoAskBar() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        app.tabBars.buttons["sense"].tap()
+        app.buttons["dayHome.sourcesEntry"].tap()
         app.buttons["source.row.share-sheet"].tap()
         let onThisPhoneLink = app.buttons["on this phone"]
         XCTAssertTrue(onThisPhoneLink.waitForExistence(timeout: 5))
         onThisPhoneLink.tap()
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
+        // The root ask bar stays mounted behind the sheet; standalone content must not expose a foreground one.
+        XCTAssertFalse(app.buttons["dayHome.askBar"].isHittable)
     }
 
     @MainActor
@@ -244,7 +246,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.launchArguments = ["--ui-test", "--ui-test-no-journal"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 2))
     }
@@ -269,7 +271,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-observer-permission-denied",
         ])
 
-        app.tabBars.buttons["sense"].tap()
+        app.buttons["dayHome.sourcesEntry"].tap()
         let audioRow = app.buttons["source.row.audio"]
         XCTAssertTrue(audioRow.waitForExistence(timeout: 5))
         audioRow.tap()
@@ -281,7 +283,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(app.buttons["open settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["turn on audio"].exists)
 
-        app.tabBars.buttons["today"].tap()
+        self.dismissPresentedSheet(in: app, untilMissingElementID: "audioEnrollment.value")
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 2))
     }
@@ -392,7 +394,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.launchArguments = ["--ui-test", "--ui-test-no-journal", "--ui-test-seed-aged-backlog"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["onThisPhone.agedBacklog"].waitForExistence(timeout: 2))
     }
@@ -406,15 +408,19 @@ private extension NoJournalShellTests {
         app.launchArguments.append(contentsOf: extraArguments)
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.openTodayTabIfNeeded(in: app)
+        self.assertDayHomeRoot(in: app)
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         return app
     }
 
-    func openTodayTabIfNeeded(in app: XCUIApplication) {
-        let todayTab = app.tabBars.buttons["today"]
-        if todayTab.waitForExistence(timeout: 2) {
-            todayTab.tap()
-        }
+    func assertDayHomeRoot(in app: XCUIApplication) {
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+    }
+
+    func dismissPresentedSheet(in app: XCUIApplication, untilMissingElementID missingElementID: String) {
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        top.press(forDuration: 0.1, thenDragTo: bottom)
+        XCTAssertTrue(app.descendants(matching: .any)[missingElementID].waitForNonExistence(timeout: 5))
     }
 }

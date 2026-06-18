@@ -16,7 +16,7 @@ nonisolated final class SourcesTrustLineTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
-        app.tabBars.buttons["sense"].tap()
+        app.buttons["dayHome.sourcesEntry"].tap()
 
         let footer = app.staticTexts["sources.trustLine"]
         XCTAssertTrue(footer.waitForExistence(timeout: 5))

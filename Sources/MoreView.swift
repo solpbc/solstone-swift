@@ -370,7 +370,7 @@ struct MoreView: View {
                 }
             }
         }
-        .navigationTitle("more")
+        .navigationTitle(SourceVocabulary.yourSolstoneTitle)
         .navigationDestination(isPresented: self.$navigateToDiagnostics) {
             DiagnosticsView()
         }

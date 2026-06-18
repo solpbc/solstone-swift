@@ -24,6 +24,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.sourcesConnectBanner, "kept here until you connect a journal · connect →")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
+        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext, "share to your journal from any app")
+        XCTAssertEqual(
+            SourceVocabulary.shareAlwaysOnExplainer,
+            "share is always on. anything you send from the share sheet comes into your journal here."
+        )
         XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "on this phone")
         XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
         XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, "in your journal")
@@ -38,6 +43,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
+        XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your solstone")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
         XCTAssertEqual(SourceVocabulary.askBarOffline, "journal offline")
         XCTAssertEqual(SourceVocabulary.chatStubBody, "native ask is coming")
@@ -262,6 +268,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
             SourceVocabulary.importerActiveSubtext,
+            SourceVocabulary.shareAlwaysOnSubtext,
+            SourceVocabulary.shareAlwaysOnExplainer,
             SourceVocabulary.shareSheetDisplayName,
             SourceVocabulary.shareSendingProgress,
             SourceVocabulary.shareDeliveredProgress,
@@ -287,6 +295,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.dayLocality,
             SourceVocabulary.journalConnected,
             SourceVocabulary.journalOffline,
+            SourceVocabulary.yourSolstoneTitle,
             SourceVocabulary.dayHomeAskBarHint,
             SourceVocabulary.askBarOffline,
             SourceVocabulary.chatStubBody,

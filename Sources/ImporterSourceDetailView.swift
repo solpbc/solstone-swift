@@ -19,8 +19,10 @@ struct ImporterSourceDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SourceDetailBlock(title: "state") {
-                    self.stateBlock
+                SourceDetailBlock(title: "always on") {
+                    Text(SourceVocabulary.shareAlwaysOnExplainer)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
 
                 SourceDetailBlock(title: "what it adds") {
@@ -82,21 +84,6 @@ struct ImporterSourceDetailView: View {
 
 private extension ImporterSourceDetailView {
     @ViewBuilder
-    var stateBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: self.currentState.symbol)
-                Text(self.currentState.label)
-            }
-            .font(.headline)
-
-            LabeledContent("pending", value: "\(self.importQueue.pendingCount)")
-            LabeledContent("failed", value: "\(self.importQueue.failedCount)")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
     var recentBlock: some View {
         if self.importQueue.pendingCount > 0 {
             Text(SourceVocabulary.shareSendingProgress)
@@ -150,10 +137,6 @@ private extension ImporterSourceDetailView {
                     .accessibilityElement(children: .combine)
             }
         }
-    }
-
-    var currentState: SourceState {
-        importerSourceState(failedCount: self.importQueue.failedCount)
     }
 
     func runDelete() async {

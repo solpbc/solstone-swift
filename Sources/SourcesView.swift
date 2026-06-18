@@ -147,10 +147,7 @@ private extension SourcesView {
             kind: .importer,
             group: .bringingInYourself,
             state: importerSourceState(failedCount: self.importQueue.failedCount),
-            activeSubtext: importerActiveSubtext(
-                pendingCount: self.importQueue.pendingCount,
-                lastDeliveredAt: self.importQueue.lastDeliveredAt
-            ),
+            activeSubtext: SourceVocabulary.shareAlwaysOnSubtext,
             attention: self.importQueue.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil,
             pendingStatus: .nonePending
         )
