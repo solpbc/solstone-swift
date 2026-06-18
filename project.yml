@@ -63,6 +63,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start and keeps them on this phone — yours alone, until you connect a journal. nothing is shared with sol pbc."
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "solstone uses Bluetooth to connect to wearable audio devices like the Omi pendant, and keeps everything on this phone — yours alone, until you connect a journal. nothing is shared with sol pbc."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "solstone adds where your day happens and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "solstone adds where your day happens, even in the background, and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
         INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your solstone's pairing code"
@@ -89,6 +90,7 @@ targets:
           - fetch
           - location
           - remote-notification
+          - bluetooth-central
     dependencies:
       - target: SPLTunnel
       - target: SolstoneNotificationContent

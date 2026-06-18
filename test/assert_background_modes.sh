@@ -17,17 +17,17 @@ if ! printf '%s' "$modes_json" | python3 -c '
 import json
 import sys
 
-expected = {"audio", "fetch", "location", "remote-notification"}
+expected = {"audio", "bluetooth-central", "fetch", "location", "remote-notification"}
 
 try:
     modes = json.load(sys.stdin)
 except json.JSONDecodeError:
     sys.exit(1)
 
-if not isinstance(modes, list) or len(modes) != 4 or set(modes) != expected:
+if not isinstance(modes, list) or len(modes) != 5 or set(modes) != expected:
     sys.exit(1)
 '; then
-  echo "background modes assertion failed: expected exactly audio, fetch, location, remote-notification; got ${modes_json}"
+  echo "background modes assertion failed: expected exactly audio, bluetooth-central, fetch, location, remote-notification; got ${modes_json}"
   exit 1
 fi
 

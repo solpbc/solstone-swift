@@ -261,6 +261,13 @@ struct MoreView: View {
                     Text("event log")
                 }
                 .hoverEffect(.highlight)
+
+                NavigationLink {
+                    BLEDiagnosticView()
+                } label: {
+                    Text("omi ble harness")
+                }
+                .hoverEffect(.highlight)
             }
 
             Section("notifications") {
