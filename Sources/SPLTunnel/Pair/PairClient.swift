@@ -114,15 +114,29 @@ public struct PairClient: Sendable {
             csrPEM: generated.csrPEM,
             deviceLabel: deviceLabel
         )
+        return try await finalizeRelayPairing(
+            lanResponse: lanResponse,
+            instanceID: instanceID,
+            generated: generated,
+            relayEndpoint: relayEndpoint
+        )
+    }
+
+    func finalizeRelayPairing(
+        lanResponse: LANPairResponse,
+        instanceID: String,
+        generated: PairingMaterial,
+        relayEndpoint: URL
+    ) async throws -> StoredPairing {
         guard lanResponse.instanceID.caseInsensitiveCompare(instanceID) == .orderedSame else {
             throw PairError.relayInstanceMismatch
         }
-        let relayResponse = try await postRelay(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
+        let relayEnrollment = await optionalRelayEnrollment(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
         return try Self.makeStoredPairing(
             lanResponse: lanResponse,
             generated: generated,
             relayEndpoint: relayEndpoint,
-            relayEnrollment: .enrolled(deviceToken: relayResponse.deviceToken)
+            relayEnrollment: relayEnrollment
         )
     }
 

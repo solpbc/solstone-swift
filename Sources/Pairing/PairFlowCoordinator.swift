@@ -25,6 +25,15 @@ enum PairFlowState: Equatable, Sendable {
 @Observable
 final class PairFlowCoordinator {
     var state: PairFlowState = .idle
+    var hasAutoPaired = false
+    var canStartPairingInput: Bool {
+        switch state {
+        case .idle, .failed:
+            true
+        case .scanning, .pairing, .success:
+            false
+        }
+    }
 
     private let pairClient: PairClient
     private let endpointCache: EndpointCache
@@ -70,6 +79,7 @@ final class PairFlowCoordinator {
                 )
             }
             state = .failed(error: message)
+            hasAutoPaired = false
             pairFlowLog.error("pairing failed: \(String(describing: error), privacy: .public)")
             throw error
         }
@@ -82,6 +92,7 @@ final class PairFlowCoordinator {
             pairFlowLog.error("unpair keychain delete failed: \(String(describing: error), privacy: .public)")
         }
         await endpointCache.wipe()
+        hasAutoPaired = false
         state = .idle
     }
 

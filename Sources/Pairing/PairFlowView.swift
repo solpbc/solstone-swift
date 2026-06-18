@@ -100,7 +100,6 @@ struct PairFlowView: View {
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
     @State private var errorMessage: String?
-    @State private var didAutoPair = false
 
     var body: some View {
         OnboardingScaffold(
@@ -169,14 +168,14 @@ struct PairFlowView: View {
             }
         }
         .onAppear {
-            guard !self.didAutoPair else { return }
+            guard !self.coordinator.hasAutoPaired else { return }
             if let pairURLError = self.handoff.pairURLError {
                 self.fallbackTimer.cancel()
                 self.errorMessage = PairFlowCoordinator.message(for: pairURLError, targetAddress: nil, interfaces: [])
                 self.handoff.pairURLError = nil
             } else if let pairURL = self.handoff.pairURL {
                 self.fallbackTimer.cancel()
-                self.didAutoPair = true
+                self.coordinator.hasAutoPaired = true
                 self.handoff.pairURL = nil
                 Task {
                     await self.handle(pairURL)
@@ -268,13 +267,14 @@ struct PairFlowView: View {
             } else {
                 self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
             }
+            self.startFallbackTimerIfNeeded()
         }
     }
 
     private func startFallbackTimerIfNeeded() {
         guard self.mode == .scan,
-              self.coordinator.state == .idle,
-              !self.didAutoPair,
+              self.coordinator.canStartPairingInput,
+              !self.coordinator.hasAutoPaired,
               self.handoff.pairURL == nil,
               self.handoff.pairURLError == nil
         else { return }

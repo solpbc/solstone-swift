@@ -35,6 +35,7 @@ private final class RelayURLProtocol: URLProtocol, @unchecked Sendable {
         var responseData = Data()
         var statusCode = 200
         var error: URLError?
+        var requestURLs: [String] = []
     }
 
     private static let state = OSAllocatedUnfairLock(initialState: State())
@@ -44,13 +45,21 @@ private final class RelayURLProtocol: URLProtocol, @unchecked Sendable {
             $0.responseData = responseData
             $0.statusCode = statusCode
             $0.error = error
+            $0.requestURLs = []
         }
+    }
+
+    static func requestURLs() -> [String] {
+        state.withLock { $0.requestURLs }
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let current = Self.state.withLock { $0 }
+        let current = Self.state.withLock { state in
+            state.requestURLs.append(request.url?.absoluteString ?? "")
+            return state
+        }
         if let error = current.error {
             client?.urlProtocol(self, didFailWithError: error)
             return
@@ -184,14 +193,16 @@ nonisolated final class PairClientTests: XCTestCase {
         )
     }
 
-    func testRelayFailureCompletesPairingAsUnavailable() async throws {
+    func testDirectPairRelayFailureCompletesPairingAsUnavailable() async throws {
         let client = PairClient(
             session: Self.relaySession(error: URLError(.cannotConnectToHost)),
             lanTransport: Self.successfulLANTransport()
         )
+        let pairURL = try PairURL.parse(Self.canonicalURL())
+        XCTAssertEqual(pairURL.kind, .direct)
 
         let pairing = try await client.pair(
-            pairURL: try PairURL.parse(Self.canonicalURL()),
+            pairURL: pairURL,
             deviceLabel: "test phone",
             relayEndpoint: Self.relayEndpoint
         )
@@ -204,14 +215,16 @@ nonisolated final class PairClientTests: XCTestCase {
         ])
     }
 
-    func testRelaySuccessStoresTokenAndAddsRelayCandidate() async throws {
+    func testDirectPairRelaySuccessStoresTokenAndAddsRelayCandidate() async throws {
         let client = PairClient(
             session: Self.relaySession(responseData: Self.relaySuccessData(deviceToken: "relay-token")),
             lanTransport: Self.successfulLANTransport()
         )
+        let pairURL = try PairURL.parse(Self.canonicalURL())
+        XCTAssertEqual(pairURL.kind, .direct)
 
         let pairing = try await client.pair(
-            pairURL: try PairURL.parse(Self.canonicalURL()),
+            pairURL: pairURL,
             deviceLabel: "test phone",
             relayEndpoint: Self.relayEndpoint
         )
@@ -222,6 +235,48 @@ nonisolated final class PairClientTests: XCTestCase {
         XCTAssertTrue(candidates.contains(.lan(host: "192.0.2.42", port: 7070, scope: "")))
         XCTAssertTrue(candidates.contains(.lan(host: "10.0.0.2", port: 9443, scope: "wifi")))
         XCTAssertTrue(candidates.contains(.relay(endpoint: Self.relayEndpoint, instanceID: "instance-123", deviceToken: "relay-token")))
+    }
+
+    func testRelayFinalizeEnrollmentFailureCompletesPairingAsUnavailable() async throws {
+        let client = PairClient(
+            session: Self.relaySession(error: URLError(.cannotConnectToHost)),
+            lanTransport: Self.successfulLANTransport()
+        )
+        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData())
+
+        let pairing = try await client.finalizeRelayPairing(
+            lanResponse: lanResponse,
+            instanceID: "instance-123",
+            generated: PairingMaterial(csrPEM: "unused", privateKeyPEM: "private-key"),
+            relayEndpoint: Self.relayEndpoint
+        )
+
+        XCTAssertEqual(pairing.relayEnrollment, .unavailable)
+        XCTAssertEqual(pairing.relayEndpoint, Self.relayEndpoint.absoluteString)
+        XCTAssertEqual(try TransportEndpoint.candidates(for: pairing), [
+            .lan(host: "10.0.0.2", port: 9443, scope: "wifi")
+        ])
+    }
+
+    func testRelayFinalizeInstanceMismatchThrowsBeforeEnrollment() async throws {
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: Self.successfulLANTransport()
+        )
+        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData())
+
+        do {
+            _ = try await client.finalizeRelayPairing(
+                lanResponse: lanResponse,
+                instanceID: "different-instance",
+                generated: PairingMaterial(csrPEM: "unused", privateKeyPEM: "private-key"),
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected relay instance mismatch")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .relayInstanceMismatch)
+        }
+        XCTAssertFalse(RelayURLProtocol.requestURLs().contains { $0.contains("/enroll/device") })
     }
 
     func testDirectPairHonorsInjectedCandidateOrderAndStopsOnSuccess() async throws {
@@ -407,6 +462,19 @@ nonisolated final class PairClientTests: XCTestCase {
         let postDirectPair = try Self.slice(text, from: "private func postDirectPair", to: "private func postPairTicket")
         XCTAssertFalse(postDirectPair.contains("URLSession"))
         XCTAssertFalse(postDirectPair.contains("data(for:"))
+    }
+
+    func testRelayPairKeepsTunnelPostRequiredBeforeFinalize() throws {
+        let root = StringLiteralGrepSupport.worktreeRoot()
+        let file = root.appendingPathComponent("Sources/SPLTunnel/Pair/PairClient.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let pairViaRelay = try Self.slice(text, from: "private func pairViaRelay", to: "private func postDirectPair")
+
+        XCTAssertTrue(pairViaRelay.contains("let lanResponse = try await Self.postPairThroughTunnel"))
+        XCTAssertFalse(pairViaRelay.contains("try? await Self.postPairThroughTunnel"))
+        let tunnelPost = try XCTUnwrap(pairViaRelay.range(of: "try await Self.postPairThroughTunnel"))
+        let finalize = try XCTUnwrap(pairViaRelay.range(of: "return try await finalizeRelayPairing"))
+        XCTAssertLessThan(tunnelPost.lowerBound, finalize.lowerBound)
     }
 
     private static func assertPairError(_ expected: PairError, lanStatus: Int) async throws {
