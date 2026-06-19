@@ -9,6 +9,12 @@ public struct LocalEndpoint: Codable, Sendable, Equatable {
     public let port: Int
     public let scope: String
 
+    enum CodingKeys: String, CodingKey {
+        case host = "ip"
+        case port
+        case scope
+    }
+
     public init(host: String, port: Int, scope: String) {
         self.host = host
         self.port = port

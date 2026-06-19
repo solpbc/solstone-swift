@@ -69,7 +69,7 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [EndpointURLProtocol.self]
         EndpointURLProtocol.configure(responseData: """
-        {"local_endpoints":[{"host":"10.0.0.2","port":9443,"scope":"wifi"},{"host":"fd00::1","port":9443,"scope":"ula"}]}
+        {"local_endpoints":[{"ip":"10.0.0.2","port":9443,"scope":"wifi"},{"ip":"fd00::1","port":9443,"scope":"ula"}]}
         """.data(using: .utf8)!)
         let cache = EndpointCache(fileURL: fileURL, session: URLSession(configuration: config))
         await cache.bootstrap(from: Self.pairing(endpoints: [

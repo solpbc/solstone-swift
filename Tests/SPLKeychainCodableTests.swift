@@ -26,6 +26,16 @@ nonisolated final class SPLKeychainCodableTests: XCTestCase {
         XCTAssertEqual(pairing.relayEnrollment, .unavailable)
     }
 
+    func testLocalEndpointCodableUsesIPWireKey() throws {
+        let endpoint = LocalEndpoint(host: "192.168.1.10", port: 7657, scope: "lan")
+        let data = try JSONEncoder().encode(endpoint)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        XCTAssertTrue(json.contains(#""ip""#))
+        XCTAssertFalse(json.contains(#""host""#))
+        XCTAssertEqual(try JSONDecoder().decode(LocalEndpoint.self, from: data), endpoint)
+    }
+
     private static func pairing(enrollment: RelayEnrollment) -> StoredPairing {
         StoredPairing(
             instanceID: "instance",

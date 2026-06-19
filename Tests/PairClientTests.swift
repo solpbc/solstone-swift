@@ -139,6 +139,30 @@ nonisolated final class PairClientTests: XCTestCase {
         XCTAssertNil(json["client_cert"])
     }
 
+    func testLANResponseDecodesLocalEndpointIPWireKey() throws {
+        let json = """
+        {"instance_id":"i","home_label":"h","client_cert":"c","ca_chain":[],"home_attestation":"a","local_endpoints":[{"ip":"192.168.1.10","port":7657,"scope":"lan"}]}
+        """
+
+        let response = try PairClient.decodeLANResponse(data: Data(json.utf8))
+        XCTAssertEqual(response.localEndpoints.count, 1)
+        let endpoint = try XCTUnwrap(response.localEndpoints.first)
+
+        XCTAssertEqual(endpoint.host, "192.168.1.10")
+        XCTAssertEqual(endpoint.port, 7657)
+        XCTAssertEqual(endpoint.scope, "lan")
+    }
+
+    func testLANResponseDefaultsMissingLocalEndpointsToEmpty() throws {
+        let json = """
+        {"instance_id":"i","home_label":"h","client_cert":"c","ca_chain":[],"home_attestation":"a"}
+        """
+
+        let response = try PairClient.decodeLANResponse(data: Data(json.utf8))
+
+        XCTAssertEqual(response.localEndpoints, [])
+    }
+
     private static let lanResponseJSON = """
     {
       "instance_id": "instance-123",
