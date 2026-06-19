@@ -63,15 +63,28 @@ struct BLEDiagnosticView: View {
 
             Toggle("all devices", isOn: Binding(
                 get: { self.manager.scanAllDevices },
-                set: { self.manager.scanAllDevices = $0 }
+                set: { self.manager.setScanAllDevices($0) }
             ))
-            .disabled(self.manager.isScanning)
+            .disabled(self.manager.managerState != .poweredOn)
+
+            HStack {
+                Button("find connected") {
+                    self.manager.refreshSystemConnectedPeripherals()
+                }
+                .disabled(self.manager.managerState != .poweredOn)
+
+                Button("reconnect last") {
+                    self.manager.reconnectLastConnectedPeripheral()
+                }
+                .disabled(self.manager.managerState != .poweredOn || !self.manager.hasLastConnectedPeripheral)
+            }
+            .buttonStyle(.borderless)
 
             if self.manager.discovered.isEmpty {
                 ContentUnavailableView {
                     Label("no devices yet", systemImage: "antenna.radiowaves.left.and.right")
                 } description: {
-                    Text("tap scan to search nearby.")
+                    Text("scan nearby, or find devices already connected on this phone.")
                 }
             } else {
                 ForEach(self.manager.discovered) { peripheral in
@@ -81,6 +94,14 @@ struct BLEDiagnosticView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(peripheral.name ?? "(unnamed)")
                                 .font(.headline)
+                            Text(self.sourceText(for: peripheral.source))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(peripheral.source == .connectedSystem ? .green : .secondary)
+                            if peripheral.source == .connectedSystem {
+                                Text("already connected on this phone")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Text(peripheral.id.uuidString)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
@@ -489,6 +510,15 @@ struct BLEDiagnosticView: View {
             .orange
         case .error:
             .red
+        }
+    }
+
+    private func sourceText(for source: BLEPeripheralSource) -> String {
+        switch source {
+        case .advertised:
+            "advertised"
+        case .connectedSystem:
+            "connected (system)"
         }
     }
 

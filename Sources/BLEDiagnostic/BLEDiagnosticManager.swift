@@ -9,6 +9,7 @@ import Observation
 @Observable
 final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated static let restoreIdentifier = "app.solstone.swift.ble-diagnostic"
+    private nonisolated static let lastConnectedPeripheralIDKey = "bleDiagnostic.lastConnectedPeripheralID"
 
     var managerState: CBManagerState = .unknown
     var isScanning = false
@@ -57,8 +58,11 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
     @ObservationIgnored private var central: CBCentralManager?
     @ObservationIgnored private var peripheralsByID: [UUID: CBPeripheral] = [:]
+    @ObservationIgnored private var advertisedByID: [UUID: BLEDiscoveredPeripheral] = [:]
+    @ObservationIgnored private var connectedSystemByID: [UUID: BLEDiscoveredPeripheral] = [:]
     @ObservationIgnored private var connectedPeripheral: CBPeripheral?
     @ObservationIgnored private var characteristicsByID: [String: CBCharacteristic] = [:]
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var connectTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var statsTask: Task<Void, Never>?
     @ObservationIgnored private var sdStatsTask: Task<Void, Never>?
@@ -82,6 +86,13 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
     var stateLine: String {
         BLEDiagnosticFormatters.stateLine(for: self.managerState)
+    }
+
+    var hasLastConnectedPeripheral: Bool {
+        guard let value = self.defaults.string(forKey: Self.lastConnectedPeripheralIDKey) else {
+            return false
+        }
+        return UUID(uuidString: value) != nil
     }
 
     var canSubscribeAudio: Bool {
@@ -109,7 +120,8 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         self.storageNotifyCandidate() != nil
     }
 
-    override init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         super.init()
         // queue: nil -> delegate callbacks on main; MainActor.assumeIsolated bridges them with no actor-boundary crossing (CBPeripheral is non-Sendable).
         self.central = CBCentralManager(
@@ -137,6 +149,27 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         self.central?.stopScan()
         self.isScanning = false
         self.log.append(message: "scan stopped")
+    }
+
+    func setScanAllDevices(_ enabled: Bool) {
+        guard self.scanAllDevices != enabled else {
+            return
+        }
+
+        let wasScanning = self.isScanning
+        if wasScanning {
+            self.stopScan()
+        }
+
+        self.scanAllDevices = enabled
+        if wasScanning {
+            self.advertisedByID.removeAll()
+        }
+        self.recomputeDiscovered()
+
+        if wasScanning {
+            self.startScan()
+        }
     }
 
     func connect(_ id: UUID) {
@@ -370,6 +403,55 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         self.log.clear()
     }
 
+    func refreshSystemConnectedPeripherals() {
+        guard self.managerState == .poweredOn else {
+            self.log.append(severity: .warn, message: "find connected unavailable: \(self.stateLine)")
+            return
+        }
+
+        let services = [
+            BLEDiagnosticUUIDs.audioService,
+            BLEDiagnosticUUIDs.storageService
+        ]
+        let peripherals = self.central?.retrieveConnectedPeripherals(withServices: services) ?? []
+        self.connectedSystemByID.removeAll(keepingCapacity: true)
+        for peripheral in peripherals {
+            self.peripheralsByID[peripheral.identifier] = peripheral
+            self.connectedSystemByID[peripheral.identifier] = BLEDiscoveredPeripheral(
+                id: peripheral.identifier,
+                name: peripheral.name,
+                rssi: 0,
+                advertisedServiceUUIDs: [],
+                source: .connectedSystem
+            )
+        }
+        self.recomputeDiscovered()
+        self.log.append(message: "connected devices found: \(peripherals.count)")
+    }
+
+    func reconnectLastConnectedPeripheral() {
+        guard self.managerState == .poweredOn else {
+            self.log.append(severity: .warn, message: "reconnect last unavailable: \(self.stateLine)")
+            return
+        }
+
+        guard let value = self.defaults.string(forKey: Self.lastConnectedPeripheralIDKey),
+              let id = UUID(uuidString: value)
+        else {
+            self.log.append(severity: .warn, message: "reconnect last unavailable: no saved device")
+            return
+        }
+
+        let peripherals = self.central?.retrievePeripherals(withIdentifiers: [id]) ?? []
+        guard let peripheral = peripherals.first else {
+            self.log.append(severity: .warn, message: "reconnect last unavailable: saved device not found")
+            return
+        }
+
+        self.peripheralsByID[id] = peripheral
+        self.connect(id)
+    }
+
     func logSnapshot() -> String {
         let firmwareValue: String?
         if case .value(let value) = self.firmware {
@@ -501,9 +583,12 @@ private extension BLEDiagnosticManager {
         if state != .poweredOn && self.isScanning {
             self.isScanning = false
         }
-        if state == .poweredOn && !self.didLogPoweredOn {
-            self.didLogPoweredOn = true
-            self.log.append(message: "bluetooth on; no bonding prompt expected for diagnostic reads")
+        if state == .poweredOn {
+            if !self.didLogPoweredOn {
+                self.didLogPoweredOn = true
+                self.log.append(message: "bluetooth on; no bonding prompt expected for diagnostic reads")
+            }
+            self.refreshSystemConnectedPeripherals()
         }
     }
 
@@ -519,14 +604,12 @@ private extension BLEDiagnosticManager {
             id: peripheral.identifier,
             name: peripheral.name ?? advertisedName,
             rssi: rssi,
-            advertisedServiceUUIDs: advertisedServices
+            advertisedServiceUUIDs: advertisedServices,
+            source: .advertised
         )
 
-        if let index = self.discovered.firstIndex(where: { $0.id == discoveredPeripheral.id }) {
-            self.discovered[index] = discoveredPeripheral
-        } else {
-            self.discovered.append(discoveredPeripheral)
-        }
+        self.advertisedByID[peripheral.identifier] = discoveredPeripheral
+        self.recomputeDiscovered()
     }
 
     func handleConnected(_ peripheral: CBPeripheral) {
@@ -535,6 +618,7 @@ private extension BLEDiagnosticManager {
         self.connectedPeripheral = peripheral
         self.connectedPeripheralName = peripheral.name ?? self.displayName(for: peripheral.identifier)
         self.connectedPeripheralID = peripheral.identifier.uuidString
+        self.defaults.set(peripheral.identifier.uuidString, forKey: Self.lastConnectedPeripheralIDKey)
         self.connectionState = .connected
         peripheral.delegate = self
         self.resetReadState()
@@ -772,6 +856,14 @@ private extension BLEDiagnosticManager {
         self.hardwareRevision = .notRead
         self.battery = .notRead
         self.codec = .notRead
+    }
+
+    func recomputeDiscovered() {
+        self.discovered = BLEDiagnosticDiscovery.mergedDisplayList(
+            advertised: Array(self.advertisedByID.values),
+            connectedSystem: Array(self.connectedSystemByID.values),
+            scanAllDevices: self.scanAllDevices
+        )
     }
 
     func cancelConnectTimeout() {

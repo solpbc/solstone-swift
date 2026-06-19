@@ -51,11 +51,17 @@ nonisolated struct BLELogEntry: Identifiable, Sendable, Equatable {
     }
 }
 
-nonisolated struct BLEDiscoveredPeripheral: Identifiable {
+nonisolated enum BLEPeripheralSource: Sendable, Equatable {
+    case advertised
+    case connectedSystem
+}
+
+nonisolated struct BLEDiscoveredPeripheral: Identifiable, Equatable {
     let id: UUID
     var name: String?
     var rssi: Int
     var advertisedServiceUUIDs: [CBUUID]
+    var source: BLEPeripheralSource
 }
 
 nonisolated enum BLEConnectionState: Equatable, Sendable {
