@@ -30,7 +30,13 @@ struct ChatView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             ForEach(self.chatManager.messages) { message in
-                                BubbleView(message: message)
+                                BubbleView(
+                                    message: message,
+                                    foldAnchor: self.foldAnchorPlacement(for: message),
+                                    onFoldAnchorTap: { id in
+                                        self.scrollToMessage(id: id, animated: !self.reduceMotion)
+                                    }
+                                )
                                     .id(message.id)
                             }
 
@@ -187,17 +193,26 @@ private extension ChatView {
 
     func scrollToPin(animated: Bool) {
         guard let pinned = self.pinnedMessageID else { return }
+        self.scrollToMessage(id: pinned, animated: animated)
+    }
+
+    func scrollToMessage(id: UUID, animated: Bool) {
         if animated {
             withAnimation(.easeInOut(duration: 0.2)) {
-                self.scrollPosition.scrollTo(id: pinned, anchor: .top)
+                self.scrollPosition.scrollTo(id: id, anchor: .top)
             }
         } else {
             var txn = Transaction()
             txn.disablesAnimations = true
             withTransaction(txn) {
-                self.scrollPosition.scrollTo(id: pinned, anchor: .top)
+                self.scrollPosition.scrollTo(id: id, anchor: .top)
             }
         }
+    }
+
+    func foldAnchorPlacement(for message: ChatMessage) -> FoldAnchorPlacement? {
+        guard let origin = message.origin else { return nil }
+        return FoldAnchor.resolve(origin: origin, messages: self.chatManager.messages)
     }
 
     func handleSend() {
@@ -235,6 +250,8 @@ private extension ChatView {
 
 private struct BubbleView: View {
     let message: ChatMessage
+    let foldAnchor: FoldAnchorPlacement?
+    let onFoldAnchorTap: (UUID) -> Void
 
     private var alignment: HorizontalAlignment {
         switch self.message.role {
@@ -283,7 +300,12 @@ private struct BubbleView: View {
                     .accessibilityLabel(SourceVocabulary.chatFailedStatusA11y)
             }
             if self.message.role == .assistant {
-                AssistantBubble(message: self.message)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let foldAnchor {
+                        FoldAnchorView(placement: foldAnchor, onTap: self.onFoldAnchorTap)
+                    }
+                    AssistantBubble(message: self.message)
+                }
             } else {
                 Text(self.message.text)
             }
@@ -295,16 +317,43 @@ private struct BubbleView: View {
     }
 }
 
+private struct FoldAnchorView: View {
+    let placement: FoldAnchorPlacement
+    let onTap: (UUID) -> Void
+
+    var body: some View {
+        switch self.placement {
+        case .anchored(let id):
+            Button {
+                self.onTap(id)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up")
+                        .font(.caption2.weight(.semibold))
+                    Text(SourceVocabulary.chatFoldAnchorTitle)
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        case .inlineAsk(let ask):
+            VStack(alignment: .leading, spacing: 2) {
+                Text(SourceVocabulary.chatFoldInlineAskPrefix)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(ask)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 private struct WorkingTraceView: View {
     let trace: ChatWorkingTrace
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(self.trace.completedLabels, id: \.self) { label in
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             ForEach(self.trace.activeLabels, id: \.self) { label in
                 HStack(spacing: 6) {
                     ProgressView()

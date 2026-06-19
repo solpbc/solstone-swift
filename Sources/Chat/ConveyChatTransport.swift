@@ -234,6 +234,9 @@ private extension ConveyChatTransport {
         case "sol_message":
             guard let message = envelope.solMessage else { return nil }
             return .solMessage(message)
+        case "talent_queued":
+            guard let talent = envelope.talent else { return nil }
+            return .talentQueued(talent)
         case "talent_spawned":
             guard let talent = envelope.talent else { return nil }
             return .talentSpawned(talent)
@@ -270,6 +273,7 @@ private nonisolated struct WireSessionSnapshot: Decodable {
     let latestSolMessage: WireSolMessage?
     let activeTalents: [WireTalent]?
     let completedTalents: [WireTalent]?
+    let queuedTalents: [WireTalent]?
     let queueDepth: Int?
     let chat: WireSessionPayload?
 
@@ -278,6 +282,7 @@ private nonisolated struct WireSessionSnapshot: Decodable {
             latestSolMessage: self.latestSolMessage,
             activeTalents: self.activeTalents,
             completedTalents: self.completedTalents,
+            queuedTalents: self.queuedTalents,
             queueDepth: self.queueDepth
         )
         return payload.normalized
@@ -288,6 +293,7 @@ private nonisolated struct WireSessionPayload: Decodable {
     let latestSolMessage: WireSolMessage?
     let activeTalents: [WireTalent]?
     let completedTalents: [WireTalent]?
+    let queuedTalents: [WireTalent]?
     let queueDepth: Int?
 
     var normalized: ChatSessionSnapshot {
@@ -295,6 +301,7 @@ private nonisolated struct WireSessionPayload: Decodable {
             latestSolMessage: self.latestSolMessage?.normalized,
             activeTalents: self.activeTalents?.compactMap (\.normalized) ?? [],
             completedTalents: self.completedTalents?.compactMap (\.normalized) ?? [],
+            queuedTalents: self.queuedTalents?.compactMap (\.normalized) ?? [],
             queueDepth: self.queueDepth
         )
     }
@@ -309,6 +316,7 @@ private nonisolated struct WireChatEnvelope: Decodable {
     let latestSolMessage: WireSolMessage?
     let activeTalents: [WireTalent]?
     let completedTalents: [WireTalent]?
+    let queuedTalents: [WireTalent]?
 
     private let owner: WireOwnerMessage?
     private let sol: WireSolMessage?
@@ -325,24 +333,30 @@ private nonisolated struct WireChatEnvelope: Decodable {
         case latestSolMessage
         case activeTalents
         case completedTalents
+        case queuedTalents
         case ownerMessage
         case solMessage
         case message
         case talent
+        case origin
         case error
         case result
         case id
         case text
         case requestId
         case useId
+        case logicalUseId
+        case ask
         case requestedTarget
         case answerState
         case sources
         case coverage
         case offer
         case draft
+        case name
         case label
         case task
+        case queuedAt
         case reason
         case detail
         case ok
@@ -360,6 +374,7 @@ private nonisolated struct WireChatEnvelope: Decodable {
         self.latestSolMessage = try container.decodeIfPresent(WireSolMessage.self, forKey: .latestSolMessage)
         self.activeTalents = try container.decodeIfPresent([WireTalent].self, forKey: .activeTalents)
         self.completedTalents = try container.decodeIfPresent([WireTalent].self, forKey: .completedTalents)
+        self.queuedTalents = try container.decodeIfPresent([WireTalent].self, forKey: .queuedTalents)
 
         self.owner = (try? container.decode(WireOwnerMessage.self, forKey: .ownerMessage))
             ?? (try? container.decode(WireOwnerMessage.self, forKey: .message))
@@ -380,6 +395,7 @@ private nonisolated struct WireChatEnvelope: Decodable {
             latestSolMessage: self.latestSolMessage?.normalized,
             activeTalents: self.activeTalents?.compactMap (\.normalized) ?? [],
             completedTalents: self.completedTalents?.compactMap (\.normalized) ?? [],
+            queuedTalents: self.queuedTalents?.compactMap (\.normalized) ?? [],
             queueDepth: self.queueDepth
         )
     }
@@ -460,6 +476,7 @@ private nonisolated struct WireSolMessage: Decodable {
     let requestId: String?
     let useId: String?
     let requestedTarget: String?
+    let origin: WireSolOrigin?
     let answerState: AnswerState?
     let sources: [WireSource]?
     let coverage: [String]?
@@ -475,6 +492,7 @@ private nonisolated struct WireSolMessage: Decodable {
         self.requestId = try container.decodeIfPresent(String.self, forKey: .requestId)
         self.useId = try container.decodeIfPresent(String.self, forKey: .useId)
         self.requestedTarget = try container.decodeIfPresent(String.self, forKey: .requestedTarget)
+        self.origin = try container.decodeIfPresent(WireSolOrigin.self, forKey: .origin)
         self.answerState = try container.decodeIfPresent(AnswerState.self, forKey: .answerState)
         self.sources = try container.decodeIfPresent([WireSource].self, forKey: .sources)
         self.coverage = try container.decodeIfPresent([String].self, forKey: .coverage)
@@ -490,6 +508,7 @@ private nonisolated struct WireSolMessage: Decodable {
         self.requestId = try? container.decodeIfPresent(String.self, forKey: .requestId)
         self.useId = try? container.decodeIfPresent(String.self, forKey: .useId)
         self.requestedTarget = try? container.decodeIfPresent(String.self, forKey: .requestedTarget)
+        self.origin = try? container.decodeIfPresent(WireSolOrigin.self, forKey: .origin)
         self.answerState = try? container.decodeIfPresent(AnswerState.self, forKey: .answerState)
         self.sources = try? container.decodeIfPresent([WireSource].self, forKey: .sources)
         self.coverage = try? container.decodeIfPresent([String].self, forKey: .coverage)
@@ -508,6 +527,7 @@ private nonisolated struct WireSolMessage: Decodable {
         case requestId
         case useId
         case requestedTarget
+        case origin
         case answerState
         case sources
         case coverage
@@ -533,6 +553,7 @@ private nonisolated struct WireSolMessage: Decodable {
             requestID: self.requestId,
             useID: self.useId,
             requestedTarget: self.requestedTarget,
+            origin: self.origin?.normalized,
             provenance: provenance,
             offer: self.offer?.normalized,
             draft: self.draft?.normalized,
@@ -541,11 +562,26 @@ private nonisolated struct WireSolMessage: Decodable {
     }
 }
 
+private nonisolated struct WireSolOrigin: Decodable {
+    let logicalUseId: String?
+    let ask: String?
+
+    var normalized: ChatSolOrigin? {
+        guard let logicalUseId, !logicalUseId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return ChatSolOrigin(logicalUseID: logicalUseId, ask: self.ask)
+    }
+}
+
 private nonisolated struct WireTalent: Decodable {
     let id: String?
     let useId: String?
+    let name: String?
     let label: String?
     let task: String?
+    let queuedAtString: String?
+    let queuedAtTs: Double?
     let ts: Double?
     let timestamp: String?
 
@@ -553,8 +589,11 @@ private nonisolated struct WireTalent: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decodeIfPresent(String.self, forKey: .id)
         self.useId = try container.decodeIfPresent(String.self, forKey: .useId)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
         self.label = try container.decodeIfPresent(String.self, forKey: .label)
         self.task = try container.decodeIfPresent(String.self, forKey: .task)
+        self.queuedAtString = try? container.decodeIfPresent(String.self, forKey: .queuedAt)
+        self.queuedAtTs = try? container.decodeIfPresent(Double.self, forKey: .queuedAt)
         self.ts = try container.decodeIfPresent(Double.self, forKey: .ts)
         self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
     }
@@ -562,30 +601,37 @@ private nonisolated struct WireTalent: Decodable {
     init?(envelopeContainer container: KeyedDecodingContainer<WireChatEnvelope.CodingKeys>) {
         self.id = try? container.decodeIfPresent(String.self, forKey: .id)
         self.useId = try? container.decodeIfPresent(String.self, forKey: .useId)
+        self.name = try? container.decodeIfPresent(String.self, forKey: .name)
         self.label = try? container.decodeIfPresent(String.self, forKey: .label)
         self.task = try? container.decodeIfPresent(String.self, forKey: .task)
+        self.queuedAtString = try? container.decodeIfPresent(String.self, forKey: .queuedAt)
+        self.queuedAtTs = try? container.decodeIfPresent(Double.self, forKey: .queuedAt)
         self.ts = try? container.decodeIfPresent(Double.self, forKey: .ts)
         self.timestamp = try? container.decodeIfPresent(String.self, forKey: .timestamp)
-        guard self.label != nil || self.task != nil || self.id != nil else { return nil }
+        guard self.name != nil || self.label != nil || self.task != nil || self.id != nil || self.useId != nil else { return nil }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
         case useId
+        case name
         case label
         case task
+        case queuedAt
         case ts
         case timestamp
     }
 
     var normalized: ChatTalentActivity? {
-        let label = self.label ?? self.task ?? self.id ?? ""
+        let label = self.name ?? self.label ?? self.task ?? self.id ?? self.useId ?? ""
         guard !label.isEmpty else { return nil }
         return ChatTalentActivity(
-            id: self.id ?? "\(self.useId ?? "talent")-\(label)",
+            id: self.id ?? self.useId ?? "talent-\(label)",
             useID: self.useId,
             label: label,
-            timestamp: chatDate(ts: self.ts, timestamp: self.timestamp)
+            task: self.task,
+            timestamp: chatDate(ts: self.ts, timestamp: self.timestamp),
+            queuedAt: chatDate(ts: self.queuedAtTs, timestamp: self.queuedAtString)
         )
     }
 }

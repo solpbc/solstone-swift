@@ -11,6 +11,8 @@ struct ChatComposerView: View {
     @State private var bannerFlash = false
     @State private var lastBannerError: String?
     @State private var shiftReturnJustInserted = false
+    @State private var showingTalentDetail = false
+    @State private var elapsedModel = ComposerTalentElapsedModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -70,6 +72,14 @@ struct ChatComposerView: View {
                         self.onSend()
                     }
 
+                ComposerSolMark(
+                    isBusy: self.chatManager.hasTalentWork,
+                    reduceMotion: self.reduceMotion,
+                    action: {
+                        self.showingTalentDetail = true
+                    }
+                )
+
                 Button {
                     ChatHaptics.send()
                     self.onSend()
@@ -88,6 +98,25 @@ struct ChatComposerView: View {
         .background(.bar)
         .onChange(of: self.chatManager.lastError) { _, newValue in
             self.handleBannerChange(newValue)
+        }
+        .onChange(of: self.chatManager.hasTalentWork) { _, _ in
+            self.syncElapsedTick()
+        }
+        .onChange(of: self.reduceMotion) { _, _ in
+            self.syncElapsedTick()
+        }
+        .task {
+            self.syncElapsedTick()
+        }
+        .onDisappear {
+            self.elapsedModel.stop()
+        }
+        .sheet(isPresented: self.$showingTalentDetail) {
+            TalentWorkDetailSheet(
+                running: self.chatManager.runningTalents,
+                queued: self.chatManager.queuedTalents,
+                now: self.elapsedModel.now
+            )
         }
     }
 }
@@ -109,5 +138,9 @@ private extension ChatComposerView {
             try? await Task.sleep(for: .milliseconds(140))
             self.bannerFlash = false
         }
+    }
+
+    func syncElapsedTick() {
+        self.elapsedModel.update(isBusy: self.chatManager.hasTalentWork, reduceMotion: self.reduceMotion)
     }
 }

@@ -20,6 +20,7 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
     var provenance: AnswerProvenance?
     var requestID: String?
     var useID: String?
+    var origin: ChatSolOrigin?
 
     init(
         id: UUID = UUID(),
@@ -29,7 +30,8 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
         status: Status = .sent,
         provenance: AnswerProvenance? = nil,
         requestID: String? = nil,
-        useID: String? = nil
+        useID: String? = nil,
+        origin: ChatSolOrigin? = nil
     ) {
         self.id = id
         self.role = role
@@ -39,5 +41,6 @@ struct ChatMessage: Identifiable, Sendable, Equatable {
         self.provenance = provenance
         self.requestID = requestID
         self.useID = useID
+        self.origin = origin
     }
 }

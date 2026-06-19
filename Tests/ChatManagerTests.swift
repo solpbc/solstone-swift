@@ -8,7 +8,7 @@ import XCTest
 
 nonisolated final class ChatManagerTests: XCTestCase {
     @MainActor
-    func testAckMarksUserSentImmediatelyWithoutAssistantOrDuplicatePost() async {
+    func testAckMarksUserSentAndInsertsAckBubbleWithoutDuplicatePost() async {
         let transport = ScriptedChatTransport(postResults: [.ack(useID: "use-1", queued: false, queueDepth: nil)])
         let manager = self.makeManager(transport: transport)
 
@@ -17,10 +17,13 @@ nonisolated final class ChatManagerTests: XCTestCase {
         await self.yieldForEvents()
 
         XCTAssertEqual(transport.postedMessages, ["hello"])
-        XCTAssertEqual(manager.messages.count, 1)
+        XCTAssertEqual(manager.messages.count, 2)
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.messages[0].useID, "use-1")
-        XCTAssertTrue(manager.isSending)
+        XCTAssertEqual(manager.messages[1].role, .assistant)
+        XCTAssertEqual(manager.messages[1].text, SourceVocabulary.chatAckBubble)
+        XCTAssertEqual(manager.messages[1].useID, "use-1")
+        XCTAssertFalse(manager.isSending)
         XCTAssertNil(manager.lastError)
     }
 
@@ -33,22 +36,25 @@ nonisolated final class ChatManagerTests: XCTestCase {
         let manager = self.makeManager(transport: transport)
 
         await manager.send("first")
-        await manager.send("second")
-        manager._testDrainStep()
         await self.yieldForEvents()
 
         XCTAssertEqual(transport.postedMessages, ["first"])
-        XCTAssertEqual(manager.messages.map(\.status), [.sent, .pending])
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant])
+        XCTAssertEqual(manager.messages[1].text, SourceVocabulary.chatAckBubble)
 
         transport.push(.solMessage(ChatSolMessage(id: "sol-1", text: "hello back", useID: "use-1")))
         await self.yieldForEvents()
 
+        await manager.send("second")
+        await self.yieldForEvents()
+
         XCTAssertEqual(transport.postedMessages, ["first", "second"])
-        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant, .user])
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant, .user, .assistant])
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.messages[1].text, "hello back")
         XCTAssertEqual(manager.messages[2].status, .sent)
-        XCTAssertTrue(manager.isSending)
+        XCTAssertEqual(manager.messages[3].text, SourceVocabulary.chatAckBubble)
+        XCTAssertFalse(manager.isSending)
     }
 
     @MainActor
@@ -67,15 +73,23 @@ nonisolated final class ChatManagerTests: XCTestCase {
         manager._testDrainStep()
         await self.yieldForEvents()
 
-        XCTAssertEqual(transport.postedMessages, ["first"])
-        XCTAssertEqual(manager.messages.map(\.role), [.user, .user])
-        XCTAssertEqual(manager.messages.map(\.status), [.sent, .pending])
-        XCTAssertTrue(manager.isSending)
+        XCTAssertEqual(transport.postedMessages, ["first", "second"])
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant, .user, .assistant])
+        XCTAssertEqual(manager.messages.map(\.status), [.sent, .sent, .sent, .sent])
+        XCTAssertFalse(manager.isSending)
 
-        transport.push(.solMessage(ChatSolMessage(id: "sol-1", text: "first answer", useID: "use-1")))
+        transport.push(.solMessage(ChatSolMessage(
+            id: "fold-1",
+            text: "first answer",
+            useID: "talent-1",
+            origin: ChatSolOrigin(logicalUseID: "use-1", ask: "first")
+        )))
         await self.yieldForEvents()
 
         XCTAssertEqual(transport.postedMessages, ["first", "second"])
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant, .user, .assistant, .assistant])
+        XCTAssertEqual(manager.messages[4].text, "first answer")
+        XCTAssertEqual(manager.messages[4].origin?.logicalUseID, "use-1")
     }
 
     @MainActor
@@ -193,7 +207,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
         transport.push(.solMessage(ChatSolMessage(id: "sol-empty", text: " \n ", useID: "use-1")))
         await self.yieldForEvents()
 
-        XCTAssertEqual(manager.messages.count, 1)
+        XCTAssertEqual(manager.messages.count, 2)
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.lastError, SourceVocabulary.chatErrorEmptyReply)
         XCTAssertEqual(manager.answerRetryText, "hello")
@@ -244,7 +258,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testWorkingTraceIsManagerLevelAndSettlesIntoCoverage() async {
+    func testWorkingTraceIsManagerLevelAndCoverageComesFromProvenance() async {
         let transport = ScriptedChatTransport(postResults: [.ack(useID: "use-1", queued: false, queueDepth: nil)])
         let manager = self.makeManager(transport: transport)
 
@@ -253,14 +267,134 @@ nonisolated final class ChatManagerTests: XCTestCase {
         await self.yieldForEvents()
 
         XCTAssertEqual(manager.activeTrace?.activeLabels, ["Reading your journal…"])
-        XCTAssertEqual(manager.messages.count, 1)
+        XCTAssertEqual(manager.messages.count, 2)
 
         transport.push(.talentFinished(ChatTalentActivity(id: "read", useID: "use-1", label: "Reading your journal…")))
         transport.push(.solMessage(ChatSolMessage(id: "sol-1", text: "answer", useID: "use-1")))
         await self.yieldForEvents()
 
         XCTAssertNil(manager.activeTrace)
-        XCTAssertEqual(manager.messages[1].provenance?.coverageLines, ["Reading your journal…"])
+        XCTAssertEqual(manager.messages[1].text, "answer")
+        XCTAssertEqual(manager.messages[1].provenance?.coverageLines, [])
+    }
+
+    @MainActor
+    func testFoldSolMessageBypassesOutstandingAndDoesNotOverwriteAck() async {
+        let transport = ScriptedChatTransport(postResults: [
+            .ack(useID: "turn-1", queued: false, queueDepth: nil),
+            .ack(useID: "turn-2", queued: false, queueDepth: nil),
+        ])
+        let manager = self.makeManager(transport: transport)
+
+        await manager.send("first")
+        await manager.send("second")
+        await self.yieldForEvents()
+
+        transport.push(.solMessage(ChatSolMessage(
+            id: "fold-1",
+            text: "folded answer",
+            useID: "talent-1",
+            origin: ChatSolOrigin(logicalUseID: "turn-1", ask: "first")
+        )))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant, .user, .assistant, .assistant])
+        XCTAssertEqual(manager.messages[1].text, SourceVocabulary.chatAckBubble)
+        XCTAssertEqual(manager.messages[1].useID, "turn-1")
+        XCTAssertEqual(manager.messages[4].text, "folded answer")
+        XCTAssertEqual(manager.messages[4].useID, "talent-1")
+        XCTAssertEqual(manager.messages[4].origin?.logicalUseID, "turn-1")
+    }
+
+    @MainActor
+    func testQueuedTalentDedupsAndPromotesDespiteOutstandingMismatch() async {
+        let queuedAt = Date(timeIntervalSince1970: 1_718_708_400)
+        let startedAt = queuedAt.addingTimeInterval(5)
+        let transport = ScriptedChatTransport(postResults: [
+            .ack(useID: "turn-1", queued: false, queueDepth: nil),
+            .ack(useID: "turn-2", queued: false, queueDepth: nil),
+        ])
+        let manager = self.makeManager(transport: transport)
+
+        await manager.send("first")
+        await manager.send("second")
+        await self.yieldForEvents()
+
+        transport.push(.snapshot(ChatSessionSnapshot(queuedTalents: [
+            ChatTalentActivity(id: "talent-1", useID: "talent-1", label: "reading", task: "read notes", queuedAt: queuedAt),
+        ])))
+        transport.push(.talentQueued(ChatTalentActivity(
+            id: "talent-1",
+            useID: "talent-1",
+            label: "reading updated",
+            task: "read notes",
+            queuedAt: queuedAt
+        )))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.queuedTalents.count, 1)
+        XCTAssertEqual(manager.queuedTalents[0].label, "reading updated")
+
+        transport.push(.talentSpawned(ChatTalentActivity(
+            id: "active-1",
+            useID: "talent-1",
+            label: "reading updated",
+            task: "read notes",
+            timestamp: startedAt
+        )))
+        await self.yieldForEvents()
+
+        XCTAssertTrue(manager.queuedTalents.isEmpty)
+        XCTAssertEqual(manager.runningTalents.count, 1)
+        XCTAssertEqual(manager.runningTalents[0].id, "active-1")
+        XCTAssertEqual(manager.runningTalents[0].queuedAt, queuedAt)
+    }
+
+    @MainActor
+    func testFailedFoldRendersDistinctFailedProvenance() async {
+        let transport = ScriptedChatTransport(postResults: [.ack(useID: "turn-1", queued: false, queueDepth: nil)])
+        let manager = self.makeManager(transport: transport)
+
+        await manager.send("first")
+        await self.yieldForEvents()
+
+        transport.push(.solMessage(ChatSolMessage(
+            id: "fold-failed",
+            text: "could not answer",
+            useID: "talent-1",
+            origin: ChatSolOrigin(logicalUseID: "turn-1", ask: "first"),
+            provenance: AnswerProvenance(state: .failed)
+        )))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant, .assistant])
+        XCTAssertEqual(manager.messages[1].text, SourceVocabulary.chatAckBubble)
+        XCTAssertEqual(manager.messages[2].text, "could not answer")
+        XCTAssertEqual(manager.messages[2].provenance?.state, .failed)
+        XCTAssertEqual(manager.messages[2].origin?.logicalUseID, "turn-1")
+    }
+
+    @MainActor
+    func testSuccessFoldPreservesAnswerProvenance() async {
+        let source = AnswerProvenance.ProvenanceSource(ref: "sol://entry/1", label: "journal note")
+        let transport = ScriptedChatTransport(postResults: [.ack(useID: "turn-1", queued: false, queueDepth: nil)])
+        let manager = self.makeManager(transport: transport)
+
+        await manager.send("first")
+        await self.yieldForEvents()
+
+        transport.push(.solMessage(ChatSolMessage(
+            id: "fold-success",
+            text: "answer",
+            useID: "talent-1",
+            origin: ChatSolOrigin(logicalUseID: "turn-1", ask: "first"),
+            provenance: AnswerProvenance(sources: [source], coverage: ["reading"])
+        )))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.messages[2].provenance?.state, .answered)
+        XCTAssertEqual(manager.messages[2].provenance?.sources, [source])
+        XCTAssertEqual(manager.messages[2].provenance?.coverageLines, ["reading"])
     }
 
     @MainActor
@@ -374,7 +508,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
         await self.yieldForEvents()
 
         XCTAssertEqual(transport.postedMessages, ["first", "fresh"])
-        XCTAssertEqual(manager.messages.map(\.text), ["fresh"])
+        XCTAssertEqual(manager.messages.map(\.text), ["fresh", SourceVocabulary.chatAckBubble])
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.messages[0].useID, "use-2")
     }

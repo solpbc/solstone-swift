@@ -63,6 +63,16 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.chatFailedStatusA11y, "tap to retry")
         XCTAssertEqual(SourceVocabulary.chatTypingA11y, "sol is thinking")
         XCTAssertEqual(SourceVocabulary.chatSendA11y, "send")
+        XCTAssertEqual(SourceVocabulary.chatAckBubble, "i'm on it.")
+        XCTAssertEqual(SourceVocabulary.chatFoldAnchorTitle, "from your question")
+        XCTAssertEqual(SourceVocabulary.chatFoldInlineAskPrefix, "you asked")
+        XCTAssertEqual(SourceVocabulary.chatFoldOriginalQuestionUnavailable, "original question unavailable")
+        XCTAssertEqual(SourceVocabulary.chatTalentDetailTitle, "what sol is doing")
+        XCTAssertEqual(SourceVocabulary.chatTalentRunningTitle, "running")
+        XCTAssertEqual(SourceVocabulary.chatTalentQueuedTitle, "waiting")
+        XCTAssertEqual(SourceVocabulary.chatTalentQueuedFallback, "waiting to start")
+        XCTAssertEqual(SourceVocabulary.chatTalentTaskFallback, "working")
+        XCTAssertEqual(SourceVocabulary.chatTalentDetailEmpty, "nothing running right now")
         XCTAssertEqual(SourceVocabulary.chatErrorEmptyReply, "sol returned an empty reply")
         XCTAssertEqual(SourceVocabulary.chatErrorServer, "sol hit an error answering")
         XCTAssertEqual(SourceVocabulary.chatErrorGeneric, "couldn't send")
@@ -355,6 +365,16 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.chatFailedStatusA11y,
             SourceVocabulary.chatTypingA11y,
             SourceVocabulary.chatSendA11y,
+            SourceVocabulary.chatAckBubble,
+            SourceVocabulary.chatFoldAnchorTitle,
+            SourceVocabulary.chatFoldInlineAskPrefix,
+            SourceVocabulary.chatFoldOriginalQuestionUnavailable,
+            SourceVocabulary.chatTalentDetailTitle,
+            SourceVocabulary.chatTalentRunningTitle,
+            SourceVocabulary.chatTalentQueuedTitle,
+            SourceVocabulary.chatTalentQueuedFallback,
+            SourceVocabulary.chatTalentTaskFallback,
+            SourceVocabulary.chatTalentDetailEmpty,
             SourceVocabulary.chatErrorEmptyReply,
             SourceVocabulary.chatErrorServer,
             SourceVocabulary.chatErrorGeneric,

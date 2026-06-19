@@ -12,6 +12,13 @@ final class ChatManager {
     var pendingDraft: ChatDraft?
     var activeTrace: ChatWorkingTrace?
     var answerRetryText: String?
+    var queuedTalents: [ChatTalentActivity] = []
+    var runningTalents: [ChatTalentActivity] {
+        self.sortedActiveTalents()
+    }
+    var hasTalentWork: Bool {
+        !self.runningTalents.isEmpty || !self.queuedTalents.isEmpty
+    }
 
     private let transport: any ChatTransporting
     private let isReachable: @Sendable @MainActor () -> Bool
@@ -24,7 +31,6 @@ final class ChatManager {
     private var outstandingTurnUseID: String?
     private var latestSolMessageAt: Date?
     private var activeTalents: [String: ChatTalentActivity] = [:]
-    private var completedTalentLabels: [String] = []
     private var erroredTalentLabels: [String] = []
 
     init(
@@ -52,10 +58,10 @@ final class ChatManager {
         self.pendingDraft = nil
         self.activeTrace = nil
         self.answerRetryText = nil
+        self.queuedTalents = []
         self.outstandingTurnUseID = nil
         self.latestSolMessageAt = nil
         self.activeTalents = [:]
-        self.completedTalentLabels = []
         self.erroredTalentLabels = []
         self.startEventsListener()
     }
@@ -119,7 +125,7 @@ private extension ChatManager {
     }
 
     var canDrainNow: Bool {
-        self.inFlightTask == nil && self.outstandingTurnUseID == nil && self.isReachable() && self.localPortProvider() != nil
+        self.inFlightTask == nil && self.isReachable() && self.localPortProvider() != nil
     }
 
     func startEventsListener() {
@@ -136,7 +142,6 @@ private extension ChatManager {
     @discardableResult
     func drainIfPossible() -> Task<Void, Never>? {
         guard self.inFlightTask == nil,
-              self.outstandingTurnUseID == nil,
               let pending = self.messages.first(where: { $0.role == .user && $0.status == .pending })
         else { return nil }
 
@@ -153,6 +158,7 @@ private extension ChatManager {
     func performPost(messageID: UUID, text: String) -> Task<Void, Never> {
         self.inFlightTask?.cancel()
         self.logger.info("chat post start")
+        self.isSending = true
 
         let token = InFlightToken()
         let task = Task { @MainActor [weak self, token] in
@@ -175,33 +181,45 @@ private extension ChatManager {
         case .ack(let useID, _, let depth):
             self.markUserSent(headID: headID, useID: useID)
             self.outstandingTurnUseID = useID
-            self.isSending = true
+            self.upsertAssistantMessage(
+                idSeed: "ack-\(useID)",
+                text: SourceVocabulary.chatAckBubble,
+                provenance: nil,
+                useID: useID,
+                requestID: nil,
+                origin: nil
+            )
+            self.isSending = false
             self.lastError = nil
             self.queueDepth = depth
-            shouldContinueQueue = false
             self.logger.info("chat post ack")
         case .queueFull(let depth):
             self.updateMessageStatus(id: headID, status: .pending)
+            self.isSending = false
             self.queueDepth = depth
             self.lastError = nil
             shouldContinueQueue = false
             self.logger.info("chat post queue-full keep-pending")
         case .unavailable:
             self.updateMessageStatus(id: headID, status: .pending)
+            self.isSending = false
             self.lastError = nil
             shouldContinueQueue = false
             self.logger.info("chat post unavailable keep-pending")
         case .transport:
             self.updateMessageStatus(id: headID, status: .pending)
+            self.isSending = false
             self.lastError = nil
             shouldContinueQueue = false
             self.logger.info("chat post transport keep-pending")
         case .malformed:
             self.updateMessageStatus(id: headID, status: .failed)
+            self.isSending = false
             self.lastError = SourceVocabulary.chatErrorDecode
             self.logger.error("chat post malformed")
         case .serverError(let status, let reason):
             self.updateMessageStatus(id: headID, status: .failed)
+            self.isSending = false
             self.lastError = reason ?? (status == 500 ? SourceVocabulary.chatErrorServer : SourceVocabulary.chatErrorGeneric)
             self.logger.info("chat post failed status=\(status)")
         }
@@ -224,7 +242,8 @@ private extension ChatManager {
         case .snapshot(let snapshot):
             self.queueDepth = snapshot.queueDepth
             self.activeTalents = Dictionary(uniqueKeysWithValues: snapshot.activeTalents.map { ($0.id, $0) })
-            self.completedTalentLabels = snapshot.completedTalents.map(\.label)
+            self.queuedTalents = self.dedupQueuedTalents(snapshot.queuedTalents + self.queuedTalents)
+            self.removeQueuedTalentsThatAreActive()
             self.erroredTalentLabels = []
             self.rebuildActiveTrace()
             if let message = snapshot.latestSolMessage {
@@ -234,16 +253,26 @@ private extension ChatManager {
             self.applyOwnerMessage(message)
         case .solMessage(let message):
             self.applySolMessage(message)
+        case .talentQueued(let talent):
+            self.upsertQueuedTalent(talent)
         case .talentSpawned(let talent):
+            if self.promoteQueuedTalentIfNeeded(talent) {
+                return
+            }
             guard self.matchesOutstandingTurn(useID: talent.useID) else { return }
             self.activeTalents[talent.id] = talent
             self.rebuildActiveTrace()
         case .talentFinished(let talent):
+            if self.finishActiveTalentIfNeeded(talent, errored: false) {
+                return
+            }
             guard self.matchesOutstandingTurn(useID: talent.useID) else { return }
             self.activeTalents[talent.id] = nil
-            self.appendUnique(talent.label, to: &self.completedTalentLabels)
             self.rebuildActiveTrace()
         case .talentErrored(let talent):
+            if self.finishActiveTalentIfNeeded(talent, errored: true) {
+                return
+            }
             guard self.matchesOutstandingTurn(useID: talent.useID) else { return }
             self.activeTalents[talent.id] = nil
             self.appendUnique(talent.label, to: &self.erroredTalentLabels)
@@ -263,6 +292,11 @@ private extension ChatManager {
     }
 
     func applySolMessage(_ event: ChatSolMessage) {
+        if let origin = event.origin {
+            self.applyFoldSolMessage(event, origin: origin)
+            return
+        }
+
         guard self.matchesOutstandingTurn(useID: event.useID) else { return }
 
         let receivedAt = event.timestamp ?? Date()
@@ -277,11 +311,10 @@ private extension ChatManager {
             self.isSending = false
         }
 
-        let isTurnFinal = event.requestedTarget == nil && self.activeTalents.isEmpty
         let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !text.isEmpty else {
-            if isTurnFinal, event.offer == nil, event.draft == nil {
+            if event.offer == nil, event.draft == nil {
                 self.lastError = SourceVocabulary.chatErrorEmptyReply
                 self.answerRetryText = self.userText(useID: event.useID, requestID: event.requestID)
                 self.clearOutstandingTurn(useID: event.useID)
@@ -290,32 +323,43 @@ private extension ChatManager {
             return
         }
 
-        var provenance = event.provenance
-        if isTurnFinal, provenance.coverage.isEmpty, !self.completedTalentLabels.isEmpty {
-            provenance = AnswerProvenance(
-                state: provenance.state,
-                sources: provenance.sources,
-                coverage: self.completedTalentLabels
-            )
-        }
-
         self.upsertAssistantMessage(
             idSeed: event.id,
             text: text,
-            provenance: provenance,
+            provenance: event.provenance,
             useID: event.useID,
-            requestID: event.requestID
+            requestID: event.requestID,
+            origin: nil
         )
         self.lastError = nil
         self.answerRetryText = nil
+        self.pendingOffer = event.offer
+        self.pendingDraft = event.draft
+        self.clearOutstandingTurn(useID: event.useID)
+    }
 
-        if isTurnFinal {
-            self.pendingOffer = event.offer
-            self.pendingDraft = event.draft
-            self.clearOutstandingTurn(useID: event.useID)
-        } else if event.offer == nil && event.draft == nil {
-            self.isSending = true
+    func applyFoldSolMessage(_ event: ChatSolMessage, origin: ChatSolOrigin) {
+        let receivedAt = event.timestamp ?? Date()
+        self.latestSolMessageAt = receivedAt
+
+        if let useID = event.useID {
+            self.removeQueuedTalent(useID: useID)
+            self.removeActiveTalent(useID: useID)
         }
+
+        let text = self.displayText(for: event)
+        self.upsertAssistantMessage(
+            idSeed: event.id,
+            text: text,
+            provenance: event.provenance,
+            useID: event.useID,
+            requestID: event.requestID,
+            origin: origin
+        )
+        self.lastError = nil
+        self.answerRetryText = nil
+        self.pendingOffer = event.offer
+        self.pendingDraft = event.draft
     }
 
     func applyChatError(_ error: ChatErrorEvent) {
@@ -327,7 +371,8 @@ private extension ChatManager {
             text: text,
             provenance: AnswerProvenance(state: .failed),
             useID: error.useID,
-            requestID: error.requestID
+            requestID: error.requestID,
+            origin: nil
         )
         self.lastError = SourceVocabulary.chatErrorServer
         self.answerRetryText = self.userText(useID: error.useID, requestID: error.requestID)
@@ -371,10 +416,6 @@ private extension ChatManager {
 
         self.outstandingTurnUseID = nil
         self.isSending = false
-        self.activeTalents = [:]
-        self.activeTrace = nil
-        self.completedTalentLabels = []
-        self.erroredTalentLabels = []
 
         if self.hasPending {
             self.startRetryTickIfNeeded()
@@ -404,13 +445,15 @@ private extension ChatManager {
     func upsertAssistantMessage(
         idSeed: String,
         text: String,
-        provenance: AnswerProvenance,
+        provenance: AnswerProvenance?,
         useID: String?,
-        requestID: String?
+        requestID: String?,
+        origin: ChatSolOrigin?
     ) {
-        if let index = self.assistantMessageIndex(useID: useID, requestID: requestID) {
+        if let index = self.assistantMessageIndex(useID: useID, requestID: requestID, origin: origin) {
             self.messages[index].text = text
             self.messages[index].provenance = provenance
+            self.messages[index].origin = origin
             return
         }
 
@@ -420,10 +463,13 @@ private extension ChatManager {
             text: text,
             provenance: provenance,
             requestID: requestID,
-            useID: useID
+            useID: useID,
+            origin: origin
         )
 
-        if let userIndex = self.userMessageIndex(useID: useID, requestID: requestID) {
+        if origin != nil {
+            self.messages.append(assistant)
+        } else if let userIndex = self.userMessageIndex(useID: useID, requestID: requestID) {
             self.messages.insert(assistant, at: self.messages.index(after: userIndex))
         } else {
             self.messages.append(assistant)
@@ -437,9 +483,13 @@ private extension ChatManager {
         }
     }
 
-    func assistantMessageIndex(useID: String?, requestID: String?) -> Int? {
+    func assistantMessageIndex(useID: String?, requestID: String?, origin: ChatSolOrigin?) -> Int? {
         self.messages.firstIndex { message in
             guard message.role == .assistant else { return false }
+            if let origin {
+                return message.origin?.logicalUseID == origin.logicalUseID && message.useID == useID
+            }
+            guard message.origin == nil else { return false }
             return self.matches(message, useID: useID, requestID: requestID)
         }
     }
@@ -469,7 +519,6 @@ private extension ChatManager {
     func rebuildActiveTrace() {
         let trace = ChatWorkingTrace(
             activeLabels: self.activeTalents.values.sorted { $0.id < $1.id }.map(\.label),
-            completedLabels: self.completedTalentLabels,
             erroredLabels: self.erroredTalentLabels
         )
         self.activeTrace = trace.isEmpty ? nil : trace
@@ -478,6 +527,120 @@ private extension ChatManager {
     func appendUnique(_ value: String, to values: inout [String]) {
         guard !values.contains(value) else { return }
         values.append(value)
+    }
+
+    func displayText(for event: ChatSolMessage) -> String {
+        let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            return text
+        }
+        if event.provenance.state == .failed {
+            return SourceVocabulary.chatAnswerFailedLine
+        }
+        return SourceVocabulary.chatErrorEmptyReply
+    }
+
+    func sortedActiveTalents() -> [ChatTalentActivity] {
+        self.activeTalents.values.sorted { lhs, rhs in
+            lhs.id < rhs.id
+        }
+    }
+
+    func dedupQueuedTalents(_ talents: [ChatTalentActivity]) -> [ChatTalentActivity] {
+        var deduped: [ChatTalentActivity] = []
+        for talent in talents {
+            guard let useID = talent.useID, !useID.isEmpty else { continue }
+            if let index = deduped.firstIndex(where: { $0.useID == useID }) {
+                deduped[index] = self.mergedQueuedTalent(existing: deduped[index], incoming: talent)
+            } else {
+                deduped.append(talent)
+            }
+        }
+        return deduped
+    }
+
+    func upsertQueuedTalent(_ talent: ChatTalentActivity) {
+        guard talent.useID.map({ !$0.isEmpty }) == true else { return }
+        self.queuedTalents = self.dedupQueuedTalents(self.queuedTalents + [talent])
+    }
+
+    func mergedQueuedTalent(existing: ChatTalentActivity, incoming: ChatTalentActivity) -> ChatTalentActivity {
+        ChatTalentActivity(
+            id: incoming.id,
+            useID: incoming.useID,
+            label: incoming.label,
+            task: incoming.task ?? existing.task,
+            timestamp: incoming.timestamp ?? existing.timestamp,
+            queuedAt: incoming.queuedAt ?? existing.queuedAt
+        )
+    }
+
+    func queuedTalent(useID: String?) -> ChatTalentActivity? {
+        guard let useID else { return nil }
+        return self.queuedTalents.first { $0.useID == useID }
+    }
+
+    func removeQueuedTalent(useID: String) {
+        self.queuedTalents.removeAll { $0.useID == useID }
+    }
+
+    func removeQueuedTalentsThatAreActive() {
+        var activeUseIDs = Set<String>()
+        for talent in self.activeTalents.values {
+            if let useID = talent.useID {
+                activeUseIDs.insert(useID)
+            }
+        }
+        self.queuedTalents.removeAll { talent in
+            guard let useID = talent.useID else { return false }
+            return activeUseIDs.contains(useID)
+        }
+    }
+
+    func promoteQueuedTalentIfNeeded(_ talent: ChatTalentActivity) -> Bool {
+        guard let queued = self.queuedTalent(useID: talent.useID), let useID = talent.useID else {
+            return false
+        }
+        self.removeQueuedTalent(useID: useID)
+        self.activeTalents[talent.id] = ChatTalentActivity(
+            id: talent.id,
+            useID: talent.useID,
+            label: talent.label,
+            task: talent.task ?? queued.task,
+            timestamp: talent.timestamp ?? queued.timestamp,
+            queuedAt: queued.queuedAt
+        )
+        self.rebuildActiveTrace()
+        return true
+    }
+
+    func finishActiveTalentIfNeeded(_ talent: ChatTalentActivity, errored: Bool) -> Bool {
+        guard let key = self.activeTalentKey(for: talent) else { return false }
+        let active = self.activeTalents[key]
+        self.activeTalents[key] = nil
+        if errored {
+            self.appendUnique(active?.label ?? talent.label, to: &self.erroredTalentLabels)
+        }
+        self.rebuildActiveTrace()
+        return true
+    }
+
+    func removeActiveTalent(useID: String) {
+        guard let key = self.activeTalentKey(useID: useID) else { return }
+        self.activeTalents[key] = nil
+        self.rebuildActiveTrace()
+    }
+
+    func activeTalentKey(for talent: ChatTalentActivity) -> String? {
+        if self.activeTalents[talent.id] != nil {
+            return talent.id
+        }
+        guard let useID = talent.useID else { return nil }
+        return self.activeTalentKey(useID: useID)
+    }
+
+    func activeTalentKey(useID: String) -> String? {
+        self.activeTalents.first { $0.value.useID == useID }?.key
     }
 
     func startRetryTickIfNeeded() {

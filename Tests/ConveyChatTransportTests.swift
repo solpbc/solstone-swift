@@ -123,6 +123,94 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
     }
 
     @MainActor
+    func testEventsDecodesTalentQueued() async throws {
+        let rawEvent = await self.firstEvent(sseBody: """
+        data: {"tract":"chat","kind":"talent_queued","talent":{"use_id":"talent-1","name":"reading","task":"read notes","queued_at":"2026-06-18T10:11:12Z"}}
+
+        """)
+        let event = try XCTUnwrap(rawEvent)
+
+        let queuedAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-18T10:11:12Z"))
+        XCTAssertEqual(
+            event,
+            .talentQueued(ChatTalentActivity(
+                id: "talent-1",
+                useID: "talent-1",
+                label: "reading",
+                task: "read notes",
+                queuedAt: queuedAt
+            ))
+        )
+    }
+
+    @MainActor
+    func testEventsDecodesSolMessageOriginPresentAndAbsent() async throws {
+        let rawFolded = await self.firstEvent(sseBody: """
+        data: {"tract":"chat","kind":"sol_message","sol_message":{"id":"fold-1","text":"folded answer","use_id":"talent-1","origin":{"logical_use_id":"turn-1","ask":"what changed?"}}}
+
+        """)
+        let folded = try XCTUnwrap(rawFolded)
+
+        XCTAssertEqual(
+            folded,
+            .solMessage(ChatSolMessage(
+                id: "fold-1",
+                text: "folded answer",
+                useID: "talent-1",
+                origin: ChatSolOrigin(logicalUseID: "turn-1", ask: "what changed?")
+            ))
+        )
+
+        let rawInline = await self.firstEvent(sseBody: """
+        data: {"tract":"chat","kind":"sol_message","sol_message":{"id":"inline-1","text":"inline answer","use_id":"turn-1"}}
+
+        """)
+        let inline = try XCTUnwrap(rawInline)
+
+        XCTAssertEqual(
+            inline,
+            .solMessage(ChatSolMessage(id: "inline-1", text: "inline answer", useID: "turn-1"))
+        )
+    }
+
+    @MainActor
+    func testEventsHydratesQueuedTalentsFromSessionSnapshot() async throws {
+        ChatTransportURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/chat/session":
+                return Self.response(
+                    status: 200,
+                    request: request,
+                    body: #"{"queued_talents":[{"use_id":"talent-1","name":"reading","task":"read notes","queued_at":"2026-06-18T10:11:12Z"}]}"#
+                )
+            case "/sse/events":
+                return Self.response(status: 204, request: request)
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "")")
+                return Self.response(status: 404, request: request)
+            }
+        }
+
+        let stream = self.transport.events()
+        var iterator = stream.makeAsyncIterator()
+        let event = await iterator.next()
+
+        let queuedAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-18T10:11:12Z"))
+        XCTAssertEqual(
+            event,
+            .snapshot(ChatSessionSnapshot(
+                queuedTalents: [ChatTalentActivity(
+                    id: "talent-1",
+                    useID: "talent-1",
+                    label: "reading",
+                    task: "read notes",
+                    queuedAt: queuedAt
+                )]
+            ))
+        )
+    }
+
+    @MainActor
     func testOfferDeclineAndDraftEndpoints() async throws {
         let paths = OSAllocatedUnfairLock<[String]>(initialState: [])
         ChatTransportURLProtocol.handler = { request in
@@ -186,6 +274,30 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ChatTransportURLProtocol.self]
         return ConveyChatTransport(localPortProvider: localPortProvider, session: URLSession(configuration: configuration))
+    }
+
+    @MainActor
+    private func firstEvent(sseBody: String) async -> ChatEvent? {
+        let port = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let transport = self.transport(localPortProvider: {
+            port.withLock { $0 }
+        })
+        ChatTransportURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/chat/session":
+                return Self.response(status: 204, request: request)
+            case "/sse/events":
+                port.withLock { $0 = nil }
+                return Self.response(status: 200, request: request, body: sseBody)
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "")")
+                return Self.response(status: 404, request: request)
+            }
+        }
+
+        let stream = transport.events()
+        var iterator = stream.makeAsyncIterator()
+        return await iterator.next()
     }
 
     private static func response(status: Int, request: URLRequest, body: String = "") -> (HTTPURLResponse, Data) {

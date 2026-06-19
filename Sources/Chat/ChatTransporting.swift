@@ -13,6 +13,7 @@ nonisolated enum ChatEvent: Sendable, Equatable {
     case snapshot(ChatSessionSnapshot)
     case ownerMessage(ChatOwnerMessage)
     case solMessage(ChatSolMessage)
+    case talentQueued(ChatTalentActivity)
     case talentSpawned(ChatTalentActivity)
     case talentFinished(ChatTalentActivity)
     case talentErrored(ChatTalentActivity)
@@ -25,17 +26,20 @@ nonisolated struct ChatSessionSnapshot: Sendable, Equatable {
     let latestSolMessage: ChatSolMessage?
     let activeTalents: [ChatTalentActivity]
     let completedTalents: [ChatTalentActivity]
+    let queuedTalents: [ChatTalentActivity]
     let queueDepth: Int?
 
     init(
         latestSolMessage: ChatSolMessage? = nil,
         activeTalents: [ChatTalentActivity] = [],
         completedTalents: [ChatTalentActivity] = [],
+        queuedTalents: [ChatTalentActivity] = [],
         queueDepth: Int? = nil
     ) {
         self.latestSolMessage = latestSolMessage
         self.activeTalents = activeTalents
         self.completedTalents = completedTalents
+        self.queuedTalents = queuedTalents
         self.queueDepth = queueDepth
     }
 }
@@ -62,6 +66,7 @@ nonisolated struct ChatSolMessage: Sendable, Equatable {
     let requestID: String?
     let useID: String?
     let requestedTarget: String?
+    let origin: ChatSolOrigin?
     let provenance: AnswerProvenance
     let offer: ChatOffer?
     let draft: ChatDraft?
@@ -73,6 +78,7 @@ nonisolated struct ChatSolMessage: Sendable, Equatable {
         requestID: String? = nil,
         useID: String? = nil,
         requestedTarget: String? = nil,
+        origin: ChatSolOrigin? = nil,
         provenance: AnswerProvenance = AnswerProvenance(),
         offer: ChatOffer? = nil,
         draft: ChatDraft? = nil,
@@ -83,6 +89,7 @@ nonisolated struct ChatSolMessage: Sendable, Equatable {
         self.requestID = requestID
         self.useID = useID
         self.requestedTarget = requestedTarget
+        self.origin = origin
         self.provenance = provenance
         self.offer = offer
         self.draft = draft
@@ -90,33 +97,52 @@ nonisolated struct ChatSolMessage: Sendable, Equatable {
     }
 }
 
+nonisolated struct ChatSolOrigin: Sendable, Equatable {
+    let logicalUseID: String
+    let ask: String?
+
+    init(logicalUseID: String, ask: String? = nil) {
+        self.logicalUseID = logicalUseID
+        self.ask = ask
+    }
+}
+
 nonisolated struct ChatTalentActivity: Identifiable, Sendable, Equatable {
     let id: String
     let useID: String?
     let label: String
+    let task: String?
     let timestamp: Date?
+    let queuedAt: Date?
 
-    init(id: String, useID: String? = nil, label: String, timestamp: Date? = nil) {
+    init(
+        id: String,
+        useID: String? = nil,
+        label: String,
+        task: String? = nil,
+        timestamp: Date? = nil,
+        queuedAt: Date? = nil
+    ) {
         self.id = id
         self.useID = useID
         self.label = label
+        self.task = task
         self.timestamp = timestamp
+        self.queuedAt = queuedAt
     }
 }
 
 nonisolated struct ChatWorkingTrace: Sendable, Equatable {
     let activeLabels: [String]
-    let completedLabels: [String]
     let erroredLabels: [String]
 
-    init(activeLabels: [String] = [], completedLabels: [String] = [], erroredLabels: [String] = []) {
+    init(activeLabels: [String] = [], erroredLabels: [String] = []) {
         self.activeLabels = activeLabels
-        self.completedLabels = completedLabels
         self.erroredLabels = erroredLabels
     }
 
     var isEmpty: Bool {
-        self.activeLabels.isEmpty && self.completedLabels.isEmpty && self.erroredLabels.isEmpty
+        self.activeLabels.isEmpty && self.erroredLabels.isEmpty
     }
 }
 
