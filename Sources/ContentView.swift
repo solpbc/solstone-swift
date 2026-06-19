@@ -15,7 +15,8 @@ struct ContentView: View {
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PushNotificationManager.self) private var pushManager
-    @State private var showRepairing = false
+    @Environment(PairingHandoffState.self) private var pairingHandoff
+    @State private var showPairing = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -55,14 +56,14 @@ struct ContentView: View {
             BannerOverlay()
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.tunnelManager.state.isConnected)
-        .sheet(isPresented: self.$showRepairing) {
+        .sheet(isPresented: self.$showPairing) {
             NavigationStack {
                 PairFlowView(
                     onBack: {
-                        self.showRepairing = false
+                        self.dismissPairing()
                     },
                     onComplete: {
-                        self.showRepairing = false
+                        self.dismissPairing()
                     }
                 )
             }
@@ -97,7 +98,7 @@ struct ContentView: View {
                 }
             case .error(let error):
                 if error == .revoked {
-                    self.showRepairing = true
+                    self.showPairing = true
                 }
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -119,6 +120,12 @@ struct ContentView: View {
         }
         .onChange(of: self.appConfig.pairedAt) { _, _ in
             self.startTunnelIfPaired()
+        }
+        .onChange(of: self.pairingHandoff.pairURL) { _, _ in
+            self.presentPairingIfHandoffPending()
+        }
+        .onChange(of: self.pairingHandoff.pairURLError) { _, _ in
+            self.presentPairingIfHandoffPending()
         }
         .onAppear {
             let arguments = ProcessInfo.processInfo.arguments
@@ -186,7 +193,7 @@ struct ContentView: View {
                 return
             }
 #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--integration-test") {
+            if arguments.contains("--integration-test") {
                 let mockPort = Int(ProcessInfo.processInfo.environment["MOCK_PORT"] ?? "") ?? 7071
                 self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(mockPort)")
                 self.onboardingFlow.markCompletedForUITest()
@@ -198,7 +205,7 @@ struct ContentView: View {
                 }
                 return
             }
-            if ProcessInfo.processInfo.arguments.contains("--integration-test-live") {
+            if arguments.contains("--integration-test-live") {
                 let livePort = Int(ProcessInfo.processInfo.environment["LIVE_PORT"] ?? "") ?? 7071
                 self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(livePort)")
                 self.onboardingFlow.markCompletedForUITest()
@@ -210,13 +217,39 @@ struct ContentView: View {
                 }
                 return
             }
+            if let argument = arguments.first(where: { $0.hasPrefix("--pair-url=") }),
+               let url = URL(string: String(argument.dropFirst("--pair-url=".count)))
+            {
+                log.info("debug pair-url seam fired")
+                self.pairingHandoff.applyUniversalLink(url)
+            }
 #endif
+            self.presentPairingIfHandoffPending()
             self.startTunnelIfPaired()
         }
     }
 }
 
 private extension ContentView {
+    func clearPairingHandoff() {
+        self.pairingHandoff.pairURL = nil
+        self.pairingHandoff.pairURLError = nil
+    }
+
+    func dismissPairing() {
+        self.showPairing = false
+        self.clearPairingHandoff()
+    }
+
+    func presentPairingIfHandoffPending() {
+        if PairingHandoffPresentation.shouldPresent(
+            pairURL: self.pairingHandoff.pairURL,
+            pairURLError: self.pairingHandoff.pairURLError
+        ) {
+            self.showPairing = true
+        }
+    }
+
     func startTunnelIfPaired() {
         let arguments = ProcessInfo.processInfo.arguments
         guard !arguments.contains("--ui-test"),

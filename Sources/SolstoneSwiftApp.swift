@@ -247,15 +247,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.appDelegate.pendingRoute)
                 .environment(self.pendingFold)
                 .onOpenURL { url in
-                    if let result = UniversalLinkRouter.route(url) {
-                        switch result {
-                        case .success(let pairURL):
-                            self.pairingHandoff.pairURL = pairURL
-                            self.pairingHandoff.pairURLError = nil
-                        case .failure(let error):
-                            self.pairingHandoff.pairURL = nil
-                            self.pairingHandoff.pairURLError = error
-                        }
+                    if self.pairingHandoff.applyUniversalLink(url) {
                         return
                     }
                     switch SolstoneDeepLink.parse(url) {
