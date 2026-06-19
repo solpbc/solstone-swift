@@ -22,6 +22,7 @@ struct SolstoneSwiftApp: App {
     @State private var locationManager: LocationManager
     @State private var observerManager: ObserverManager
     @State private var pendingObserverCommand = PendingObserverCommandState()
+    @State private var pendingFold = PendingFoldState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var voiceManager: VoiceManager
     @State private var chatManager: ChatManager
@@ -244,6 +245,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.bannerPresenter)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
+                .environment(self.pendingFold)
                 .onOpenURL { url in
                     if let result = UniversalLinkRouter.route(url) {
                         switch result {

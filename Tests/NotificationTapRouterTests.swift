@@ -30,4 +30,74 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
         XCTAssertEqual(route, .solChatRequest)
         XCTAssertEqual(route.logLabel, "chat")
     }
+
+    @MainActor
+    func testSolChatFoldRoutesWithValidUseID() {
+        let route = self.chatFoldRoute(data: ["action": "open_chat_fold", "use_id": "turn-1"])
+
+        XCTAssertEqual(route, .solChatFold(useID: "turn-1"))
+        XCTAssertEqual(route.logLabel, "chat-fold")
+    }
+
+    @MainActor
+    func testSolChatFoldTrimsUseID() {
+        let route = self.chatFoldRoute(data: ["action": "open_chat_fold", "use_id": "  turn-1\n"])
+
+        XCTAssertEqual(route, .solChatFold(useID: "turn-1"))
+    }
+
+    @MainActor
+    func testSolChatFoldMissingUseIDFallsBackToChat() {
+        let route = self.chatFoldRoute(data: ["action": "open_chat_fold"])
+
+        XCTAssertEqual(route, .solChatRequest)
+    }
+
+    @MainActor
+    func testSolChatFoldEmptyUseIDFallsBackToChat() {
+        let empty = self.chatFoldRoute(data: ["action": "open_chat_fold", "use_id": ""])
+        let whitespace = self.chatFoldRoute(data: ["action": "open_chat_fold", "use_id": " \n "])
+
+        XCTAssertEqual(empty, .solChatRequest)
+        XCTAssertEqual(whitespace, .solChatRequest)
+    }
+
+    @MainActor
+    func testSolChatFoldWrongTypeUseIDFallsBackToChat() {
+        let route = self.chatFoldRoute(data: ["action": "open_chat_fold", "use_id": 42])
+
+        XCTAssertEqual(route, .solChatRequest)
+    }
+
+    @MainActor
+    func testSolChatFoldNestedOriginOnlyFallsBackToChat() {
+        let route = self.chatFoldRoute(data: [
+            "action": "open_chat_fold",
+            "origin": ["logical_use_id": "turn-1"]
+        ])
+
+        XCTAssertEqual(route, .solChatRequest)
+    }
+
+    @MainActor
+    func testSolChatFoldIgnoresContentFields() {
+        let route = self.chatFoldRoute(data: [
+            "action": "open_chat_fold",
+            "use_id": "turn-1",
+            "ask": "private question",
+            "answer": "private answer",
+            "text": "private text"
+        ])
+
+        XCTAssertEqual(route, .solChatFold(useID: "turn-1"))
+    }
+
+    private func chatFoldRoute(data: [String: Any]) -> NotificationRoute {
+        NotificationTapRouter.route(
+            from: .init(
+                categoryIdentifier: PushCategory.solChatFold.rawValue,
+                userInfo: ["data": data]
+            )
+        )
+    }
 }

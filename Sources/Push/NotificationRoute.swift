@@ -6,6 +6,7 @@ import Foundation
 enum NotificationRoute: Sendable, Equatable {
     case today
     case solChatRequest
+    case solChatFold(useID: String)
 
     var logLabel: String {
         switch self {
@@ -13,6 +14,8 @@ enum NotificationRoute: Sendable, Equatable {
             "today"
         case .solChatRequest:
             "chat"
+        case .solChatFold:
+            "chat-fold"
         }
     }
 }

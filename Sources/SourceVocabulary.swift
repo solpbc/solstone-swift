@@ -144,6 +144,7 @@ nonisolated enum SourceVocabulary {
     static let chatTypingA11y = "sol is thinking"
     static let chatSendA11y = "send"
     static let chatAckBubble = "i'm on it."
+    static let chatFoldNotificationBody = "i have an answer for you."
     static let chatFoldAnchorTitle = "from your question"
     static let chatFoldInlineAskPrefix = "you asked"
     static let chatFoldOriginalQuestionUnavailable = "original question unavailable"

@@ -3,6 +3,7 @@ import SwiftUI
 struct ChatView: View {
     @Environment(ChatManager.self) private var chatManager
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(PendingFoldState.self) private var pendingFold
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var draft = ""
@@ -78,6 +79,7 @@ struct ChatView: View {
                     }
                     .onChange(of: self.chatManager.messages) { oldValue, newValue in
                         self.handleMessagesChange(old: oldValue, new: newValue)
+                        self.reconcilePendingFoldJump(animated: !self.reduceMotion)
                     }
                     .onChange(of: self.chatManager.isSending) { _, _ in
                         self.reapplyPinIfNeeded()
@@ -99,6 +101,8 @@ struct ChatView: View {
         .accessibilityIdentifier("chat.surface")
         .task {
             self.isComposerFocused = true
+            await Task.yield()
+            self.reconcilePendingFoldJump(animated: !self.reduceMotion)
         }
         .onChange(of: self.chatManager.lastError) { _, newValue in
             if newValue != nil {
@@ -213,6 +217,18 @@ private extension ChatView {
     func foldAnchorPlacement(for message: ChatMessage) -> FoldAnchorPlacement? {
         guard let origin = message.origin else { return nil }
         return FoldAnchor.resolve(origin: origin, messages: self.chatManager.messages)
+    }
+
+    func reconcilePendingFoldJump(animated: Bool) {
+        guard let useID = self.pendingFold.useID else { return }
+        guard let message = self.chatManager.messages.first(where: { message in
+            message.role == .assistant && message.origin?.logicalUseID == useID
+        }) else {
+            return
+        }
+
+        self.scrollToMessage(id: message.id, animated: animated)
+        self.pendingFold.markShown(useID)
     }
 
     func handleSend() {

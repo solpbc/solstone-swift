@@ -5,6 +5,7 @@ import UserNotifications
 
 enum PushCategory: String, CaseIterable, Sendable {
     case solChatRequest = "SOLSTONE_SOL_CHAT_REQUEST"
+    case solChatFold = "SOLSTONE_SOL_CHAT_FOLD"
 
     static func unCategories() -> Set<UNNotificationCategory> {
         Set(Self.allCases.map(\.notificationCategory))

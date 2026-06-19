@@ -165,6 +165,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let chatView = ChatView()
             .environment(chatManager)
             .environment(tunnelManager)
+            .environment(PendingFoldState())
         let assistantSourcedBubble = AssistantBubble(
             message: ChatMessage(
                 role: .assistant,

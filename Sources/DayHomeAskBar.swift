@@ -6,6 +6,7 @@ import SwiftUI
 struct DayHomeAskBar: View {
     let title: String
     let isEnabled: Bool
+    let foldBadgeVisible: Bool
     let action: () -> Void
 
     var body: some View {
@@ -27,9 +28,18 @@ struct DayHomeAskBar: View {
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if self.foldBadgeVisible {
+                    Circle()
+                        .fill(Color.solOrangeAccessible)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 4, y: -4)
+                }
+            }
         }
         .buttonStyle(.plain)
         .disabled(!self.isEnabled)
         .accessibilityIdentifier("dayHome.askBar")
+        .accessibilityValue(self.foldBadgeVisible ? "attention" : "clear")
     }
 }

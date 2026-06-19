@@ -74,19 +74,47 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
         switch categoryId {
         case PushCategory.solChatRequest.rawValue:
             return .solChatRequest
+        case PushCategory.solChatFold.rawValue:
+            guard let useID = self.chatFoldUseID(from: userInfo) else {
+                return .solChatRequest
+            }
+            return .solChatFold(useID: useID)
         default:
             return .today
         }
     }
 
+    private nonisolated static func chatFoldUseID(from userInfo: [AnyHashable: Any]) -> String? {
+        guard let data = userInfo["data"] as? [String: Any],
+              let rawUseID = data["use_id"] as? String
+        else {
+            return nil
+        }
+
+        let useID = rawUseID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return useID.isEmpty ? nil : useID
+    }
+
 #if DEBUG
     @MainActor
     func debugSynthesizeTap(_ kind: String) {
-        let route = switch kind {
+        let route: NotificationRoute
+        switch kind {
         case "chat":
-            NotificationRoute.solChatRequest
+            route = .solChatRequest
+        case "chat-fold":
+            route = Self.route(
+                categoryId: PushCategory.solChatFold.rawValue,
+                userInfo: ["data": ["action": "open_chat_fold"]]
+            )
+        case let value where value.hasPrefix("chat-fold:"):
+            let useID = String(value.dropFirst("chat-fold:".count))
+            route = Self.route(
+                categoryId: PushCategory.solChatFold.rawValue,
+                userInfo: ["data": ["action": "open_chat_fold", "use_id": useID]]
+            )
         default:
-            NotificationRoute.today
+            route = .today
         }
 
         log.info("routed to \(route.logLabel, privacy: .public)")

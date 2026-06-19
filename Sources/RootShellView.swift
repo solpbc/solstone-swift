@@ -18,6 +18,7 @@ struct RootShellView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(LocationManager.self) private var locationManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
+    @Environment(PendingFoldState.self) private var pendingFold
     @Environment(\.openURL) private var openURL
     @State private var showingSources = false
     @State private var showingYourSolstone = false
@@ -70,7 +71,8 @@ struct RootShellView: View {
                     self.navigateToDiagnostics = false
                     self.showingYourSolstone = true
                 },
-                sourcesBadgeVisible: self.sourcesBadgeVisible
+                sourcesBadgeVisible: self.sourcesBadgeVisible,
+                foldBadgeVisible: self.foldBadgeVisible
             )
         }
         .overlay(alignment: .bottomLeading) {
@@ -156,6 +158,10 @@ struct RootShellView: View {
         ].contains(where: \.showsSourcesBadge)
     }
 
+    private var foldBadgeVisible: Bool {
+        self.pendingFold.useID != nil
+    }
+
     private var dayHomeJournalState: DayHomeJournalState {
         if !self.appConfig.isPaired {
             return .noJournal
@@ -172,15 +178,25 @@ struct RootShellView: View {
             self.showingSources = false
             self.showingYourSolstone = false
             self.navigateToDiagnostics = false
+            self.pendingRoute.route = nil
         case .solChatRequest:
             self.showingSources = false
             self.showingYourSolstone = false
             self.navigateToDiagnostics = false
             if self.dayHomeJournalState == .linkedOnline {
                 self.presentChat()
+                self.pendingRoute.route = nil
+            }
+        case .solChatFold(let useID):
+            self.pendingFold.markPending(useID)
+            self.showingSources = false
+            self.showingYourSolstone = false
+            self.navigateToDiagnostics = false
+            if self.dayHomeJournalState == .linkedOnline {
+                self.presentChat()
+                self.pendingRoute.route = nil
             }
         }
-        self.pendingRoute.route = nil
     }
 
     private func presentChat() {

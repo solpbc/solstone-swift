@@ -11,7 +11,10 @@ struct OnThisPhoneView: View {
     }
 
     var body: some View {
-        OnThisPhoneMomentsView(onTurnOnSource: self.onTurnOnSource) { EmptyView() }
+        OnThisPhoneMomentsView(
+            onTurnOnSource: self.onTurnOnSource,
+            foldBadgeVisible: false
+        ) { EmptyView() }
             .navigationTitle(SourceVocabulary.onThisPhone)
             .navigationBarTitleDisplayMode(.inline)
     }
@@ -40,17 +43,20 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var pendingDropItem: OnThisPhoneItem?
     private let askBarState: DayHomeJournalState?
     private let onAskBarChat: () -> Void
+    private let foldBadgeVisible: Bool
     private let header: Header
 
     init(
         onTurnOnSource: @escaping () -> Void = {},
         askBarState: DayHomeJournalState? = nil,
         onAskBarChat: @escaping () -> Void = {},
+        foldBadgeVisible: Bool,
         @ViewBuilder header: () -> Header
     ) {
         self.onTurnOnSource = onTurnOnSource
         self.askBarState = askBarState
         self.onAskBarChat = onAskBarChat
+        self.foldBadgeVisible = foldBadgeVisible
         self.header = header()
     }
 
@@ -147,6 +153,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 DayHomeAskBar(
                     title: configuration.title,
                     isEnabled: configuration.isEnabled,
+                    foldBadgeVisible: self.foldBadgeVisible,
                     action: configuration.action
                 )
                     .padding(.horizontal)

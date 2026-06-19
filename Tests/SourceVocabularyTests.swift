@@ -64,6 +64,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.chatTypingA11y, "sol is thinking")
         XCTAssertEqual(SourceVocabulary.chatSendA11y, "send")
         XCTAssertEqual(SourceVocabulary.chatAckBubble, "i'm on it.")
+        XCTAssertEqual(SourceVocabulary.chatFoldNotificationBody, "i have an answer for you.")
         XCTAssertEqual(SourceVocabulary.chatFoldAnchorTitle, "from your question")
         XCTAssertEqual(SourceVocabulary.chatFoldInlineAskPrefix, "you asked")
         XCTAssertEqual(SourceVocabulary.chatFoldOriginalQuestionUnavailable, "original question unavailable")
@@ -337,6 +338,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.chatTypingA11y,
             SourceVocabulary.chatSendA11y,
             SourceVocabulary.chatAckBubble,
+            SourceVocabulary.chatFoldNotificationBody,
             SourceVocabulary.chatFoldAnchorTitle,
             SourceVocabulary.chatFoldInlineAskPrefix,
             SourceVocabulary.chatFoldOriginalQuestionUnavailable,
