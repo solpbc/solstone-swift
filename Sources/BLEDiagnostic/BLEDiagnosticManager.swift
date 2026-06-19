@@ -52,6 +52,8 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     var sdDecodeErrors = 0
     var sdMarkersSeen = 0
     var sdLastMarkerDate: Date?
+    var sdFrameTimestampsSeen = 0
+    var sdLastFrameTimestamp: UInt32?
     var sdRawShareURL: URL?
     var sdWavShareURL: URL?
     var sdDangerEnabled = false
@@ -298,6 +300,8 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     }
 
     func listStorageFiles() {
+        self.sdFiles = []
+
         guard let peripheral = self.connectedPeripheral else {
             self.log.append(severity: .warn, message: "sd-card list refused: not connected")
             return
@@ -314,6 +318,13 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         self.sdDrainState = .listing
         self.log.append(message: "sd-card metadata read requested")
         peripheral.readValue(for: characteristic)
+
+        if self.isStorageSubscribed {
+            let command = Data([BLEDiagnosticStorage.cmdListFiles])
+            _ = self.writeStorageCommand(command, actionName: "list files")
+        } else {
+            self.log.append(severity: .warn, message: "sd-card file list needs notify enabled")
+        }
     }
 
     func readStorageFile(_ file: BLESDFileEntry, offset: Int = 0) {
@@ -352,9 +363,8 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
     func stopDrain() {
         self.cancelSDReadTimeout()
-        let fileNumber = self.sdFiles.first?.fileNumber ?? 0x01
-        let command = Data([0x03, fileNumber])
-        if self.writeStorageCommand(command, actionName: "stop file \(fileNumber)") {
+        let command = Data([BLEDiagnosticStorage.cmdStopSync])
+        if self.writeStorageCommand(command, actionName: "stop sync") {
             self.sdDrainState = .stopped
             self.finishSDDrainArtifacts()
             self.log.append(message: "sd-card drain stopped")
@@ -367,7 +377,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
             return
         }
 
-        let command = Data([0x01, file.fileNumber])
+        let command = Data([BLEDiagnosticStorage.cmdDeleteFile, file.fileNumber])
         if self.writeStorageCommand(command, actionName: "delete file \(file.fileNumber)") {
             self.log.append(message: "sd-card delete requested for file \(file.fileNumber)")
         }
@@ -788,8 +798,7 @@ private extension BLEDiagnosticManager {
             self.updateCharacteristicValue(id: id, hex: hex, ascii: ascii)
 
             if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.storageControlCharacteristic),
-               data.count >= 8,
-               self.sdDrainState == .listing
+               data.count >= 8
             {
                 self.handleStorageMetadata(data)
             } else {
@@ -1243,12 +1252,14 @@ private extension BLEDiagnosticManager {
         let fileSize = Int(totalBytes)
         let boundedSavedOffset = min(Int(savedOffset), fileSize)
         let file = BLESDFileEntry(
-            id: 0x01,
-            fileNumber: 0x01,
+            id: 0,
+            fileNumber: 0,
             sizeBytes: fileSize,
             savedOffset: boundedSavedOffset
         )
-        self.sdFiles = [file]
+        if self.sdFiles.isEmpty {
+            self.sdFiles = [file]
+        }
         self.sdTotalBytes = fileSize > 0 ? fileSize : nil
         self.sdProgress = 0
         self.sdDrainState = .ready
@@ -1259,20 +1270,56 @@ private extension BLEDiagnosticManager {
     }
 
     func handleStorageData(_ data: Data) {
-        if self.handleStorageStatus(data) {
+        if (self.sdDrainState == .listing || self.sdDrainState == .ready),
+           data.count >= BLEDiagnosticStorage.storageFileListEntrySize,
+           data.count % BLEDiagnosticStorage.storageFileListEntrySize == 0
+        {
+            self.handleStorageFileList(data)
             return
         }
 
+        switch BLEDiagnosticStorage.parseFrame(data) {
+        case .status(let rawStatus):
+            self.handleStorageStatus(rawStatus)
+        case .data(let timestamp, let payload):
+            self.handleStoragePayload(timestamp: timestamp, payload: payload)
+        case .unexpected:
+            self.log.append(
+                severity: .warn,
+                message: "sd-card data unexpected: \(data.count) bytes",
+                hex: BLEDiagnosticFormatters.hexDump(data)
+            )
+        }
+    }
+
+    func handleStorageFileList(_ data: Data) {
+        let rawEntryCount = data.count / BLEDiagnosticStorage.storageFileListEntrySize
+        let entries = BLEDiagnosticStorage.parseFileList(data)
+        self.sdFiles = entries
+        self.sdDrainState = .ready
+        self.log.append(
+            message: "sd-card file list: \(entries.count) files",
+            hex: BLEDiagnosticFormatters.hexDump(data)
+        )
+
+        if rawEntryCount > BLEDiagnosticStorage.storageFileListMaxEntries {
+            self.log.append(severity: .warn, message: "sd-card file list truncated to 50 entries")
+        }
+    }
+
+    func handleStoragePayload(timestamp: UInt32, payload: Data) {
         let hadNoStorageData = self.sdBytesReceived == 0
-        self.sdRawBytes.append(data)
-        self.sdBytesReceived += data.count
+        self.sdFrameTimestampsSeen += 1
+        self.sdLastFrameTimestamp = timestamp
+        self.sdRawBytes.append(payload)
+        self.sdBytesReceived += payload.count
         if hadNoStorageData && self.sdBytesReceived > 0 {
             self.cancelSDReadTimeout()
         }
-        self.recordSDThroughput(bytes: data.count)
+        self.recordSDThroughput(bytes: payload.count)
         self.recomputeSDProgress()
 
-        let output = self.sdReassembler.ingest(data)
+        let output = self.sdReassembler.ingest(payload)
         self.sdFramesSplit += output.completedFrames.count
 
         for marker in output.markers {
@@ -1280,7 +1327,7 @@ private extension BLEDiagnosticManager {
             self.sdLastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
             self.log.append(
                 message: "sd-card marker: epoch \(marker.epoch)",
-                hex: BLEDiagnosticFormatters.hexDump(data)
+                hex: BLEDiagnosticFormatters.hexDump(payload)
             )
         }
 
@@ -1290,8 +1337,8 @@ private extension BLEDiagnosticManager {
 
         let kbps = String(format: "%.1f", self.sdDrainThroughputKBps)
         self.log.append(
-            message: "sd-card data: \(data.count) bytes, \(self.sdBytesReceived) total, \(kbps) kb/s",
-            hex: BLEDiagnosticFormatters.hexDump(data)
+            message: "sd-card data: \(payload.count) bytes, \(self.sdBytesReceived) total, \(kbps) kb/s",
+            hex: BLEDiagnosticFormatters.hexDump(payload)
         )
 
         if let total = self.sdTotalBytes,
@@ -1305,23 +1352,29 @@ private extension BLEDiagnosticManager {
         }
     }
 
-    func handleStorageStatus(_ data: Data) -> Bool {
-        guard data.count == 1, let status = data.first else {
-            return false
-        }
-
+    func handleStorageStatus(_ rawStatus: UInt8) {
+        let status = BLEStorageStatus(rawValue: rawStatus)
+        let data = Data([rawStatus])
         let hex = BLEDiagnosticFormatters.hexDump(data)
         switch status {
-        case 0:
-            self.log.append(message: "sd-card status: ok", hex: hex)
-        case 100:
+        case .ok:
+            self.log.append(message: "sd-card status: OK", hex: hex)
+        case .transferComplete:
             self.sdDrainState = .completed
-            self.log.append(message: "sd-card status: complete", hex: hex)
+            self.log.append(message: "sd-card status: transfer complete", hex: hex)
             self.finishSDDrainArtifacts()
-        default:
-            self.log.append(severity: .warn, message: "sd-card status: \(status)", hex: hex)
+        case .invalidCommand, .fileNotFound, .fileIndexOutOfRange, .storageNotReady:
+            let wasReading = self.sdDrainState == .reading
+            self.sdDrainState = .failed(status.label)
+            self.cancelSDReadTimeout()
+            if wasReading {
+                self.cancelSDStatsTask(appendFinal: true)
+                self.sdOpusDecoder = nil
+            }
+            self.log.append(severity: .error, message: "sd-card status: \(status.label)", hex: hex)
+        case .unknown:
+            self.log.append(severity: .warn, message: "sd-card status: \(rawStatus)", hex: hex)
         }
-        return true
     }
 
     func handleCompletedSDFrame(_ frame: Data) {
@@ -1360,6 +1413,8 @@ private extension BLEDiagnosticManager {
         self.sdDecodeErrors = 0
         self.sdMarkersSeen = 0
         self.sdLastMarkerDate = nil
+        self.sdFrameTimestampsSeen = 0
+        self.sdLastFrameTimestamp = nil
         self.sdRawShareURL = nil
         self.sdWavShareURL = nil
         self.sdDrainState = .idle

@@ -126,17 +126,75 @@ nonisolated enum BLEDrainState: Equatable, Sendable {
 }
 
 nonisolated enum BLEDiagnosticStorage {
+    static let cmdListFiles: UInt8 = 0x10
+    static let cmdReadFile: UInt8 = 0x11
+    static let cmdDeleteFile: UInt8 = 0x12
+    static let cmdStopSync: UInt8 = 0x03
+    static let storageFileListEntrySize = 8
+    static let storageFileListMaxEntries = 50
     static let readTimeoutFailureReason = "no storage data received within 5s — read command likely wrong for this firmware"
 
     static func readCommandBytes(fileNumber: UInt8, offset: UInt32) -> [UInt8] {
         [
-            0x00,
+            Self.cmdReadFile,
             fileNumber,
-            UInt8(offset & 0x000000FF),
-            UInt8((offset >> 8) & 0x000000FF),
+            UInt8((offset >> 24) & 0x000000FF),
             UInt8((offset >> 16) & 0x000000FF),
-            UInt8((offset >> 24) & 0x000000FF)
+            UInt8((offset >> 8) & 0x000000FF),
+            UInt8(offset & 0x000000FF)
         ]
+    }
+
+    // Operator-confirmed on-device layout; the harness raw-logs responses for verification.
+    static func parseFileList(_ data: Data) -> [BLESDFileEntry] {
+        let entryCount = min(
+            data.count / Self.storageFileListEntrySize,
+            Self.storageFileListMaxEntries
+        )
+        guard entryCount > 0 else {
+            return []
+        }
+
+        var entries: [BLESDFileEntry] = []
+        entries.reserveCapacity(entryCount)
+        for entryIndex in 0..<entryCount {
+            let offset = entryIndex * Self.storageFileListEntrySize
+            let indexBytes = Array(data.dropFirst(offset).prefix(4))
+            let sizeBytes = Array(data.dropFirst(offset + 4).prefix(4))
+            let fileIndex = UInt32(indexBytes[0])
+                | (UInt32(indexBytes[1]) << 8)
+                | (UInt32(indexBytes[2]) << 16)
+                | (UInt32(indexBytes[3]) << 24)
+            let fileSize = UInt32(sizeBytes[0])
+                | (UInt32(sizeBytes[1]) << 8)
+                | (UInt32(sizeBytes[2]) << 16)
+                | (UInt32(sizeBytes[3]) << 24)
+            let narrowedIndex = UInt8(truncatingIfNeeded: fileIndex)
+            entries.append(BLESDFileEntry(
+                id: narrowedIndex,
+                fileNumber: narrowedIndex,
+                sizeBytes: Int(fileSize),
+                savedOffset: 0
+            ))
+        }
+        return entries
+    }
+
+    static func parseFrame(_ data: Data) -> BLEStorageFrame {
+        if data.count == 1, let status = data.first {
+            return .status(status)
+        }
+
+        guard data.count >= 5 else {
+            return .unexpected
+        }
+
+        let bytes = Array(data.prefix(4))
+        let timestamp = (UInt32(bytes[0]) << 24)
+            | (UInt32(bytes[1]) << 16)
+            | (UInt32(bytes[2]) << 8)
+            | UInt32(bytes[3])
+        return .data(timestamp: timestamp, payload: Data(data.dropFirst(4)))
     }
 
     static func writeType(for properties: CBCharacteristicProperties) -> CBCharacteristicWriteType? {
@@ -158,6 +216,69 @@ nonisolated enum BLEDiagnosticStorage {
         }
         return .failed(Self.readTimeoutFailureReason)
     }
+}
+
+nonisolated enum BLEStorageStatus: Equatable, Sendable {
+    case ok
+    case invalidCommand
+    case fileNotFound
+    case fileIndexOutOfRange
+    case storageNotReady
+    case transferComplete
+    case unknown(UInt8)
+
+    init(rawValue: UInt8) {
+        switch rawValue {
+        case 0:
+            self = .ok
+        case 6:
+            self = .invalidCommand
+        case 7:
+            self = .fileNotFound
+        case 8:
+            self = .fileIndexOutOfRange
+        case 9:
+            self = .storageNotReady
+        case 100:
+            self = .transferComplete
+        default:
+            self = .unknown(rawValue)
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .ok:
+            "OK"
+        case .invalidCommand:
+            "INVALID_COMMAND"
+        case .fileNotFound:
+            "FILE_NOT_FOUND"
+        case .fileIndexOutOfRange:
+            "FILE_INDEX_OUT_OF_RANGE"
+        case .storageNotReady:
+            "STORAGE_NOT_READY"
+        case .transferComplete:
+            "transfer complete"
+        case .unknown(let rawValue):
+            "status \(rawValue)"
+        }
+    }
+
+    var isFailure: Bool {
+        switch self {
+        case .invalidCommand, .fileNotFound, .fileIndexOutOfRange, .storageNotReady:
+            true
+        case .ok, .transferComplete, .unknown:
+            false
+        }
+    }
+}
+
+nonisolated enum BLEStorageFrame: Equatable, Sendable {
+    case status(UInt8)
+    case data(timestamp: UInt32, payload: Data)
+    case unexpected
 }
 
 nonisolated struct BLESDFileEntry: Identifiable, Equatable, Sendable {

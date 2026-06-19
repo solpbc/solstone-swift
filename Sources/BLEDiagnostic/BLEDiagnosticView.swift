@@ -373,6 +373,15 @@ struct BLEDiagnosticView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                LabeledContent("frame timestamps", value: "\(self.manager.sdFrameTimestampsSeen)")
+                LabeledContent("last timestamp") {
+                    if let sdLastFrameTimestamp = self.manager.sdLastFrameTimestamp {
+                        Text("\(sdLastFrameTimestamp)")
+                    } else {
+                        Text("none")
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 HStack {
                     if let rawURL = self.manager.sdRawShareURL {
