@@ -122,6 +122,7 @@ struct BLEDiagnosticView: View {
             if self.manager.connectionState == .connected {
                 LabeledContent("connected", value: self.manager.connectedPeripheralName ?? "(unnamed)")
                 LabeledContent("connection", value: self.manager.connectionState.displayString)
+                LabeledContent("signal (RSSI)", value: self.manager.connectedRSSI.map(String.init) ?? "unknown")
                 Button("disconnect") {
                     self.manager.disconnect()
                 }

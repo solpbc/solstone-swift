@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-import CoreBluetooth
+@preconcurrency import CoreBluetooth
 import Foundation
 
 nonisolated enum BLEReadState<Value: Equatable>: Equatable {
@@ -122,6 +122,41 @@ nonisolated enum BLEDrainState: Equatable, Sendable {
         case .failed(let reason):
             "failed: \(reason)"
         }
+    }
+}
+
+nonisolated enum BLEDiagnosticStorage {
+    static let readTimeoutFailureReason = "no storage data received within 5s — read command likely wrong for this firmware"
+
+    static func readCommandBytes(fileNumber: UInt8, offset: UInt32) -> [UInt8] {
+        [
+            0x00,
+            fileNumber,
+            UInt8(offset & 0x000000FF),
+            UInt8((offset >> 8) & 0x000000FF),
+            UInt8((offset >> 16) & 0x000000FF),
+            UInt8((offset >> 24) & 0x000000FF)
+        ]
+    }
+
+    static func writeType(for properties: CBCharacteristicProperties) -> CBCharacteristicWriteType? {
+        if properties.contains(.write) {
+            return .withResponse
+        }
+        if properties.contains(.writeWithoutResponse) {
+            return .withoutResponse
+        }
+        return nil
+    }
+
+    static func readTimeoutTransition(
+        currentState: BLEDrainState,
+        bytesReceived: Int
+    ) -> BLEDrainState? {
+        guard currentState == .reading, bytesReceived == 0 else {
+            return nil
+        }
+        return .failed(Self.readTimeoutFailureReason)
     }
 }
 

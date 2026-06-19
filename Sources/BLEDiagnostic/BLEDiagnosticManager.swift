@@ -18,6 +18,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     var connectionState: BLEConnectionState = .disconnected
     var connectedPeripheralName: String?
     var connectedPeripheralID: String?
+    var connectedRSSI: Int?
     var services: [BLEServiceNode] = []
     var firmware: BLEReadState<String> = .notRead
     var manufacturer: BLEReadState<String> = .notRead
@@ -66,6 +67,8 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     @ObservationIgnored private var connectTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var statsTask: Task<Void, Never>?
     @ObservationIgnored private var sdStatsTask: Task<Void, Never>?
+    @ObservationIgnored private var rssiRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var sdReadTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var pendingConnectionID: UUID?
     @ObservationIgnored private var didLogPoweredOn = false
     @ObservationIgnored private var reassembler = BLEAudioReassembler()
@@ -202,6 +205,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
     func disconnect() {
         self.cancelConnectTimeout()
+        self.cancelSDReadTimeout()
         if let peripheral = self.connectedPeripheral {
             self.central?.cancelPeripheralConnection(peripheral)
         } else if let pendingConnectionID,
@@ -254,6 +258,15 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
             return
         }
         self.connectedPeripheral?.readValue(for: characteristic)
+    }
+
+    func readRSSI() {
+        guard self.connectionState == .connected,
+              let peripheral = self.connectedPeripheral
+        else {
+            return
+        }
+        peripheral.readRSSI()
     }
 
     func read(characteristic node: BLECharacteristicNode) {
@@ -312,6 +325,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         let clampedOffset = max(0, min(offset, file.sizeBytes))
         self.resetSDDrainState()
         self.sdDrainState = .reading
+        self.startSDReadTimeoutTask()
         self.sdTotalBytes = file.sizeBytes > 0 ? file.sizeBytes : nil
         self.sdReadOffset = clampedOffset
         self.recomputeSDProgress()
@@ -319,6 +333,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         do {
             self.sdOpusDecoder = try BLEOpusAudioDecoder()
         } catch {
+            self.cancelSDReadTimeout()
             self.sdDrainState = .failed("decoder unavailable")
             self.log.append(severity: .error, message: "sd-card decoder unavailable: \(error.localizedDescription)")
             return
@@ -326,6 +341,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
         let command = self.storageReadCommand(fileNumber: file.fileNumber, offset: clampedOffset)
         guard self.writeStorageCommand(command, actionName: "read file \(file.fileNumber)") else {
+            self.cancelSDReadTimeout()
             self.sdDrainState = .failed("read command refused")
             self.sdOpusDecoder = nil
             return
@@ -335,6 +351,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     }
 
     func stopDrain() {
+        self.cancelSDReadTimeout()
         let fileNumber = self.sdFiles.first?.fileNumber ?? 0x01
         let command = Data([0x03, fileNumber])
         if self.writeStorageCommand(command, actionName: "stop file \(fileNumber)") {
@@ -378,6 +395,9 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
             return
         }
 
+        self.log.append(
+            message: "sd-card notify transport for \(self.characteristicSummary(characteristic)): \(self.storageNotifyTransportLabel(for: characteristic)), properties \(self.propertyFlagText(for: characteristic))"
+        )
         peripheral.setNotifyValue(enabled, for: characteristic)
     }
 
@@ -575,6 +595,26 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
         }
     }
 
+    nonisolated func peripheral(
+        _ peripheral: CBPeripheral,
+        didWriteValueFor characteristic: CBCharacteristic,
+        error: (any Error)?
+    ) {
+        MainActor.assumeIsolated {
+            self.handleDidWriteValue(characteristic, error: error)
+        }
+    }
+
+    nonisolated func peripheral(
+        _ peripheral: CBPeripheral,
+        didReadRSSI RSSI: NSNumber,
+        error: (any Error)?
+    ) {
+        MainActor.assumeIsolated {
+            self.handleDidReadRSSI(peripheral, rssi: RSSI, error: error)
+        }
+    }
+
 }
 
 private extension BLEDiagnosticManager {
@@ -621,6 +661,10 @@ private extension BLEDiagnosticManager {
         self.defaults.set(peripheral.identifier.uuidString, forKey: Self.lastConnectedPeripheralIDKey)
         self.connectionState = .connected
         peripheral.delegate = self
+        self.connectedRSSI = nil
+        self.logWriteMTU(for: peripheral)
+        self.readRSSI()
+        self.startRSSIRefreshTask()
         self.resetReadState()
         self.services = []
         self.characteristicsByID.removeAll()
@@ -691,6 +735,7 @@ private extension BLEDiagnosticManager {
         }
         self.log.append(message: "characteristics discovered for \(BLEDiagnosticUUIDs.displayName(for: service.uuid)): \(nodes.count)")
         self.markAbsentKnownFieldsUnavailable(for: service, characteristics: characteristics)
+        self.logStorageCharacteristicProperties(characteristics)
 
         for characteristic in characteristics where characteristic.properties.contains(.read) {
             if self.isAutoReadCharacteristic(characteristic.uuid) {
@@ -704,6 +749,14 @@ private extension BLEDiagnosticManager {
         characteristic: CBCharacteristic,
         error: (any Error)?
     ) {
+        if error == nil,
+           self.sdDrainState == .reading,
+           let data = characteristic.value,
+           !data.isEmpty
+        {
+            self.logSDReadWindowInbound(characteristic: characteristic, data: data)
+        }
+
         if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) {
             if error == nil, let data = characteristic.value, !data.isEmpty {
                 self.handleAudioData(data)
@@ -714,8 +767,14 @@ private extension BLEDiagnosticManager {
         let id = self.characteristicID(characteristic)
         if self.isStorageCharacteristic(characteristic.uuid) {
             if let error {
+                let wasReading = self.sdDrainState == .reading
                 self.sdDrainState = .failed(error.localizedDescription)
                 self.log.append(severity: .error, message: "sd-card value failed for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid)): \(error.localizedDescription)")
+                self.cancelSDReadTimeout()
+                if wasReading {
+                    self.cancelSDStatsTask(appendFinal: true)
+                    self.sdOpusDecoder = nil
+                }
                 return
             }
 
@@ -781,6 +840,43 @@ private extension BLEDiagnosticManager {
             self.handleStorageNotificationStateChanged(isNotifying: characteristic.isNotifying)
         }
         self.log.append(message: "\(characteristic.isNotifying ? "notify enabled" : "notify disabled") for \(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid))")
+    }
+
+    func handleDidWriteValue(
+        _ characteristic: CBCharacteristic,
+        error: (any Error)?
+    ) {
+        guard self.isStorageCharacteristic(characteristic.uuid) else {
+            return
+        }
+
+        // CoreBluetooth typically reports this callback for withResponse writes; withoutResponse writes rely on the issued-write log.
+        let writeType = BLEDiagnosticStorage.writeType(for: characteristic.properties)
+        let writeTypeLabel = writeType.map(self.writeTypeLabel) ?? "unavailable"
+        let summary = self.characteristicSummary(characteristic)
+        let properties = self.propertyFlagText(for: characteristic)
+        if let error {
+            self.log.append(
+                severity: .error,
+                message: "sd-card write failed for \(summary): type \(writeTypeLabel), properties \(properties): \(error.localizedDescription)"
+            )
+        } else {
+            self.log.append(
+                message: "sd-card write confirmed for \(summary): type \(writeTypeLabel), properties \(properties)"
+            )
+        }
+    }
+
+    func handleDidReadRSSI(
+        _ peripheral: CBPeripheral,
+        rssi RSSI: NSNumber,
+        error: (any Error)?
+    ) {
+        if let error {
+            self.log.append(severity: .warn, message: "rssi read failed: \(error.localizedDescription)")
+            return
+        }
+        self.connectedRSSI = RSSI.intValue
     }
 
     func readStringField(uuid: CBUUID, fieldName: String) {
@@ -872,6 +968,8 @@ private extension BLEDiagnosticManager {
     }
 
     func clearConnectionArtifacts() {
+        self.cancelRSSIRefreshTask()
+        self.connectedRSSI = nil
         self.connectedPeripheral = nil
         self.connectedPeripheralName = nil
         self.connectedPeripheralID = nil
@@ -1036,6 +1134,7 @@ private extension BLEDiagnosticManager {
         self.isStorageSubscribed = isNotifying
         if !isNotifying {
             self.sdOpusDecoder = nil
+            self.cancelSDReadTimeout()
             self.cancelSDStatsTask(appendFinal: true)
         }
     }
@@ -1078,21 +1177,21 @@ private extension BLEDiagnosticManager {
 
     func storageWriteCharacteristic(actionName: String) -> CBCharacteristic? {
         let preferred = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic)
-        if let preferred, preferred.properties.contains(.write) {
+        if let preferred,
+           BLEDiagnosticStorage.writeType(for: preferred.properties) != nil
+        {
             return preferred
         }
 
         let fallback = self.characteristic(for: BLEDiagnosticUUIDs.storageDataCharacteristic)
-        if let fallback, fallback.properties.contains(.write) {
+        if let fallback,
+           BLEDiagnosticStorage.writeType(for: fallback.properties) != nil
+        {
             self.log.append(severity: .warn, message: "sd-card write role mismatch: using sd-card data")
             return fallback
         }
 
-        if preferred?.properties.contains(.writeWithoutResponse) == true
-            || fallback?.properties.contains(.writeWithoutResponse) == true
-        {
-            self.log.append(severity: .warn, message: "sd-card \(actionName) refused: writeWithoutResponse only")
-        } else if preferred != nil || fallback != nil {
+        if preferred != nil || fallback != nil {
             self.log.append(severity: .warn, message: "sd-card \(actionName) refused: characteristic lacks write")
         } else {
             self.log.append(severity: .warn, message: "sd-card \(actionName) refused: characteristic missing")
@@ -1111,24 +1210,25 @@ private extension BLEDiagnosticManager {
             return false
         }
 
+        guard let writeType = BLEDiagnosticStorage.writeType(for: characteristic.properties) else {
+            self.log.append(
+                severity: .error,
+                message: "sd-card \(actionName) refused: selected characteristic is not writable"
+            )
+            return false
+        }
+
         self.log.append(
-            message: "sd-card command issued: \(actionName)",
+            message: "sd-card command issued: \(actionName), target \(self.characteristicSummary(characteristic)), type \(self.writeTypeLabel(writeType)), properties \(self.propertyFlagText(for: characteristic))",
             hex: BLEDiagnosticFormatters.hexDump(command)
         )
-        peripheral.writeValue(command, for: characteristic, type: .withResponse)
+        peripheral.writeValue(command, for: characteristic, type: writeType)
         return true
     }
 
     func storageReadCommand(fileNumber: UInt8, offset: Int) -> Data {
         let boundedOffset = UInt32(max(0, min(offset, Int(UInt32.max))))
-        return Data([
-            0x00,
-            fileNumber,
-            UInt8((boundedOffset >> 24) & 0x000000FF),
-            UInt8((boundedOffset >> 16) & 0x000000FF),
-            UInt8((boundedOffset >> 8) & 0x000000FF),
-            UInt8(boundedOffset & 0x000000FF)
-        ])
+        return Data(BLEDiagnosticStorage.readCommandBytes(fileNumber: fileNumber, offset: boundedOffset))
     }
 
     func handleStorageMetadata(_ data: Data) {
@@ -1163,8 +1263,12 @@ private extension BLEDiagnosticManager {
             return
         }
 
+        let hadNoStorageData = self.sdBytesReceived == 0
         self.sdRawBytes.append(data)
         self.sdBytesReceived += data.count
+        if hadNoStorageData && self.sdBytesReceived > 0 {
+            self.cancelSDReadTimeout()
+        }
         self.recordSDThroughput(bytes: data.count)
         self.recomputeSDProgress()
 
@@ -1238,6 +1342,7 @@ private extension BLEDiagnosticManager {
     }
 
     func resetSDDrainState() {
+        self.cancelSDReadTimeout()
         self.cancelSDStatsTask(appendFinal: false)
         self.sdReassembler = BLESDFileReassembler()
         self.sdOpusDecoder = nil
@@ -1261,6 +1366,7 @@ private extension BLEDiagnosticManager {
     }
 
     func clearSDDrainState() {
+        self.cancelSDReadTimeout()
         self.cancelSDStatsTask(appendFinal: false)
         self.isStorageSubscribed = false
         self.sdFiles = []
@@ -1316,7 +1422,36 @@ private extension BLEDiagnosticManager {
         )
     }
 
+    func startSDReadTimeoutTask() {
+        self.cancelSDReadTimeout()
+        self.sdReadTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            self.sdReadTimeoutTask = nil
+            guard let transition = BLEDiagnosticStorage.readTimeoutTransition(
+                currentState: self.sdDrainState,
+                bytesReceived: self.sdBytesReceived
+            ) else {
+                return
+            }
+
+            self.sdDrainState = transition
+            self.log.append(severity: .error, message: BLEDiagnosticStorage.readTimeoutFailureReason)
+            self.cancelSDStatsTask(appendFinal: true)
+            self.sdOpusDecoder = nil
+        }
+    }
+
+    func cancelSDReadTimeout() {
+        self.sdReadTimeoutTask?.cancel()
+        self.sdReadTimeoutTask = nil
+    }
+
     func finishSDDrainArtifacts() {
+        self.cancelSDReadTimeout()
         guard !self.didFinishSDArtifacts else {
             return
         }
@@ -1475,6 +1610,94 @@ private extension BLEDiagnosticManager {
         self.log.append(
             message: "audio: \(self.audioPackets) pkts, \(self.audioFrames) frames, \(self.audioDecodeOK) ok/\(self.audioDecodeErrors) err, gaps \(self.audioGaps), markers \(self.audioMarkers), \(kbps) kb/s"
         )
+    }
+
+    func startRSSIRefreshTask() {
+        self.cancelRSSIRefreshTask()
+        self.rssiRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, !Task.isCancelled else {
+                    return
+                }
+                guard self.connectionState == .connected,
+                      self.connectedPeripheral != nil
+                else {
+                    return
+                }
+                self.readRSSI()
+            }
+        }
+    }
+
+    func cancelRSSIRefreshTask() {
+        self.rssiRefreshTask?.cancel()
+        self.rssiRefreshTask = nil
+    }
+
+    func logWriteMTU(for peripheral: CBPeripheral) {
+        let withResponse = peripheral.maximumWriteValueLength(for: .withResponse)
+        let withoutResponse = peripheral.maximumWriteValueLength(for: .withoutResponse)
+        self.log.append(message: "ble mtu: withResponse \(withResponse), withoutResponse \(withoutResponse)")
+    }
+
+    func logStorageCharacteristicProperties(_ characteristics: [CBCharacteristic]) {
+        for characteristic in characteristics where self.isStorageCharacteristic(characteristic.uuid) {
+            self.log.append(
+                message: "sd-card characteristic \(self.characteristicSummary(characteristic)) properties: \(self.propertyFlagText(for: characteristic))"
+            )
+        }
+    }
+
+    func logSDReadWindowInbound(characteristic: CBCharacteristic, data: Data) {
+        self.log.append(
+            message: "sd-card read inbound: \(data.count) bytes from \(self.characteristicSummary(characteristic))",
+            hex: self.truncatedHexDump(data, maxBytes: 32)
+        )
+    }
+
+    func truncatedHexDump(_ data: Data, maxBytes: Int) -> String {
+        guard data.count > maxBytes else {
+            return BLEDiagnosticFormatters.hexDump(data)
+        }
+
+        let visible = Data(data.prefix(maxBytes))
+        return "\(BLEDiagnosticFormatters.hexDump(visible)) ... (+\(data.count - maxBytes) bytes)"
+    }
+
+    func characteristicSummary(_ characteristic: CBCharacteristic) -> String {
+        "\(BLEDiagnosticUUIDs.displayName(for: characteristic.uuid)) (\(characteristic.uuid.uuidString))"
+    }
+
+    func propertyFlagText(for characteristic: CBCharacteristic) -> String {
+        let labels = BLEDiagnosticFormatters.propertyLabels(characteristic.properties)
+        return labels.isEmpty ? "(none)" : labels.joined(separator: ", ")
+    }
+
+    func storageNotifyTransportLabel(for characteristic: CBCharacteristic) -> String {
+        let hasNotify = characteristic.properties.contains(.notify)
+        let hasIndicate = characteristic.properties.contains(.indicate)
+        if hasNotify && hasIndicate {
+            return "notify+indicate"
+        }
+        if hasNotify {
+            return "notify"
+        }
+        if hasIndicate {
+            return "indicate"
+        }
+        return "none"
+    }
+
+    func writeTypeLabel(_ writeType: CBCharacteristicWriteType) -> String {
+        switch writeType {
+        case .withResponse:
+            "withResponse"
+        case .withoutResponse:
+            "withoutResponse"
+        @unknown default:
+            "unknown"
+        }
     }
 
     func displayName(for id: UUID) -> String {
