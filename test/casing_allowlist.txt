@@ -46,6 +46,11 @@ PairClient.swift|Connection:
 CertChain.swift|CERTIFICATE
 CryptoCSR.swift|CERTIFICATE REQUEST
 CryptoCSR.swift|PRIVATE KEY
+# Omi firmware SD-card status code constant names (verbatim, operator cross-reference)
+BLEDiagnosticModels.swift|INVALID_COMMAND
+BLEDiagnosticModels.swift|FILE_NOT_FOUND
+BLEDiagnosticModels.swift|FILE_INDEX_OUT_OF_RANGE
+BLEDiagnosticModels.swift|STORAGE_NOT_READY
 
 # Internal logger/type names
 *|OnboardingRootView
