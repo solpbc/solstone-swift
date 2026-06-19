@@ -62,11 +62,11 @@ final class ImportQueue {
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: ImportQueueSessionDelegate
     @ObservationIgnored private let session: URLSession
-    @ObservationIgnored private let deleteSession: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
-    @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
+    @ObservationIgnored private let saveURLBuilder: @Sendable (Int) -> URL?
+    @ObservationIgnored private let startURLBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
@@ -80,7 +80,6 @@ final class ImportQueue {
     @ObservationIgnored private var uploadTaskByItemID: [String: URLSessionTask] = [:]
     @ObservationIgnored private var attemptCountByItemID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByItemID: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var isDeletingShareSource = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.import-queue")
 
@@ -88,15 +87,13 @@ final class ImportQueue {
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
         sessionConfiguration: URLSessionConfiguration? = nil,
-        deleteSessionConfiguration: URLSessionConfiguration? = nil,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw ImportQueueError.registrationUnavailable
         },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
-        urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
-            ObserverServerURL.ingestURL(localPort: localPort)
-        },
+        saveURLBuilder: @escaping @Sendable (Int) -> URL? = { ImporterServerURL.saveURL(localPort: $0) },
+        startURLBuilder: @escaping @Sendable (Int) -> URL? = { ImporterServerURL.startURL(localPort: $0) },
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in
@@ -110,7 +107,8 @@ final class ImportQueue {
         self.ensureRegistered = ensureRegistered
         self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
-        self.urlBuilder = urlBuilder
+        self.saveURLBuilder = saveURLBuilder
+        self.startURLBuilder = startURLBuilder
         self.retryDelays = retryDelays
         self.maxAttempts = maxAttempts
         self.sleep = sleep
@@ -123,7 +121,6 @@ final class ImportQueue {
         self.sessionDelegate = ImportQueueSessionDelegate()
         let configuration = sessionConfiguration ?? Self.makeBackgroundConfiguration()
         self.session = URLSession(configuration: configuration, delegate: self.sessionDelegate, delegateQueue: nil)
-        self.deleteSession = URLSession(configuration: deleteSessionConfiguration ?? .ephemeral)
         self.sessionDelegate.setOwner(self)
 
         try? self.ensureRootDirectories()
@@ -137,7 +134,6 @@ final class ImportQueue {
     func enqueue(
         fileURL: URL,
         source: String,
-        stream: String,
         targetJournal: String,
         contentType: String,
         originalFilename: String? = nil,
@@ -165,9 +161,7 @@ final class ImportQueue {
             )
             let noteData = try Self.orderedNoteData(note)
             let descriptor = RequestDescriptor(
-                day: Self.dayString(for: placement.itemTime),
-                segment: "\(Self.timeString(for: placement.itemTime))_0",
-                stream: stream,
+                source: source,
                 filename: rawInfo.filename,
                 contentType: rawInfo.mimeType
             )
@@ -205,8 +199,6 @@ final class ImportQueue {
     }
 
     func resumeFromDisk() async {
-        guard !self.isDeletingShareSource else { return }
-
         do {
             try self.ensureRootDirectories()
             let ledger = try self.loadLedger()
@@ -233,7 +225,8 @@ final class ImportQueue {
                     continue
                 }
 
-                try? self.fileManager.removeItem(at: self.bodyURL(itemID: itemID, status: .pending))
+                try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
+                try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
                 await self.scheduleUpload(itemID: itemID)
             }
         } catch {
@@ -246,8 +239,6 @@ final class ImportQueue {
     }
 
     func requeueFailedItem(itemID: UUID) async throws {
-        guard !self.isDeletingShareSource else { return }
-
         let itemIDString = Self.itemIDString(itemID)
         let failedURL = self.failedItemDirectoryURL(itemID: itemIDString)
         let pendingURL = self.pendingItemDirectoryURL(itemID: itemIDString)
@@ -337,14 +328,6 @@ final class ImportQueue {
         self.backgroundCompletionHandler = completionHandler
     }
 
-    func deleteShareSource() async -> DeleteShareSourceResult {
-        let result = await self.deleteShareSourceWhileQuiesced()
-        if !result.shouldFlipOff {
-            await self.resumeFromDisk()
-        }
-        return result
-    }
-
     func handlePathStatus(_ status: NWPath.Status) {
         guard status == .satisfied else { return }
         Task { @MainActor [weak self] in
@@ -365,12 +348,19 @@ private extension ImportQueue {
         case failed
     }
 
+    enum TaskStep: Sendable {
+        case save
+        case start
+    }
+
     struct TaskInfo {
         let itemID: String
         let itemDirectoryURL: URL
         let bodyURL: URL
+        let step: TaskStep
         let descriptor: RequestDescriptor
         let ledgerStub: LedgerStub
+        let saveResult: SaveResult?
     }
 
     struct Placement {
@@ -396,23 +386,18 @@ private extension ImportQueue {
     }
 
     struct RequestDescriptor: Codable, Equatable, Sendable {
-        let day: String
-        let segment: String
-        let stream: String
+        let source: String
         let filename: String
         let contentType: String
 
         enum CodingKeys: String, CodingKey {
-            case day
-            case segment
-            case stream
+            case source
             case filename
             case contentType = "content_type"
         }
     }
 
     struct LedgerStub {
-        let stream: String
         let basis: String
         let contentType: String
         let targetJournal: String
@@ -423,12 +408,11 @@ private extension ImportQueue {
 
     struct LedgerEntry: Codable, Equatable, Sendable {
         let itemID: String
-        let stream: String
         let basis: String
         let contentType: String
         let targetJournal: String
-        let serverDay: String
-        let serverSegment: String?
+        let serverPath: String?
+        let serverTimestamp: String?
         let deliveredAt: Date
         let filename: String?
         let originApp: String?
@@ -436,12 +420,11 @@ private extension ImportQueue {
 
         enum CodingKeys: String, CodingKey {
             case itemID = "item_id"
-            case stream
             case basis
             case contentType = "content_type"
             case targetJournal = "target_journal"
-            case serverDay = "server_day"
-            case serverSegment = "server_segment"
+            case serverPath = "server_path"
+            case serverTimestamp = "server_timestamp"
             case deliveredAt = "delivered_at"
             case filename
             case originApp = "origin_app"
@@ -449,16 +432,31 @@ private extension ImportQueue {
         }
     }
 
-    struct IngestResponse: Decodable {
+    struct SaveResult: Codable, Equatable, Sendable {
+        let path: String
+        let timestamp: String
+    }
+
+    struct SaveResponse: Decodable {
+        let path: String
+        let timestamp: String
+        let dedup: Bool?
+    }
+
+    struct StartResponse: Decodable {
         let status: String?
-        let segment: String?
-        let existingSegment: String?
+        let taskID: String?
 
         enum CodingKeys: String, CodingKey {
             case status
-            case segment
-            case existingSegment = "existing_segment"
+            case taskID = "task_id"
         }
+    }
+
+    struct StartRequest: Encodable {
+        let path: String
+        let timestamp: String
+        let source: String
     }
 
     static func defaultCacheRootURL(fileManager: FileManager) -> URL {
@@ -485,136 +483,7 @@ private extension ImportQueue {
         self.pathMonitor = monitor
     }
 
-    func deleteShareSourceWhileQuiesced() async -> DeleteShareSourceResult {
-        self.isDeletingShareSource = true
-        defer {
-            self.isDeletingShareSource = false
-        }
-
-        self.cancelImportShareWorkForDelete()
-
-        let handle: String
-        do {
-            handle = try await self.ensureRegistered()
-        } catch {
-            let detail = String(describing: error)
-            importQueueLog.error("share source delete unavailable: registration failed \(detail, privacy: .public)")
-            return .unreachable(reason: detail)
-        }
-
-        guard let localPort = self.localPortProvider() else {
-            let detail = "share source delete unavailable: missing local port"
-            importQueueLog.error("\(detail, privacy: .public)")
-            return .unreachable(reason: detail)
-        }
-
-        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, source: "import.share") else {
-            let detail = "share source delete unavailable: invalid url"
-            importQueueLog.error("\(detail, privacy: .public)")
-            return .unreachable(reason: detail)
-        }
-
-        var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "DELETE")
-        request.timeoutInterval = 10
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await self.deleteSession.data(for: request)
-        } catch {
-            let detail = String(describing: error)
-            importQueueLog.error("share source delete failed: \(detail, privacy: .public)")
-            return .unreachable(reason: detail)
-        }
-
-        guard let http = response as? HTTPURLResponse else {
-            let detail = "share source delete failed: invalid response"
-            importQueueLog.error("\(detail, privacy: .public)")
-            return .unreachable(reason: detail)
-        }
-
-        guard 200..<300 ~= http.statusCode else {
-            let detail = "HTTP \(http.statusCode)"
-            importQueueLog.error("share source delete failed: \(detail, privacy: .public)")
-            return .unreachable(reason: detail)
-        }
-
-        guard !data.isEmpty,
-              let receipt = try? self.decoder.decode(DeleteSourceReceipt.self, from: data)
-        else {
-            importQueueLog.error("share source delete not confirmed: missing receipt")
-            return .notConfirmed
-        }
-
-        let localNotRemoved = self.clearImportShareLocalState()
-        importQueueLog.info("share source delete confirmed")
-        return .confirmed(receipt: receipt, localNotRemoved: localNotRemoved)
-    }
-
-    func cancelImportShareWorkForDelete() {
-        for task in self.uploadTaskByItemID.values {
-            task.cancel()
-        }
-        for task in self.retryTasksByItemID.values {
-            task.cancel()
-        }
-
-        self.uploadTaskByItemID.removeAll()
-        self.activeTaskIDByItemID.removeAll()
-        self.taskInfoByTaskID.removeAll()
-        self.responseDataByTaskID.removeAll()
-        self.retryTasksByItemID.removeAll()
-        self.attemptCountByItemID.removeAll()
-    }
-
-    func clearImportShareLocalState() -> [DeleteSourceReceipt.Issue] {
-        var issues: [DeleteSourceReceipt.Issue] = []
-        issues.append(contentsOf: self.clearItemDirectories(at: self.pendingDirectoryURL(), surface: "pending"))
-        issues.append(contentsOf: self.clearItemDirectories(at: self.failedDirectoryURL(), surface: "failed"))
-
-        do {
-            let ledger = try self.loadLedger()
-            let filtered = ledger.filter { _, entry in
-                entry.stream != "import.share"
-            }
-            try self.saveLedger(filtered)
-        } catch {
-            issues.append(Self.deleteIssue(what: "ledger", error: error))
-        }
-
-        self.refreshCounts()
-        return issues
-    }
-
-    func clearItemDirectories(at url: URL, surface: String) -> [DeleteSourceReceipt.Issue] {
-        let entries: [URL]
-        do {
-            entries = try self.fileManager.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            return [Self.deleteIssue(what: surface, error: error)]
-        }
-
-        var issues: [DeleteSourceReceipt.Issue] = []
-        for entry in entries where self.isDirectory(entry) {
-            do {
-                try self.fileManager.removeItem(at: entry)
-            } catch {
-                issues.append(Self.deleteIssue(what: "\(surface)/\(entry.lastPathComponent)", error: error))
-            }
-        }
-        return issues
-    }
-
-    static func deleteIssue(what: String, error: any Error) -> DeleteSourceReceipt.Issue {
-        DeleteSourceReceipt.Issue(what: what, plainReason: String(describing: error))
-    }
-
     func scheduleUpload(itemID: String) async {
-        guard !self.isDeletingShareSource else { return }
         guard self.activeTaskIDByItemID[itemID] == nil else { return }
         guard self.requiredFilesExist(itemID: itemID, status: .pending) else { return }
 
@@ -632,46 +501,85 @@ private extension ImportQueue {
             return
         }
 
-        let handle: String
-        do {
-            handle = try await self.ensureRegistered()
-        } catch {
-            let detail = String(describing: error)
-            importQueueLog.error("import upload pending \(itemID, privacy: .public): registration unavailable \(detail, privacy: .public)")
-            self.lastError = detail
-            self.refreshCounts()
-            return
-        }
-
-        guard let url = self.urlBuilder(localPort) else {
-            let detail = "import upload unavailable: invalid url"
-            importQueueLog.error("\(detail, privacy: .public)")
-            self.lastError = detail
-            self.refreshCounts()
-            return
-        }
-
         do {
             let descriptor = try self.loadDescriptor(itemID: itemID, status: .pending)
-            let ledgerStub = try self.loadLedgerStub(itemID: itemID, status: .pending, descriptor: descriptor)
-            let bodyURL = try self.buildMultipartRequestBody(itemID: itemID)
-            var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
-            request.setValue("multipart/form-data; boundary=\(self.boundary(for: itemID))", forHTTPHeaderField: "Content-Type")
+            let ledgerStub = try self.loadLedgerStub(itemID: itemID, status: .pending)
+            let itemDirectoryURL = self.pendingItemDirectoryURL(itemID: itemID)
+            let saveResult = try self.loadSaveResultIfPresent(itemID: itemID, status: .pending)
+
+            let bodyURL: URL
+            let step: TaskStep
+            let taskSaveResult: SaveResult?
+            var request: URLRequest
+
+            if let saveResult {
+                guard let url = self.startURLBuilder(localPort) else {
+                    let detail = "import start unavailable: invalid url"
+                    importQueueLog.error("\(detail, privacy: .public)")
+                    self.lastError = detail
+                    self.refreshCounts()
+                    return
+                }
+
+                bodyURL = try self.buildStartRequestBody(
+                    itemID: itemID,
+                    descriptor: descriptor,
+                    saveResult: saveResult
+                )
+                step = .start
+                taskSaveResult = saveResult
+                request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            } else {
+                let handle: String
+                do {
+                    handle = try await self.ensureRegistered()
+                } catch {
+                    let detail = String(describing: error)
+                    importQueueLog.error("import save pending \(itemID, privacy: .public): registration unavailable \(detail, privacy: .public)")
+                    self.lastError = detail
+                    self.refreshCounts()
+                    return
+                }
+
+                guard let url = self.saveURLBuilder(localPort) else {
+                    let detail = "import save unavailable: invalid url"
+                    importQueueLog.error("\(detail, privacy: .public)")
+                    self.lastError = detail
+                    self.refreshCounts()
+                    return
+                }
+
+                bodyURL = try self.buildSaveRequestBody(
+                    itemID: itemID,
+                    descriptor: descriptor,
+                    observerHandle: handle
+                )
+                step = .save
+                taskSaveResult = nil
+                request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("multipart/form-data; boundary=\(self.boundary(for: itemID))", forHTTPHeaderField: "Content-Type")
+            }
 
             let task = self.session.uploadTask(with: request, fromFile: bodyURL)
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
                 itemID: itemID,
-                itemDirectoryURL: self.pendingItemDirectoryURL(itemID: itemID),
+                itemDirectoryURL: itemDirectoryURL,
                 bodyURL: bodyURL,
+                step: step,
                 descriptor: descriptor,
-                ledgerStub: ledgerStub
+                ledgerStub: ledgerStub,
+                saveResult: taskSaveResult
             )
             self.activeTaskIDByItemID[itemID] = task.taskIdentifier
             task.resume()
             self.uploadTaskByItemID[itemID] = task
         } catch {
             await self.handleUploadFailure(itemID: itemID, reason: String(describing: error))
-            try? self.fileManager.removeItem(at: self.bodyURL(itemID: itemID, status: .pending))
+            try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
+            try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
         }
     }
 
@@ -693,7 +601,12 @@ private extension ImportQueue {
 
         let statusCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
         if 200..<300 ~= statusCode {
-            await self.handleDeliverySuccess(info: info, responseData: responseData)
+            switch info.step {
+            case .save:
+                await self.handleSaveSuccess(info: info, responseData: responseData)
+            case .start:
+                await self.handleStartSuccess(info: info, responseData: responseData)
+            }
             return
         }
 
@@ -705,31 +618,45 @@ private extension ImportQueue {
         try? self.fileManager.removeItem(at: info.bodyURL)
     }
 
-    func handleDeliverySuccess(info: TaskInfo, responseData: Data) async {
-        if self.isDeletingShareSource && info.ledgerStub.stream == "import.share" {
+    func handleSaveSuccess(info: TaskInfo, responseData: Data) async {
+        do {
+            let response = try self.decoder.decode(SaveResponse.self, from: responseData)
+            let saveResult = SaveResult(path: response.path, timestamp: response.timestamp)
+            try self.saveSaveResult(saveResult, itemID: info.itemID, status: .pending)
             try? self.fileManager.removeItem(at: info.bodyURL)
-            self.refreshCounts()
+            self.attemptCountByItemID.removeValue(forKey: info.itemID)
+
+            if response.dedup == true {
+                await self.finalizeDelivery(info: info, saveResult: saveResult)
+            } else {
+                await self.scheduleUpload(itemID: info.itemID)
+            }
+        } catch {
+            await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))
+            try? self.fileManager.removeItem(at: info.bodyURL)
+        }
+    }
+
+    func handleStartSuccess(info: TaskInfo, responseData: Data) async {
+        _ = try? self.decoder.decode(StartResponse.self, from: responseData)
+        guard let saveResult = info.saveResult else {
+            await self.handleUploadFailure(itemID: info.itemID, reason: "missing save result")
+            try? self.fileManager.removeItem(at: info.bodyURL)
             return
         }
+        await self.finalizeDelivery(info: info, saveResult: saveResult)
+    }
 
-        let response = try? self.decoder.decode(IngestResponse.self, from: responseData)
-        let serverSegment: String?
-        if response?.status == "duplicate" {
-            serverSegment = response?.existingSegment
-        } else {
-            serverSegment = response?.segment
-        }
-
+    func finalizeDelivery(info: TaskInfo, saveResult: SaveResult) async {
         do {
             var ledger = try self.loadLedger()
             ledger[info.itemID] = LedgerEntry(
                 itemID: info.itemID,
-                stream: info.ledgerStub.stream,
                 basis: info.ledgerStub.basis,
                 contentType: info.ledgerStub.contentType,
                 targetJournal: info.ledgerStub.targetJournal,
-                serverDay: info.descriptor.day,
-                serverSegment: serverSegment,
+                serverPath: saveResult.path,
+                serverTimestamp: saveResult.timestamp,
                 deliveredAt: self.now(),
                 filename: info.ledgerStub.filename,
                 originApp: info.ledgerStub.originApp,
@@ -753,8 +680,6 @@ private extension ImportQueue {
     }
 
     func handleUploadFailure(itemID: String, reason: String) async {
-        guard !self.isDeletingShareSource else { return }
-
         let nextAttempt = self.attemptCountByItemID[itemID, default: 0] + 1
         self.attemptCountByItemID[itemID] = nextAttempt
         self.lastError = reason
@@ -780,7 +705,6 @@ private extension ImportQueue {
             guard let self else { return }
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
-            guard !self.isDeletingShareSource else { return }
             await self.scheduleUpload(itemID: itemID)
         }
         self.refreshCounts()
@@ -794,37 +718,58 @@ private extension ImportQueue {
             try self.fileManager.removeItem(at: failedURL)
         }
         if self.fileManager.fileExists(atPath: pendingURL.path) {
-            try? self.fileManager.removeItem(at: self.bodyURL(itemID: itemID, status: .pending))
+            try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
+            try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
             try self.fileManager.moveItem(at: pendingURL, to: failedURL)
         }
         importQueueLog.error("import item moved to failed \(itemID, privacy: .public): \(reason, privacy: .public)")
         self.lastError = reason
     }
 
-    func buildMultipartRequestBody(itemID: String) throws -> URL {
-        let descriptor = try self.loadDescriptor(itemID: itemID, status: .pending)
-        let noteData = try Data(contentsOf: self.noteURL(itemID: itemID, status: .pending))
+    func buildSaveRequestBody(
+        itemID: String,
+        descriptor: RequestDescriptor,
+        observerHandle: String
+    ) throws -> URL {
         let rawData = try Data(contentsOf: self.rawURL(itemID: itemID, status: .pending))
         let boundary = self.boundary(for: itemID)
-        let bodyURL = self.bodyURL(itemID: itemID, status: .pending)
+        let bodyURL = self.saveUploadURL(itemID: itemID, status: .pending)
 
         var body = Data()
-        body.append(self.multipartField(named: "day", value: descriptor.day, boundary: boundary))
-        body.append(self.multipartField(named: "segment", value: descriptor.segment, boundary: boundary))
-        body.append(self.multipartField(named: "platform", value: "ios", boundary: boundary))
+        body.append(self.multipartField(named: "imported_via", value: "mobile_share", boundary: boundary))
+        body.append(self.multipartField(named: "observer_handle", value: observerHandle, boundary: boundary))
 
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"\(descriptor.filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: \(descriptor.contentType)\r\n\r\n".data(using: .utf8)!)
-        body.append(rawData)
-        body.append("\r\n".data(using: .utf8)!)
+        // The importer treats "quick" as the share-extension text path; all other sources are file imports.
+        if descriptor.source == "quick" {
+            guard let text = String(data: rawData, encoding: .utf8) else {
+                throw ImportQueueError.textDecodeFailed(itemID: itemID)
+            }
+            body.append(self.multipartField(named: "text", value: text, boundary: boundary))
+        } else {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(descriptor.filename)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(descriptor.contentType)\r\n\r\n".data(using: .utf8)!)
+            body.append(rawData)
+            body.append("\r\n".data(using: .utf8)!)
+        }
 
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"item.json\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/json\r\n\r\n".data(using: .utf8)!)
-        body.append(noteData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         try body.write(to: bodyURL, options: .atomic)
+        return bodyURL
+    }
+
+    func buildStartRequestBody(
+        itemID: String,
+        descriptor: RequestDescriptor,
+        saveResult: SaveResult
+    ) throws -> URL {
+        let bodyURL = self.startUploadURL(itemID: itemID, status: .pending)
+        let body = StartRequest(
+            path: saveResult.path,
+            timestamp: saveResult.timestamp,
+            source: descriptor.source
+        )
+        try self.encoder.encode(body).write(to: bodyURL, options: .atomic)
         return bodyURL
     }
 
@@ -839,7 +784,6 @@ private extension ImportQueue {
         isActivelyUploading: Bool
     ) -> OnThisPhoneItem {
         let object = self.readNoteObject(itemID: itemID, status: status)
-        let descriptor = try? self.loadDescriptor(itemID: itemID, status: status)
         let rawURL = self.rawURL(itemID: itemID, status: status)
         let rawFileURL = self.fileManager.fileExists(atPath: rawURL.path) ? rawURL : nil
 
@@ -854,9 +798,9 @@ private extension ImportQueue {
             basis: object?["basis"] as? String,
             itemTime: Self.parseItemTime(object?["item_time"] as? String),
             targetJournal: object?["target_journal"] as? String,
-            stream: descriptor?.stream,
-            day: descriptor?.day,
-            segment: descriptor?.segment,
+            stream: nil,
+            day: nil,
+            segment: nil,
             deliveredAt: nil,
             rawFileURL: rawFileURL
         )
@@ -874,9 +818,9 @@ private extension ImportQueue {
             basis: entry.basis,
             itemTime: Self.parseItemTime(entry.itemTime),
             targetJournal: entry.targetJournal,
-            stream: entry.stream,
-            day: entry.serverDay,
-            segment: entry.serverSegment,
+            stream: nil,
+            day: Self.dayString(fromServerTimestamp: entry.serverTimestamp),
+            segment: nil,
             deliveredAt: entry.deliveredAt,
             rawFileURL: nil
         )
@@ -930,6 +874,8 @@ private extension ImportQueue {
             RawFileInfo(filename: "image.webp", mimeType: "image/webp")
         case "public.tiff", "image/tiff":
             RawFileInfo(filename: "image.tiff", mimeType: "image/tiff")
+        case "public.plain-text", "public.utf8-plain-text", "text/plain":
+            RawFileInfo(filename: "text.txt", mimeType: "text/plain")
         default:
             RawFileInfo(filename: "item.bin", mimeType: "application/octet-stream")
         }
@@ -976,6 +922,23 @@ private extension ImportQueue {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.date(from: string)
+    }
+
+    nonisolated static func parseServerTimestamp(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: string)
+    }
+
+    nonisolated static func dayString(fromServerTimestamp timestamp: String?) -> String? {
+        guard let date = Self.parseServerTimestamp(timestamp) else { return nil }
+        return Self.dayString(for: date)
     }
 
     nonisolated static func dayString(for date: Date) -> String {
@@ -1040,8 +1003,16 @@ private extension ImportQueue {
         self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("request.json", isDirectory: false)
     }
 
-    func bodyURL(itemID: String, status: ItemStatus) -> URL {
-        self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("body.upload", isDirectory: false)
+    func saveResultURL(itemID: String, status: ItemStatus) -> URL {
+        self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("save.json", isDirectory: false)
+    }
+
+    func saveUploadURL(itemID: String, status: ItemStatus) -> URL {
+        self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("save.upload", isDirectory: false)
+    }
+
+    func startUploadURL(itemID: String, status: ItemStatus) -> URL {
+        self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("start.upload", isDirectory: false)
     }
 
     func requiredFilesExist(itemID: String, status: ItemStatus) -> Bool {
@@ -1054,7 +1025,18 @@ private extension ImportQueue {
         try self.decoder.decode(RequestDescriptor.self, from: Data(contentsOf: self.descriptorURL(itemID: itemID, status: status)))
     }
 
-    func loadLedgerStub(itemID: String, status: ItemStatus, descriptor: RequestDescriptor) throws -> LedgerStub {
+    func loadSaveResultIfPresent(itemID: String, status: ItemStatus) throws -> SaveResult? {
+        let url = self.saveResultURL(itemID: itemID, status: status)
+        guard self.fileManager.fileExists(atPath: url.path) else { return nil }
+        return try self.decoder.decode(SaveResult.self, from: Data(contentsOf: url))
+    }
+
+    func saveSaveResult(_ saveResult: SaveResult, itemID: String, status: ItemStatus) throws {
+        let data = try self.encoder.encode(saveResult)
+        try data.write(to: self.saveResultURL(itemID: itemID, status: status), options: .atomic)
+    }
+
+    func loadLedgerStub(itemID: String, status: ItemStatus) throws -> LedgerStub {
         let data = try Data(contentsOf: self.noteURL(itemID: itemID, status: status))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let basis = object["basis"] as? String,
@@ -1064,7 +1046,6 @@ private extension ImportQueue {
             throw ImportQueueError.noteDecodeFailed(itemID: itemID)
         }
         return LedgerStub(
-            stream: descriptor.stream,
             basis: basis,
             contentType: contentType,
             targetJournal: targetJournal,
@@ -1111,4 +1092,5 @@ enum ImportQueueError: Error, Equatable, Sendable {
     case writeFailed(path: String)
     case missingRequiredArtifact(itemID: String)
     case noteDecodeFailed(itemID: String)
+    case textDecodeFailed(itemID: String)
 }

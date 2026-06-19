@@ -77,3 +77,4 @@ ImportQueue.swift|Boundary-
 ImportQueue.swift|Content-Disposition
 ImportQueue.swift|"ImportQueue"
 ImportQueue.swift|"HHmmss"
+ShareImportCoordinator.swift|SolstoneShareImport

@@ -44,7 +44,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
                 itemTime: Self.iso8601String(for: pendingTime),
                 targetJournal: "daily"
             ),
-            request: try self.request(day: "20260420", segment: "120010_0", stream: "import.share")
+            request: try self.request(source: "document")
         )
         try self.writeLocalItem(
             itemID: failedID,
@@ -60,17 +60,16 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
                 itemTime: Self.iso8601String(for: failedTime),
                 targetJournal: "photos"
             ),
-            request: try self.request(day: "20260421", segment: "120020_0", stream: "import.share")
+            request: try self.request(source: "image")
         )
         try self.writeLedger([
             deliveredID: LedgerFixture(
                 itemID: deliveredID,
-                stream: "import.share",
                 basis: "sent",
                 contentType: "public.png",
                 targetJournal: "archive",
-                serverDay: "20260422",
-                serverSegment: "120030_0",
+                serverPath: "/imports/delivered",
+                serverTimestamp: "2026-04-22T12:00:00Z",
                 deliveredAt: deliveredAt,
                 filename: "delivered.png",
                 originApp: "com.example.delivered",
@@ -89,9 +88,9 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(pending.originApp, "com.example.pending")
         XCTAssertEqual(pending.basis, "modified")
         XCTAssertEqual(pending.targetJournal, "daily")
-        XCTAssertEqual(pending.stream, "import.share")
-        XCTAssertEqual(pending.day, "20260420")
-        XCTAssertEqual(pending.segment, "120010_0")
+        XCTAssertNil(pending.stream)
+        XCTAssertNil(pending.day)
+        XCTAssertNil(pending.segment)
         XCTAssertEqual(pending.hasLocalRaw, true)
 
         let failed = try XCTUnwrap(items.first { $0.id == failedID })
@@ -104,9 +103,9 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(delivered.originApp, "com.example.delivered")
         XCTAssertEqual(delivered.basis, "sent")
         XCTAssertEqual(delivered.targetJournal, "archive")
-        XCTAssertEqual(delivered.stream, "import.share")
+        XCTAssertNil(delivered.stream)
         XCTAssertEqual(delivered.day, "20260422")
-        XCTAssertEqual(delivered.segment, "120030_0")
+        XCTAssertNil(delivered.segment)
         XCTAssertEqual(delivered.deliveredAt, deliveredAt)
         XCTAssertEqual(delivered.hasLocalRaw, false)
     }
@@ -120,7 +119,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
             status: "pending",
             rawData: Data("raw".utf8),
             note: Data("{}".utf8),
-            request: try self.request(day: "20260420", segment: "120000_0", stream: "import.share")
+            request: try self.request(source: "document")
         )
 
         let item = try XCTUnwrap(self.loadedItems(from: queue.onThisPhoneSourceSnapshot()).first)
@@ -133,7 +132,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         XCTAssertNil(item.originApp)
         XCTAssertNil(item.basis)
         XCTAssertNil(item.targetJournal)
-        XCTAssertEqual(item.stream, "import.share")
+        XCTAssertNil(item.stream)
         XCTAssertEqual(item.hasLocalRaw, true)
     }
 
@@ -166,24 +165,23 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
                 itemTime: Self.iso8601String(for: Date(timeIntervalSince1970: 1)),
                 targetJournal: "daily"
             ),
-            request: try self.request(day: "20260420", segment: "120000_0", stream: "import.share")
+            request: try self.request(source: "document")
         )
         try self.writeLocalItem(
             itemID: failedID,
             status: "failed",
             rawData: Data("failed".utf8),
             note: Data("{}".utf8),
-            request: try self.request(day: "20260420", segment: "120001_0", stream: "import.share")
+            request: try self.request(source: "document")
         )
         try self.writeLedger([
             deliveredID: LedgerFixture(
                 itemID: deliveredID,
-                stream: "import.share",
                 basis: "sent",
                 contentType: "public.png",
                 targetJournal: "archive",
-                serverDay: "20260422",
-                serverSegment: "120030_0",
+                serverPath: "/imports/delivered",
+                serverTimestamp: "2026-04-22T12:00:00Z",
                 deliveredAt: Date(timeIntervalSince1970: 2),
                 filename: "delivered.png",
                 originApp: nil,
@@ -215,17 +213,16 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
             status: "pending",
             rawData: Data("pending".utf8),
             note: Data("{}".utf8),
-            request: try self.request(day: "20260420", segment: "120000_0", stream: "import.share")
+            request: try self.request(source: "document")
         )
         try self.writeLedger([
             deliveredID: LedgerFixture(
                 itemID: deliveredID,
-                stream: "import.share",
                 basis: "sent",
                 contentType: "public.png",
                 targetJournal: "archive",
-                serverDay: "20260422",
-                serverSegment: nil,
+                serverPath: "/imports/delivered",
+                serverTimestamp: "2026-04-22T12:00:00Z",
                 deliveredAt: Date(timeIntervalSince1970: 2),
                 filename: "delivered.png",
                 originApp: nil,
@@ -278,7 +275,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
     ) throws -> Data {
         let object: [String: Any?] = [
             "schema": "solstone.source.item/1",
-            "source": "share",
+            "source": "document",
             "origin_app": originApp,
             "content_type": contentType,
             "filename": filename,
@@ -292,11 +289,9 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: object.mapValues { $0 ?? NSNull() }, options: [.sortedKeys])
     }
 
-    private func request(day: String, segment: String, stream: String) throws -> Data {
+    private func request(source: String) throws -> Data {
         let object = [
-            "day": day,
-            "segment": segment,
-            "stream": stream,
+            "source": source,
             "filename": "document.pdf",
             "content_type": "application/pdf",
         ]
@@ -343,12 +338,11 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
 
 private struct LedgerFixture: Codable {
     let itemID: String
-    let stream: String
     let basis: String
     let contentType: String
     let targetJournal: String
-    let serverDay: String
-    let serverSegment: String?
+    let serverPath: String?
+    let serverTimestamp: String?
     let deliveredAt: Date
     let filename: String?
     let originApp: String?
@@ -356,12 +350,11 @@ private struct LedgerFixture: Codable {
 
     enum CodingKeys: String, CodingKey {
         case itemID = "item_id"
-        case stream
         case basis
         case contentType = "content_type"
         case targetJournal = "target_journal"
-        case serverDay = "server_day"
-        case serverSegment = "server_segment"
+        case serverPath = "server_path"
+        case serverTimestamp = "server_timestamp"
         case deliveredAt = "delivered_at"
         case filename
         case originApp = "origin_app"

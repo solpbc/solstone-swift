@@ -145,11 +145,11 @@ targets:
     sources:
       - SolstoneShareExtension
       - Sources/ImportQueue/ImportQueue.swift
+      - Sources/ImportQueue/ImporterServerURL.swift
       - Sources/ImportQueue/DeleteShareSourceResult.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift
       - Sources/Observer/ObserverServerURL.swift
-      - Sources/Observer/ObserverAuthorizedRequest.swift
       - Sources/SourceVocabulary.swift
       - Sources/Design/Colors.swift
       - Sources/ShareImport/ShareImportCoordinator.swift
@@ -174,7 +174,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
-            NSExtensionActivationRule: SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att, (ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $att.registeredTypeIdentifiers == "public.m4a-audio" OR ANY $att.registeredTypeIdentifiers == "public.jpg" OR ANY $att.registeredTypeIdentifiers == "public.webp")).@count == $item.attachments.@count).@count == extensionItems.@count
+            NSExtensionActivationRule: SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att, (ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" OR ANY $att.registeredTypeIdentifiers == "public.m4a-audio" OR ANY $att.registeredTypeIdentifiers == "public.jpg" OR ANY $att.registeredTypeIdentifiers == "public.webp")).@count == $item.attachments.@count).@count == extensionItems.@count
   SolstoneLiveActivityWidget:
     type: app-extension
     platform: iOS

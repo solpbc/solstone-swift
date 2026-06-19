@@ -25,7 +25,7 @@
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<key>NSExtensionActivationRule</key>
-			<string>SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att, (ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $att.registeredTypeIdentifiers == "public.m4a-audio" OR ANY $att.registeredTypeIdentifiers == "public.jpg" OR ANY $att.registeredTypeIdentifiers == "public.webp")).@count == $item.attachments.@count).@count == extensionItems.@count</string>
+				<string>SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att, (ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" OR ANY $att.registeredTypeIdentifiers == "public.m4a-audio" OR ANY $att.registeredTypeIdentifiers == "public.jpg" OR ANY $att.registeredTypeIdentifiers == "public.webp")).@count == $item.attachments.@count).@count == extensionItems.@count</string>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.share-services</string>

@@ -6,9 +6,6 @@ import SwiftUI
 struct ImporterSourceDetailView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var showingDeleteConfirm = false
-    @State private var isDeleting = false
-    @State private var deleteResult: DeleteShareSourceResult?
 
     let source: Source
 
@@ -50,18 +47,6 @@ struct ImporterSourceDetailView: View {
                     }
                 }
 
-                SourceDetailBlock(title: SourceVocabulary.delete) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button(SourceVocabulary.deleteConfirmButton, role: .destructive) {
-                            self.showingDeleteConfirm = true
-                        }
-                            .buttonStyle(.bordered)
-                            .disabled(self.isDeleting)
-                            .accessibilityHint("Removes everything share sheet added to your journal.")
-
-                        self.deleteResultBlock
-                    }
-                }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -69,16 +54,6 @@ struct ImporterSourceDetailView: View {
         }
         .navigationTitle(self.source.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .alert(SourceVocabulary.deleteConfirmButton, isPresented: self.$showingDeleteConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button(SourceVocabulary.deleteConfirmButton, role: .destructive) {
-                Task {
-                    await self.runDelete()
-                }
-            }
-        } message: {
-            Text(SourceVocabulary.deleteConfirmBody)
-        }
     }
 }
 
@@ -104,48 +79,4 @@ private extension ImporterSourceDetailView {
         }
     }
 
-    @ViewBuilder
-    var deleteResultBlock: some View {
-        if let deleteResult {
-            switch deleteResult {
-            case .confirmed(let receipt, _):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(SourceVocabulary.deleteReceiptHeadline(originals: receipt.removed.originals))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(deleteResult.notRemovedIssues, id: \.self) { issue in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(issue.what)
-                            Text(issue.plainReason)
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    }
-
-                    ForEach(deleteResult.notConfirmedIssues, id: \.self) { issue in
-                        Text(issue.plainReason)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-            case .notConfirmed, .unreachable:
-                Text(SourceVocabulary.deleteJournalUnreachableLine)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
-    func runDelete() async {
-        self.isDeleting = true
-        defer {
-            self.isDeleting = false
-        }
-
-        let result = await self.importQueue.deleteShareSource()
-        self.deleteResult = result
-    }
 }

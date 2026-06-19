@@ -259,7 +259,7 @@ private extension OnThisPhoneUITestSeeder {
             "kind": "raw",
             "origin_app": NSNull(),
             "schema": "solstone.source.item/1",
-            "source": "share-sheet",
+            "source": "document",
             "target_journal": "ui-test",
         ]
         try JSONSerialization.data(withJSONObject: note, options: [.sortedKeys])
@@ -267,10 +267,8 @@ private extension OnThisPhoneUITestSeeder {
 
         let descriptor: [String: Any] = [
             "content_type": "application/pdf",
-            "day": "20260603",
             "filename": "document.pdf",
-            "segment": "100000_0",
-            "stream": "import.share",
+            "source": "document",
         ]
         try JSONSerialization.data(withJSONObject: descriptor, options: [.sortedKeys])
             .write(to: itemDirectory.appendingPathComponent("request.json"), options: .atomic)

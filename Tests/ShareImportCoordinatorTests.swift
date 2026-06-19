@@ -43,13 +43,13 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             XCTFail("Expected success")
             return
         }
-        // Success carries no owner-facing message API; failures remain message-bearing.
         XCTAssertNil(result.failureMessage)
         let itemIDString = itemID.uuidString.lowercased()
         XCTAssertTrue(FileManager.default.fileExists(atPath: queueRoot.appendingPathComponent("pending/\(itemIDString)/raw.bin").path))
         let itemJSONURL = queueRoot.appendingPathComponent("pending/\(itemIDString)/item.json")
         let itemJSONData = try Data(contentsOf: itemJSONURL)
         let itemJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: itemJSONData) as? [String: Any])
+        XCTAssertEqual(itemJSON["source"] as? String, "document")
         XCTAssertEqual(itemJSON["target_journal"] as? String, "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(recorder.events(), [
@@ -64,7 +64,15 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     @MainActor
     func testUnsupportedRepresentationShowsCantSaveAndNothingEnqueued() async throws {
         try await self.assertPreEnqueueFailure(
-            provider: StubShareItemProvider(contentType: "public.plain-text", filename: "note.txt", fileURL: nil),
+            provider: StubShareItemProvider(contentType: "public.url", filename: "link.url", fileURL: nil),
+            expectedFailure: .unsupported
+        )
+    }
+
+    @MainActor
+    func testUnsupportedImageSubtypeShowsCantSaveAndNothingEnqueued() async throws {
+        try await self.assertPreEnqueueFailure(
+            provider: StubShareItemProvider(contentType: "com.microsoft.bmp", filename: "image.bmp", fileURL: nil),
             expectedFailure: .unsupported
         )
     }
@@ -80,7 +88,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     @MainActor
     func testOversizedShowsCantSaveAndNothingEnqueued() async throws {
         let source = self.tempDirectory.appendingPathComponent("large.pdf")
-        FileManager.default.createFile(atPath: source.path, contents: Data())
+        _ = FileManager.default.createFile(atPath: source.path, contents: Data())
         let handle = try FileHandle(forWritingTo: source)
         try handle.truncate(atOffset: UInt64(ShareImportCoordinator.oversizedByteLimit + 1))
         try handle.close()
@@ -100,6 +108,92 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             provider: StubShareItemProvider(contentType: "com.adobe.pdf", filename: "protected.pdf", fileURL: directoryURL),
             expectedFailure: .protected
         )
+    }
+
+    @MainActor
+    func testPlainTextWhitespaceDropsWithoutEnqueue() async throws {
+        let queue = CapturingShareImportQueue()
+        let recorder = ShareImportEventRecorder()
+        let coordinator = ShareImportCoordinator(queue: queue) { event in
+            recorder.append(event)
+        }
+        let provider = StubShareItemProvider(contentType: "public.plain-text", filename: "note.txt", fileURL: nil, text: " \n\t ")
+
+        let result = await coordinator.accept(provider: provider)
+
+        XCTAssertEqual(result, .dropped)
+        XCTAssertNil(result.failureMessage)
+        XCTAssertEqual(queue.enqueueCallCount, 0)
+        XCTAssertEqual(recorder.events(), [.resolved])
+    }
+
+    @MainActor
+    func testPlainTextPreservesOriginalTextAndEnqueuesQuick() async throws {
+        let queue = CapturingShareImportQueue()
+        let recorder = ShareImportEventRecorder()
+        let coordinator = ShareImportCoordinator(queue: queue) { event in
+            recorder.append(event)
+        }
+        let provider = StubShareItemProvider(contentType: "public.plain-text", filename: "note.txt", fileURL: nil, text: "  hello  ")
+
+        let result = await coordinator.accept(provider: provider)
+
+        guard case .success = result else {
+            XCTFail("Expected success")
+            return
+        }
+        XCTAssertEqual(queue.lastSource, "quick")
+        XCTAssertEqual(queue.lastContentType, "public.plain-text")
+        XCTAssertEqual(queue.lastOriginalFilename, "note.txt")
+        XCTAssertEqual(queue.lastFileText, "  hello  ")
+        XCTAssertEqual(Array(recorder.events().prefix(3)), [.resolved, .precheckPassed, .enqueueStarted])
+    }
+
+    @MainActor
+    func testContentTypesMapToImporterSources() async throws {
+        let cases: [(String, String)] = [
+            ("com.adobe.pdf", "document"),
+            ("public.jpeg", "image"),
+            ("public.png", "image"),
+            ("org.webmproject.webp", "image"),
+            ("public.tiff", "image"),
+            ("com.compuserve.gif", "image"),
+            ("public.m4a-audio", "recording"),
+        ]
+
+        for (contentType, expectedSource) in cases {
+            let queue = CapturingShareImportQueue()
+            let coordinator = ShareImportCoordinator(queue: queue)
+            let source = try self.makeFile(named: "\(UUID().uuidString).bin", data: Data("data".utf8))
+            let provider = StubShareItemProvider(contentType: contentType, filename: "shared.bin", fileURL: source)
+
+            let result = await coordinator.accept(provider: provider)
+
+            guard case .success = result else {
+                XCTFail("Expected success for \(contentType)")
+                continue
+            }
+            XCTAssertEqual(queue.lastSource, expectedSource)
+        }
+    }
+
+    @MainActor
+    func testHEICTranscodeFailureShowsUndecodableAndNothingEnqueued() async throws {
+        let queue = CapturingShareImportQueue()
+        let recorder = ShareImportEventRecorder()
+        let coordinator = ShareImportCoordinator(queue: queue) { event in
+            recorder.append(event)
+        }
+        let source = try self.makeFile(named: "bad.heic", data: Data("not an image".utf8))
+        let provider = StubShareItemProvider(contentType: "public.heic", filename: "bad.heic", fileURL: source)
+
+        let result = await coordinator.accept(provider: provider)
+
+        XCTAssertEqual(result, .failure(.undecodable))
+        XCTAssertEqual(result.failureMessage, "couldn't save this — couldn't read the image. nothing was added.")
+        XCTAssertEqual(queue.enqueueCallCount, 0)
+        XCTAssertEqual(recorder.events(), [.resolved, .failed(.undecodable)])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
     }
 
     @MainActor
@@ -140,13 +234,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         provider: StubShareItemProvider,
         expectedFailure: ShareImportFailure
     ) async throws {
-        let queueRoot = self.tempDirectory.appendingPathComponent("queue-\(UUID().uuidString)", isDirectory: true)
-        let realQueue = ImportQueue(
-            cacheRootURL: queueRoot,
-            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
-            startPathMonitor: false
-        )
-        let queue = RecordingShareImportQueue(base: realQueue)
+        let queue = CapturingShareImportQueue()
         let recorder = ShareImportEventRecorder()
         let coordinator = ShareImportCoordinator(queue: queue) { event in
             recorder.append(event)
@@ -162,7 +250,6 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         if let fileURL = provider.fileURL {
             XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         }
-        try self.assertQueueDirectoriesEmpty(root: queueRoot)
     }
 
     private func makeFile(named name: String, data: Data) throws -> URL {
@@ -185,12 +272,20 @@ private final class StubShareItemProvider: ShareItemProvider {
     let contentType: String?
     let filename: String?
     let fileURL: URL?
+    let text: String
     let loadError: Error?
 
-    init(contentType: String?, filename: String?, fileURL: URL?, loadError: Error? = nil) {
+    init(
+        contentType: String?,
+        filename: String?,
+        fileURL: URL?,
+        text: String = "",
+        loadError: Error? = nil
+    ) {
         self.contentType = contentType
         self.filename = filename
         self.fileURL = fileURL
+        self.text = text
         self.loadError = loadError
     }
 
@@ -211,6 +306,13 @@ private final class StubShareItemProvider: ShareItemProvider {
         }
         return fileURL
     }
+
+    func loadText() async throws -> String {
+        if let loadError {
+            throw loadError
+        }
+        return self.text
+    }
 }
 
 @MainActor
@@ -225,7 +327,6 @@ private final class RecordingShareImportQueue: ShareImportQueueing {
     func enqueue(
         fileURL: URL,
         source: String,
-        stream: String,
         targetJournal: String,
         contentType: String,
         originalFilename: String?,
@@ -235,12 +336,36 @@ private final class RecordingShareImportQueue: ShareImportQueueing {
         return try await self.base.enqueue(
             fileURL: fileURL,
             source: source,
-            stream: stream,
             targetJournal: targetJournal,
             contentType: contentType,
             originalFilename: originalFilename,
             originApp: originApp
         )
+    }
+}
+
+@MainActor
+private final class CapturingShareImportQueue: ShareImportQueueing {
+    var enqueueCallCount = 0
+    var lastSource: String?
+    var lastContentType: String?
+    var lastOriginalFilename: String?
+    var lastFileText: String?
+
+    func enqueue(
+        fileURL: URL,
+        source: String,
+        targetJournal: String,
+        contentType: String,
+        originalFilename: String?,
+        originApp: String?
+    ) async throws -> UUID {
+        self.enqueueCallCount += 1
+        self.lastSource = source
+        self.lastContentType = contentType
+        self.lastOriginalFilename = originalFilename
+        self.lastFileText = try? String(contentsOf: fileURL, encoding: .utf8)
+        return UUID()
     }
 }
 
@@ -259,17 +384,17 @@ private final class CoordinatorNoteWriteFailingFileManager: FileManager, @unchec
 
 private final class ShareImportEventRecorder: @unchecked Sendable {
     private let lock = NSLock()
-    private var storage: [ShareImportEvent] = []
+    private var recorded: [ShareImportEvent] = []
 
     func append(_ event: ShareImportEvent) {
         self.lock.lock()
-        self.storage.append(event)
+        self.recorded.append(event)
         self.lock.unlock()
     }
 
     func events() -> [ShareImportEvent] {
         self.lock.lock()
         defer { self.lock.unlock() }
-        return self.storage
+        return self.recorded
     }
 }

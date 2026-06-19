@@ -245,37 +245,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.importerActiveSubtext, "sending to your journal as you share.")
     }
 
-    func testLockedDeleteCopy() {
-        XCTAssertEqual(
-            SourceVocabulary.deleteConfirmBody,
-            "delete everything share sheet added to your journal? this removes the originals you sent and what sol added from them. other things in your journal stay. this can't be undone."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.deleteConfirmButton,
-            "delete share sheet's contributions"
-        )
-        XCTAssertEqual(
-            SourceVocabulary.deleteReceiptHeadlineTemplate,
-            "deleted. removed from your journal: {N} items you sent · the originals + a note of where each came from."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.deleteJournalUnreachableLine,
-            "couldn't reach your journal — nothing was deleted."
-        )
-    }
-
-    func testDeleteReceiptHeadlineSubstitutesOriginalCount() {
-        XCTAssertEqual(
-            SourceVocabulary.deleteReceiptHeadline(originals: 7),
-            "deleted. removed from your journal: 7 items you sent · the originals + a note of where each came from."
-        )
-    }
-
     func testLockedDeleteCopyDoesNotMentionSegments() {
         let strings = [
-            SourceVocabulary.deleteConfirmBody,
-            SourceVocabulary.deleteConfirmButton,
-            SourceVocabulary.deleteReceiptHeadlineTemplate,
             SourceVocabulary.deleteJournalUnreachableLine,
         ]
 
@@ -458,9 +429,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.pause,
             SourceVocabulary.resume,
             SourceVocabulary.delete,
-            SourceVocabulary.deleteConfirmBody,
-            SourceVocabulary.deleteConfirmButton,
-            SourceVocabulary.deleteReceiptHeadlineTemplate,
             SourceVocabulary.deleteJournalUnreachableLine,
             ShareImportCopy.dismiss,
             ShareImportCopy.savedAccessibilityLabel,

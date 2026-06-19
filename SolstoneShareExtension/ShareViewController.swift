@@ -39,6 +39,8 @@ final class ShareViewController: UIViewController {
                 self.render(.success)
             case .failure(let failure):
                 self.render(.failure(failure.message))
+            case .dropped:
+                self.complete()
             }
         }
     }
@@ -174,6 +176,71 @@ private final class ShareExtensionItemProvider: ShareItemProvider {
         }
     }
 
+    func loadText() async throws -> String {
+        guard let typeIdentifier = self.registeredContentType(),
+              ShareImportCoordinator.isPlainTextContentType(typeIdentifier)
+        else {
+            throw ShareExtensionItemProviderError.unsupported
+        }
+
+        if let text = try? await self.loadTextData(typeIdentifier: typeIdentifier) {
+            return text
+        }
+        return try await self.loadTextItem(typeIdentifier: typeIdentifier)
+    }
+
+    private func loadTextData(typeIdentifier: String) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            self.provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let data, let text = String(data: data, encoding: .utf8) else {
+                    continuation.resume(throwing: ShareExtensionItemProviderError.textDecodeFailed)
+                    return
+                }
+                continuation.resume(returning: text)
+            }
+        }
+    }
+
+    private func loadTextItem(typeIdentifier: String) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            self.provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                do {
+                    continuation.resume(returning: try Self.text(from: item))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    nonisolated private static func text(from item: NSSecureCoding?) throws -> String {
+        if let string = item as? String {
+            return string
+        }
+        if let string = item as? NSString {
+            return string as String
+        }
+        if let data = item as? Data, let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        if let url = item as? URL {
+            return try String(contentsOf: url, encoding: .utf8)
+        }
+        if let url = item as? NSURL, let swiftURL = url as URL? {
+            return try String(contentsOf: swiftURL, encoding: .utf8)
+        }
+        throw ShareExtensionItemProviderError.textDecodeFailed
+    }
+
     nonisolated private static func copyToScratch(
         sourceURL: URL,
         suggestedFilename: String?
@@ -198,4 +265,5 @@ private final class ShareExtensionItemProvider: ShareItemProvider {
 private enum ShareExtensionItemProviderError: Error {
     case unsupported
     case missingFile
+    case textDecodeFailed
 }

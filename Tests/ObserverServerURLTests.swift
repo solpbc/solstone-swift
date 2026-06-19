@@ -19,10 +19,20 @@ nonisolated final class ObserverServerURLTests: XCTestCase {
     func testDeleteSourceURLBuildsVerifiedPath() throws {
         let url = try XCTUnwrap(ObserverServerURL.deleteSourceURL(
             localPort: 7071,
-            source: "import.share"
+            source: "location"
         ))
 
         XCTAssertEqual(url.host, "127.0.0.1")
-        XCTAssertEqual(url.path, "/app/observer/source/import.share")
+        XCTAssertEqual(url.path, "/app/observer/source/location")
+    }
+
+    func testImporterURLsBuildKeylessRoutes() throws {
+        let saveURL = try XCTUnwrap(ImporterServerURL.saveURL(localPort: 7071))
+        let startURL = try XCTUnwrap(ImporterServerURL.startURL(localPort: 7071))
+
+        XCTAssertEqual(saveURL.host, "127.0.0.1")
+        XCTAssertEqual(saveURL.path, "/app/import/api/save")
+        XCTAssertEqual(startURL.host, "127.0.0.1")
+        XCTAssertEqual(startURL.path, "/app/import/api/start")
     }
 }

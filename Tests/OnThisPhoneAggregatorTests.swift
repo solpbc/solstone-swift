@@ -485,12 +485,11 @@ private extension OnThisPhoneAggregatorTests {
         let ledger = [
             itemID: ShareLedgerFixture(
                 itemID: itemID,
-                stream: "import.share",
                 basis: "sent",
                 contentType: "application/pdf",
                 targetJournal: "home",
-                serverDay: "20260603",
-                serverSegment: "100000_0",
+                serverPath: "/imports/share",
+                serverTimestamp: "2026-06-03T12:00:00Z",
                 deliveredAt: deliveredAt,
                 filename: "share.pdf",
                 originApp: nil,
@@ -565,12 +564,11 @@ private extension OnThisPhoneAggregatorTests {
 
 private struct ShareLedgerFixture: Codable {
     let itemID: String
-    let stream: String
     let basis: String
     let contentType: String
     let targetJournal: String
-    let serverDay: String
-    let serverSegment: String?
+    let serverPath: String?
+    let serverTimestamp: String?
     let deliveredAt: Date
     let filename: String?
     let originApp: String?
@@ -578,12 +576,11 @@ private struct ShareLedgerFixture: Codable {
 
     enum CodingKeys: String, CodingKey {
         case itemID = "item_id"
-        case stream
         case basis
         case contentType = "content_type"
         case targetJournal = "target_journal"
-        case serverDay = "server_day"
-        case serverSegment = "server_segment"
+        case serverPath = "server_path"
+        case serverTimestamp = "server_timestamp"
         case deliveredAt = "delivered_at"
         case filename
         case originApp = "origin_app"
