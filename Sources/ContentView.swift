@@ -217,12 +217,6 @@ struct ContentView: View {
                 }
                 return
             }
-            if let argument = arguments.first(where: { $0.hasPrefix("--pair-url=") }),
-               let url = URL(string: String(argument.dropFirst("--pair-url=".count)))
-            {
-                log.info("debug pair-url seam fired")
-                self.pairingHandoff.applyUniversalLink(url)
-            }
 #endif
             self.presentPairingIfHandoffPending()
             self.startTunnelIfPaired()
