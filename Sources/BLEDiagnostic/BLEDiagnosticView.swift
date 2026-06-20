@@ -364,15 +364,6 @@ struct BLEDiagnosticView: View {
                 LabeledContent("frames", value: "\(self.manager.sdFramesSplit)")
                 LabeledContent("decode ok", value: "\(self.manager.sdDecodeOK)")
                 LabeledContent("decode err", value: "\(self.manager.sdDecodeErrors)")
-                LabeledContent("markers", value: "\(self.manager.sdMarkersSeen)")
-                LabeledContent("last marker") {
-                    if let sdLastMarkerDate = self.manager.sdLastMarkerDate {
-                        Text(sdLastMarkerDate, style: .time)
-                    } else {
-                        Text("none")
-                            .foregroundStyle(.secondary)
-                    }
-                }
                 LabeledContent("frame timestamps", value: "\(self.manager.sdFrameTimestampsSeen)")
                 LabeledContent("last timestamp") {
                     if let sdLastFrameTimestamp = self.manager.sdLastFrameTimestamp {

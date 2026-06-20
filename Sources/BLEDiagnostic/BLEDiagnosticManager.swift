@@ -50,8 +50,6 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     var sdFramesSplit = 0
     var sdDecodeOK = 0
     var sdDecodeErrors = 0
-    var sdMarkersSeen = 0
-    var sdLastMarkerDate: Date?
     var sdFrameTimestampsSeen = 0
     var sdLastFrameTimestamp: UInt32?
     var sdRawShareURL: URL?
@@ -1319,19 +1317,10 @@ private extension BLEDiagnosticManager {
         self.recordSDThroughput(bytes: payload.count)
         self.recomputeSDProgress()
 
-        let output = self.sdReassembler.ingest(payload)
-        self.sdFramesSplit += output.completedFrames.count
+        let frames = self.sdReassembler.ingest(payload)
+        self.sdFramesSplit += frames.count
 
-        for marker in output.markers {
-            self.sdMarkersSeen += 1
-            self.sdLastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
-            self.log.append(
-                message: "sd-card marker: epoch \(marker.epoch)",
-                hex: BLEDiagnosticFormatters.hexDump(payload)
-            )
-        }
-
-        for frame in output.completedFrames {
+        for frame in frames {
             self.handleCompletedSDFrame(frame)
         }
 
@@ -1378,6 +1367,13 @@ private extension BLEDiagnosticManager {
     }
 
     func handleCompletedSDFrame(_ frame: Data) {
+        if frame.first != 0xB8 {
+            self.log.append(
+                message: "sd-card: unexpected opus toc",
+                hex: BLEDiagnosticFormatters.hexDump(frame)
+            )
+        }
+
         guard let sdOpusDecoder,
               let samples = sdOpusDecoder.decode(frame)
         else {
@@ -1411,8 +1407,6 @@ private extension BLEDiagnosticManager {
         self.sdFramesSplit = 0
         self.sdDecodeOK = 0
         self.sdDecodeErrors = 0
-        self.sdMarkersSeen = 0
-        self.sdLastMarkerDate = nil
         self.sdFrameTimestampsSeen = 0
         self.sdLastFrameTimestamp = nil
         self.sdRawShareURL = nil
@@ -1473,7 +1467,7 @@ private extension BLEDiagnosticManager {
         self.recomputeSDThroughput()
         let kbps = String(format: "%.1f", self.sdDrainThroughputKBps)
         self.log.append(
-            message: "sd-card: \(self.sdBytesReceived) bytes, \(self.sdFramesSplit) frames, \(self.sdDecodeOK) ok/\(self.sdDecodeErrors) err, markers \(self.sdMarkersSeen), \(kbps) kb/s"
+            message: "sd-card: \(self.sdBytesReceived) bytes, \(self.sdFramesSplit) frames, \(self.sdDecodeOK) ok/\(self.sdDecodeErrors) err, \(kbps) kb/s"
         )
     }
 

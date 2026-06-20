@@ -6,77 +6,73 @@ import Foundation
 import XCTest
 
 nonisolated final class BLESDFileReassemblerTests: XCTestCase {
-    func testLengthPrefixedFramesRetainTruncatedTail() {
-        var reassembler = BLESDFileReassembler()
-        let firstFrame = Data([0x10, 0x11])
-        let secondFrame = Data([0x20, 0x21, 0x22])
-        let trailingFrame = Data([0x30, 0x31, 0x32, 0x33])
+    func testBlockReturnsRecordsBeforeTrailingPadding() {
+        let reassembler = BLESDFileReassembler()
+        let frames = [
+            Data([0xB8, 0x11, 0x12, 0x13]),
+            Data([0xB8, 0x21, 0x22]),
+            Data([0xB8, 0x31, 0x32, 0x33, 0x34])
+        ]
 
-        var firstChunk = Self.stream([
-            Self.unit(firstFrame),
-            Self.unit(secondFrame)
-        ])
-        firstChunk.append(UInt8(trailingFrame.count))
-        firstChunk.append(trailingFrame.prefix(2))
+        var block = frames.reduce(into: Data()) { result, frame in
+            result.append(Self.record(frame))
+        }
+        block.append(Data(repeating: 0, count: 440 - block.count))
 
-        let firstOutput = reassembler.ingest(firstChunk)
-        let secondOutput = reassembler.ingest(Data(trailingFrame.dropFirst(2)))
-
-        XCTAssertEqual(firstOutput.completedFrames, [firstFrame, secondFrame])
-        XCTAssertTrue(firstOutput.markers.isEmpty)
-        XCTAssertEqual(secondOutput.completedFrames, [trailingFrame])
-        XCTAssertTrue(secondOutput.markers.isEmpty)
+        XCTAssertEqual(reassembler.ingest(block), frames)
     }
 
-    func testMarkerParsesLittleEndianEpochBetweenFrames() {
-        var reassembler = BLESDFileReassembler()
-        let epoch: UInt32 = 1_700_000_123
-        let firstFrame = Data([0xAA, 0xBB])
-        let secondFrame = Data([0xCC])
+    func testOverflowingRecordStopsAfterPriorCompleteFrames() {
+        let reassembler = BLESDFileReassembler()
+        let frames = [
+            Self.opusPayload(byte: 0x41, count: 200),
+            Self.opusPayload(byte: 0x51, count: 200),
+            Self.opusPayload(byte: 0x61, count: 31)
+        ]
+        var block = frames.reduce(into: Data()) { result, frame in
+            result.append(Self.record(frame))
+        }
+        block.append(10)
+        block.append(Data([0xB8, 0x71, 0x72, 0x73, 0x74]))
 
-        let output = reassembler.ingest(Self.stream([
-            Self.unit(firstFrame),
-            Self.marker(epoch: epoch),
-            Self.unit(secondFrame)
-        ]))
-
-        XCTAssertEqual(output.completedFrames, [firstFrame, secondFrame])
-        XCTAssertEqual(output.markers, [.audio(epoch: epoch)])
+        XCTAssertEqual(block.count, 440)
+        XCTAssertEqual(reassembler.ingest(block), frames)
     }
 
-    func testZeroPaddingIsSkipped() {
-        var reassembler = BLESDFileReassembler()
-        let frame = Data([0x44, 0x55])
+    func testZeroLengthStopsParsingMidBlock() {
+        let reassembler = BLESDFileReassembler()
+        let firstFrame = Data([0xB8, 0x61, 0x62])
+        let ignoredFrame = Data([0xB8, 0x71, 0x72])
+        var block = Self.record(firstFrame)
+        block.append(0)
+        block.append(Self.record(ignoredFrame))
+        block.append(Data(repeating: 0, count: 440 - block.count))
 
-        let output = reassembler.ingest(Self.stream([
-            Data([0x00, 0x00]),
-            Self.unit(frame),
-            Data([0x00])
-        ]))
-
-        XCTAssertEqual(output.completedFrames, [frame])
-        XCTAssertTrue(output.markers.isEmpty)
+        XCTAssertEqual(reassembler.ingest(block), [firstFrame])
     }
 
-    private static func unit(_ payload: Data) -> Data {
-        var data = Data([UInt8(payload.count)])
-        data.append(payload)
+    func testShortFinalBlockReturnsCompleteRecordsBeforeTruncatedTail() {
+        let reassembler = BLESDFileReassembler()
+        let firstFrame = Data([0xB8, 0x81, 0x82, 0x83])
+        let secondFrame = Data([0xB8, 0x91])
+        var block = Self.record(firstFrame)
+        block.append(Self.record(secondFrame))
+        block.append(5)
+        block.append(Data([0xB8, 0xA1]))
+
+        XCTAssertLessThan(block.count, 440)
+        XCTAssertEqual(reassembler.ingest(block), [firstFrame, secondFrame])
+    }
+
+    private static func record(_ opus: Data) -> Data {
+        var data = Data([UInt8(opus.count)])
+        data.append(opus)
         return data
     }
 
-    private static func stream(_ units: [Data]) -> Data {
-        units.reduce(into: Data()) { result, unit in
-            result.append(unit)
-        }
-    }
-
-    private static func marker(epoch: UInt32) -> Data {
-        Data([
-            0xFF,
-            UInt8(epoch & 0x000000FF),
-            UInt8((epoch >> 8) & 0x000000FF),
-            UInt8((epoch >> 16) & 0x000000FF),
-            UInt8((epoch >> 24) & 0x000000FF)
-        ])
+    private static func opusPayload(byte: UInt8, count: Int) -> Data {
+        var data = Data([0xB8])
+        data.append(Data(repeating: byte, count: count - 1))
+        return data
     }
 }
