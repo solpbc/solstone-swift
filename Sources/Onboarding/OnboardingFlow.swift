@@ -82,6 +82,14 @@ final class OnboardingFlow {
         onboardingFlowLog.info("onboarding completed")
     }
 
+    func completeViaPairing() {
+        self.choseFirstSource = false
+        self.step = .done
+        self.isCompleted = true
+        onboardingFlowLog.info("onboarding completed via pairing")
+        self.persist()
+    }
+
     func goBack() {
         switch self.step {
         case .welcome, .done:

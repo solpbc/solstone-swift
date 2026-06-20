@@ -37,6 +37,21 @@ nonisolated final class OnboardingFlowTests: XCTestCase {
     }
 
     @MainActor
+    func testCompleteViaPairingPersistsCompletedDoneWithoutFirstSource() {
+        let flow = OnboardingFlow(defaults: self.defaults)
+
+        flow.completeViaPairing()
+
+        XCTAssertEqual(flow.step, .done)
+        XCTAssertTrue(flow.isCompleted)
+        XCTAssertFalse(flow.choseFirstSource)
+
+        let restored = OnboardingFlow(defaults: self.defaults)
+        XCTAssertTrue(restored.isCompleted)
+        XCTAssertEqual(restored.step, .done)
+    }
+
+    @MainActor
     func testGoBackFromFirstSourceReturnsToWelcome() {
         let flow = OnboardingFlow(defaults: self.defaults)
 

@@ -63,6 +63,7 @@ struct ContentView: View {
                         self.dismissPairing()
                     },
                     onComplete: {
+                        self.onboardingFlow.completeViaPairing()
                         self.dismissPairing()
                     }
                 )
@@ -219,6 +220,7 @@ struct ContentView: View {
             }
 #endif
             self.presentPairingIfHandoffPending()
+            self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
         }
     }
@@ -241,6 +243,20 @@ private extension ContentView {
             pairURLError: self.pairingHandoff.pairURLError
         ) {
             self.showPairing = true
+        }
+    }
+
+    func completeOnboardingIfPaired() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard !arguments.contains("--ui-test"),
+              !arguments.contains("--integration-test"),
+              !arguments.contains("--integration-test-live")
+        else { return }
+        if OnboardingPairingReconciliation.shouldComplete(
+            isPaired: self.appConfig.isPaired,
+            isOnboardingCompleted: self.onboardingFlow.isCompleted
+        ) {
+            self.onboardingFlow.completeViaPairing()
         }
     }
 
