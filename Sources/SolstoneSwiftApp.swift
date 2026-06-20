@@ -319,6 +319,9 @@ struct SolstoneSwiftApp: App {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {
+                    await self.omiSourceManager.resumeIfEnabled()
+                }
+                .task {
                     if case .idle = self.observerManager.state {
                         await self.observerManager.endStaleObserverActivities()
                     }

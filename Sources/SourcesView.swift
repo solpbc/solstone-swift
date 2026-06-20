@@ -9,6 +9,7 @@ struct SourcesView: View {
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationManager.self) private var locationManager
+    @Environment(OmiSourceManager.self) private var omiSourceManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSourceRoute: SourceRoute?
     @State private var showingConnectJournal = false
@@ -36,6 +37,9 @@ struct SourcesView: View {
                         }
                         SourceRowView(source: self.locationSource) {
                             self.selectedSourceRoute = .location
+                        }
+                        SourceRowView(source: self.omiSource) {
+                            self.selectedSourceRoute = .omi
                         }
                     }
 
@@ -72,6 +76,8 @@ struct SourcesView: View {
                     SourceDetailView()
                 case .location:
                     LocationSourceDetailView()
+                case .omi:
+                    OmiSourceDetailView()
                 case .share:
                     ImporterSourceDetailView(source: self.shareSource)
                 }
@@ -84,12 +90,13 @@ struct SourcesView: View {
 }
 
 private enum SourceRoute: Hashable, Identifiable {
-    case audio, location, share
+    case audio, location, omi, share
 
     var id: String {
         switch self {
         case .audio: "audio"
         case .location: "location"
+        case .omi: "omi"
         case .share: "share"
         }
     }
@@ -137,7 +144,7 @@ private extension SourcesView {
     }
 
     var showsZeroActiveSummary: Bool {
-        [self.audioSource.state, self.shareSource.state, self.locationSource.state].allSatisfy(\.isZeroActive)
+        [self.audioSource.state, self.shareSource.state, self.locationSource.state, self.omiSource.state].allSatisfy(\.isZeroActive)
     }
 
     var shareSource: Source {
@@ -162,6 +169,23 @@ private extension SourcesView {
             state: self.locationManager.sourceState,
             activeSubtext: LocationVocabulary.activeSubtext,
             attention: self.locationManager.sourceAttention,
+            pendingStatus: .nonePending
+        )
+    }
+
+    var omiSource: Source {
+        let mapped = omiSourceState(
+            for: self.omiSourceManager.connectionState,
+            enabled: self.omiSourceManager.enabled
+        )
+        return Source(
+            id: "omi",
+            displayName: "omi pendant",
+            kind: .omi,
+            group: .experiencingAlongsideYou,
+            state: mapped.0,
+            activeSubtext: "pendant connected",
+            attention: mapped.1,
             pendingStatus: .nonePending
         )
     }

@@ -11,10 +11,12 @@ import os
 @Observable
 final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated static let restoreIdentifier = "app.solstone.swift.omi-source"
+    private nonisolated static let enabledKey = "omiSource.enabled"
     private nonisolated static let lastConnectedPeripheralIDKey = "omiSource.lastConnectedPeripheralID"
 
     private nonisolated let log = Logger(subsystem: "app.solstone.swift", category: "omi")
 
+    var enabled: Bool
     var managerState: CBManagerState = .unknown
     var connectionState: OmiSourceState = .disconnected
     var connectedPeripheralName: String?
@@ -43,6 +45,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var lastReconnectLatencySeconds: TimeInterval?
     var reconnectCount = 0
     var eventRing = OmiEventRing()
+    let diagnostics: OmiDiagnostics
 
     @ObservationIgnored var onDecodedSamples: (@MainActor ([Int16]) -> Void)?
     @ObservationIgnored var omiSegmentWriter: OmiSegmentWriter?
@@ -58,9 +61,20 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var manuallyDisconnected = false
     @ObservationIgnored private var didLogPoweredOn = false
     @ObservationIgnored private var initialConnectTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var wantsEnableOnPowerOn = false
+    @ObservationIgnored private var phoneSampleTask: Task<Void, Never>?
+    @ObservationIgnored private let clock: any ObserverClock
+    @ObservationIgnored private var previousBatteryMonitoringEnabled: Bool?
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        diagnostics: OmiDiagnostics = OmiDiagnostics(),
+        clock: any ObserverClock = SystemObserverClock()
+    ) {
         self.defaults = defaults
+        self.diagnostics = diagnostics
+        self.clock = clock
+        self.enabled = defaults.bool(forKey: Self.enabledKey)
         super.init()
         self.central = CBCentralManager(
             delegate: self,
@@ -73,14 +87,21 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     func enable() {
+        self.enabled = true
+        self.persistEnabled(true)
+        self.manuallyDisconnected = false
+        self.enableBatteryMonitoringIfNeeded()
+        self.startPhoneSampleLoop()
+
         guard self.managerState == .poweredOn else {
+            self.wantsEnableOnPowerOn = true
             let attention = OmiSourceLogic.attention(for: self.managerState) ?? .bluetoothOff
             self.connectionState = .needsAttention(attention)
             self.log.error("omi unavailable: \(attention.displayString, privacy: .public)")
             return
         }
 
-        self.manuallyDisconnected = false
+        self.wantsEnableOnPowerOn = false
         self.cancelInitialConnectTimeout()
 
         let connected = self.central?.retrieveConnectedPeripherals(withServices: [
@@ -108,6 +129,11 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     func disable() {
+        self.enabled = false
+        self.persistEnabled(false)
+        self.wantsEnableOnPowerOn = false
+        self.stopPhoneSampleLoop()
+        self.restoreBatteryMonitoringIfNeeded()
         self.manuallyDisconnected = true
         self.cancelInitialConnectTimeout()
         let pendingPeripheral = self.pendingConnectionID.flatMap { self.peripheralsByID[$0] }
@@ -119,6 +145,22 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.uptime.noteDisconnected(at: Date())
         self.connectionState = .disconnected
         self.log.info("omi stopped")
+    }
+
+    func resumeIfEnabled() async {
+        guard self.defaults.bool(forKey: Self.enabledKey) else {
+            self.enabled = false
+            return
+        }
+
+        if self.managerState == .poweredOn {
+            self.enable()
+        } else {
+            self.enabled = true
+            self.enableBatteryMonitoringIfNeeded()
+            self.startPhoneSampleLoop()
+            self.wantsEnableOnPowerOn = true
+        }
     }
 
     func handleWillRestoreState(restoredCount: Int) {
@@ -289,6 +331,13 @@ private extension OmiSourceManager {
             {
                 self.beginConnect(peripheral, isReconnect: true)
             }
+            if self.wantsEnableOnPowerOn,
+               self.pendingConnectionID == nil,
+               self.connectedPeripheral == nil
+            {
+                self.wantsEnableOnPowerOn = false
+                self.enable()
+            }
             return
         }
 
@@ -367,11 +416,13 @@ private extension OmiSourceManager {
             self.lastReconnectLatencySeconds = latency
             self.reconnectCount += 1
             self.eventRing.backfillMostRecentReconnect(timeToReconnect: latency)
+            self.diagnostics.recordReconnect(latency: latency)
             self.reconnectStartedAt = nil
             self.isSystemReconnecting = false
         }
 
         self.connectionState = .connected
+        self.diagnostics.recordConnected()
         self.uptime.noteConnected(at: Date())
         self.connectedRSSI = nil
         self.resetReadState()
@@ -407,12 +458,14 @@ private extension OmiSourceManager {
         )
 
         if !self.manuallyDisconnected {
-            self.eventRing.append(OmiSourceEvent(
+            let event = OmiSourceEvent(
                 timestamp: disconnectedAt,
                 reason: error?.localizedDescription ?? "link lost",
                 appStateAtDrop: self.currentAppStateString,
                 timeToReconnect: nil
-            ))
+            )
+            self.eventRing.append(event)
+            self.diagnostics.recordDisconnected(event: event)
         }
 
         switch decision {
@@ -575,11 +628,22 @@ private extension OmiSourceManager {
         self.audioDecodeOK += deltas.decodeOK
         self.audioDecodeErrors += deltas.decodeErrors
         self.applyAudioCounterSnapshot()
+        self.diagnostics.updateDecodeCounters(
+            ok: self.audioDecodeOK,
+            errors: self.audioDecodeErrors,
+            gaps: self.audioGaps,
+            outOfOrder: self.audioOutOfOrder
+        )
+        if deltas.decodeOK > 0 {
+            self.diagnostics.noteDecodedSamples(at: Date())
+        }
     }
 
     func updateKnownField(_ uuid: CBUUID, data: Data) -> Bool {
         if uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic) {
-            self.battery = .value(Int(data[0]))
+            let level = Int(data[0])
+            self.battery = .value(level)
+            self.diagnostics.recordBattery(level: level, at: Date())
             self.log.info("omi battery read")
             return true
         }
@@ -728,6 +792,48 @@ private extension OmiSourceManager {
         self.hardwareRevision = .notRead
         self.battery = .notRead
         self.codec = .notRead
+    }
+
+    func persistEnabled(_ enabled: Bool) {
+        self.defaults.set(enabled, forKey: Self.enabledKey)
+    }
+
+    func enableBatteryMonitoringIfNeeded() {
+        if self.previousBatteryMonitoringEnabled == nil {
+            self.previousBatteryMonitoringEnabled = UIDevice.current.isBatteryMonitoringEnabled
+        }
+        UIDevice.current.isBatteryMonitoringEnabled = true
+    }
+
+    func restoreBatteryMonitoringIfNeeded() {
+        guard let previousBatteryMonitoringEnabled else {
+            return
+        }
+        UIDevice.current.isBatteryMonitoringEnabled = previousBatteryMonitoringEnabled
+        self.previousBatteryMonitoringEnabled = nil
+    }
+
+    func startPhoneSampleLoop() {
+        self.phoneSampleTask?.cancel()
+        self.phoneSampleTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            while self.enabled {
+                self.diagnostics.recordPhoneSample()
+                do {
+                    try await self.clock.sleep(for: .seconds(60))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    func stopPhoneSampleLoop() {
+        self.phoneSampleTask?.cancel()
+        self.phoneSampleTask = nil
     }
 
     func cancelInitialConnectTimeout() {

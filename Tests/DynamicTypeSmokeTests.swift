@@ -45,6 +45,17 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             clock: MockObserverClock(),
             defaults: nil
         )
+        let omiDefaultsName = "DynamicTypeSmokeTests-Omi-\(UUID().uuidString)"
+        let omiDefaults = try XCTUnwrap(UserDefaults(suiteName: omiDefaultsName))
+        defer { omiDefaults.removePersistentDomain(forName: omiDefaultsName) }
+        let omiDiagnosticsURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-OmiDiagnostics-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: omiDiagnosticsURL) }
+        let omiSourceManager = OmiSourceManager(
+            defaults: omiDefaults,
+            diagnostics: OmiDiagnostics(clock: MockObserverClock(), fileURL: omiDiagnosticsURL),
+            clock: MockObserverClock()
+        )
         let activeLocationProvider = MockLocationProvider()
         activeLocationProvider.capability = .always(accuracy: .full)
         let activeLocationManager = LocationManager(
@@ -116,12 +127,17 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(ObserverSourcePauseState())
                 .environment(importQueue)
                 .environment(locationManager)
+                .environment(omiSourceManager)
         }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
                 .environment(locationManager)
                 .environment(locationUploader)
                 .environment(observerRegistration)
+        }
+        let omiSourceDetailView = NavigationStack {
+            OmiSourceDetailView()
+                .environment(omiSourceManager)
         }
         let activeLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -205,6 +221,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(omiSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(activeLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(needsAttentionLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
