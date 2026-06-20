@@ -45,6 +45,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var eventRing = OmiEventRing()
 
     @ObservationIgnored var onDecodedSamples: (@MainActor ([Int16]) -> Void)?
+    @ObservationIgnored var omiSegmentWriter: OmiSegmentWriter?
 
     @ObservationIgnored private var central: CBCentralManager?
     @ObservationIgnored private var connectedPeripheral: CBPeripheral?
@@ -102,6 +103,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
         self.peripheralsByID[peripheral.identifier] = peripheral
         peripheral.delegate = self
+        self.omiSegmentWriter?.start()
         self.beginConnect(peripheral, isReconnect: false)
     }
 
@@ -112,6 +114,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         if let peripheral = self.connectedPeripheral ?? pendingPeripheral {
             self.central?.cancelPeripheralConnection(peripheral)
         }
+        self.omiSegmentWriter?.stop()
         self.clearConnectionArtifacts()
         self.uptime.noteDisconnected(at: Date())
         self.connectionState = .disconnected

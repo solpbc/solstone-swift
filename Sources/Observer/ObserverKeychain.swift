@@ -11,6 +11,7 @@ enum KeychainError: Error {
 nonisolated enum ObserverKeychain {
     static let service = "app.solstone.swift"
     static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key"
+    static let omiIngestKeyAccount = "solstone-swift-omi-ingest-key"
 
     static func saveObserverIngestKey(_ key: String) throws {
         try save(data: Data(key.utf8), account: observerIngestKeyAccount)
@@ -25,6 +26,21 @@ nonisolated enum ObserverKeychain {
 
     static func deleteObserverIngestKey() throws {
         try delete(account: observerIngestKeyAccount)
+    }
+
+    static func saveOmiIngestKey(_ key: String) throws {
+        try save(data: Data(key.utf8), account: omiIngestKeyAccount)
+    }
+
+    static func loadOmiIngestKey() throws -> String? {
+        guard let data = try load(account: omiIngestKeyAccount) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func deleteOmiIngestKey() throws {
+        try delete(account: omiIngestKeyAccount)
     }
 
     private static func save(data: Data, account: String) throws {

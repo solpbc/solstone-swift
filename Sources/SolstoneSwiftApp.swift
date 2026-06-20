@@ -17,6 +17,8 @@ struct SolstoneSwiftApp: App {
     @State private var diagnosticLog: DiagnosticLog
     @State private var observerRegistration: ObserverRegistration
     @State private var observerUploader: ObserverUploader
+    @State private var omiRegistration: ObserverRegistration
+    @State private var omiUploader: ObserverUploader
     @State private var importQueue: ImportQueue
     @State private var locationUploader: LocationUploader
     @State private var locationManager: LocationManager
@@ -150,6 +152,40 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
+        let omiRegistration = ObserverRegistration(
+            hostname: UIDevice.current.name,
+            version: AppVersion.shortVersion,
+            streamType: "omi",
+            label: "omi pendant",
+            loadKey: {
+                try ObserverKeychain.loadOmiIngestKey()
+            },
+            saveKey: {
+                try ObserverKeychain.saveOmiIngestKey($0)
+            },
+            deleteKey: {
+                try ObserverKeychain.deleteOmiIngestKey()
+            }
+        )
+        let omiUploadConfiguration = URLSessionConfiguration.background(
+            withIdentifier: OmiSegmentWriter.backgroundSessionIdentifier
+        )
+        omiUploadConfiguration.waitsForConnectivity = true
+        let omiCacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+        let omiUploader = ObserverUploader(
+            cacheRootURL: omiCacheRoot,
+            sessionConfiguration: omiUploadConfiguration,
+            ensureRegistered: {
+                try await omiRegistration.ensureRegistered()
+            },
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
+            localPortProvider: {
+                omiRegistration.activeLocalPort
+            }
+        )
         let importQueue = ImportQueue(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
@@ -193,7 +229,12 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
+        let omiSegmentWriter = OmiSegmentWriter(uploader: omiUploader)
         let omiSource = OmiSourceManager()
+        omiSource.omiSegmentWriter = omiSegmentWriter
+        omiSource.onDecodedSamples = { [weak omiSegmentWriter] samples in
+            omiSegmentWriter?.append(samples)
+        }
         voice.onObserverAction = { @MainActor action in
             switch action {
             case .startObserver(let mode):
@@ -210,6 +251,8 @@ struct SolstoneSwiftApp: App {
         self._tunnelManager = State(initialValue: tunnel)
         self._observerRegistration = State(initialValue: observerRegistration)
         self._observerUploader = State(initialValue: observerUploader)
+        self._omiRegistration = State(initialValue: omiRegistration)
+        self._omiUploader = State(initialValue: omiUploader)
         self._importQueue = State(initialValue: importQueue)
         self._locationUploader = State(initialValue: locationUploader)
         self._locationManager = State(initialValue: locationManager)
@@ -223,6 +266,7 @@ struct SolstoneSwiftApp: App {
             tunnelManager: tunnel
         ))
         self.appDelegate.observerUploader = observerUploader
+        self.appDelegate.omiUploader = omiUploader
         self.appDelegate.importQueue = importQueue
         self.appDelegate.locationUploader = locationUploader
     }
@@ -346,9 +390,13 @@ struct SolstoneSwiftApp: App {
             switch newState {
             case .connected(let port, _):
                 self.observerRegistration.activeLocalPort = port
+                self.omiRegistration.activeLocalPort = port
                 self.brainStatusMonitor.startPolling(localPort: port)
                 Task {
                     await self.observerUploader.resumeFromDisk()
+                }
+                Task {
+                    await self.omiUploader.resumeFromDisk()
                 }
                 Task {
                     await self.importQueue.resumeFromDisk()
@@ -385,6 +433,7 @@ struct SolstoneSwiftApp: App {
                 }
             case .connecting, .disconnected, .error:
                 self.observerRegistration.activeLocalPort = nil
+                self.omiRegistration.activeLocalPort = nil
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
                 self.integrationObserverStartTask?.cancel()
