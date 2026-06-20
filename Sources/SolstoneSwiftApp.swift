@@ -26,6 +26,7 @@ struct SolstoneSwiftApp: App {
     @State private var pairingHandoff = PairingHandoffState()
     @State private var voiceManager: VoiceManager
     @State private var chatManager: ChatManager
+    @State private var omiSourceManager: OmiSourceManager
     @State private var bannerPresenter: BannerPresenter
     @State private var backgroundDisconnectTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
@@ -192,6 +193,7 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
+        let omiSource = OmiSourceManager()
         voice.onObserverAction = { @MainActor action in
             switch action {
             case .startObserver(let mode):
@@ -214,6 +216,7 @@ struct SolstoneSwiftApp: App {
         self._observerManager = State(initialValue: observerManager)
         self._voiceManager = State(initialValue: voice)
         self._chatManager = State(initialValue: chat)
+        self._omiSourceManager = State(initialValue: omiSource)
         self._bannerPresenter = State(initialValue: BannerPresenter(
             diagnosticLog: log,
             voiceManager: voice,
@@ -232,6 +235,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.tunnelManager)
                 .environment(self.voiceManager)
                 .environment(self.chatManager)
+                .environment(self.omiSourceManager)
                 .environment(self.observerRegistration)
                 .environment(self.observerUploader)
                 .environment(self.importQueue)

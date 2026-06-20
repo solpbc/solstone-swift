@@ -1,0 +1,261 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+@preconcurrency import CoreBluetooth
+import Foundation
+
+nonisolated enum OmiSourceState: Equatable, Sendable {
+    case disconnected
+    case connecting
+    case connected
+    case reconnecting
+    case needsAttention(OmiAttention)
+
+    var displayString: String {
+        switch self {
+        case .disconnected:
+            "disconnected"
+        case .connecting:
+            "connecting"
+        case .connected:
+            "connected"
+        case .reconnecting:
+            "reconnecting"
+        case .needsAttention(let attention):
+            "needs attention: \(attention.displayString)"
+        }
+    }
+}
+
+nonisolated enum OmiAttention: Equatable, Sendable {
+    case bluetoothOff
+    case unauthorized
+    case unsupported
+    case pendantNotFound
+    case connectFailed(String)
+    case codecNotOpus
+    case audioUnavailable
+
+    var displayString: String {
+        switch self {
+        case .bluetoothOff:
+            "bluetooth off"
+        case .unauthorized:
+            "bluetooth permission needed"
+        case .unsupported:
+            "bluetooth unsupported"
+        case .pendantNotFound:
+            "omi pendant not found"
+        case .connectFailed(let reason):
+            "connection failed: \(reason)"
+        case .codecNotOpus:
+            "audio codec unsupported"
+        case .audioUnavailable:
+            "audio unavailable"
+        }
+    }
+}
+
+nonisolated enum OmiReconnectDecision: Equatable, Sendable {
+    case stayDisconnected
+    case systemReconnecting
+    case rearmConnect
+}
+
+nonisolated enum OmiRestoreAction: Equatable, Sendable {
+    case rearmConnect
+    case discoverServices
+    case subscribeAudio
+    case alreadyLive
+}
+
+nonisolated struct OmiUptimeAccumulator: Equatable, Sendable {
+    private(set) var connectedSince: Date?
+    private(set) var accumulatedConnectedSeconds: TimeInterval
+
+    init(
+        connectedSince: Date? = nil,
+        accumulatedConnectedSeconds: TimeInterval = 0
+    ) {
+        self.connectedSince = connectedSince
+        self.accumulatedConnectedSeconds = accumulatedConnectedSeconds
+    }
+
+    mutating func noteConnected(at date: Date) {
+        guard self.connectedSince == nil else {
+            return
+        }
+        self.connectedSince = date
+    }
+
+    mutating func noteDisconnected(at date: Date) {
+        guard let connectedSince else {
+            return
+        }
+        self.accumulatedConnectedSeconds += max(date.timeIntervalSince(connectedSince), 0)
+        self.connectedSince = nil
+    }
+
+    func connectedSeconds(asOf now: Date) -> TimeInterval {
+        guard let connectedSince else {
+            return self.accumulatedConnectedSeconds
+        }
+        return self.accumulatedConnectedSeconds + max(now.timeIntervalSince(connectedSince), 0)
+    }
+
+    func connectedFraction(since start: Date, asOf now: Date) -> Double? {
+        let wallClockSeconds = max(now.timeIntervalSince(start), 0)
+        guard wallClockSeconds > 0 else {
+            return nil
+        }
+        return self.connectedSeconds(asOf: now) / wallClockSeconds
+    }
+}
+
+nonisolated struct OmiSourceEvent: Equatable, Sendable {
+    let timestamp: Date
+    let reason: String
+    let appStateAtDrop: String
+    let timeToReconnect: TimeInterval?
+}
+
+nonisolated struct OmiEventRing: Equatable, Sendable {
+    static let capacity = 50
+
+    private(set) var events: [OmiSourceEvent]
+
+    init(events: [OmiSourceEvent] = []) {
+        self.events = []
+        for event in events {
+            self.append(event)
+        }
+    }
+
+    mutating func append(_ event: OmiSourceEvent) {
+        self.events.append(event)
+        if self.events.count > Self.capacity {
+            self.events.removeFirst(self.events.count - Self.capacity)
+        }
+    }
+
+    mutating func backfillMostRecentReconnect(timeToReconnect: TimeInterval) {
+        guard let index = self.events.indices.reversed().first(where: { self.events[$0].timeToReconnect == nil }) else {
+            return
+        }
+        let event = self.events[index]
+        self.events[index] = OmiSourceEvent(
+            timestamp: event.timestamp,
+            reason: event.reason,
+            appStateAtDrop: event.appStateAtDrop,
+            timeToReconnect: timeToReconnect
+        )
+    }
+}
+
+nonisolated struct OmiAudioCounterSnapshot: Equatable, Sendable {
+    let packets: Int
+    let frames: Int
+    let gaps: Int
+    let outOfOrder: Int
+    let malformed: Int
+    let markers: Int
+    let decodeOK: Int
+    let decodeErrors: Int
+}
+
+nonisolated enum OmiSourceLogic {
+    static func reconnectDecision(
+        isManualDisconnect: Bool,
+        isReconnecting: Bool
+    ) -> OmiReconnectDecision {
+        if isManualDisconnect {
+            return .stayDisconnected
+        }
+        if isReconnecting {
+            return .systemReconnecting
+        }
+        return .rearmConnect
+    }
+
+    static func attention(for managerState: CBManagerState) -> OmiAttention? {
+        switch managerState {
+        case .poweredOn:
+            nil
+        case .poweredOff:
+            .bluetoothOff
+        case .unauthorized:
+            .unauthorized
+        case .unsupported:
+            .unsupported
+        case .unknown, .resetting:
+            nil
+        @unknown default:
+            nil
+        }
+    }
+
+    static func restoreAction(
+        peripheralState: CBPeripheralState,
+        hasAudioService: Bool,
+        isAudioNotifying: Bool
+    ) -> OmiRestoreAction {
+        guard peripheralState == .connected else {
+            return .rearmConnect
+        }
+        guard hasAudioService else {
+            return .discoverServices
+        }
+        guard isAudioNotifying else {
+            return .subscribeAudio
+        }
+        return .alreadyLive
+    }
+
+    static func persistedPeripheralID(from storedValue: String?) -> UUID? {
+        guard let storedValue else {
+            return nil
+        }
+        return UUID(uuidString: storedValue)
+    }
+
+    static func storedPeripheralIDValue(for id: UUID) -> String {
+        id.uuidString
+    }
+
+    static func audioCounterSnapshot(
+        reassembler: BLEAudioReassembler,
+        decodeOK: Int,
+        decodeErrors: Int
+    ) -> OmiAudioCounterSnapshot {
+        OmiAudioCounterSnapshot(
+            packets: reassembler.packets,
+            frames: reassembler.frames,
+            gaps: reassembler.gaps,
+            outOfOrder: reassembler.outOfOrder,
+            malformed: reassembler.malformed,
+            markers: reassembler.markers,
+            decodeOK: decodeOK,
+            decodeErrors: decodeErrors
+        )
+    }
+
+    static func emitDecodedFrames(
+        _ frames: [Data],
+        decode: (Data) -> [Int16]?,
+        sink: (([Int16]) -> Void)?
+    ) -> (decodeOK: Int, decodeErrors: Int) {
+        var decodeOK = 0
+        var decodeErrors = 0
+
+        for frame in frames {
+            guard let samples = decode(frame) else {
+                decodeErrors += 1
+                continue
+            }
+            decodeOK += 1
+            sink?(samples)
+        }
+
+        return (decodeOK, decodeErrors)
+    }
+}
