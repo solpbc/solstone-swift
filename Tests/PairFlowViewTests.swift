@@ -53,7 +53,7 @@ nonisolated final class PairFlowViewTests: XCTestCase {
 
     nonisolated func testClassifyPastedLinkRejectsLoopbackBeforeRouting() {
         for raw in [
-            "http://localhost:5015/app/link/",
+            "http://localhost:5015/app/network/",
             "http://127.0.0.1:5015/",
             "http://127.0.0.2/",
             "http://[::1]:5015/"

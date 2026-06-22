@@ -110,7 +110,7 @@ public struct PairClient: Sendable {
         let lanResponse = try await Self.postPairThroughTunnel(
             transport: transport,
             caPin: pairURL.caPin,
-            path: "/app/link/pair?token=\(CertChain.hex(pairURL.nonceBytes))",
+            path: "/app/network/pair?token=\(CertChain.hex(pairURL.nonceBytes))",
             csrPEM: generated.csrPEM,
             deviceLabel: deviceLabel
         )
@@ -150,7 +150,7 @@ public struct PairClient: Sendable {
                 caFingerprintBytes: pairURL.caFingerprintBytes,
                 requestBytes: CertlessPairExchange.encodeRequest(
                     host: host,
-                    path: "/app/link/pair?token=\(CertChain.hex(pairURL.nonceBytes))",
+                    path: "/app/network/pair?token=\(CertChain.hex(pairURL.nonceBytes))",
                     jsonBody: jsonBody
                 )
             )

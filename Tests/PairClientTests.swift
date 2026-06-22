@@ -111,12 +111,12 @@ nonisolated final class PairClientTests: XCTestCase {
         let body = Data(#"{"csr":"pem","device_label":"phone"}"#.utf8)
         let request = PairClient.buildHTTPRequest(
             method: "POST",
-            path: "/app/link/pair?token=012345",
+            path: "/app/network/pair?token=012345",
             body: body
         )
         let text = try XCTUnwrap(String(data: request, encoding: .utf8))
 
-        XCTAssertTrue(text.hasPrefix("POST /app/link/pair?token=012345 HTTP/1.1\r\n"))
+        XCTAssertTrue(text.hasPrefix("POST /app/network/pair?token=012345 HTTP/1.1\r\n"))
         XCTAssertTrue(text.contains("Host: spl.local\r\n"))
         XCTAssertTrue(text.contains("Content-Type: application/json\r\n"))
         XCTAssertTrue(text.contains("Content-Length: \(body.count)\r\n"))
@@ -480,7 +480,7 @@ nonisolated final class PairClientTests: XCTestCase {
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let literals = try StringLiteralGrepSupport.stringLiterals(in: String(line))
             for literal in literals {
-                XCTAssertFalse(literal.contains("https://") && literal.contains("/app/link/pair"))
+                XCTAssertFalse(literal.contains("https://") && literal.contains("/app/network/pair"))
             }
         }
         let postDirectPair = try Self.slice(text, from: "private func postDirectPair", to: "private func postPairTicket")
