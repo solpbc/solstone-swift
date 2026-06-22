@@ -64,6 +64,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
             bannerText.waitForExistence(timeout: 10) || bannerElement.waitForExistence(timeout: 10)
         )
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["everything your observers have gathered, ready for your journal when it reconnects."].waitForExistence(timeout: 5))
         let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
         XCTAssertEqual(locality.label, "your journal · offline")
@@ -89,7 +90,11 @@ nonisolated final class PostPairStateTests: XCTestCase {
         self.assertDayHomeRoot(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["everything your observers have gathered, moving into your journal."].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["dayHome.openInJournal"].waitForExistence(timeout: 5))
+        let askHint = app.staticTexts["dayHome.askBar.hint"]
+        XCTAssertTrue(askHint.waitForExistence(timeout: 5))
+        XCTAssertEqual(askHint.label, "ask sol")
         app.buttons["dayHome.askBar"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 5))
     }

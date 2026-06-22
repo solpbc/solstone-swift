@@ -65,26 +65,34 @@ struct MoreView: View {
         }
     }
 
-    private var keepaliveStatusText: String {
+    private var connectionProbeStatusText: String {
         switch self.tunnelManager.lastProbeAlive {
-        case true: "alive"
-        case false: "failed"
-        case nil: "pending"
+        case true: SourceVocabulary.probeAvailable
+        case false: SourceVocabulary.probeNotReachable
+        case nil: SourceVocabulary.probeNotChecked
         }
     }
 
     private var networkStatusText: String {
-        let iface: String = switch self.tunnelManager.currentInterfaceIsWiFi {
-        case true: "wifi"
-        case false: "cellular"
-        case nil: "unknown"
+        guard let status = self.tunnelManager.currentPathStatus else {
+            return "unknown"
         }
-        let satisfied: String = switch self.tunnelManager.isNetworkSatisfied {
-        case true: "satisfied"
-        case false: "unsatisfied"
-        case nil: "unknown"
+        let iface: String
+        if status.isWiFi {
+            iface = "wifi"
+        } else if status.isCellular {
+            iface = "cellular"
+        } else {
+            iface = "other"
         }
-        return "\(iface) · \(satisfied)"
+        var parts = [iface, status.isSatisfied ? "satisfied" : "unsatisfied"]
+        if status.isExpensive {
+            parts.append("expensive")
+        }
+        if status.isConstrained {
+            parts.append("constrained")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var probeResultColor: Color {
@@ -212,11 +220,11 @@ struct MoreView: View {
             }
 
             Section("diagnostics") {
-                LabeledContent("keepalive") {
-                    Text(self.keepaliveStatusText)
+                LabeledContent(SourceVocabulary.connectionProbe) {
+                    Text(self.connectionProbeStatusText)
                         .foregroundStyle(self.tunnelManager.lastProbeAlive == false ? .orange : .secondary)
                 }
-                .accessibilityLabel("keepalive status: \(self.keepaliveStatusText)")
+                .accessibilityLabel("\(SourceVocabulary.connectionProbe): \(self.connectionProbeStatusText)")
 
                 LabeledContent("reconnects", value: "\(self.tunnelManager.reconnectCount)")
                     .accessibilityLabel("reconnect count: \(self.tunnelManager.reconnectCount)")
@@ -226,11 +234,11 @@ struct MoreView: View {
                 }
                 .accessibilityLabel("network: \(self.networkStatusText)")
 
-                LabeledContent("hub-phone") {
+                LabeledContent(SourceVocabulary.journalTunnel) {
                     Text(self.tunnelManager.state.isConnected ? "running" : "n/a")
                         .foregroundStyle(self.tunnelManager.state.isConnected ? .primary : .secondary)
                 }
-                .accessibilityLabel("hub-phone: \(self.tunnelManager.state.isConnected ? "running" : "not available")")
+                .accessibilityLabel("\(SourceVocabulary.journalTunnel): \(self.tunnelManager.state.isConnected ? "running" : "not available")")
 
                 Button {
                     Task {
@@ -238,7 +246,7 @@ struct MoreView: View {
                     }
                 } label: {
                     HStack {
-                        Text("probe connection")
+                        Text(SourceVocabulary.connectionProbe)
                         Spacer()
                         if self.isProbing {
                             ProgressView()
@@ -251,7 +259,7 @@ struct MoreView: View {
                     }
                 }
                 .disabled(self.isProbing || !self.tunnelManager.state.isConnected)
-                .accessibilityLabel("probe connection")
+                .accessibilityLabel(SourceVocabulary.connectionProbe)
                 .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
                 .hoverEffect(.highlight)
 
@@ -416,7 +424,7 @@ struct MoreView: View {
         let milliseconds = Int(latency.components.seconds) * 1000
             + Int(latency.components.attoseconds / 1_000_000_000_000_000)
         self.probeResultIsAlive = alive
-        self.probeResult = alive ? "ok · \(milliseconds)ms" : "failed · \(milliseconds)ms"
+        self.probeResult = "\(alive ? SourceVocabulary.probeAvailable : SourceVocabulary.probeNotReachable) · \(milliseconds)ms"
         if alive {
             if UserSettings.haptics {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)

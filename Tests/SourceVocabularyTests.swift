@@ -120,6 +120,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "everything your observers have gathered, resting here until you connect a journal."
         )
         XCTAssertEqual(
+            SourceVocabulary.onThisPhoneScopeConnected,
+            "everything your observers have gathered, moving into your journal."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneScopeOfflinePaired,
+            "everything your observers have gathered, ready for your journal when it reconnects."
+        )
+        XCTAssertEqual(
             SourceVocabulary.onThisPhoneEmpty,
             "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
         )
@@ -236,6 +244,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.cancel, "cancel")
         XCTAssertEqual(SourceVocabulary.undo, "undo")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
+        XCTAssertEqual(SourceVocabulary.journalTunnel, "journal tunnel")
+        XCTAssertEqual(SourceVocabulary.connectionProbe, "connection probe")
+        XCTAssertEqual(SourceVocabulary.probeNotChecked, "not checked")
+        XCTAssertEqual(SourceVocabulary.probeAvailable, "available")
+        XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
     }
 
     func testLockedSourceSubtexts() {
@@ -372,6 +385,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.chatSourcesPillA11yCollapsed(count: 2),
             SourceVocabulary.chatSourcesPillA11yExpanded(count: 1),
             SourceVocabulary.onThisPhoneScope,
+            SourceVocabulary.onThisPhoneScopeConnected,
+            SourceVocabulary.onThisPhoneScopeOfflinePaired,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneNotBackedUp,
             SourceVocabulary.onThisPhoneTurnOnSourceButton,
@@ -432,6 +447,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.resume,
             SourceVocabulary.delete,
             SourceVocabulary.deleteJournalUnreachableLine,
+            SourceVocabulary.journalTunnel,
+            SourceVocabulary.connectionProbe,
+            SourceVocabulary.probeNotChecked,
+            SourceVocabulary.probeAvailable,
+            SourceVocabulary.probeNotReachable,
             ShareImportCopy.dismiss,
             ShareImportCopy.savedAccessibilityLabel,
         ]

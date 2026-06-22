@@ -67,7 +67,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                     self.header
 
                     if self.hasItems, !self.isShowingNotBackedUpNudge {
-                        Text(SourceVocabulary.onThisPhoneScope)
+                        Text(self.onThisPhoneScopeText)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -80,8 +80,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
 
                     if let displayAggregate = self.displayAggregate {
                         let migration = onThisPhoneMigration(
-                            snapshot: displayAggregate,
-                            journalConnected: self.observerRegistration.activeLocalPort != nil
+                            snapshot: displayAggregate
                         )
                         if self.appConfig.isPaired, !migration.isEmpty {
                             self.migrationSection(migration: migration)
@@ -164,6 +163,17 @@ struct OnThisPhoneMomentsView<Header: View>: View {
 }
 
 private extension OnThisPhoneMomentsView {
+    var onThisPhoneScopeText: String {
+        switch self.askBarState {
+        case .linkedOnline:
+            SourceVocabulary.onThisPhoneScopeConnected
+        case .linkedOffline:
+            SourceVocabulary.onThisPhoneScopeOfflinePaired
+        case .noJournal, nil:
+            SourceVocabulary.onThisPhoneScope
+        }
+    }
+
     var displayAggregate: OnThisPhoneAggregateSnapshot? {
         self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
     }
@@ -398,7 +408,7 @@ private extension OnThisPhoneMomentsView {
             )
         case .linkedOnline:
             return (
-                title: SourceVocabulary.dayHomeAskBarHint,
+                title: SourceVocabulary.chatNavTitle,
                 isEnabled: true,
                 action: self.onAskBarChat
             )
@@ -596,8 +606,7 @@ private extension OnThisPhoneMomentsView {
         let displayAggregate = self.displayAggregate ?? aggregate
         self.updateMagicMoment(from: displayAggregate)
         let migration = onThisPhoneMigration(
-            snapshot: displayAggregate,
-            journalConnected: self.observerRegistration.activeLocalPort != nil
+            snapshot: displayAggregate
         )
         if !migration.isEmpty && !migration.isAllDelivered {
             self.migrationSawUndelivered = true

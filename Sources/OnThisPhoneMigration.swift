@@ -21,8 +21,7 @@ nonisolated struct OnThisPhoneMigration: Equatable, Sendable {
 }
 
 nonisolated func onThisPhoneMigration(
-    snapshot: OnThisPhoneAggregateSnapshot,
-    journalConnected: Bool
+    snapshot: OnThisPhoneAggregateSnapshot
 ) -> OnThisPhoneMigration {
     var onThisPhone = 0
     var onItsWay = 0
@@ -35,14 +34,10 @@ nonisolated func onThisPhoneMigration(
             inYourJournal += 1
         case .needsAttention:
             needsAttention += 1
-        case .savedOnThisPhone, .sending:
-            // Use only the live connection flag here. The instantaneous
-            // .sending/.savedOnThisPhone read flickers between scheduling waves.
-            if journalConnected {
-                onItsWay += 1
-            } else {
-                onThisPhone += 1
-            }
+        case .savedOnThisPhone:
+            onThisPhone += 1
+        case .sending:
+            onItsWay += 1
         }
     }
 
