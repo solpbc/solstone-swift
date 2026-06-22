@@ -12,6 +12,7 @@ struct ConnectJournalSheet: View {
     static let hostedJournalAvailable = false
 
     @Binding var isPresented: Bool
+    @Environment(TunnelManager.self) private var tunnelManager
     @State private var path: [Destination] = []
 
     var body: some View {
@@ -56,6 +57,7 @@ struct ConnectJournalSheet: View {
                             }
                         },
                         onComplete: {
+                            self.tunnelManager.armOwnerConnectSuccessBanner()
                             self.isPresented = false
                         }
                     )

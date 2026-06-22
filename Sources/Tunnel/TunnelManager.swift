@@ -16,6 +16,8 @@ final class TunnelManager {
     @ObservationIgnored private let pathMonitor: PathMonitor
     @ObservationIgnored private let loadPairing: @Sendable () throws -> StoredPairing?
     @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
+    @ObservationIgnored private let probeSession: URLSession
+    @ObservationIgnored private let probeURLBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: TimeInterval
@@ -23,6 +25,7 @@ final class TunnelManager {
     @ObservationIgnored private let jitterRange: ClosedRange<Double>
     var reconnectCountdown: Int?
     var consecutiveWiFiFailures: Int = 0
+    var currentPathStatus: NetworkPathStatus?
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
     var lastProbeAlive: Bool?
@@ -30,6 +33,7 @@ final class TunnelManager {
     var reconnectCount: Int = 0
     var connectionStages: [ConnectionStage] = []
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
+    @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
 
     init(
         transport: (any Transporting)? = nil,
@@ -39,6 +43,10 @@ final class TunnelManager {
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
         initialRetryDelay: TimeInterval = 2.0,
         jitterRange: ClosedRange<Double> = 0.75...1.25,
+        probeSession: URLSession = .shared,
+        probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
+            URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
+        },
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.transport = transport ?? CFTunnelTransport()
@@ -46,6 +54,8 @@ final class TunnelManager {
         self.pathMonitor = pathMonitor
         self.loadPairing = loadPairing
         self.deletePairing = deletePairing
+        self.probeSession = probeSession
+        self.probeURLBuilder = probeURLBuilder
         self.initialRetryDelay = initialRetryDelay
         self.retryDelay = initialRetryDelay
         self.jitterRange = jitterRange
@@ -163,6 +173,10 @@ final class TunnelManager {
                     category: .tunnel,
                     message: "connected via \(endpoint == .lan ? "local network" : "remote journal") on port \(localPort)"
                 )
+                if self.ownerConnectSuccessBannerArmed {
+                    self.ownerConnectSuccessBannerArmed = false
+                    self.diagnosticLog?.append(category: .tunnel, message: "journal connected")
+                }
                 self.retryDelay = self.initialRetryDelay
                 self.cancelReconnect()
                 Task {
@@ -222,6 +236,10 @@ final class TunnelManager {
         await self.connect()
     }
 
+    func armOwnerConnectSuccessBanner() {
+        self.ownerConnectSuccessBannerArmed = true
+    }
+
     // Integration tests use this to bypass real tunnel startup.
     func forceConnected(port: Int, via: ConnectionEndpoint) { self.state = .connected(localPort: port, via: via) }
 
@@ -230,6 +248,13 @@ final class TunnelManager {
     }
 
     func forceNetworkStatus(isSatisfied: Bool, isWiFi: Bool) {
+        self.currentPathStatus = NetworkPathStatus(
+            isSatisfied: isSatisfied,
+            isWiFi: isWiFi,
+            isCellular: !isWiFi,
+            isExpensive: false,
+            isConstrained: false
+        )
         self.isNetworkSatisfied = isSatisfied
         self.currentInterfaceIsWiFi = isWiFi
     }
@@ -241,19 +266,27 @@ final class TunnelManager {
     }
 
     func startNetworkMonitoring() {
-        self.pathMonitor.start { [weak self] in
+        self.pathMonitor.start { [weak self] status in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.diagnosticLog?.append(category: .network, message: "path changed")
+                self.applyPathStatus(status)
+                self.diagnosticLog?.append(
+                    category: .tunnel,
+                    message: "path changed",
+                    detail: self.pathStatusDetail(status)
+                )
                 switch self.state {
                 case .connected:
-                    log.info("[solstone-swift] network: reconnecting after path change")
-                    await self.transport.disconnect()
-                    self.state = .error(.muxTeardown)
-                    await self.retryNow()
+                    log.info("[solstone-swift] network: path changed while connected")
                 case .error(let error) where error.isRetryable:
-                    await self.retryNow()
-                case .disconnected, .connecting, .error:
+                    if status.isSatisfied {
+                        self.scheduleReconnect(for: error)
+                    }
+                case .disconnected:
+                    if status.isSatisfied {
+                        self.scheduleReconnect(for: .muxTeardown)
+                    }
+                case .connecting, .error:
                     break
                 }
             }
@@ -262,22 +295,41 @@ final class TunnelManager {
 
     func stopNetworkMonitoring() {
         self.pathMonitor.stop()
+        self.currentPathStatus = nil
         self.isNetworkSatisfied = nil
         self.currentInterfaceIsWiFi = nil
     }
 
     func probeConnection() async -> (alive: Bool, latency: Duration)? {
-        guard case .connected = self.state else { return nil }
+        guard case .connected(let localPort, _) = self.state else { return nil }
         let clock = ContinuousClock()
         let start = clock.now
+        let alive: Bool
+        let detail: String
+        if let url = self.probeURLBuilder(localPort) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 3
+            do {
+                _ = try await self.probeSession.data(for: request)
+                alive = true
+                detail = "endpoint: /app/network/api/status"
+            } catch {
+                alive = false
+                detail = "endpoint: /app/network/api/status; error: \(String(describing: error))"
+            }
+        } else {
+            alive = false
+            detail = "endpoint unavailable"
+        }
         let elapsed = clock.now - start
-        self.lastProbeAlive = true
+        self.lastProbeAlive = alive
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "manual probe alive",
-            detail: "latency: \(elapsed)"
+            message: alive ? "manual probe available" : "manual probe not reachable",
+            detail: "latency: \(elapsed); \(detail)"
         )
-        return (true, elapsed)
+        return (alive, elapsed)
     }
 
     private func scheduleReconnect(for error: TunnelError) {
@@ -299,6 +351,25 @@ final class TunnelManager {
             self.retryDelay = min(self.retryDelay * 2, 60)
             await self.connect()
         }
+    }
+
+    private func applyPathStatus(_ status: NetworkPathStatus) {
+        self.currentPathStatus = status
+        self.isNetworkSatisfied = status.isSatisfied
+        self.currentInterfaceIsWiFi = status.isWiFi
+    }
+
+    private func pathStatusDetail(_ status: NetworkPathStatus) -> String {
+        let interface: String
+        if status.isWiFi {
+            interface = "wifi"
+        } else if status.isCellular {
+            interface = "cellular"
+        } else {
+            interface = "other"
+        }
+        let satisfied = status.isSatisfied ? "satisfied" : "unsatisfied"
+        return "\(interface) · \(satisfied) · expensive=\(status.isExpensive) · constrained=\(status.isConstrained)"
     }
 
     private func candidateList() async throws -> [TransportEndpoint] {

@@ -78,7 +78,10 @@ final class ObserverUploader {
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
+    @ObservationIgnored private let registrationPrefixProvider: @Sendable @MainActor () -> String?
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
+    @ObservationIgnored private let diagnosticLog: DiagnosticLog?
+    @ObservationIgnored private let sourceType: String
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
@@ -87,6 +90,7 @@ final class ObserverUploader {
     @ObservationIgnored private var backgroundCompletionHandler: (@MainActor @Sendable () -> Void)?
     @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
+    @ObservationIgnored private var activeTasksByTaskID: [Int: URLSessionTask] = [:]
     @ObservationIgnored private var activeTaskIDByChunkID: [String: Int] = [:]
     @ObservationIgnored private var attemptCountByChunkID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
@@ -102,9 +106,12 @@ final class ObserverUploader {
         },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
+        registrationPrefixProvider: @escaping @Sendable @MainActor () -> String? = { nil },
         urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             ObserverServerURL.ingestURL(localPort: localPort)
         },
+        diagnosticLog: DiagnosticLog? = nil,
+        sourceType: String = "observer-audio",
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in
@@ -119,7 +126,10 @@ final class ObserverUploader {
         self.ensureRegistered = ensureRegistered
         self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
+        self.registrationPrefixProvider = registrationPrefixProvider
         self.urlBuilder = urlBuilder
+        self.diagnosticLog = diagnosticLog
+        self.sourceType = sourceType
         self.retryDelays = retryDelays
         self.maxAttempts = maxAttempts
         self.sleep = sleep
@@ -176,6 +186,8 @@ final class ObserverUploader {
     }
 
     func resumeFromDisk() async {
+        await self.reconcilePortIfNeeded()
+
         do {
             try self.fileManager.createDirectory(at: self.cacheRootURL, withIntermediateDirectories: true)
             let sessionDirectories = try self.fileManager.contentsOfDirectory(
@@ -196,6 +208,10 @@ final class ObserverUploader {
         }
 
         self.refreshCounts()
+    }
+
+    func reconcilePortAndResume() async {
+        await self.resumeFromDisk()
     }
 
     func onThisPhoneSnapshot() -> OnThisPhoneSourceResult {
@@ -237,6 +253,7 @@ final class ObserverUploader {
         self.attemptCountByChunkID.removeValue(forKey: chunkID)
         if let taskID = self.activeTaskIDByChunkID.removeValue(forKey: chunkID) {
             self.taskInfoByTaskID.removeValue(forKey: taskID)
+            self.activeTasksByTaskID.removeValue(forKey: taskID)
             self.responseDataByTaskID.removeValue(forKey: taskID)
         }
 
@@ -251,6 +268,13 @@ final class ObserverUploader {
 
         self.refreshCounts()
         uploaderLog.info("observer item dropped \(chunkID, privacy: .public)")
+    }
+
+    func clearInMemoryUploadStateForTesting() {
+        self.responseDataByTaskID.removeAll()
+        self.taskInfoByTaskID.removeAll()
+        self.activeTasksByTaskID.removeAll()
+        self.activeTaskIDByChunkID.removeAll()
     }
 
     func inProgressChunkURL(sessionID: UUID, chunkID: String) throws -> URL {
@@ -280,6 +304,27 @@ private extension ObserverUploader {
         let audioURL: URL
         let sidecarURL: URL
         let requestBodyURL: URL
+        let localPort: Int
+        let prefix: String?
+        let sourceType: String
+    }
+
+    struct UploadFailureContext {
+        let stage: String
+        let severity: DiagnosticSeverity
+        let sourceType: String
+        let localPort: Int?
+        let prefix: String?
+        let httpStatus: Int?
+        let transportError: String?
+    }
+
+    struct UploadTaskDescriptor: Codable {
+        let sourceType: String
+        let chunkID: String
+        let sessionID: UUID
+        let localPort: Int
+        let prefix: String?
     }
 
     func onThisPhoneItems(
@@ -354,6 +399,95 @@ private extension ObserverUploader {
         self.pathMonitor = monitor
     }
 
+    func reconcilePortIfNeeded() async {
+        guard let currentPort = self.localPortProvider() else { return }
+
+        let staleInMemoryTasks = self.taskInfoByTaskID.compactMap { taskID, info -> (Int, TaskInfo, URLSessionTask?)? in
+            guard info.localPort != currentPort else { return nil }
+            return (taskID, info, self.activeTasksByTaskID[taskID])
+        }
+        for (taskID, info, task) in staleInMemoryTasks {
+            self.clearTaskState(taskID: taskID, chunkID: info.chunkID)
+            task?.cancel()
+            await self.scheduleUpload(chunkID: info.chunkID, sessionID: info.sessionID)
+        }
+
+        let tasks = await self.sessionTasks()
+        guard !tasks.isEmpty else { return }
+
+        for task in tasks {
+            let descriptor = self.uploadTaskDescriptor(from: task.taskDescription)
+            let requestPort = task.originalRequest?.url?.port
+            let isCurrentPort = descriptor?.localPort == currentPort
+                && (requestPort == nil || requestPort == currentPort)
+
+            guard isCurrentPort, let descriptor else {
+                self.clearTaskState(taskID: task.taskIdentifier, chunkID: descriptor?.chunkID)
+                task.cancel()
+                continue
+            }
+
+            let audioURL = self.pendingAudioURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
+            let sidecarURL = self.pendingSidecarURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
+            guard self.fileManager.fileExists(atPath: audioURL.path),
+                  self.fileManager.fileExists(atPath: sidecarURL.path)
+            else {
+                self.clearTaskState(taskID: task.taskIdentifier, chunkID: descriptor.chunkID)
+                task.cancel()
+                continue
+            }
+
+            let requestBodyURL = self.pendingDirectoryURL(sessionID: descriptor.sessionID)
+                .appendingPathComponent("\(descriptor.chunkID).upload", isDirectory: false)
+            self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
+                chunkID: descriptor.chunkID,
+                sessionID: descriptor.sessionID,
+                audioURL: audioURL,
+                sidecarURL: sidecarURL,
+                requestBodyURL: requestBodyURL,
+                localPort: descriptor.localPort,
+                prefix: descriptor.prefix,
+                sourceType: descriptor.sourceType
+            )
+            self.activeTasksByTaskID[task.taskIdentifier] = task
+            self.activeTaskIDByChunkID[descriptor.chunkID] = task.taskIdentifier
+        }
+    }
+
+    func sessionTasks() async -> [URLSessionTask] {
+        await withCheckedContinuation { continuation in
+            self.session.getAllTasks { tasks in
+                continuation.resume(returning: tasks)
+            }
+        }
+    }
+
+    func taskDescription(for descriptor: UploadTaskDescriptor) -> String? {
+        guard let data = try? JSONEncoder().encode(descriptor) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func uploadTaskDescriptor(from taskDescription: String?) -> UploadTaskDescriptor? {
+        guard let taskDescription,
+              let data = taskDescription.data(using: .utf8)
+        else {
+            return nil
+        }
+        return try? JSONDecoder().decode(UploadTaskDescriptor.self, from: data)
+    }
+
+    func clearTaskState(taskID: Int, chunkID: String?) {
+        let resolvedChunkID = chunkID ?? self.taskInfoByTaskID[taskID]?.chunkID
+        self.taskInfoByTaskID.removeValue(forKey: taskID)
+        self.activeTasksByTaskID.removeValue(forKey: taskID)
+        self.responseDataByTaskID.removeValue(forKey: taskID)
+        if let resolvedChunkID {
+            if self.activeTaskIDByChunkID[resolvedChunkID] == taskID {
+                self.activeTaskIDByChunkID.removeValue(forKey: resolvedChunkID)
+            }
+        }
+    }
+
     func resumePendingFiles(sessionID: UUID) async throws {
         let pendingDirectory = self.pendingDirectoryURL(sessionID: sessionID)
         let entries = try self.fileManager.contentsOfDirectory(
@@ -419,6 +553,17 @@ private extension ObserverUploader {
 
         guard let localPort = self.localPortProvider() else {
             uploaderLog.debug("observer upload held: local port unavailable")
+            self.appendUploadDiagnostic(
+                stage: "no-request-created",
+                severity: .warning,
+                chunkID: chunkID,
+                prefix: self.registrationPrefixProvider(),
+                localPort: nil,
+                httpStatus: nil,
+                transportError: nil,
+                attempt: self.attemptCountByChunkID[chunkID, default: 0],
+                reason: "local port unavailable"
+            )
             self.lastError = nil
             self.refreshCounts()
             return
@@ -433,10 +578,20 @@ private extension ObserverUploader {
                 sessionID: sessionID,
                 audioURL: audioURL,
                 sidecarURL: sidecarURL,
-                reason: String(describing: error)
+                reason: String(describing: error),
+                context: UploadFailureContext(
+                    stage: "no-request-created",
+                    severity: .warning,
+                    sourceType: self.sourceType,
+                    localPort: localPort,
+                    prefix: self.registrationPrefixProvider(),
+                    httpStatus: nil,
+                    transportError: nil
+                )
             )
             return
         }
+        let prefix = self.registrationPrefixProvider()
 
         guard let url = self.urlBuilder(localPort) else {
             await self.handleUploadFailure(
@@ -444,7 +599,16 @@ private extension ObserverUploader {
                 sessionID: sessionID,
                 audioURL: audioURL,
                 sidecarURL: sidecarURL,
-                reason: "observer upload unavailable: invalid url"
+                reason: "observer upload unavailable: invalid url",
+                context: UploadFailureContext(
+                    stage: "no-request-created",
+                    severity: .warning,
+                    sourceType: self.sourceType,
+                    localPort: localPort,
+                    prefix: prefix,
+                    httpStatus: nil,
+                    transportError: nil
+                )
             )
             return
         }
@@ -459,13 +623,24 @@ private extension ObserverUploader {
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: chunkID))", forHTTPHeaderField: "Content-Type")
 
             let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
+            task.taskDescription = self.taskDescription(for: UploadTaskDescriptor(
+                sourceType: self.sourceType,
+                chunkID: chunkID,
+                sessionID: sessionID,
+                localPort: localPort,
+                prefix: prefix
+            ))
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
                 chunkID: chunkID,
                 sessionID: sessionID,
                 audioURL: audioURL,
                 sidecarURL: sidecarURL,
-                requestBodyURL: requestBodyURL
+                requestBodyURL: requestBodyURL,
+                localPort: localPort,
+                prefix: prefix,
+                sourceType: self.sourceType
             )
+            self.activeTasksByTaskID[task.taskIdentifier] = task
             self.activeTaskIDByChunkID[chunkID] = task.taskIdentifier
             task.resume()
         } catch {
@@ -474,7 +649,16 @@ private extension ObserverUploader {
                 sessionID: sessionID,
                 audioURL: audioURL,
                 sidecarURL: sidecarURL,
-                reason: String(describing: error)
+                reason: String(describing: error),
+                context: UploadFailureContext(
+                    stage: "no-request-created",
+                    severity: .warning,
+                    sourceType: self.sourceType,
+                    localPort: localPort,
+                    prefix: prefix,
+                    httpStatus: nil,
+                    transportError: String(describing: error)
+                )
             )
         }
     }
@@ -485,6 +669,7 @@ private extension ObserverUploader {
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
+        self.activeTasksByTaskID.removeValue(forKey: task.taskIdentifier)
         self.activeTaskIDByChunkID.removeValue(forKey: info.chunkID)
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
 
@@ -494,7 +679,16 @@ private extension ObserverUploader {
                 sessionID: info.sessionID,
                 audioURL: info.audioURL,
                 sidecarURL: info.sidecarURL,
-                reason: String(describing: error)
+                reason: String(describing: error),
+                context: UploadFailureContext(
+                    stage: "transport-failure",
+                    severity: .warning,
+                    sourceType: info.sourceType,
+                    localPort: info.localPort,
+                    prefix: info.prefix,
+                    httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
+                    transportError: String(describing: error)
+                )
             )
             try? self.fileManager.removeItem(at: info.requestBodyURL)
             return
@@ -502,6 +696,18 @@ private extension ObserverUploader {
 
         let statusCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
         if 200..<300 ~= statusCode {
+            self.appendUploadDiagnostic(
+                stage: "success",
+                severity: .info,
+                sourceType: info.sourceType,
+                chunkID: info.chunkID,
+                prefix: info.prefix,
+                localPort: info.localPort,
+                httpStatus: statusCode,
+                transportError: nil,
+                attempt: self.attemptCountByChunkID[info.chunkID, default: 0] + 1,
+                reason: "uploaded"
+            )
             try? self.fileManager.removeItem(at: info.audioURL)
             try? self.fileManager.removeItem(at: info.sidecarURL)
             try? self.fileManager.removeItem(at: info.requestBodyURL)
@@ -513,15 +719,34 @@ private extension ObserverUploader {
             return
         }
 
-        let body = String(data: responseData, encoding: .utf8) ?? ""
+        let body = self.httpFailureBodySnippet(from: responseData)
         await self.handleUploadFailure(
             chunkID: info.chunkID,
             sessionID: info.sessionID,
             audioURL: info.audioURL,
             sidecarURL: info.sidecarURL,
-            reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)"
+            reason: body.map { "HTTP \(statusCode): \($0)" } ?? "HTTP \(statusCode)",
+            context: UploadFailureContext(
+                stage: "http-failure",
+                severity: .warning,
+                sourceType: info.sourceType,
+                localPort: info.localPort,
+                prefix: info.prefix,
+                httpStatus: statusCode,
+                transportError: nil
+            )
         )
         try? self.fileManager.removeItem(at: info.requestBodyURL)
+    }
+
+    func httpFailureBodySnippet(from data: Data) -> String? {
+        guard !data.isEmpty,
+              let body = String(data: data, encoding: .utf8),
+              !body.isEmpty
+        else {
+            return nil
+        }
+        return String(body.prefix(200))
     }
 
     func handleUploadFailure(
@@ -529,13 +754,38 @@ private extension ObserverUploader {
         sessionID: UUID,
         audioURL: URL,
         sidecarURL: URL,
-        reason: String
+        reason: String,
+        context: UploadFailureContext
     ) async {
         let nextAttempt = self.attemptCountByChunkID[chunkID, default: 0] + 1
         self.attemptCountByChunkID[chunkID] = nextAttempt
         self.lastError = reason
+        self.appendUploadDiagnostic(
+            stage: context.stage,
+            severity: context.severity,
+            sourceType: context.sourceType,
+            chunkID: chunkID,
+            prefix: context.prefix,
+            localPort: context.localPort,
+            httpStatus: context.httpStatus,
+            transportError: context.transportError,
+            attempt: nextAttempt,
+            reason: reason
+        )
 
         if nextAttempt >= self.maxAttempts {
+            self.appendUploadDiagnostic(
+                stage: "retry-exhausted",
+                severity: .error,
+                sourceType: context.sourceType,
+                chunkID: chunkID,
+                prefix: context.prefix,
+                localPort: context.localPort,
+                httpStatus: context.httpStatus,
+                transportError: context.transportError,
+                attempt: nextAttempt,
+                reason: reason
+            )
             do {
                 try self.movePendingPairToFailed(
                     sessionID: sessionID,
@@ -557,6 +807,18 @@ private extension ObserverUploader {
         let delayIndex = min(nextAttempt - 1, max(self.retryDelays.count - 1, 0))
         let delay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
         uploaderLog.error("observer chunk upload failed \(chunkID, privacy: .public): \(reason, privacy: .public)")
+        self.appendUploadDiagnostic(
+            stage: "retry-scheduled",
+            severity: .info,
+            sourceType: context.sourceType,
+            chunkID: chunkID,
+            prefix: context.prefix,
+            localPort: context.localPort,
+            httpStatus: context.httpStatus,
+            transportError: context.transportError,
+            attempt: nextAttempt,
+            reason: reason
+        )
         self.retryTasksByChunkID[chunkID]?.cancel()
         self.retryTasksByChunkID[chunkID] = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -565,6 +827,37 @@ private extension ObserverUploader {
             await self.scheduleUpload(chunkID: chunkID, sessionID: sessionID)
         }
         self.refreshCounts()
+    }
+
+    func appendUploadDiagnostic(
+        stage: String,
+        severity: DiagnosticSeverity,
+        sourceType: String? = nil,
+        chunkID: String,
+        prefix: String?,
+        localPort: Int?,
+        httpStatus: Int?,
+        transportError: String?,
+        attempt: Int,
+        reason: String
+    ) {
+        let source = sourceType ?? self.sourceType
+        let detail = [
+            "source=\(source)",
+            "chunkID=\(chunkID)",
+            "prefix=\(prefix?.isEmpty == false ? prefix! : "unknown")",
+            "localPort=\(localPort.map(String.init) ?? "none")",
+            "httpStatus=\(httpStatus.map(String.init) ?? "none")",
+            "transportError=\(transportError?.isEmpty == false ? transportError! : "none")",
+            "attempt=\(attempt)/\(self.maxAttempts)",
+            "reason=\(reason)",
+        ].joined(separator: " ")
+        self.diagnosticLog?.append(
+            category: .upload,
+            severity: severity,
+            message: "\(source) upload \(stage)",
+            detail: detail
+        )
     }
 
     func movePendingPairToFailed(

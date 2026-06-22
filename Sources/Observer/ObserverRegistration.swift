@@ -40,6 +40,7 @@ final class ObserverRegistration {
     }
 
     private(set) var state: State = .idle
+    private(set) var registrationPrefix: String?
     var activeLocalPort: Int?
 
     @ObservationIgnored private let session: URLSession
@@ -53,6 +54,9 @@ final class ObserverRegistration {
     @ObservationIgnored private let loadKey: @Sendable () throws -> String?
     @ObservationIgnored private let saveKey: @Sendable (String) throws -> Void
     @ObservationIgnored private let deleteKey: @Sendable () throws -> Void
+    @ObservationIgnored private let loadPrefix: @Sendable () throws -> String?
+    @ObservationIgnored private let savePrefix: @Sendable (String) throws -> Void
+    @ObservationIgnored private let deletePrefix: @Sendable () throws -> Void
     @ObservationIgnored private var registrationTask: Task<String, Error>?
 
     init(
@@ -66,7 +70,10 @@ final class ObserverRegistration {
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in try? await Task.sleep(nanoseconds: delay) },
         loadKey: @escaping @Sendable () throws -> String? = { try ObserverKeychain.loadObserverIngestKey() },
         saveKey: @escaping @Sendable (String) throws -> Void = { try ObserverKeychain.saveObserverIngestKey($0) },
-        deleteKey: @escaping @Sendable () throws -> Void = { try ObserverKeychain.deleteObserverIngestKey() }
+        deleteKey: @escaping @Sendable () throws -> Void = { try ObserverKeychain.deleteObserverIngestKey() },
+        loadPrefix: @escaping @Sendable () throws -> String? = { try ObserverKeychain.loadObserverIngestPrefix() },
+        savePrefix: @escaping @Sendable (String) throws -> Void = { try ObserverKeychain.saveObserverIngestPrefix($0) },
+        deletePrefix: @escaping @Sendable () throws -> Void = { try ObserverKeychain.deleteObserverIngestPrefix() }
     ) {
         self.session = session
         self.urlBuilder = urlBuilder
@@ -79,6 +86,9 @@ final class ObserverRegistration {
         self.loadKey = loadKey
         self.saveKey = saveKey
         self.deleteKey = deleteKey
+        self.loadPrefix = loadPrefix
+        self.savePrefix = savePrefix
+        self.deletePrefix = deletePrefix
         self.restorePersistedState()
     }
 
@@ -87,11 +97,13 @@ final class ObserverRegistration {
            let existing = try self.loadKey(),
            !existing.isEmpty
         {
+            self.restorePersistedPrefixIfNeeded()
             return existing
         }
 
         if let existing = try self.loadKey(), !existing.isEmpty {
             self.state = .registered
+            self.restorePersistedPrefixIfNeeded()
             return existing
         }
 
@@ -117,6 +129,7 @@ final class ObserverRegistration {
     private func registerWithServer() async throws -> String {
         if let existing = try self.loadKey(), !existing.isEmpty {
             self.state = .registered
+            self.restorePersistedPrefixIfNeeded()
             return existing
         }
 
@@ -161,6 +174,8 @@ final class ObserverRegistration {
 
                 let payload = try JSONDecoder().decode(RegistrationResponse.self, from: data)
                 try self.saveKey(payload.key)
+                try self.savePrefix(payload.prefix)
+                self.registrationPrefix = payload.prefix
                 self.state = .registered
                 log.info("observer registration succeeded (key length=\(payload.key.count, privacy: .public))")
                 return payload.key
@@ -188,6 +203,8 @@ final class ObserverRegistration {
             self.registrationTask?.cancel()
             self.registrationTask = nil
             try self.deleteKey()
+            try self.deletePrefix()
+            self.registrationPrefix = nil
             self.state = .idle
             log.info("observer registration reset")
         } catch {
@@ -202,6 +219,13 @@ private extension ObserverRegistration {
     func restorePersistedState() {
         if let key = try? self.loadKey(), !key.isEmpty {
             self.state = .registered
+            self.restorePersistedPrefixIfNeeded()
+        }
+    }
+
+    func restorePersistedPrefixIfNeeded() {
+        if self.registrationPrefix == nil {
+            self.registrationPrefix = try? self.loadPrefix()
         }
     }
 }

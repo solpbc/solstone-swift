@@ -7,11 +7,11 @@ import XCTest
 import os
 
 private final class MockPathSource: PathMonitoringSource, @unchecked Sendable {
-    var handler: (@Sendable () -> Void)?
+    var handler: (@Sendable (NetworkPathStatus) -> Void)?
     var startCount = 0
     var stopCount = 0
 
-    func start(onPathChange: @Sendable @escaping () -> Void) {
+    func start(onPathChange: @Sendable @escaping (NetworkPathStatus) -> Void) {
         startCount += 1
         handler = onPathChange
     }
@@ -21,8 +21,8 @@ private final class MockPathSource: PathMonitoringSource, @unchecked Sendable {
         handler = nil
     }
 
-    func trigger() {
-        handler?()
+    func trigger(_ status: NetworkPathStatus = .satisfiedWiFi) {
+        handler?(status)
     }
 }
 
@@ -33,7 +33,11 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         pathMonitor: PathMonitor = PathMonitor(),
         pairing: StoredPairing? = fixturePairing(),
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
-        initialRetryDelay: TimeInterval = 10
+        initialRetryDelay: TimeInterval = 10,
+        probeSession: URLSession = .shared,
+        probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
+            URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
+        }
     ) -> TunnelManager {
         TunnelManager(
             transport: transport,
@@ -41,7 +45,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             pathMonitor: pathMonitor,
             loadPairing: { pairing },
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
-            initialRetryDelay: initialRetryDelay
+            initialRetryDelay: initialRetryDelay,
+            probeSession: probeSession,
+            probeURLBuilder: probeURLBuilder
         )
     }
 
@@ -201,7 +207,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testPathChangeTriggersFreshRace() async {
+    func testPathChangeWhileConnectedRecordsFactsWithoutFreshRace() async {
         let source = MockPathSource()
         let pathMonitor = PathMonitor(source: source)
         let transport = MockCFTunnelTransport()
@@ -211,12 +217,123 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(transport.connectCallCount, 1)
 
         manager.startNetworkMonitoring()
-        source.trigger()
+        source.trigger(NetworkPathStatus(
+            isSatisfied: true,
+            isWiFi: false,
+            isCellular: true,
+            isExpensive: true,
+            isConstrained: false
+        ))
         try? await Task.sleep(for: .milliseconds(260))
         await Self.settle()
 
-        XCTAssertGreaterThanOrEqual(transport.disconnectCallCount, 1)
-        XCTAssertEqual(transport.connectCallCount, 2)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(manager.isNetworkSatisfied, true)
+        XCTAssertEqual(manager.currentInterfaceIsWiFi, false)
+        XCTAssertEqual(manager.currentPathStatus?.isCellular, true)
+        XCTAssertEqual(manager.currentPathStatus?.isExpensive, true)
+        XCTAssertNil(manager.reconnectCountdown)
+    }
+
+    @MainActor
+    func testSatisfiedPathSchedulesReconnectFromRetryableError() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+        manager.state = .error(.unreachable)
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertNotNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.connectCallCount, 0)
+    }
+
+    @MainActor
+    func testSatisfiedPathSchedulesReconnectFromDisconnected() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertNotNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.connectCallCount, 0)
+    }
+
+    @MainActor
+    func testUnsatisfiedPathDoesNotScheduleReconnect() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+        manager.state = .error(.unreachable)
+
+        manager.startNetworkMonitoring()
+        source.trigger(.unsatisfiedCellular)
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.connectCallCount, 0)
+        XCTAssertEqual(manager.isNetworkSatisfied, false)
+    }
+
+    @MainActor
+    func testProbeConnectionMarksAvailableForAnyHTTPResponse() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/network/api/status")
+            XCTAssertEqual(request.url?.port, 8080)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("not ready".utf8)
+            )
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, probeSession: session)
+        manager.forceConnected(port: 8080, via: .lan)
+
+        let result = await manager.probeConnection()
+
+        XCTAssertEqual(result?.alive, true)
+        XCTAssertEqual(manager.lastProbeAlive, true)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
+    }
+
+    @MainActor
+    func testProbeConnectionMarksNotReachableOnTransportFailure() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, probeSession: session)
+        manager.forceConnected(port: 8080, via: .lan)
+
+        let result = await manager.probeConnection()
+
+        XCTAssertEqual(result?.alive, false)
+        XCTAssertEqual(manager.lastProbeAlive, false)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
     }
 
     @MainActor
@@ -246,6 +363,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
             .appendingPathComponent("endpoints.json")
+    }
+
+    private static func probeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TunnelProbeURLProtocol.self]
+        return URLSession(configuration: configuration)
     }
 
     private static func fixturePairing(
@@ -287,4 +410,71 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             return false
         }.count
     }
+}
+
+private final class TunnelProbeURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let capturedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
+
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
+
+    static var capturedRequests: [URLRequest] {
+        get { self.capturedRequestsBox.withLock { $0 } }
+        set { self.capturedRequestsBox.withLock { $0 = newValue } }
+    }
+
+    static func reset() {
+        self.handler = nil
+        self.capturedRequests = []
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "127.0.0.1"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.capturedRequestsBox.withLock { $0.append(self.request) }
+        guard let handler = Self.handler else {
+            XCTFail("TunnelProbeURLProtocol handler not set")
+            return
+        }
+
+        do {
+            let (response, data) = try handler(self.request)
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: data)
+            self.client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            self.client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private extension NetworkPathStatus {
+    static let satisfiedWiFi = NetworkPathStatus(
+        isSatisfied: true,
+        isWiFi: true,
+        isCellular: false,
+        isExpensive: false,
+        isConstrained: false
+    )
+
+    static let unsatisfiedCellular = NetworkPathStatus(
+        isSatisfied: false,
+        isWiFi: false,
+        isCellular: true,
+        isExpensive: true,
+        isConstrained: false
+    )
 }

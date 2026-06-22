@@ -17,6 +17,10 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         ObserverUploaderURLProtocol.handler = nil
         ObserverUploaderURLProtocol.callCount = 0
         ObserverUploaderURLProtocol.capturedBodies = []
+        ObserverUploaderURLProtocol.capturedRequests = []
+        ObserverUploaderURLProtocol.stoppedRequests = []
+        ObserverUploaderURLProtocol.heldRequestPredicate = nil
+        ObserverUploaderURLProtocol.onHeldRequest = nil
     }
 
     override func tearDown() {
@@ -25,6 +29,10 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         ObserverUploaderURLProtocol.handler = nil
         ObserverUploaderURLProtocol.callCount = 0
         ObserverUploaderURLProtocol.capturedBodies = []
+        ObserverUploaderURLProtocol.capturedRequests = []
+        ObserverUploaderURLProtocol.stoppedRequests = []
+        ObserverUploaderURLProtocol.heldRequestPredicate = nil
+        ObserverUploaderURLProtocol.onHeldRequest = nil
         super.tearDown()
     }
 
@@ -355,22 +363,255 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testUploadDiagnosticsForNoRequestAndSuccessNeverLogSecret() async throws {
+        let noPortLog = DiagnosticLog()
+        let noPortUploader = self.makeUploader(
+            localPortProvider: { nil },
+            registrationPrefixProvider: { "obs_" },
+            diagnosticLog: noPortLog
+        )
+        let noPortSessionID = UUID()
+        let noPortSourceURL = try self.makeChunkFile(named: "chunk-no-port")
+
+        await noPortUploader.enqueue(
+            chunkURL: noPortSourceURL,
+            sidecar: self.makeSidecar(sessionID: noPortSessionID, chunkIndex: 0)
+        )
+
+        let noRequest = try XCTUnwrap(self.uploadEvents(in: noPortLog).first {
+            $0.message == "observer-audio upload no-request-created"
+        })
+        XCTAssertEqual(noRequest.severity, .warning)
+        XCTAssertTrue((noRequest.detail ?? "").contains("source=observer-audio"))
+        XCTAssertTrue((noRequest.detail ?? "").contains("chunkID=chunk-no-port"))
+        XCTAssertTrue((noRequest.detail ?? "").contains("prefix=obs_"))
+        XCTAssertTrue((noRequest.detail ?? "").contains("localPort=none"))
+        XCTAssertTrue((noRequest.detail ?? "").contains("attempt=0/5"))
+        noPortUploader.dropItem(sessionID: noPortSessionID, chunkID: "chunk-no-port")
+
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let successLog = DiagnosticLog()
+        let successUploader = self.makeUploader(
+            localPortProvider: { 7071 },
+            registrationPrefixProvider: { "obs_" },
+            diagnosticLog: successLog
+        )
+        let successSessionID = UUID()
+        let successSourceURL = try self.makeChunkFile(named: "chunk-success")
+
+        await successUploader.enqueue(
+            chunkURL: successSourceURL,
+            sidecar: self.makeSidecar(sessionID: successSessionID, chunkIndex: 1)
+        )
+
+        try await self.waitFor("success diagnostics") {
+            self.uploadEvents(in: successLog).contains { $0.message == "observer-audio upload success" }
+        }
+        let success = try XCTUnwrap(self.uploadEvents(in: successLog).first {
+            $0.message == "observer-audio upload success"
+        })
+        XCTAssertEqual(success.severity, .info)
+        XCTAssertTrue((success.detail ?? "").contains("localPort=7071"))
+        XCTAssertTrue((success.detail ?? "").contains("httpStatus=200"))
+        XCTAssertTrue((success.detail ?? "").contains("attempt=1/5"))
+
+        for event in self.uploadEvents(in: noPortLog) + self.uploadEvents(in: successLog) {
+            XCTAssertFalse(event.message.contains("test-observer-key-abc"))
+            XCTAssertFalse((event.detail ?? "").contains("test-observer-key-abc"))
+        }
+    }
+
+    @MainActor
+    func testUploadDiagnosticsForTransportFailureRetryAndExhaustion() async throws {
+        ObserverUploaderURLProtocol.handler = { _ in
+            throw URLError(.cannotConnectToHost)
+        }
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            retryDelays: [0],
+            registrationPrefixProvider: { "obs_" },
+            diagnosticLog: log,
+            maxAttempts: 2
+        )
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-transport")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("transport diagnostics") {
+            uploader.failedCount == 1
+        }
+
+        let events = self.uploadEvents(in: log)
+        XCTAssertTrue(events.contains { $0.message == "observer-audio upload transport-failure" && $0.severity == .warning })
+        XCTAssertTrue(events.contains { $0.message == "observer-audio upload retry-scheduled" && $0.severity == .info })
+        XCTAssertTrue(events.contains { $0.message == "observer-audio upload retry-exhausted" && $0.severity == .error })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("transportError=") })
+        for event in events {
+            XCTAssertFalse(event.message.contains("test-observer-key-abc"))
+            XCTAssertFalse((event.detail ?? "").contains("test-observer-key-abc"))
+        }
+    }
+
+    @MainActor
+    func testUploadDiagnosticsForHTTPFailureIncludeStatus() async throws {
+        let visiblePrefix = String(repeating: "a", count: 200)
+        let sensitiveTail = "SENSITIVE-TAIL"
+        let longBody = visiblePrefix + sensitiveTail
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data(longBody.utf8)
+            )
+        }
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            registrationPrefixProvider: { "obs_" },
+            diagnosticLog: log,
+            maxAttempts: 1
+        )
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-http")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("http diagnostics") {
+            uploader.failedCount == 1
+        }
+
+        let events = self.uploadEvents(in: log)
+        let httpFailure = try XCTUnwrap(events.first { $0.message == "observer-audio upload http-failure" })
+        XCTAssertEqual(httpFailure.severity, .warning)
+        let detail = httpFailure.detail ?? ""
+        XCTAssertTrue(detail.contains("httpStatus=503"))
+        XCTAssertTrue(detail.contains("reason=HTTP 503: \(visiblePrefix)"))
+        XCTAssertFalse(detail.contains(sensitiveTail))
+        XCTAssertTrue(events.contains { $0.message == "observer-audio upload retry-exhausted" && $0.severity == .error })
+    }
+
+    @MainActor
+    func testStalePortReconcileCancelsOldTaskAndReschedulesOnCurrentPort() async throws {
+        let staleStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.port == 7071
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in
+            staleStarted.signal()
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let uploader = self.makeUploader(
+            localPortProvider: { localPort.withLock { $0 } },
+            registrationPrefixProvider: { "obs_" },
+            urlBuilder: { localPort in
+                URL(string: "http://127.0.0.1:\(localPort)/app/observer/ingest")
+            }
+        )
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-stale-port")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(staleStarted.wait(timeout: .now() + 2), .success)
+
+        localPort.withLock { $0 = 9090 }
+        await uploader.reconcilePortAndResume()
+
+        try await self.waitFor("stale port reschedule") {
+            ObserverUploaderURLProtocol.capturedRequests.contains { $0.url?.port == 9090 }
+                && uploader.pendingCount == 0
+        }
+        try await self.waitFor("old task cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == 7071 }
+        }
+
+        XCTAssertTrue(ObserverUploaderURLProtocol.capturedRequests.contains { $0.url?.port == 7071 })
+        XCTAssertTrue(ObserverUploaderURLProtocol.capturedRequests.contains { $0.url?.port == 9090 })
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse((uploader.lastError ?? "").contains("cancelled"))
+    }
+
+    @MainActor
+    func testReconcileRebuildsInFlightStateFromTaskDescription() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(registrationPrefixProvider: { "obs_" })
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-relaunch")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        await uploader.reconcilePortAndResume()
+        uploadRelease.signal()
+
+        try await self.waitFor("reconstructed completion") {
+            uploader.pendingCount == 0 && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(ObserverUploaderURLProtocol.capturedRequests.count, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
     @MainActor private func makeUploader(
+        cacheRootURL: URL? = nil,
         retryDelays: [UInt64] = [0],
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        registrationPrefixProvider: @escaping @Sendable @MainActor () -> String? = { nil },
+        urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
+            ObserverServerURL.ingestURL(localPort: localPort)
+        },
+        diagnosticLog: DiagnosticLog? = nil,
+        sourceType: String = "observer-audio",
+        maxAttempts: Int = 5,
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
     ) -> ObserverUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverUploaderURLProtocol.self]
         return ObserverUploader(
-            cacheRootURL: self.tempDirectory,
+            cacheRootURL: cacheRootURL ?? self.tempDirectory,
             sessionConfiguration: configuration,
             ensureRegistered: ensureRegistered,
             isJournalConfigured: isJournalConfigured,
             localPortProvider: localPortProvider,
+            registrationPrefixProvider: registrationPrefixProvider,
+            urlBuilder: urlBuilder,
+            diagnosticLog: diagnosticLog,
+            sourceType: sourceType,
             retryDelays: retryDelays,
+            maxAttempts: maxAttempts,
             sleep: sleep,
             startPathMonitor: false
         )
@@ -431,6 +672,10 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
     }
 
+    @MainActor private func uploadEvents(in log: DiagnosticLog) -> [DiagnosticEvent] {
+        log.events.filter { $0.category == .upload }
+    }
+
     @MainActor private func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
@@ -445,13 +690,27 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
 private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+    typealias RequestPredicate = @Sendable (URLRequest) -> Bool
+    typealias RequestObserver = @Sendable (URLRequest) -> Void
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let heldRequestPredicateBox = OSAllocatedUnfairLock<RequestPredicate?>(initialState: nil)
+    private static let onHeldRequestBox = OSAllocatedUnfairLock<RequestObserver?>(initialState: nil)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
+    private static let capturedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
+    private static let stoppedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
         set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var heldRequestPredicate: RequestPredicate? {
+        get { self.heldRequestPredicateBox.withLock { $0 } }
+        set { self.heldRequestPredicateBox.withLock { $0 = newValue } }
+    }
+    static var onHeldRequest: RequestObserver? {
+        get { self.onHeldRequestBox.withLock { $0 } }
+        set { self.onHeldRequestBox.withLock { $0 = newValue } }
     }
     static var callCount: Int {
         get { self.callCountBox.withLock { $0 } }
@@ -460,6 +719,14 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     static var capturedBodies: [Data] {
         get { self.bodiesBox.withLock { $0 } }
         set { self.bodiesBox.withLock { $0 = newValue } }
+    }
+    static var capturedRequests: [URLRequest] {
+        get { self.capturedRequestsBox.withLock { $0 } }
+        set { self.capturedRequestsBox.withLock { $0 = newValue } }
+    }
+    static var stoppedRequests: [URLRequest] {
+        get { self.stoppedRequestsBox.withLock { $0 } }
+        set { self.stoppedRequestsBox.withLock { $0 = newValue } }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -473,8 +740,13 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
     override func startLoading() {
         XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-observer-key-abc")
         Self.callCountBox.withLock { $0 += 1 }
+        Self.capturedRequestsBox.withLock { $0.append(self.request) }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
+        if Self.heldRequestPredicate?(self.request) == true {
+            Self.onHeldRequest?(self.request)
+            return
+        }
         guard let handler = Self.handler else {
             XCTFail("ObserverUploaderURLProtocol handler not set")
             return
@@ -490,7 +762,9 @@ private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendabl
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.stoppedRequestsBox.withLock { $0.append(self.request) }
+    }
 
     private static func bodyData(from request: URLRequest) -> Data {
         guard let stream = request.httpBodyStream else { return Data() }

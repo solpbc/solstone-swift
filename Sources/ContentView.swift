@@ -63,6 +63,7 @@ struct ContentView: View {
                         self.dismissPairing()
                     },
                     onComplete: {
+                        self.tunnelManager.armOwnerConnectSuccessBanner()
                         self.onboardingFlow.completeViaPairing()
                         self.dismissPairing()
                     }

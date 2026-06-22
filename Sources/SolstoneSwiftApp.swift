@@ -150,7 +150,11 @@ struct SolstoneSwiftApp: App {
             },
             localPortProvider: {
                 observerRegistration.activeLocalPort
-            }
+            },
+            registrationPrefixProvider: {
+                observerRegistration.registrationPrefix
+            },
+            diagnosticLog: log
         )
         let omiRegistration = ObserverRegistration(
             hostname: UIDevice.current.name,
@@ -165,6 +169,15 @@ struct SolstoneSwiftApp: App {
             },
             deleteKey: {
                 try ObserverKeychain.deleteOmiIngestKey()
+            },
+            loadPrefix: {
+                try ObserverKeychain.loadOmiIngestPrefix()
+            },
+            savePrefix: {
+                try ObserverKeychain.saveOmiIngestPrefix($0)
+            },
+            deletePrefix: {
+                try ObserverKeychain.deleteOmiIngestPrefix()
             }
         )
         let omiUploadConfiguration = URLSessionConfiguration.background(
@@ -184,7 +197,12 @@ struct SolstoneSwiftApp: App {
             },
             localPortProvider: {
                 omiRegistration.activeLocalPort
-            }
+            },
+            registrationPrefixProvider: {
+                omiRegistration.registrationPrefix
+            },
+            diagnosticLog: log,
+            sourceType: "omi-audio"
         )
         let importQueue = ImportQueue(
             ensureRegistered: {
@@ -333,7 +351,7 @@ struct SolstoneSwiftApp: App {
                 self.locationManager.noteAppDidEnterForeground()
                 self.backgroundDisconnectTask?.cancel()
                 self.backgroundDisconnectTask = nil
-                if Self.isIntegrationMode {
+                if Self.isIntegrationMode || Self.isUITest {
                     return
                 }
                 guard self.appConfig.isPaired else {
@@ -396,11 +414,12 @@ struct SolstoneSwiftApp: App {
                 self.omiRegistration.activeLocalPort = port
                 self.brainStatusMonitor.startPolling(localPort: port)
                 Task {
-                    await self.observerUploader.resumeFromDisk()
+                    await self.observerUploader.reconcilePortAndResume()
                 }
                 Task {
-                    await self.omiUploader.resumeFromDisk()
+                    await self.omiUploader.reconcilePortAndResume()
                 }
+                // follow-up: ImportQueue and LocationUploader share the same stale-port background-task shape.
                 Task {
                     await self.importQueue.resumeFromDisk()
                 }

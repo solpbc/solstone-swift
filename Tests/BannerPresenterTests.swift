@@ -30,7 +30,15 @@ nonisolated final class BannerPresenterTests: XCTestCase {
 
     @MainActor
     func testInfoTunnelConnectedIsBannerWorthy() {
-        XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.tunnel, .info, "connected via local network on port 8080")))
+        XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.tunnel, .info, "journal connected")))
+    }
+
+    @MainActor
+    func testInfoTunnelPortBearingConnectedIsNotBannerWorthy() {
+        let event = self.makeEvent(.tunnel, .info, "connected via local network on port 8080")
+
+        XCTAssertFalse(BannerPresenter.isBannerWorthy(event))
+        XCTAssertTrue(event.message.range(of: #":?\d{2,5}"#, options: .regularExpression) != nil)
     }
 
     @MainActor
@@ -59,8 +67,8 @@ nonisolated final class BannerPresenterTests: XCTestCase {
     }
 
     @MainActor
-    func testInfoVoiceSessionIsBannerWorthy() {
-        XCTAssertTrue(BannerPresenter.isBannerWorthy(self.makeEvent(.voice, .info, "session starting on port 8080")))
+    func testInfoVoiceSessionWithPortIsNotBannerWorthy() {
+        XCTAssertFalse(BannerPresenter.isBannerWorthy(self.makeEvent(.voice, .info, "session starting on port 8080")))
     }
 
     @MainActor
@@ -112,19 +120,19 @@ nonisolated final class BannerPresenterTests: XCTestCase {
     @MainActor
     func testNoCoalescingDifferentCategory() {
         self.append(.network, .info, "network satisfied")
-        self.append(.tunnel, .info, "connected via local network on port 8080")
+        self.append(.tunnel, .info, "journal connected")
 
         self.presenter.processNewEvents()
 
         XCTAssertEqual(self.presenter.currentBanner?.event.message, "network satisfied")
         self.presenter.dismiss()
-        XCTAssertEqual(self.presenter.currentBanner?.event.message, "connected via local network on port 8080")
+        XCTAssertEqual(self.presenter.currentBanner?.event.message, "journal connected")
     }
 
     @MainActor
     func testQueueMaxDepth3() {
         self.append(.network, .info, "network satisfied")
-        self.append(.tunnel, .info, "connected via local network on port 8080")
+        self.append(.tunnel, .info, "journal connected")
         self.append(.upload, .info, "1 files sent")
         self.append(.brain, .info, "brain: idle → refreshing")
         self.append(.voice, .error, "voice failed")
@@ -217,10 +225,10 @@ nonisolated final class BannerPresenterTests: XCTestCase {
         self.append(.tunnel, .error, "connection failed")
         self.presenter.processNewEvents()
 
-        self.append(.tunnel, .info, "connected via local network on port 8080")
+        self.append(.tunnel, .info, "journal connected")
         self.presenter.processNewEvents()
 
-        XCTAssertEqual(self.presenter.currentBanner?.event.message, "connected via local network on port 8080")
+        XCTAssertEqual(self.presenter.currentBanner?.event.message, "journal connected")
         XCTAssertEqual(self.presenter.currentBanner?.event.severity, .info)
     }
 
@@ -257,12 +265,12 @@ nonisolated final class BannerPresenterTests: XCTestCase {
     @MainActor
     func testDismissAdvancesQueue() {
         self.append(.network, .info, "network satisfied")
-        self.append(.tunnel, .info, "connected via local network on port 8080")
+        self.append(.tunnel, .info, "journal connected")
 
         self.presenter.processNewEvents()
         self.presenter.dismiss()
 
-        XCTAssertEqual(self.presenter.currentBanner?.event.message, "connected via local network on port 8080")
+        XCTAssertEqual(self.presenter.currentBanner?.event.message, "journal connected")
     }
 
     @MainActor
@@ -279,7 +287,7 @@ nonisolated final class BannerPresenterTests: XCTestCase {
     @MainActor
     func testClearAllRemovesEverything() {
         self.append(.network, .info, "network satisfied")
-        self.append(.tunnel, .info, "connected via local network on port 8080")
+        self.append(.tunnel, .info, "journal connected")
 
         self.presenter.processNewEvents()
         self.presenter.clearAll()

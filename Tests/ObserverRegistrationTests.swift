@@ -11,6 +11,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     private var suiteName: String!
     private var session: URLSession!
     private let storedKeyBox = OSAllocatedUnfairLock<String?>(initialState: nil)
+    private let storedPrefixBox = OSAllocatedUnfairLock<String?>(initialState: nil)
 
     override func setUp() {
         super.setUp()
@@ -23,6 +24,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         self.session = URLSession(configuration: configuration)
 
         self.storedKeyBox.withLock { $0 = nil }
+        self.storedPrefixBox.withLock { $0 = nil }
         ObserverRegistrationURLProtocol.handler = nil
         ObserverRegistrationURLProtocol.callCount = 0
     }
@@ -34,6 +36,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         self.defaults = nil
         self.suiteName = nil
         self.storedKeyBox.withLock { $0 = nil }
+        self.storedPrefixBox.withLock { $0 = nil }
         ObserverRegistrationURLProtocol.handler = nil
         ObserverRegistrationURLProtocol.callCount = 0
         try await super.tearDown()
@@ -67,6 +70,8 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
 
         XCTAssertEqual(key, "observer-key-123")
         XCTAssertEqual(self.storedKeyBox.withLock { $0 }, "observer-key-123")
+        XCTAssertEqual(self.storedPrefixBox.withLock { $0 }, "obs_")
+        XCTAssertEqual(registration.registrationPrefix, "obs_")
         let state = await MainActor.run { registration.state }
         XCTAssertEqual(state, .registered)
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
@@ -75,11 +80,13 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     @MainActor
     func testEnsureRegisteredSkipsNetworkWhenKeyExists() async throws {
         self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
         let registration = self.makeRegistration()
 
         let key = try await registration.ensureRegistered()
 
         XCTAssertEqual(key, "existing-key")
+        XCTAssertEqual(registration.registrationPrefix, "obs_existing_")
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 0)
         let state = await MainActor.run { registration.state }
         XCTAssertEqual(state, .registered)
@@ -143,6 +150,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     @MainActor
     func testResetClearsKeyAndState() async throws {
         self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
         let registration = self.makeRegistration()
 
         await MainActor.run {
@@ -150,6 +158,8 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         }
 
         XCTAssertNil(self.storedKeyBox.withLock { $0 })
+        XCTAssertNil(self.storedPrefixBox.withLock { $0 })
+        XCTAssertNil(registration.registrationPrefix)
         let state = await MainActor.run { registration.state }
         XCTAssertEqual(state, .idle)
     }
@@ -166,7 +176,10 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
             sleep: sleep,
             loadKey: { [storedKeyBox] in storedKeyBox.withLock { $0 } },
             saveKey: { [storedKeyBox] key in storedKeyBox.withLock { $0 = key } },
-            deleteKey: { [storedKeyBox] in storedKeyBox.withLock { $0 = nil } }
+            deleteKey: { [storedKeyBox] in storedKeyBox.withLock { $0 = nil } },
+            loadPrefix: { [storedPrefixBox] in storedPrefixBox.withLock { $0 } },
+            savePrefix: { [storedPrefixBox] prefix in storedPrefixBox.withLock { $0 = prefix } },
+            deletePrefix: { [storedPrefixBox] in storedPrefixBox.withLock { $0 = nil } }
         )
     }
 }

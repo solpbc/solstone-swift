@@ -119,21 +119,30 @@ final class BannerPresenter {
     }
 
     private static func isInfoAllowed(_ event: DiagnosticEvent) -> Bool {
+        guard !self.messageContainsLocalPort(event.message) else {
+            return false
+        }
         switch event.category {
         case .network:
             return true
         case .brain:
             return true
         case .tunnel:
-            return event.message.hasPrefix("connected via")
+            return event.message == "journal connected"
                 || event.message == "connecting"
                 || event.message == "disconnected"
-                || event.message.hasPrefix("keepalive recovered")
         case .voice:
             return event.message.hasPrefix("session")
         case .upload:
             return event.message.contains("files sent")
         }
+    }
+
+    private static func messageContainsLocalPort(_ message: String) -> Bool {
+        message.range(
+            of: #"(?i)(localhost|127\.0\.0\.1|(?:on\s+)?port\s+\d{2,5}|:\d{2,5}\b)"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private func resolveCategory(_ category: DiagnosticCategory) {
