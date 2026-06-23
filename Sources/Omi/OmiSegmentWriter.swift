@@ -227,16 +227,17 @@ private extension OmiSegmentWriter {
         "\(sessionID.uuidString.lowercased())-\(index)"
     }
 
-    static func dayString(for date: Date) -> String {
+}
+
+extension OmiSegmentWriter {
+    nonisolated static func dayString(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = .current
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }
-}
 
-extension OmiSegmentWriter {
     static func segmentString(for date: Date, durationSeconds: Double) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)

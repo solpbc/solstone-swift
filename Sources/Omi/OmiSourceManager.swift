@@ -49,6 +49,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var reconnectCount = 0
     var eventRing = OmiEventRing()
     let diagnostics: OmiDiagnostics
+    let journalTally: OmiJournalTally
 
     @ObservationIgnored var onDecodedSamples: (@MainActor ([Int16]) -> Void)?
     @ObservationIgnored var omiSegmentWriter: OmiSegmentWriter?
@@ -75,10 +76,12 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     init(
         defaults: UserDefaults = .standard,
         diagnostics: OmiDiagnostics = OmiDiagnostics(),
+        journalTally: OmiJournalTally = OmiJournalTally(),
         clock: any ObserverClock = SystemObserverClock()
     ) {
         self.defaults = defaults
         self.diagnostics = diagnostics
+        self.journalTally = journalTally
         self.clock = clock
         self.enabled = defaults.bool(forKey: Self.enabledKey)
         self.lastKnownBattery = diagnostics.payload.pendantBatteryTrend.last.map {

@@ -109,7 +109,11 @@ private extension OmiSourceDetailView {
         let now = Date()
         return VStack(alignment: .leading, spacing: 10) {
             LabeledContent("name", value: self.manager.connectedPeripheralName ?? "not connected")
-            // VPX: tune pendant reading hierarchy after audio, signal, and battery are all populated.
+            LabeledContent(
+                OmiJournalRollupLogic.rowLabel,
+                value: OmiJournalRollupLogic.rollupText(tally: self.manager.journalTally.payload, now: now)
+            )
+            // VPX: tune pendant and journal row hierarchy after audio, signal, and battery are all populated.
             LabeledContent("audio", value: self.audioText(now: now))
             LabeledContent("signal", value: self.signalText(now: now))
             LabeledContent("battery", value: self.batteryText(now: now))

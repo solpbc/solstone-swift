@@ -97,6 +97,7 @@ final class ObserverUploader {
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let encoder: JSONEncoder
     @ObservationIgnored private let decoder: JSONDecoder
+    @ObservationIgnored var onSegmentDelivered: ((_ day: String, _ durationS: TimeInterval, _ identity: String) -> Void)?
     @ObservationIgnored private var backgroundCompletionHandler: (@MainActor @Sendable () -> Void)?
     @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
@@ -381,6 +382,12 @@ private extension ObserverUploader {
         let localPort: Int
         let prefix: String?
         let sourceType: String
+        let day: String?
+        let durationS: TimeInterval?
+
+        var identity: String {
+            "\(self.sessionID.uuidString):\(self.chunkID)"
+        }
     }
 
     struct UploadFailureContext {
@@ -530,6 +537,7 @@ private extension ObserverUploader {
 
             let requestBodyURL = self.pendingDirectoryURL(sessionID: descriptor.sessionID)
                 .appendingPathComponent("\(descriptor.chunkID).upload", isDirectory: false)
+            let sidecar = try? self.loadSidecar(from: sidecarURL)
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
                 chunkID: descriptor.chunkID,
                 sessionID: descriptor.sessionID,
@@ -538,7 +546,9 @@ private extension ObserverUploader {
                 requestBodyURL: requestBodyURL,
                 localPort: descriptor.localPort,
                 prefix: descriptor.prefix,
-                sourceType: descriptor.sourceType
+                sourceType: descriptor.sourceType,
+                day: sidecar?.day,
+                durationS: sidecar?.durationS
             )
             self.activeTasksByTaskID[task.taskIdentifier] = task
             self.activeTaskIDByChunkID[descriptor.chunkID] = task.taskIdentifier
@@ -740,7 +750,9 @@ private extension ObserverUploader {
                 requestBodyURL: requestBodyURL,
                 localPort: localPort,
                 prefix: prefix,
-                sourceType: self.sourceType
+                sourceType: self.sourceType,
+                day: sidecar.day,
+                durationS: sidecar.durationS
             )
             self.activeTasksByTaskID[task.taskIdentifier] = task
             self.activeTaskIDByChunkID[chunkID] = task.taskIdentifier
@@ -818,6 +830,9 @@ private extension ObserverUploader {
             self.lastError = nil
             uploaderLog.info("observer chunk uploaded \(info.chunkID, privacy: .public)")
             self.refreshCounts()
+            if let day = info.day, let durationS = info.durationS {
+                self.onSegmentDelivered?(day, durationS, info.identity)
+            }
             return
         }
 
