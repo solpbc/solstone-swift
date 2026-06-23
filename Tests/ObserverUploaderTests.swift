@@ -867,7 +867,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
     private func makeSidecar(sessionID: UUID, chunkIndex: Int) -> ChunkSidecar {
         ChunkSidecar(
-            segment: "20260420-120000",
+            segment: "120000_3",
             day: "20260420",
             chunkIndex: chunkIndex,
             startedAt: Date(timeIntervalSince1970: 1_713_624_000),

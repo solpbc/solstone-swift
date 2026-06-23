@@ -87,7 +87,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         try await self.waitForPendingCount(1, uploader: uploader)
         var chunks = try self.pendingChunks()
         let first = try XCTUnwrap(chunks.first)
-        XCTAssertEqual(first.sidecar.segment, self.segmentString(for: start))
+        XCTAssertEqual(first.sidecar.segment, self.segmentString(for: start, durationSeconds: first.sidecar.durationS))
         XCTAssertEqual(first.sidecar.day, self.dayString(for: start))
         XCTAssertEqual(first.sidecar.chunkIndex, 0)
         XCTAssertEqual(first.sidecar.startedAt.timeIntervalSince1970, start.timeIntervalSince1970, accuracy: 0.001)
@@ -124,6 +124,24 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(ObserverKeychain.observerIngestKeyAccount, "solstone-swift-observer-ingest-key")
         XCTAssertEqual(ObserverKeychain.omiIngestKeyAccount, "solstone-swift-omi-ingest-key")
         XCTAssertNotEqual(ObserverKeychain.observerIngestKeyAccount, ObserverKeychain.omiIngestKeyAccount)
+    }
+
+    @MainActor
+    func testSegmentStringUsesLocalTimeAndRoundedPositiveDuration() throws {
+        let date = try self.fixedLocalDate(hour: 10, minute: 43, second: 55)
+
+        let segments = [
+            OmiSegmentWriter.segmentString(for: date, durationSeconds: 300.0),
+            OmiSegmentWriter.segmentString(for: date, durationSeconds: 0.4),
+            OmiSegmentWriter.segmentString(for: date, durationSeconds: 47.6),
+        ]
+
+        XCTAssertEqual(segments[0], "104355_300")
+        XCTAssertEqual(segments[1], "104355_1")
+        XCTAssertEqual(segments[2], "104355_48")
+        for segment in segments {
+            XCTAssertTrue(segment.range(of: #"^\d{6}_\d+$"#, options: .regularExpression) != nil)
+        }
     }
 
     @MainActor
@@ -218,12 +236,12 @@ private extension OmiSegmentWriterTests {
         (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
     }
 
-    func segmentString(for date: Date) -> String {
+    func segmentString(for date: Date, durationSeconds: Double) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = .current
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter.string(from: date)
+        formatter.dateFormat = String(repeating: "h".uppercased(), count: 2) + "mmss"
+        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
     }
 
     func dayString(for date: Date) -> String {
@@ -232,5 +250,21 @@ private extension OmiSegmentWriterTests {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
+    }
+
+    func fixedLocalDate(hour: Int, minute: Int, second: Int) throws -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let components = DateComponents(
+            calendar: calendar,
+            timeZone: .current,
+            year: 2026,
+            month: 4,
+            day: 20,
+            hour: hour,
+            minute: minute,
+            second: second
+        )
+        return try XCTUnwrap(calendar.date(from: components))
     }
 }

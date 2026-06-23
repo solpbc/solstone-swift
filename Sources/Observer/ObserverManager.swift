@@ -299,7 +299,7 @@ private extension ObserverManager {
         }
 
         let sidecar = ChunkSidecar(
-            segment: Self.segmentString(for: startedAt),
+            segment: Self.segmentString(for: startedAt, durationSeconds: finalized.duration),
             day: Self.dayString(for: startedAt),
             chunkIndex: chunkIndex,
             startedAt: startedAt,
@@ -396,19 +396,21 @@ private extension ObserverManager {
         "\(sessionID.uuidString.lowercased())-\(index)"
     }
 
-    static func segmentString(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter.string(from: date)
-    }
-
     static func dayString(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = .current
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
+    }
+}
+
+extension ObserverManager {
+    static func segmentString(for date: Date, durationSeconds: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = String(repeating: "h".uppercased(), count: 2) + "mmss"
+        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
     }
 }

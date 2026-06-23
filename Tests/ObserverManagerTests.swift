@@ -46,6 +46,24 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testSegmentStringUsesLocalTimeAndRoundedPositiveDuration() throws {
+        let date = try self.fixedLocalDate(hour: 10, minute: 43, second: 55)
+
+        let segments = [
+            ObserverManager.segmentString(for: date, durationSeconds: 300.0),
+            ObserverManager.segmentString(for: date, durationSeconds: 0.4),
+            ObserverManager.segmentString(for: date, durationSeconds: 47.6),
+        ]
+
+        XCTAssertEqual(segments[0], "104355_300")
+        XCTAssertEqual(segments[1], "104355_1")
+        XCTAssertEqual(segments[2], "104355_48")
+        for segment in segments {
+            XCTAssertTrue(segment.range(of: #"^\d{6}_\d+$"#, options: .regularExpression) != nil)
+        }
+    }
+
+    @MainActor
     func testStartSessionTransitionsToActive() async {
         await self.manager.startSession(mode: .meeting)
 
@@ -411,6 +429,22 @@ private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable
 }
 
 private extension ObserverManagerTests {
+    func fixedLocalDate(hour: Int, minute: Int, second: Int) throws -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let components = DateComponents(
+            calendar: calendar,
+            timeZone: .current,
+            year: 2026,
+            month: 4,
+            day: 20,
+            hour: hour,
+            minute: minute,
+            second: second
+        )
+        return try XCTUnwrap(calendar.date(from: components))
+    }
+
     func makeEphemeralDefaults() -> (defaults: UserDefaults, suiteName: String) {
         let suiteName = "ObserverManagerTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
