@@ -152,6 +152,47 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testOnThisPhoneSnapshotSuppressesZeroFixLocationItems() throws {
+        try self.writeLocationFile(
+            status: "pending",
+            filename: "20260602-235800_300.jsonl",
+            data: self.locationSegmentData(fixCount: 0)
+        )
+        try self.writeLocationFile(
+            status: "pending",
+            filename: "20260602-235900_300.jsonl",
+            data: self.locationSegmentData(fixCount: 1)
+        )
+        let uploader = self.makeUploader()
+
+        guard case .loaded(let items) = uploader.onThisPhoneSnapshot() else {
+            return XCTFail("Expected loaded on-this-phone snapshot")
+        }
+
+        XCTAssertEqual(items.count, 1)
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.id, "location:20260602-235900_300")
+        XCTAssertEqual(item.locationFixCount, 1)
+    }
+
+    @MainActor
+    func testGapOnlyBatchWritesNothingAndSchedulesNoUpload() async throws {
+        LocationUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader()
+
+        await uploader.enqueue(self.makeBatch(fixes: [], visits: []))
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertTrue(try self.directoryEntries(status: "pending").isEmpty)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 0)
+    }
+
+    @MainActor
     func testMultipartFieldsAndMidnightStartDay() async throws {
         LocationUploaderURLProtocol.handler = { request in
             (
@@ -831,6 +872,13 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         try data.write(to: url)
         return url
+    }
+
+    private func locationSegmentData(fixCount: Int) -> Data {
+        Data(
+            #"{"accuracy":"full","fix_count":\#(fixCount),"gap":false,"kind":"location","platform":"ios","schema":"solstone.location.segment/1","source":"location","tier":"balanced"}"#
+                .utf8
+        ) + Data([0x0A])
     }
 
     private func directoryEntries(root: URL? = nil, status: String) throws -> [URL] {

@@ -144,6 +144,10 @@ final class LocationUploader: LocationUploading {
             locationUploadLog.debug("location enqueue skipped during source delete")
             return
         }
+        if batch.fixes.isEmpty && batch.visits.isEmpty {
+            locationUploadLog.debug("skipping net-new gap-only location heartbeat (no fixes, no visits)")
+            return
+        }
 
         do {
             let frozen = try self.frozenSegment(for: batch)
@@ -515,6 +519,9 @@ private extension LocationUploader {
                 let parsed = try self.parseFrozenFileName(entry.lastPathComponent)
                 let segmentStart = try self.segmentStartDate(parsed: parsed)
                 let header = try self.loadSnapshotHeader(from: entry)
+                // Zero-fix snapshots (gap-only and already-on-disk visit-only) stay off the
+                // on-this-phone feed/counts, but may still upload.
+                if header.fixCount == 0 { continue }
                 let isActivelyUploading = location == .pending && self.activeTaskIDByFileID[fileID] != nil
                 items.append(OnThisPhoneItem(
                     id: "location:\(fileID)",

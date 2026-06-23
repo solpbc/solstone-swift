@@ -26,7 +26,6 @@ struct OnThisPhoneItemDetailView: View {
                 self.previewBlock
                 self.summaryCard
                 self.failureBlock
-                self.locationHint
                 self.journalBlock
                 self.detailsBlock
                 self.actionsBlock
@@ -112,16 +111,6 @@ private extension OnThisPhoneItemDetailView {
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    var locationHint: some View {
-        if self.item.sourceKind == .location {
-            Text(SourceVocabulary.onThisPhoneLocationC3Hint)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

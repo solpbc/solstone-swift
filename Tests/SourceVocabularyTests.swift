@@ -167,10 +167,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 observations")
         XCTAssertEqual(SourceVocabulary.openJournalLink, "open journal ↗")
         XCTAssertEqual(
-            SourceVocabulary.onThisPhoneLocationC3Hint,
-            "the map of where your day happened lives in your journal — this screen just confirms what your phone sensed. no live dot, nothing tracked here."
-        )
-        XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintSaved,
             "sol added this to your journal automatically. open it to read the full thing."
         )
@@ -555,7 +551,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.rawOriginalUnavailable,
             SourceVocabulary.openJournalLink,
             SourceVocabulary.openInJournal,
-            SourceVocabulary.onThisPhoneLocationC3Hint,
             SourceVocabulary.onThisPhoneJournalHintSaved,
             SourceVocabulary.onThisPhoneJournalHintLocationSaved,
             SourceVocabulary.onThisPhoneJournalHintPending,

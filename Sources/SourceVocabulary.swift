@@ -201,7 +201,6 @@ nonisolated enum SourceVocabulary {
     static let checkConnection = "check connection"
     static let probeReachable = "reachable"
     static let probeNotReachable = "not reachable"
-    static let onThisPhoneLocationC3Hint = "the map of where your day happened lives in your journal — this screen just confirms what your phone sensed. no live dot, nothing tracked here."
     static let onThisPhoneJournalHintSaved = "sol added this to your journal automatically. open it to read the full thing."
     static let onThisPhoneJournalHintLocationSaved = "open it to see these places on a map."
     static let onThisPhoneJournalHintPending = "not in your journal yet — it'll appear once it's sent."
