@@ -163,6 +163,65 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
         XCTAssertEqual(chunk.sidecar.durationS, 0.4, accuracy: 0.0001)
     }
+
+    @MainActor
+    func testRestoreStartedWriterEnqueuesChunksWithoutEnable() async throws {
+        let clock = MockObserverClock()
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        clock.advance(by: 300)
+        writer.append(self.samples(count: 1600))
+
+        try await self.waitForPendingCount(1, uploader: uploader)
+        let chunks = try self.pendingChunks()
+        XCTAssertFalse(chunks.isEmpty)
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0])
+    }
+
+    @MainActor
+    func testStartIsIdempotentAndPreservesSessionAcrossRetriggers() async throws {
+        let clock = MockObserverClock()
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+
+        writer.start()
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        clock.advance(by: 299)
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        writer.stop()
+
+        try await self.waitForPendingCount(1, uploader: uploader)
+        let chunks = try self.pendingChunks()
+        let chunk = try XCTUnwrap(chunks.first)
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0])
+        XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
+        XCTAssertEqual(chunk.sidecar.durationS, 0.4, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testEnableAfterRestoreStartAdoptsExistingSession() async throws {
+        let clock = MockObserverClock()
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        writer.start()
+        clock.advance(by: 300)
+        writer.append(self.samples(count: 1600))
+        writer.stop()
+
+        try await self.waitForPendingCount(2, uploader: uploader)
+        let chunks = try self.pendingChunks()
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0, 1])
+        XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
+        XCTAssertEqual(Set(chunks.map(\.sidecar.chunkIndex)).count, chunks.count)
+    }
 }
 
 @MainActor

@@ -69,6 +69,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private var previousBatteryMonitoringEnabled: Bool?
     @ObservationIgnored private var silentEpisodeRecoveryFired = false
+    @ObservationIgnored private(set) var didAttemptWriterStart = false
     @ObservationIgnored private var lastLoggedAudioHealth: OmiAudioHealth?
 
     init(
@@ -135,6 +136,12 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         peripheral.delegate = self
         self.omiSegmentWriter?.start()
         self.beginConnect(peripheral, isReconnect: false)
+    }
+
+    func startSegmentWriterIfNeeded() {
+        guard !self.didAttemptWriterStart else { return }
+        self.didAttemptWriterStart = true
+        self.omiSegmentWriter?.start()
     }
 
     func disable() {
@@ -651,6 +658,7 @@ private extension OmiSourceManager {
             outOfOrder: self.audioOutOfOrder
         )
         if deltas.decodeOK > 0 {
+            self.startSegmentWriterIfNeeded()
             let now = Date()
             self.lastAudioAt = now
             self.diagnostics.noteDecodedSamples(at: now)
@@ -704,6 +712,7 @@ private extension OmiSourceManager {
     }
 
     func subscribeAudio() {
+        self.didAttemptWriterStart = false
         guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.audioDataCharacteristic) else {
             self.connectionState = .needsAttention(.audioUnavailable)
             self.log.error("omi audio unavailable")
@@ -761,6 +770,7 @@ private extension OmiSourceManager {
         self.reconnectStartedAt = nil
         self.isSystemReconnecting = false
         self.silentEpisodeRecoveryFired = false
+        self.didAttemptWriterStart = false
         self.lastLoggedAudioHealth = nil
         self.resetReadState()
         self.clearAudioState()
@@ -772,6 +782,7 @@ private extension OmiSourceManager {
         self.isAudioSubscribed = false
         self.opusDecoder = nil
         self.silentEpisodeRecoveryFired = false
+        self.didAttemptWriterStart = false
         self.lastLoggedAudioHealth = nil
     }
 

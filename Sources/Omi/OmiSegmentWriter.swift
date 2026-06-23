@@ -36,9 +36,7 @@ final class OmiSegmentWriter {
     }
 
     func start() {
-        if self.sessionID != nil {
-            self.stop()
-        }
+        guard self.sessionID == nil else { return }
 
         self.sessionID = UUID()
         self.chunkIndex = 0
@@ -51,6 +49,8 @@ final class OmiSegmentWriter {
             self.clearState()
         }
     }
+
+    var isRunning: Bool { self.sessionID != nil }
 
     func append(_ samples: [Int16]) {
         guard !samples.isEmpty else { return }
