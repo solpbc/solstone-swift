@@ -179,7 +179,8 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneTurnOnSourceButton = "turn on a source"
     static let migrationStageOnThisPhone = "on this phone"
     static let migrationStageOnItsWay = "on its way"
-    static let migrationStageInYourJournal = "your journal"
+    static let migrationStageInYourJournal = "in your journal"
+    static let migrationHeadlineUpToDate = "your journal is up to date"
     static let magicMomentShownHeadline = "it's on your phone now"
     static let magicMomentShownBody = "sol just took in your first observation and kept it here — yours, and nowhere else."
     static let magicMomentShownSecondary = "connect a journal whenever →"
@@ -362,10 +363,14 @@ nonisolated enum SourceVocabulary {
         count == 1 ? "1 fix" : "\(count) fixes"
     }
 
-    static func migrationReached(count: Int) -> String {
+    static func migrationHeadlineSyncing(count: Int) -> String {
         count == 1
-            ? "1 observation just reached your journal."
-            : "\(count) observations just reached your journal."
+            ? "syncing 1 item to your journal"
+            : "syncing \(count) items to your journal"
+    }
+
+    static func lastActiveLine(relative: String) -> String {
+        "last active · \(relative)"
     }
 
     static func migrationStageCount(_ count: Int, stage: String) -> String {

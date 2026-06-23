@@ -292,10 +292,13 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testSeededOnThisPhoneSummaryUsesSendStatePills() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.status.needsAttention"].waitForExistence(timeout: 10))
+        app.descendants(matching: .any)["onThisPhone.details"].tap()
+
         XCTAssertTrue(app.staticTexts["5 on this phone"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["1 needs attention"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["onThisPhone.summary.savedOnThisPhone"].exists)
-        XCTAssertTrue(app.staticTexts["onThisPhone.summary.needsAttention"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.summary.savedOnThisPhone"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.summary.needsAttention"].exists)
     }
 
     @MainActor
@@ -303,6 +306,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         let rowID = "onThisPhone.row.audio:00000000-0000-0000-0000-000000000001:seed-audio-1"
         let row = app.descendants(matching: .any)[rowID]
+        let surface = app.descendants(matching: .any)["onThisPhone.surface"]
+        self.scrollToElement(row, in: surface)
         XCTAssertTrue(row.waitForExistence(timeout: 10), rowID)
         row.tap()
 
@@ -329,10 +334,11 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         let rowID = "onThisPhone.row.audio:00000000-0000-0000-0000-000000000001:seed-audio-1"
         let row = app.descendants(matching: .any)[rowID]
+        let surface = app.descendants(matching: .any)["onThisPhone.surface"]
+        self.scrollToElement(row, in: surface)
         XCTAssertTrue(row.waitForExistence(timeout: 10), rowID)
 
         let askBar = app.buttons["dayHome.askBar"]
-        let surface = app.descendants(matching: .any)["onThisPhone.surface"]
         var attempts = 0
         while askBar.exists && row.frame.maxY > askBar.frame.minY - 8 && attempts < 3 {
             surface.swipeUp()
@@ -422,5 +428,17 @@ private extension NoJournalShellTests {
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         top.press(forDuration: 0.1, thenDragTo: bottom)
         XCTAssertTrue(app.descendants(matching: .any)[missingElementID].waitForNonExistence(timeout: 5))
+    }
+
+    func scrollToElement(_ element: XCUIElement, in surface: XCUIElement) {
+        if element.waitForExistence(timeout: 1) {
+            return
+        }
+        for _ in 0..<5 {
+            surface.swipeUp()
+            if element.waitForExistence(timeout: 1) {
+                return
+            }
+        }
     }
 }

@@ -38,8 +38,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
     @State private var magicMomentDismissed = false
-    @State private var migrationSawUndelivered = false
-    @State private var migrationCompletionDismissed = false
+    @State private var statusDetailsExpanded = false
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
     private let askBarState: DayHomeJournalState?
@@ -83,10 +82,13 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                         let migration = onThisPhoneMigration(
                             snapshot: displayAggregate
                         )
-                        if self.appConfig.isPaired, !migration.isEmpty {
-                            self.migrationSection(migration: migration)
+                        if !migration.isEmpty {
+                            self.statusBlock(
+                                migration: migration,
+                                items: displayAggregate.items,
+                                summary: displayAggregate.sendStateSummary
+                            )
                         }
-                        OnThisPhoneStateSummaryView(summary: displayAggregate.sendStateSummary)
                         if !self.appConfig.isPaired,
                            OnThisPhoneBacklogNudge.shouldShow(items: displayAggregate.items, now: Date()),
                            !self.backlogNudgeDismissed {
@@ -240,120 +242,96 @@ private extension OnThisPhoneMomentsView {
         }
     }
 
-    func migrationSection(migration: OnThisPhoneMigration) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            self.migrationStageRow(migration: migration)
+    @ViewBuilder
+    func statusBlock(
+        migration: OnThisPhoneMigration,
+        items: [OnThisPhoneItem],
+        summary: [OnThisPhoneSendStateSummary]
+    ) -> some View {
+        let headline = onThisPhoneHeadline(migration: migration, reachingJournal: nil)
+        let lines = self.appConfig.isPaired
+            ? headline.lines
+            : headline.lines.filter { $0.role == .needsAttention }
 
-            if migration.showsCompletion(sawUndelivered: self.migrationSawUndelivered),
-               !self.migrationCompletionDismissed {
-                self.migrationCompletionCard(count: migration.inYourJournal)
-            } else {
-                let splitText = self.migrationSplitText(migration: migration)
-                if !splitText.isEmpty {
-                    Text(splitText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("onThisPhone.migration.split")
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                self.statusLine(line)
             }
 
-            if migration.needsAttention > 0 {
-                self.migrationNeedsAttentionRow(count: migration.needsAttention)
+            if let last = onThisPhoneLastActive(items: items) {
+                Text(SourceVocabulary.lastActiveLine(
+                    relative: SourceVocabulary.probeRelativeLabel(secondsAgo: Date().timeIntervalSince(last))
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("onThisPhone.status.lastActive")
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("onThisPhone.migration")
-    }
 
-    func migrationStageRow(migration: OnThisPhoneMigration) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            self.migrationStagePill(
-                count: migration.onThisPhone,
-                stage: SourceVocabulary.migrationStageOnThisPhone,
-                accessibilityID: "onThisPhone.migration.stage.onThisPhone"
-            )
-            self.migrationStagePill(
-                count: migration.onItsWay,
-                stage: SourceVocabulary.migrationStageOnItsWay,
-                accessibilityID: "onThisPhone.migration.stage.onItsWay"
-            )
-            self.migrationStagePill(
-                count: migration.inYourJournal,
-                stage: SourceVocabulary.migrationStageInYourJournal,
-                accessibilityID: "onThisPhone.migration.stage.inYourJournal"
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    func migrationStagePill(count: Int, stage: String, accessibilityID: String) -> some View {
-        Text(SourceVocabulary.migrationStageCount(count, stage: stage))
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(2)
-            .minimumScaleFactor(0.85)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(Color(.secondarySystemBackground), in: Capsule())
-            .accessibilityIdentifier(accessibilityID)
-    }
-
-    func migrationCompletionCard(count: Int) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.circle")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
-
-            Text(SourceVocabulary.migrationReached(count: count))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
-
-            Button {
-                self.migrationCompletionDismissed = true
+            DisclosureGroup(isExpanded: self.$statusDetailsExpanded) {
+                EmptyView()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.bold))
-                    .frame(width: 44, height: 44)
+                Text(SourceVocabulary.details)
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .accessibilityLabel("dismiss")
-            .accessibilityIdentifier("onThisPhone.migration.completion.dismiss")
+            .accessibilityIdentifier("onThisPhone.details")
+
+            if self.statusDetailsExpanded {
+                self.detailsBreakdown(summary: summary)
+            }
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("onThisPhone.migration.completion")
+        .accessibilityIdentifier("onThisPhone.status")
     }
 
-    func migrationNeedsAttentionRow(count: Int) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-            Text(SourceVocabulary.migrationStageCount(count, stage: SourceVocabulary.needsAttention))
+    @ViewBuilder
+    func statusLine(_ line: OnThisPhoneHeadline.Line) -> some View {
+        switch line.role {
+        case .needsAttention:
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(line.text)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.red)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("onThisPhone.status.needsAttention")
+        case .syncing:
+            Text(line.text)
+                .font(.headline)
+                .accessibilityIdentifier("onThisPhone.status.headline")
+        case .upToDate:
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle")
+                    .foregroundStyle(Color.accentColor)
+                Text(line.text)
+                    .font(.headline)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("onThisPhone.status.headline")
         }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.red)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("onThisPhone.migration.needsAttention")
     }
 
-    func migrationSplitText(migration: OnThisPhoneMigration) -> String {
-        [
-            (migration.onThisPhone, SourceVocabulary.migrationStageOnThisPhone),
-            (migration.onItsWay, SourceVocabulary.migrationStageOnItsWay),
-            (migration.inYourJournal, SourceVocabulary.migrationStageInYourJournal),
-        ]
-        .filter { count, _ in count > 0 }
-        .map { count, stage in SourceVocabulary.migrationStageCount(count, stage: stage) }
-        .joined(separator: " · ")
+    @ViewBuilder
+    func detailsBreakdown(summary: [OnThisPhoneSendStateSummary]) -> some View {
+        HStack(spacing: 8) {
+            ForEach(summary) { item in
+                let style = SendStateStyle.style(for: item.sendState)
+                let label = "\(item.count) \(style.compactLabel)"
+                Text(label)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(style.foreground)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(style.chipBackground, in: Capsule())
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(label)
+                    .accessibilityIdentifier("onThisPhone.summary.\(item.sendState.stateID)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     func magicMomentShownCard(item: OnThisPhoneItem) -> some View {
@@ -614,13 +592,6 @@ private extension OnThisPhoneMomentsView {
         self.aggregate = aggregate
         let displayAggregate = self.displayAggregate ?? aggregate
         self.updateMagicMoment(from: displayAggregate)
-        let migration = onThisPhoneMigration(
-            snapshot: displayAggregate
-        )
-        if !migration.isEmpty && !migration.isAllDelivered {
-            self.migrationSawUndelivered = true
-            self.migrationCompletionDismissed = false
-        }
     }
 
     func updateMagicMoment(from snapshot: OnThisPhoneAggregateSnapshot) {
@@ -639,30 +610,6 @@ private extension OnThisPhoneMomentsView {
 
         self.magicMomentItem = audioItem
         self.magicMomentFirstSeen = true
-    }
-}
-
-private struct OnThisPhoneStateSummaryView: View {
-    let summary: [OnThisPhoneSendStateSummary]
-
-    var body: some View {
-        if !self.summary.isEmpty {
-            HStack(spacing: 8) {
-                ForEach(self.summary) { item in
-                    let style = SendStateStyle.style(for: item.sendState)
-                    let label = "\(item.count) \(style.compactLabel)"
-                    Text(label)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(style.foreground)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(style.chipBackground, in: Capsule())
-                        .accessibilityIdentifier("onThisPhone.summary.\(item.sendState.stateID)")
-                        .accessibilityLabel(label)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }
 

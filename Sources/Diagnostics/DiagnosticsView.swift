@@ -46,15 +46,20 @@ struct DiagnosticsView: View {
     }
 
     var body: some View {
-        Group {
+        let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
+            importQueue: self.importQueue,
+            observerUploader: self.observerUploader,
+            omiUploader: self.omiUploaderHolder.uploader,
+            locationUploader: self.locationUploader
+        )
+        let migration = onThisPhoneMigration(snapshot: aggregate)
+
+        List {
+            self.lifecycleSection(migration: migration)
             if let failedSegmentPresentation {
-                List {
-                    self.failedSegmentSection(failedSegmentPresentation)
-                    self.eventRows
-                }
-            } else {
-                self.eventContent
+                self.failedSegmentSection(failedSegmentPresentation)
             }
+            self.eventRows
         }
         .navigationTitle("diagnostics")
         .toolbar {
@@ -121,17 +126,6 @@ struct DiagnosticsView: View {
     }
 
     @ViewBuilder
-    private var eventContent: some View {
-        if self.log.events.isEmpty {
-            self.emptyEventsView
-        } else {
-            List(self.filteredEvents) { event in
-                self.eventRow(event)
-            }
-        }
-    }
-
-    @ViewBuilder
     private var eventRows: some View {
         if self.log.events.isEmpty {
             Section {
@@ -166,6 +160,20 @@ struct DiagnosticsView: View {
                 }
             }
         )
+    }
+
+    private func lifecycleSection(migration: OnThisPhoneMigration) -> some View {
+        Section(SourceVocabulary.onThisPhone) {
+            LabeledContent(SourceVocabulary.migrationStageOnThisPhone, value: "\(migration.onThisPhone)")
+                .accessibilityIdentifier("diagnostics.lifecycle.onThisPhone")
+            LabeledContent(SourceVocabulary.migrationStageOnItsWay, value: "\(migration.onItsWay)")
+                .accessibilityIdentifier("diagnostics.lifecycle.onItsWay")
+            LabeledContent(SourceVocabulary.migrationStageInYourJournal, value: "\(migration.inYourJournal)")
+                .accessibilityIdentifier("diagnostics.lifecycle.inYourJournal")
+            LabeledContent(SourceVocabulary.needsAttention, value: "\(migration.needsAttention)")
+                .accessibilityIdentifier("diagnostics.lifecycle.needsAttention")
+        }
+        .accessibilityIdentifier("diagnostics.lifecycle")
     }
 
     private func failedSegmentSection(_ presentation: FailedSegmentPresentation) -> some View {

@@ -24,19 +24,6 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
     }
 
     @MainActor
-    func testCompletionRequiresAllDeliveredAfterUndeliveredWasSeen() {
-        let undelivered = onThisPhoneMigration(
-            snapshot: Self.snapshot(states: [.savedOnThisPhone])
-        )
-        let delivered = onThisPhoneMigration(
-            snapshot: Self.snapshot(states: [.inYourJournal])
-        )
-
-        XCTAssertFalse(undelivered.showsCompletion(sawUndelivered: true))
-        XCTAssertTrue(delivered.showsCompletion(sawUndelivered: true))
-    }
-
-    @MainActor
     func testMixedMigrationKeepsDeliveredPartialAndAttentionDistinct() {
         let migration = onThisPhoneMigration(
             snapshot: Self.snapshot(states: [
@@ -49,14 +36,10 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
             ])
         )
 
-        XCTAssertFalse(migration.isAllDelivered)
         XCTAssertEqual(migration.needsAttention, 2)
         XCTAssertEqual(migration.onThisPhone, 1)
         XCTAssertEqual(migration.onItsWay, 1)
         XCTAssertEqual(migration.inYourJournal, 2)
-        XCTAssertFalse(migration.showsCompletion(sawUndelivered: true))
-        XCTAssertEqual(SourceVocabulary.migrationReached(count: 1), "1 observation just reached your journal.")
-        XCTAssertEqual(SourceVocabulary.migrationReached(count: 245), "245 observations just reached your journal.")
     }
 
     @MainActor
@@ -73,9 +56,7 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         XCTAssertEqual(stalled.onThisPhone, 2)
         XCTAssertEqual(stalled.onItsWay, 0)
         XCTAssertEqual(stalled.inYourJournal, 1)
-        XCTAssertFalse(stalled.isAllDelivered)
-        XCTAssertFalse(stalled.showsCompletion(sawUndelivered: true))
-        XCTAssertFalse(delivered.showsCompletion(sawUndelivered: false))
+        XCTAssertEqual(delivered.inYourJournal, 1)
     }
 
     @MainActor
@@ -88,8 +69,6 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         XCTAssertEqual(migration.onItsWay, 0)
         XCTAssertEqual(migration.inYourJournal, 0)
         XCTAssertEqual(migration.needsAttention, 2)
-        XCTAssertFalse(migration.isAllDelivered)
-        XCTAssertFalse(migration.showsCompletion(sawUndelivered: true))
     }
 }
 

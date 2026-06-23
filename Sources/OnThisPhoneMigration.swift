@@ -11,13 +11,6 @@ nonisolated struct OnThisPhoneMigration: Equatable, Sendable {
 
     var total: Int { self.onThisPhone + self.onItsWay + self.inYourJournal + self.needsAttention }
     var isEmpty: Bool { self.total == 0 }
-    var isAllDelivered: Bool {
-        self.inYourJournal > 0 && self.onThisPhone == 0 && self.onItsWay == 0 && self.needsAttention == 0
-    }
-
-    func showsCompletion(sawUndelivered: Bool) -> Bool {
-        self.isAllDelivered && sawUndelivered
-    }
 }
 
 nonisolated func onThisPhoneMigration(

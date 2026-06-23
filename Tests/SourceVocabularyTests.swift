@@ -138,7 +138,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneTurnOnSourceButton, "turn on a source")
         XCTAssertEqual(SourceVocabulary.migrationStageOnThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.migrationStageOnItsWay, "on its way")
-        XCTAssertEqual(SourceVocabulary.migrationStageInYourJournal, "your journal")
+        XCTAssertEqual(SourceVocabulary.migrationStageInYourJournal, "in your journal")
+        XCTAssertEqual(SourceVocabulary.migrationHeadlineUpToDate, "your journal is up to date")
+        XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 1), "syncing 1 item to your journal")
+        XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 2), "syncing 2 items to your journal")
+        XCTAssertEqual(SourceVocabulary.lastActiveLine(relative: "just now"), "last active · just now")
         XCTAssertEqual(
             SourceVocabulary.migrationStageCount(12, stage: SourceVocabulary.migrationStageOnItsWay),
             "12 on its way"
@@ -424,6 +428,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingSyncLine(health: .unknown, syncing: false),
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
+            SourceVocabulary.migrationHeadlineUpToDate,
+            SourceVocabulary.migrationHeadlineSyncing(count: 1),
+            SourceVocabulary.migrationHeadlineSyncing(count: 2),
+            SourceVocabulary.lastActiveLine(relative: "just now"),
             SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 1),
             SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 5),
             SourceVocabulary.onThisPhoneFailurePermanentMessage(reason: SourceVocabulary.onThisPhoneFailureReasonNetwork),
@@ -533,7 +541,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.migrationStageOnThisPhone,
             SourceVocabulary.migrationStageOnItsWay,
             SourceVocabulary.migrationStageInYourJournal,
-            SourceVocabulary.migrationReached(count: 2),
+            SourceVocabulary.migrationHeadlineUpToDate,
+            SourceVocabulary.migrationHeadlineSyncing(count: 1),
+            SourceVocabulary.migrationHeadlineSyncing(count: 2),
+            SourceVocabulary.lastActiveLine(relative: "just now"),
             SourceVocabulary.migrationStageCount(2, stage: SourceVocabulary.migrationStageOnItsWay),
             SourceVocabulary.onThisPhoneAgedBacklog(count: 2),
             SourceVocabulary.onThisPhoneLocationRowLabel(count: 2),
