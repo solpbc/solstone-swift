@@ -183,12 +183,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropFromPhone, "drop from this phone")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropConfirmTitle, "drop this from this phone?")
         XCTAssertEqual(
-            SourceVocabulary.onThisPhoneDropConfirmMessage(noun: "this audio"),
-            "removes this audio from this phone. if it already reached your journal, the journal keeps its copy. this part can't be undone once it commits."
+            SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .savedOnThisPhone),
+            "this is only on your phone. dropping it means it won't reach your journal."
         )
-        XCTAssertEqual(SourceVocabulary.onThisPhoneDropAudioNoun, "this audio")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneDropLocationNoun, "these places")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneDropShareNoun, "this file")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .sending),
+            "this is only on your phone. dropping it means it won't reach your journal."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .needsAttention),
+            "this is only on your phone. dropping it means it won't reach your journal."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .inYourJournal),
+            "this is safely in your journal. dropping just clears it from this phone."
+        )
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropSnackbar(descriptor: "1m 15s of audio"), "dropped “1m 15s of audio”.")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: "1m 15s"), "1m 15s of audio")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2), "2 observations")
@@ -198,13 +207,31 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneSourceLabel, "source")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonLabel, "why")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureStatusLabel, "status")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureNextActionLabel, "next")
         XCTAssertEqual(SourceVocabulary.onThisPhoneObserverAudioSourceLabel, "audio")
         XCTAssertEqual(SourceVocabulary.onThisPhoneOmiAudioSourceLabel, "omi pendant audio")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureNextAction, "tap retry to try again")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureRowHint, "needs a retry")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1), "upload failed after 1 attempt")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5), "upload failed after 5 attempts")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 1),
+            "hasn't reached your journal yet — tried 1 time. it'll try again automatically when you reconnect."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 5),
+            "hasn't reached your journal yet — tried 5 times. it'll try again automatically when you reconnect."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneFailurePermanentMessage(reason: "the connection wasn't available"),
+            "this can't be sent — the connection wasn't available. you can remove it from this phone."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonNetwork, "the connection wasn't available")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonTimeout, "the connection took too long")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonServer, "your journal couldn't accept it")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonUnknown, "something got in the way")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "today at 3:00 PM"),
+            "last tried today at 3:00 PM"
+        )
         XCTAssertEqual(SourceVocabulary.audioPlaybackObserverActiveHint, "pause listening to play this")
         XCTAssertEqual(SourceVocabulary.audioPlaybackPlayLabel, "play audio")
         XCTAssertEqual(SourceVocabulary.audioPlaybackPauseLabel, "pause audio")
@@ -380,10 +407,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneSourceLabel,
             SourceVocabulary.onThisPhoneFailureReasonLabel,
             SourceVocabulary.onThisPhoneFailureStatusLabel,
-            SourceVocabulary.onThisPhoneFailureNextActionLabel,
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
             SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
-            SourceVocabulary.onThisPhoneFailureNextAction,
             SourceVocabulary.onThisPhoneFailureRowHint,
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1),
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
@@ -399,6 +424,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingSyncLine(health: .unknown, syncing: false),
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 1),
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 5),
+            SourceVocabulary.onThisPhoneFailurePermanentMessage(reason: SourceVocabulary.onThisPhoneFailureReasonNetwork),
+            SourceVocabulary.onThisPhoneFailureReasonNetwork,
+            SourceVocabulary.onThisPhoneFailureReasonTimeout,
+            SourceVocabulary.onThisPhoneFailureReasonServer,
+            SourceVocabulary.onThisPhoneFailureReasonUnknown,
+            SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "today at 3:00 PM"),
         ]
     }
 
@@ -519,10 +552,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
             SourceVocabulary.onThisPhoneDropFromPhone,
             SourceVocabulary.onThisPhoneDropConfirmTitle,
-            SourceVocabulary.onThisPhoneDropConfirmMessage(noun: SourceVocabulary.onThisPhoneDropAudioNoun),
-            SourceVocabulary.onThisPhoneDropAudioNoun,
-            SourceVocabulary.onThisPhoneDropLocationNoun,
-            SourceVocabulary.onThisPhoneDropShareNoun,
+            SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .savedOnThisPhone),
+            SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .inYourJournal),
             SourceVocabulary.onThisPhoneDropSnackbar(descriptor: "1m 15s of audio"),
             SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: "1m 15s"),
             SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2),
@@ -532,12 +563,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneSourceLabel,
             SourceVocabulary.onThisPhoneFailureReasonLabel,
             SourceVocabulary.onThisPhoneFailureStatusLabel,
-            SourceVocabulary.onThisPhoneFailureNextActionLabel,
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
             SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
-            SourceVocabulary.onThisPhoneFailureNextAction,
             SourceVocabulary.onThisPhoneFailureRowHint,
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 1),
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 5),
+            SourceVocabulary.onThisPhoneFailurePermanentMessage(reason: SourceVocabulary.onThisPhoneFailureReasonNetwork),
+            SourceVocabulary.onThisPhoneFailureReasonNetwork,
+            SourceVocabulary.onThisPhoneFailureReasonTimeout,
+            SourceVocabulary.onThisPhoneFailureReasonServer,
+            SourceVocabulary.onThisPhoneFailureReasonUnknown,
+            SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "today at 3:00 PM"),
             SourceVocabulary.audioPlaybackObserverActiveHint,
             SourceVocabulary.audioPlaybackPlayLabel,
             SourceVocabulary.audioPlaybackPauseLabel,

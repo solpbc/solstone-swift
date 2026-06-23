@@ -221,6 +221,109 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
         XCTAssertEqual(Self.relativeDay(older, now: now), Self.formattedDate(older))
     }
 
+    func testFailureLegibilityGatesToAudioNeedsAttentionWithAttemptData() {
+        let now = Self.date(year: 2026, month: 6, day: 14, hour: 12, minute: 0)
+
+        XCTAssertNil(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(sourceKind: .share, sendState: .needsAttention, failureAttemptCount: 1),
+            now: now
+        ))
+        XCTAssertNil(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(sourceKind: .audio, sendState: .savedOnThisPhone, failureAttemptCount: 1),
+            now: now
+        ))
+        XCTAssertNil(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(sourceKind: .audio, sendState: .needsAttention, failureAttemptCount: nil),
+            now: now
+        ))
+    }
+
+    func testFailureLegibilityRetryableMessageUsesSingularAndPluralAttempts() throws {
+        let now = Self.date(year: 2026, month: 6, day: 14, hour: 12, minute: 0)
+
+        let singular = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(
+                sourceKind: .audio,
+                sendState: .needsAttention,
+                failureAttemptCount: 1,
+                retryAvailable: true
+            ),
+            now: now
+        ))
+        XCTAssertEqual(
+            singular.message,
+            "hasn't reached your journal yet — tried 1 time. it'll try again automatically when you reconnect."
+        )
+        XCTAssertNil(singular.lastTried)
+
+        let plural = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(
+                sourceKind: .audio,
+                sendState: .needsAttention,
+                failureAttemptCount: 3,
+                retryAvailable: true
+            ),
+            now: now
+        ))
+        XCTAssertEqual(
+            plural.message,
+            "hasn't reached your journal yet — tried 3 times. it'll try again automatically when you reconnect."
+        )
+    }
+
+    func testFailureLegibilityPermanentMessageUsesPlainReasonBuckets() throws {
+        let now = Self.date(year: 2026, month: 6, day: 14, hour: 12, minute: 0)
+        let cases: [(String?, String)] = [
+            ("network connection lost", "this can't be sent — the connection wasn't available. you can remove it from this phone."),
+            ("request timed out -1001", "this can't be sent — the connection took too long. you can remove it from this phone."),
+            ("HTTP 503: service unavailable", "this can't be sent — your journal couldn't accept it. you can remove it from this phone."),
+            ("upload failed after 3 attempts", "this can't be sent — something got in the way. you can remove it from this phone."),
+        ]
+
+        for (rawReason, expectedMessage) in cases {
+            let legibility = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+                for: Self.item(
+                    sourceKind: .audio,
+                    sendState: .needsAttention,
+                    failureReason: rawReason,
+                    failureAttemptCount: 3,
+                    retryAvailable: false
+                ),
+                now: now
+            ))
+            XCTAssertEqual(legibility.message, expectedMessage)
+        }
+    }
+
+    func testFailureBucketClassifiesPersistedFailureReasonShapes() {
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "HTTP 503: service unavailable"), .server)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "request timed out -1001"), .timeout)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "network-lost"), .network)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "cannot-find-host"), .network)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "offline -1009"), .network)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "upload failed after 3 attempts"), .unknown)
+    }
+
+    func testFailureLegibilityFormatsLastTriedWithInjectedDateContext() throws {
+        let now = Self.date(year: 2026, month: 6, day: 14, hour: 16, minute: 0)
+        let lastAttemptAt = Self.date(year: 2026, month: 6, day: 14, hour: 15, minute: 0)
+
+        let legibility = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(
+                sourceKind: .audio,
+                sendState: .needsAttention,
+                failureAttemptCount: 1,
+                retryAvailable: true,
+                lastAttemptAt: lastAttemptAt
+            ),
+            now: now,
+            locale: Self.locale,
+            timeZone: Self.timeZone
+        ))
+
+        XCTAssertEqual(legibility.lastTried, "last tried today at 3:00\u{202F}PM")
+    }
+
     func testJournalAvailabilityMatrix() {
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.journalAvailability(
@@ -386,8 +489,8 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneSourceLabel, value: SourceVocabulary.onThisPhoneOmiAudioSourceLabel),
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureReasonLabel, value: "journal rejected the upload (HTTP 503)"),
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureStatusLabel, value: "upload failed after 5 attempts"),
-            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureNextActionLabel, value: SourceVocabulary.onThisPhoneFailureNextAction),
         ])
+        XCTAssertFalse(rows.contains { $0.label == "next" || $0.value.contains("tap retry") })
     }
 }
 
@@ -415,7 +518,8 @@ private extension OnThisPhoneItemDetailPresentationTests {
         failureReason: String? = nil,
         failureAttemptCount: Int? = nil,
         sourceLabel: String? = nil,
-        retryAvailable: Bool = false
+        retryAvailable: Bool = false,
+        lastAttemptAt: Date? = nil
     ) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: UUID().uuidString,
@@ -438,7 +542,8 @@ private extension OnThisPhoneItemDetailPresentationTests {
             failureReason: failureReason,
             failureAttemptCount: failureAttemptCount,
             sourceLabel: sourceLabel,
-            retryAvailable: retryAvailable
+            retryAvailable: retryAvailable,
+            lastAttemptAt: lastAttemptAt
         )
     }
 

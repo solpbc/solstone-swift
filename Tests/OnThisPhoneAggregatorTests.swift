@@ -379,7 +379,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(nilTime.rowTimestampText, "")
     }
 
-    func testDropDescriptorAndConfirmNounForParseableItems() throws {
+    func testDropDescriptorForParseableItems() throws {
         let sessionID = UUID()
         let audioDuration: Double = 75
         let audioDurationText = try XCTUnwrap(OnThisPhoneItem.formattedDuration(audioDuration))
@@ -403,14 +403,11 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         )
 
         XCTAssertEqual(audio.dropDescriptor, SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: audioDurationText))
-        XCTAssertEqual(audio.dropConfirmNoun, SourceVocabulary.onThisPhoneDropAudioNoun)
         XCTAssertEqual(location.dropDescriptor, SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2))
-        XCTAssertEqual(location.dropConfirmNoun, SourceVocabulary.onThisPhoneDropLocationNoun)
         XCTAssertEqual(share.dropDescriptor, share.filename)
-        XCTAssertEqual(share.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
     }
 
-    func testDropDescriptorAndConfirmNounUseParseFailureFallbacks() {
+    func testDropDescriptorUsesParseFailureFallbacks() {
         let audio = Self.item(
             id: "audio:not-a-uuid:chunk",
             sourceKind: .audio,
@@ -428,11 +425,29 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         )
 
         XCTAssertEqual(audio.dropDescriptor, audio.filename)
-        XCTAssertEqual(audio.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
         XCTAssertEqual(location.dropDescriptor, location.filename)
-        XCTAssertEqual(location.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
         XCTAssertEqual(share.dropDescriptor, share.filename)
-        XCTAssertEqual(share.dropConfirmNoun, SourceVocabulary.onThisPhoneDropShareNoun)
+    }
+
+    func testOmiAudioAccessorAndVoiceOverTextDistinguishSource() {
+        let sessionID = UUID()
+        let observer = Self.item(
+            id: "audio:\(sessionID.uuidString):chunk",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800),
+            audioDurationS: 12
+        )
+        let omi = Self.item(
+            id: "omi:\(sessionID.uuidString):chunk",
+            sourceKind: .audio,
+            itemTime: Date(timeIntervalSince1970: 1_780_480_800),
+            audioDurationS: 12
+        )
+
+        XCTAssertFalse(observer.isOmiAudio)
+        XCTAssertTrue(omi.isOmiAudio)
+        XCTAssertTrue(observer.voiceOverText.hasPrefix("audio."))
+        XCTAssertTrue(omi.voiceOverText.hasPrefix("omi pendant audio."))
     }
 
     func testOnThisPhoneItemIDParsing() throws {

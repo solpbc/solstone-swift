@@ -208,20 +208,14 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneJournalHintLocationUnreachable = "connect your journal to see these places on a map."
     static let onThisPhoneDropFromPhone = "drop from this phone"
     static let onThisPhoneDropConfirmTitle = "drop this from this phone?"
-    static let onThisPhoneDropConfirmMessageTemplate = "removes {noun} from this phone. if it already reached your journal, the journal keeps its copy. this part can't be undone once it commits."
-    static let onThisPhoneDropAudioNoun = "this audio"
-    static let onThisPhoneDropLocationNoun = "these places"
-    static let onThisPhoneDropShareNoun = "this file"
     static let onThisPhoneFileLabel = "file"
     static let onThisPhoneWhenLabel = "when"
     static let onThisPhoneObservationsLabel = "observations"
     static let onThisPhoneSourceLabel = "source"
     static let onThisPhoneFailureReasonLabel = "why"
     static let onThisPhoneFailureStatusLabel = "status"
-    static let onThisPhoneFailureNextActionLabel = "next"
     static let onThisPhoneObserverAudioSourceLabel = "audio"
     static let onThisPhoneOmiAudioSourceLabel = "omi pendant audio"
-    static let onThisPhoneFailureNextAction = "tap retry to try again"
     static let onThisPhoneFailureRowHint = "needs a retry"
     static let audioPlaybackObserverActiveHint = "pause listening to play this"
     static let audioPlaybackPlayLabel = "play audio"
@@ -281,8 +275,13 @@ nonisolated enum SourceVocabulary {
         count == 1 ? "1 observation" : "\(count) observations"
     }
 
-    static func onThisPhoneDropConfirmMessage(noun: String) -> String {
-        self.onThisPhoneDropConfirmMessageTemplate.replacingOccurrences(of: "{noun}", with: noun)
+    static func onThisPhoneDropConfirmMessage(sendState: OnThisPhoneSendState) -> String {
+        switch sendState {
+        case .savedOnThisPhone, .sending, .needsAttention:
+            return "this is only on your phone. dropping it means it won't reach your journal."
+        case .inYourJournal:
+            return "this is safely in your journal. dropping just clears it from this phone."
+        }
     }
 
     static func onThisPhoneDropSnackbar(descriptor: String) -> String {
@@ -338,6 +337,25 @@ nonisolated enum SourceVocabulary {
 
     static func onThisPhoneFailureAttemptStatus(count: Int) -> String {
         count == 1 ? "upload failed after 1 attempt" : "upload failed after \(count) attempts"
+    }
+
+    static func onThisPhoneFailureRetryableMessage(count: Int) -> String {
+        count == 1
+            ? "hasn't reached your journal yet — tried 1 time. it'll try again automatically when you reconnect."
+            : "hasn't reached your journal yet — tried \(count) times. it'll try again automatically when you reconnect."
+    }
+
+    static func onThisPhoneFailurePermanentMessage(reason: String) -> String {
+        "this can't be sent — \(reason). you can remove it from this phone."
+    }
+
+    static let onThisPhoneFailureReasonNetwork = "the connection wasn't available"
+    static let onThisPhoneFailureReasonTimeout = "the connection took too long"
+    static let onThisPhoneFailureReasonServer = "your journal couldn't accept it"
+    static let onThisPhoneFailureReasonUnknown = "something got in the way"
+
+    static func onThisPhoneFailureLastTried(datePhrase: String) -> String {
+        "last tried \(datePhrase)"
     }
 
     static func onThisPhoneFixCount(count: Int) -> String {

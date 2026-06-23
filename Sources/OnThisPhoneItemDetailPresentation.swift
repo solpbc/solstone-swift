@@ -9,6 +9,13 @@ nonisolated enum OnThisPhoneItemPreviewMode: Equatable, Sendable {
     case none
 }
 
+nonisolated enum OnThisPhoneFailureBucket: Equatable, Sendable {
+    case network
+    case timeout
+    case server
+    case unknown
+}
+
 nonisolated struct OnThisPhoneItemSummary: Equatable, Sendable {
     let big: String
     let small: String
@@ -17,6 +24,11 @@ nonisolated struct OnThisPhoneItemSummary: Equatable, Sendable {
 nonisolated struct OnThisPhoneJournalAvailability: Equatable, Sendable {
     let enabled: Bool
     let hint: String
+}
+
+nonisolated struct OnThisPhoneFailureLegibility: Equatable, Sendable {
+    let message: String
+    let lastTried: String?
 }
 
 nonisolated struct OnThisPhoneDetailRow: Identifiable, Equatable, Sendable {
@@ -186,6 +198,85 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         return formatter.string(from: date)
     }
 
+    static func failureBucket(for rawReason: String?) -> OnThisPhoneFailureBucket {
+        guard let rawReason = rawReason?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawReason.isEmpty
+        else {
+            return .unknown
+        }
+
+        let reason = rawReason.lowercased()
+        if self.containsAny(reason, needles: ["timed out", "timeout", "time out", "-1001"]) {
+            return .timeout
+        }
+        if self.containsAny(reason, needles: ["http 4", "http 5"]) {
+            return .server
+        }
+        if self.containsAny(reason, needles: [
+            "cannot connect",
+            "cannot-connect",
+            "could not connect",
+            "can't connect",
+            "cannot find host",
+            "cannot-find-host",
+            "could not find host",
+            "network connection lost",
+            "connection lost",
+            "network lost",
+            "network-lost",
+            "offline",
+            "not connected",
+            "-1003",
+            "-1004",
+            "-1005",
+            "-1009",
+        ]) {
+            return .network
+        }
+        return .unknown
+    }
+
+    static func failureLegibility(
+        for item: OnThisPhoneItem,
+        now: Date,
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> OnThisPhoneFailureLegibility? {
+        guard item.sourceKind == .audio,
+              item.sendState == .needsAttention,
+              let failureAttemptCount = item.failureAttemptCount
+        else {
+            return nil
+        }
+
+        let message: String
+        if item.retryAvailable {
+            message = SourceVocabulary.onThisPhoneFailureRetryableMessage(count: failureAttemptCount)
+        } else {
+            let bucket = self.failureBucket(for: item.failureReason)
+            let reason = self.failurePlainReason(for: bucket)
+            message = SourceVocabulary.onThisPhoneFailurePermanentMessage(reason: reason)
+        }
+
+        let lastTried = item.lastAttemptAt.map { lastAttemptAt in
+            let relativeDay = self.relativeDayLabel(
+                for: lastAttemptAt,
+                now: now,
+                calendar: Calendar(identifier: .gregorian),
+                locale: locale,
+                timeZone: timeZone
+            )
+            let shortTime = self.shortTimeLabel(
+                for: lastAttemptAt,
+                locale: locale,
+                timeZone: timeZone
+            )
+            return SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "\(relativeDay) at \(shortTime)")
+        }
+
+        return OnThisPhoneFailureLegibility(message: message, lastTried: lastTried)
+    }
+
     static func journalAvailability(
         sendState: OnThisPhoneSendState,
         hasConveyURL: Bool,
@@ -248,12 +339,6 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
                     value: SourceVocabulary.onThisPhoneFailureAttemptStatus(count: failureAttemptCount)
                 ))
             }
-            if item.retryAvailable {
-                rows.append(OnThisPhoneDetailRow(
-                    label: SourceVocabulary.onThisPhoneFailureNextActionLabel,
-                    value: SourceVocabulary.onThisPhoneFailureNextAction
-                ))
-            }
             return rows
         case .location:
             return [
@@ -296,5 +381,22 @@ private extension OnThisPhoneItemDetailPresentation {
     nonisolated static func nonEmpty(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
+    }
+
+    nonisolated static func containsAny(_ value: String, needles: [String]) -> Bool {
+        needles.contains { value.contains($0) }
+    }
+
+    nonisolated static func failurePlainReason(for bucket: OnThisPhoneFailureBucket) -> String {
+        switch bucket {
+        case .network:
+            SourceVocabulary.onThisPhoneFailureReasonNetwork
+        case .timeout:
+            SourceVocabulary.onThisPhoneFailureReasonTimeout
+        case .server:
+            SourceVocabulary.onThisPhoneFailureReasonServer
+        case .unknown:
+            SourceVocabulary.onThisPhoneFailureReasonUnknown
+        }
     }
 }

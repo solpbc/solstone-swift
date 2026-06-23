@@ -35,6 +35,7 @@ nonisolated struct ObserverUploadFailureSidecar: Codable, Equatable, Sendable {
     let attemptCount: Int
     let stage: String
     let sourceType: String
+    let lastAttemptAt: Date?
 }
 
 final class ObserverUploaderSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
@@ -457,7 +458,8 @@ private extension ObserverUploader {
                     failureReason: failure?.reason,
                     failureAttemptCount: failure?.attemptCount,
                     sourceLabel: audioSource.sourceLabel,
-                    retryAvailable: location == .failed
+                    retryAvailable: location == .failed,
+                    lastAttemptAt: failure?.lastAttemptAt
                 ))
             } catch {
                 uploaderLog.debug("observer on-this-phone item skipped: sidecar unavailable")
@@ -933,7 +935,8 @@ private extension ObserverUploader {
                         transportError: context.transportError.map { self.redactedFailureDetail($0) },
                         attemptCount: nextAttempt,
                         stage: context.stage,
-                        sourceType: context.sourceType
+                        sourceType: context.sourceType,
+                        lastAttemptAt: Date()
                     )
                 )
             } catch {

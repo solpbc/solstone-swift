@@ -147,6 +147,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     let failureAttemptCount: Int?
     let sourceLabel: String?
     let retryAvailable: Bool
+    let lastAttemptAt: Date?
 
     init(
         id: String,
@@ -169,7 +170,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         failureReason: String? = nil,
         failureAttemptCount: Int? = nil,
         sourceLabel: String? = nil,
-        retryAvailable: Bool = false
+        retryAvailable: Bool = false,
+        lastAttemptAt: Date? = nil
     ) {
         self.id = id
         self.sourceKind = sourceKind
@@ -192,6 +194,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         self.failureAttemptCount = failureAttemptCount
         self.sourceLabel = sourceLabel
         self.retryAvailable = retryAvailable
+        self.lastAttemptAt = lastAttemptAt
     }
 
     var hasLocalRaw: Bool {
@@ -242,27 +245,25 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         }
     }
 
-    var dropConfirmNoun: String {
-        guard let itemID = OnThisPhoneItemID(sourceKind: self.sourceKind, id: self.id) else {
-            return SourceVocabulary.onThisPhoneDropShareNoun
-        }
-
-        switch itemID {
-        case .audio:
-            return SourceVocabulary.onThisPhoneDropAudioNoun
-        case .location:
-            return SourceVocabulary.onThisPhoneDropLocationNoun
-        case .share:
-            return SourceVocabulary.onThisPhoneDropShareNoun
-        }
-    }
-
     var voiceOverText: String {
-        [
-            SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind),
+        let sourceLabel = self.isOmiAudio
+            ? SourceVocabulary.onThisPhoneOmiAudioSourceLabel
+            : SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind)
+        return [
+            sourceLabel,
             self.rowPayloadText,
             self.sendState.label,
         ].joined(separator: ". ")
+    }
+
+    var isOmiAudio: Bool {
+        guard case .audio(sessionID: _, chunkID: _, source: .omi) = OnThisPhoneItemID(
+            sourceKind: self.sourceKind,
+            id: self.id
+        ) else {
+            return false
+        }
+        return true
     }
 
     var rowPayloadText: String {

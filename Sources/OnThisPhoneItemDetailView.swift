@@ -4,14 +4,11 @@
 import SwiftUI
 
 struct OnThisPhoneItemDetailView: View {
-    @Environment(ImportQueue.self) private var importQueue
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverManager.self) private var observerManager
-    @Environment(ObserverUploader.self) private var observerUploader
-    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
 
     let item: OnThisPhoneItem
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
@@ -28,6 +25,7 @@ struct OnThisPhoneItemDetailView: View {
                 self.stateChip
                 self.previewBlock
                 self.summaryCard
+                self.failureBlock
                 self.locationHint
                 self.journalBlock
                 self.detailsBlock
@@ -81,8 +79,13 @@ private extension OnThisPhoneItemDetailView {
     var summaryCard: some View {
         let summary = OnThisPhoneItemDetailPresentation.summary(for: self.item, now: Date())
         return VStack(alignment: .leading, spacing: 6) {
-            Text(summary.big)
-                .font(.headline)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(summary.big)
+                    .font(.headline)
+                if self.item.isOmiAudio {
+                    onThisPhoneOmiBadge()
+                }
+            }
             Text(summary.small)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -91,6 +94,25 @@ private extension OnThisPhoneItemDetailView {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    @ViewBuilder
+    var failureBlock: some View {
+        if let failure = OnThisPhoneItemDetailPresentation.failureLegibility(for: self.item, now: Date()) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(failure.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let lastTried = failure.lastTried {
+                    Text(lastTried)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -144,29 +166,7 @@ private extension OnThisPhoneItemDetailView {
     }
 
     var actionsBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                self.dropButton
-
-                if self.item.sendState == .needsAttention, self.item.sourceKind == .share {
-                    Button(SourceVocabulary.retry) {
-                        self.retryShare()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                    .accessibilityHint("Tries sending this again.")
-                }
-
-                if self.item.sourceKind == .audio, self.item.retryAvailable {
-                    Button(SourceVocabulary.retry) {
-                        self.retryAudio()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .frame(minHeight: 44)
-                    .accessibilityHint("Tries sending this again.")
-                }
-            }
-        }
+        self.dropButton
     }
 
     var dropButton: some View {
@@ -191,7 +191,7 @@ private extension OnThisPhoneItemDetailView {
             Button(SourceVocabulary.cancel, role: .cancel) {}
                 .accessibilityIdentifier("onThisPhone.drop.cancel")
         } message: {
-            Text(SourceVocabulary.onThisPhoneDropConfirmMessage(noun: self.item.dropConfirmNoun))
+            Text(SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: self.item.sendState))
         }
     }
 
@@ -201,33 +201,15 @@ private extension OnThisPhoneItemDetailView {
         }
         return false
     }
+}
 
-    func retryShare() {
-        guard let itemID = UUID(uuidString: self.item.id) else { return }
-        Task {
-            try? await self.importQueue.requeueFailedItem(itemID: itemID)
-            self.dismiss()
-        }
-    }
-
-    func retryAudio() {
-        guard case .audio(let sessionID, let chunkID, let source) = OnThisPhoneItemID(
-            sourceKind: self.item.sourceKind,
-            id: self.item.id
-        ) else {
-            return
-        }
-
-        let uploader = switch source {
-        case .observer:
-            self.observerUploader
-        case .omi:
-            self.omiUploaderHolder.uploader
-        }
-
-        Task {
-            try? await uploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
-            self.dismiss()
-        }
-    }
+@MainActor
+func onThisPhoneOmiBadge() -> some View {
+    Text("omi")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color(.tertiarySystemFill), in: Capsule())
+        .accessibilityHidden(true)
 }

@@ -77,6 +77,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         let uploader = self.makeUploader(retryDelays: [0, 0, 0, 0])
         let sessionID = UUID()
         let sourceURL = try self.makeChunkFile(named: "chunk-2")
+        let failureWindowStart = Date()
 
         await uploader.enqueue(
             chunkURL: sourceURL,
@@ -102,6 +103,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(failure.stage, "http-failure")
         XCTAssertEqual(failure.sourceType, "observer-audio")
         XCTAssertTrue(failure.reason.contains("HTTP 503"))
+        let lastAttemptAt = try XCTUnwrap(failure.lastAttemptAt)
+        XCTAssertGreaterThanOrEqual(lastAttemptAt, failureWindowStart.addingTimeInterval(-1))
+        XCTAssertLessThanOrEqual(lastAttemptAt, Date())
         XCTAssertEqual(uploader.failedCount, 1)
     }
 
@@ -262,7 +266,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             transportError: nil,
             attemptCount: 5,
             stage: "transport-failure",
-            sourceType: "observer-audio"
+            sourceType: "observer-audio",
+            lastAttemptAt: nil
         )).write(to: failedFailure)
         let uploader = self.makeUploader(ensureRegistered: {
             XCTFail("dropItem should not register")
@@ -356,6 +361,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     func testFailureSidecarSurvivesRelaunchAndPopulatesFailedItem() throws {
         let sessionID = UUID()
         let chunkID = "chunk-sidecar"
+        let lastAttemptAt = Date(timeIntervalSince1970: 1_780_481_000)
         try self.writeFailedPair(
             sessionID: sessionID,
             chunkID: chunkID,
@@ -365,7 +371,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
                 transportError: nil,
                 attemptCount: 5,
                 stage: "http-failure",
-                sourceType: "observer-audio"
+                sourceType: "observer-audio",
+                lastAttemptAt: lastAttemptAt
             )
         )
 
@@ -376,6 +383,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(item.id, "audio:\(sessionID.uuidString):\(chunkID)")
         XCTAssertEqual(item.failureReason, "journal rejected the upload (HTTP 503)")
         XCTAssertEqual(item.failureAttemptCount, 5)
+        XCTAssertEqual(item.lastAttemptAt, lastAttemptAt)
         XCTAssertEqual(item.sourceLabel, SourceVocabulary.onThisPhoneObserverAudioSourceLabel)
         XCTAssertEqual(item.retryAvailable, true)
         XCTAssertEqual(item.sendState, .needsAttention)
@@ -395,7 +403,39 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(item.id, "audio:\(sessionID.uuidString):\(chunkID)")
         XCTAssertNil(item.failureReason)
         XCTAssertNil(item.failureAttemptCount)
+        XCTAssertNil(item.lastAttemptAt)
         XCTAssertEqual(item.retryAvailable, true)
+    }
+
+    func testFailureSidecarRoundTripsLastAttemptAt() throws {
+        let lastAttemptAt = Date(timeIntervalSince1970: 1_780_481_000)
+        let sidecar = ObserverUploadFailureSidecar(
+            reason: "HTTP 503",
+            httpStatus: 503,
+            transportError: nil,
+            attemptCount: 5,
+            stage: "http-failure",
+            sourceType: "observer-audio",
+            lastAttemptAt: lastAttemptAt
+        )
+        let url = self.tempDirectory.appendingPathComponent("round-trip.failure", isDirectory: false)
+
+        try self.makeEncoder().encode(sidecar).write(to: url)
+
+        XCTAssertEqual(try self.decodeFailureSidecar(at: url), sidecar)
+    }
+
+    func testFailureSidecarMissingLastAttemptAtDecodesAsNil() throws {
+        let url = self.tempDirectory.appendingPathComponent("missing-last-attempt.failure", isDirectory: false)
+        try Data(
+            #"{"attemptCount":5,"httpStatus":503,"reason":"HTTP 503","sourceType":"observer-audio","stage":"http-failure","transportError":null}"#.utf8
+        ).write(to: url)
+
+        let sidecar = try self.decodeFailureSidecar(at: url)
+
+        XCTAssertEqual(sidecar.reason, "HTTP 503")
+        XCTAssertEqual(sidecar.attemptCount, 5)
+        XCTAssertNil(sidecar.lastAttemptAt)
     }
 
     @MainActor
@@ -417,7 +457,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
                 transportError: "network unavailable",
                 attemptCount: 5,
                 stage: "transport-failure",
-                sourceType: "observer-audio"
+                sourceType: "observer-audio",
+                lastAttemptAt: nil
             )
         )
         let uploader = self.makeUploader()
@@ -885,7 +926,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     private func decodeFailureSidecar(at url: URL) throws -> ObserverUploadFailureSidecar {
-        try JSONDecoder().decode(ObserverUploadFailureSidecar.self, from: Data(contentsOf: url))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ObserverUploadFailureSidecar.self, from: Data(contentsOf: url))
     }
 
     private func loadedItems(from result: OnThisPhoneSourceResult) throws -> [OnThisPhoneItem] {

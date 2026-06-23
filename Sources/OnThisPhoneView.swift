@@ -115,7 +115,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
 
                 Button(SourceVocabulary.cancel, role: .cancel) {}
             } message: { item in
-                Text(SourceVocabulary.onThisPhoneDropConfirmMessage(noun: item.dropConfirmNoun))
+                Text(SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: item.sendState))
             }
             .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
             .accessibilityIdentifier("onThisPhone.surface")
@@ -801,6 +801,9 @@ private struct OnThisPhoneRow: View {
                 Text(SourceVocabulary.onThisPhoneSourceName(for: self.item.sourceKind))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
+                if self.item.isOmiAudio {
+                    onThisPhoneOmiBadge()
+                }
                 Spacer(minLength: 8)
                 Text(self.item.rowTimestampText)
                     .font(.caption)
