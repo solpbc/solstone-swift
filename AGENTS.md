@@ -12,6 +12,8 @@ Native iOS app for solstone — the private, AI-powered personal journal from so
 - **`os.Logger` only.** `.info` / `.error` / `.debug` survive from any thread. `print()` and `NSLog()` silently drop from NIO dispatch queues — don't use them. Subsystem: `app.solstone.swift`.
 - **WKScriptMessageHandler is the only bridge.** URL-scheme handler (`fetch('solstone://…')`) fails cross-origin from the `http://127.0.0.1` portal. Do NOT re-introduce it.
 - **Universal always.** `.sidebarAdaptable` on the TabView; size-class-aware SwiftUI. No iPhone-only hardcoding.
+- **KISS / YAGNI.** Build for the wave's scope; don't add speculative machinery, options, or fallbacks for cases that don't exist yet. No backwards-compatibility shims — update call sites directly when you rename or move something.
+- **Verify before you claim.** Recall is a hypothesis — verify convey/portal contracts, OpenAI Realtime behavior, and SDK shapes against the live source, and exercise the real serialization boundary in tests rather than mocking both sides.
 
 ## Architecture
 
