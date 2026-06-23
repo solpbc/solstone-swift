@@ -41,6 +41,9 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var statusDetailsExpanded = false
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
+    @State private var welcomeFraming: String?
+    @State private var welcomeFramingTask: Task<Void, Never>?
+    private let pulsePoller = HomePulsePoller()
     private let askBarState: DayHomeJournalState?
     private let onAskBarChat: () -> Void
     private let foldBadgeVisible: Bool
@@ -73,6 +76,13 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                     }
 
                     self.magicMomentSection
+
+                    if let welcomeFraming = self.welcomeFraming {
+                        Text(welcomeFraming)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("onThisPhone.welcomeFraming")
+                    }
 
                     if self.hasItems, self.isShowingNotBackedUpNudge {
                         self.notBackedUpNudge
@@ -124,6 +134,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .onAppear {
                 self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
                 self.loadSnapshot()
+                self.refreshWelcomeFraming()
             }
             .onChange(of: self.observerUploader.pendingCount) { _, _ in
                 self.loadSnapshot()
@@ -151,6 +162,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             }
             .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
                 self.loadSnapshot()
+                self.refreshWelcomeFraming()
             }
             .sheet(isPresented: self.$showingConnectJournal) {
                 ConnectJournalSheet(isPresented: self.$showingConnectJournal)
@@ -607,6 +619,19 @@ private extension OnThisPhoneMomentsView {
         self.aggregate = aggregate
         let displayAggregate = self.displayAggregate ?? aggregate
         self.updateMagicMoment(from: displayAggregate)
+    }
+
+    private func refreshWelcomeFraming() {
+        self.welcomeFramingTask?.cancel()
+        guard let port = self.observerRegistration.activeLocalPort else {
+            self.welcomeFraming = nil
+            return
+        }
+        self.welcomeFramingTask = Task {
+            let framing = await self.pulsePoller.fetch(localPort: port)
+            guard !Task.isCancelled else { return }
+            self.welcomeFraming = framing
+        }
     }
 
     func updateMagicMoment(from snapshot: OnThisPhoneAggregateSnapshot) {

@@ -18,17 +18,23 @@ nonisolated final class JournalRootGrepTests: XCTestCase {
             for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineText = String(line)
                 for forbidden in Self.forbiddenSubstrings where lineText.contains(forbidden) {
-                    XCTFail("retired journal route/progress token \(forbidden) at \(file.path):\(index + 1): \(lineText)")
+                    XCTFail("forbidden retired route or hardcoded server copy \(forbidden) at \(file.path):\(index + 1): \(lineText)")
                 }
             }
         }
     }
 
     private static let forbiddenSubstrings = [
-        "progress-today",
+        "/api/home/progress-today",
         "progressToday",
-        "/app/home/",
+        "/api/settings/briefing-time",
+        JournalRootGrepTests.firstWeekFraming,
     ]
+
+    // Server-authored first-week welcome copy. Must live ONLY here as an absence
+    // assertion — the client renders the server's welcome_framing verbatim and
+    // holds no hardcoded copy of it.
+    private static let firstWeekFraming = "Most of what I learn becomes useful in the third or fourth week"
 
     private static func worktreeRoot() -> URL {
         URL(fileURLWithPath: #filePath)
