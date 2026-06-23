@@ -17,28 +17,28 @@ nonisolated enum ObserverManifestResult: Equatable, Sendable {
 }
 
 private nonisolated struct ObserverManifestResponse: Decodable {
-    let segments: [Segment]
+    let items: [SegmentItem]
 
     init(from decoder: any Decoder) throws {
         if let singleValue = try? decoder.singleValueContainer(),
-           let segments = try? singleValue.decode([Segment].self)
+           let items = try? singleValue.decode([SegmentItem].self)
         {
-            self.segments = segments
+            self.items = items
             return
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.segments = try container.decodeIfPresent([Segment].self, forKey: .segments) ?? []
+        self.items = try container.decode([SegmentItem].self, forKey: .items)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case segments
+        case items
     }
 }
 
-private struct Segment: Decodable {
-    let key: String?
-    let observed: String?
+private struct SegmentItem: Decodable {
+    let key: String
+    let observed: Bool?
     let files: [SegmentFile]
     let originalKey: String?
 
@@ -63,13 +63,17 @@ nonisolated struct ObserverManifestClient: Sendable {
 
     func fetchToday(localPort: Int, handle: String) async -> ObserverManifestResult {
         let day = Self.dayString(for: Date())
-        guard let url = ObserverServerURL.manifestURL(localPort: localPort, day: day) else {
+        guard let url = ObserverServerURL.segmentsURL(localPort: localPort, day: day) else {
             let log = Logger(subsystem: "app.solstone.swift", category: "observer")
             log.debug("observer manifest unavailable: invalid url")
             return .failed
         }
 
         var request = ObserverAuthorizedRequest.make(url: url, handle: handle)
+        request.setValue(
+            ObserverServerURL.segmentsProtocolVersion,
+            forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName
+        )
         request.timeoutInterval = 5
 
         do {
@@ -81,10 +85,10 @@ nonisolated struct ObserverManifestClient: Sendable {
             }
 
             let payload = try JSONDecoder().decode(ObserverManifestResponse.self, from: data)
-            let items = payload.segments.map { segment in
-                let title = segment.key ?? segment.originalKey ?? "observation"
+            let items = payload.items.map { segment in
+                let title = segment.key
                 let fileCount = segment.files.count
-                let subtitle = segment.observed ?? "\(fileCount) file\(fileCount == 1 ? "" : "s")"
+                let subtitle = "\(fileCount) file\(fileCount == 1 ? "" : "s")"
                 return ObserverManifestItem(id: title, title: title, subtitle: subtitle)
             }
             return items.isEmpty ? .loadedEmpty : .loaded(items)

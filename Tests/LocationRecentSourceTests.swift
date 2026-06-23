@@ -23,12 +23,37 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
                 Data(
                     #"""
                     {
-                      "segments": [
-                        {"key":"20260603-160000_300","observed":"today","files":[{"name":"audio.m4a"}]},
-                        {"key":"20260603-150000_300","observed":"today","files":[{"name":"location.jsonl"}]},
-                        {"key":"20260603-145000_300","observed":"today","files":[]},
-                        {"original_key":"20260603-154212_300","observed":"today","files":[{"name":"location.jsonl"}]}
-                      ]
+                      "items": [
+                        {
+                          "key": "20260603-160000_300",
+                          "observed": true,
+                          "files": [
+                            {"name":"audio.m4a","size":42,"sha256":"abc123","status":"ready"}
+                          ]
+                        },
+                        {
+                          "key": "20260603-150000_300",
+                          "observed": true,
+                          "files": [
+                            {"name":"location.jsonl","size":42,"sha256":"abc123","status":"ready"}
+                          ]
+                        },
+                        {
+                          "key": "20260603-145000_300",
+                          "observed": true,
+                          "files": []
+                        },
+                        {
+                          "key": "20260603-154212_300",
+                          "observed": true,
+                          "files": [
+                            {"name":"location.jsonl","size":42,"sha256":"abc123","status":"ready"}
+                          ],
+                          "original_key": "20260603-154212_300"
+                        }
+                      ],
+                      "total": 4,
+                      "protocol_version": 2
                     }
                     """#.utf8
                 )
@@ -53,7 +78,7 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
         LocationRecentURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"segments":[]}"#.utf8)
+                Data(#"{"items":[],"total":0,"protocol_version":2}"#.utf8)
             )
         }
 
@@ -63,7 +88,23 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
         LocationRecentURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"segments":[{"key":"20260603-150000_300","files":[{"name":"audio.m4a"}]}]}"#.utf8)
+                Data(
+                    #"""
+                    {
+                      "items": [
+                        {
+                          "key": "20260603-150000_300",
+                          "observed": true,
+                          "files": [
+                            {"name":"audio.m4a","size":42,"sha256":"abc123","status":"ready"}
+                          ]
+                        }
+                      ],
+                      "total": 1,
+                      "protocol_version": 2
+                    }
+                    """#.utf8
+                )
             )
         }
 
@@ -97,7 +138,19 @@ nonisolated final class LocationRecentSourceTests: XCTestCase {
         LocationRecentURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"[{"key":"20260603-154212_300","files":[{"name":"location.jsonl"}]}]"#.utf8)
+                Data(
+                    #"""
+                    [
+                      {
+                        "key": "20260603-154212_300",
+                        "observed": true,
+                        "files": [
+                          {"name":"location.jsonl","size":42,"sha256":"abc123","status":"ready"}
+                        ]
+                      }
+                    ]
+                    """#.utf8
+                )
             )
         }
 
@@ -185,7 +238,8 @@ private final class LocationRecentURLProtocol: URLProtocol, @unchecked Sendable 
 
     override func startLoading() {
         XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer observer-key")
-        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/manifest/\(locationRecentTestDayString())")
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "2")
+        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/segments/\(locationRecentTestDayString())")
         guard let handler = Self.handler else {
             XCTFail("LocationRecentURLProtocol handler not set")
             return

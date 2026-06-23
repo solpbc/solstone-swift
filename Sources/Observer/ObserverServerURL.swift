@@ -4,6 +4,9 @@
 import Foundation
 
 nonisolated enum ObserverServerURL {
+    static let protocolVersionHeaderName = "X-Solstone-Protocol-Version"
+    static let segmentsProtocolVersion = "2"
+
     static func registrationURL(localPort: Int) -> URL? {
         self.url(localPort: localPort, path: "/app/observer/register")
     }
@@ -12,8 +15,8 @@ nonisolated enum ObserverServerURL {
         self.url(localPort: localPort, path: "/app/observer/ingest")
     }
 
-    static func manifestURL(localPort: Int, day: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/ingest/manifest/\(day)")
+    static func segmentsURL(localPort: Int, day: String) -> URL? {
+        self.url(localPort: localPort, path: "/app/observer/ingest/segments/\(day)")
     }
 
     static func deleteSourceURL(localPort: Int, source: String) -> URL? {

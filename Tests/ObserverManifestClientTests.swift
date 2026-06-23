@@ -17,14 +17,68 @@ nonisolated final class ObserverManifestClientTests: XCTestCase {
             XCTAssertEqual(request.url?.host, "127.0.0.1")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"segments":[{"key":"meeting","observed":"today","files":[{"name":"audio.m4a"}]}]}"#.utf8)
+                Data(
+                    #"""
+                    {
+                      "items": [
+                        {
+                          "key": "meeting",
+                          "observed": true,
+                          "files": [
+                            {
+                              "name": "audio.m4a",
+                              "size": 42,
+                              "sha256": "abc123",
+                              "status": "ready"
+                            }
+                          ],
+                          "original_key": "meeting-original"
+                        }
+                      ],
+                      "total": 1,
+                      "protocol_version": 2
+                    }
+                    """#.utf8
+                )
             )
         }
 
         let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
 
         XCTAssertEqual(result, .loaded([
-            ObserverManifestItem(id: "meeting", title: "meeting", subtitle: "today")
+            ObserverManifestItem(id: "meeting", title: "meeting", subtitle: "1 file")
+        ]))
+    }
+
+    func testFetchTodayDecodesBareArrayForm() async {
+        ObserverManifestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(
+                    #"""
+                    [
+                      {
+                        "key": "meeting",
+                        "observed": true,
+                        "files": [
+                          {
+                            "name": "audio.m4a",
+                            "size": 42,
+                            "sha256": "abc123",
+                            "status": "ready"
+                          }
+                        ]
+                      }
+                    ]
+                    """#.utf8
+                )
+            )
+        }
+
+        let result = await self.client.fetchToday(localPort: 7071, handle: "observer-key")
+
+        XCTAssertEqual(result, .loaded([
+            ObserverManifestItem(id: "meeting", title: "meeting", subtitle: "1 file")
         ]))
     }
 
@@ -32,7 +86,7 @@ nonisolated final class ObserverManifestClientTests: XCTestCase {
         ObserverManifestURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"segments":[]}"#.utf8)
+                Data(#"{"items":[],"total":0,"protocol_version":2}"#.utf8)
             )
         }
 
@@ -80,7 +134,8 @@ private final class ObserverManifestURLProtocol: URLProtocol, @unchecked Sendabl
 
     override func startLoading() {
         XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer observer-key")
-        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/manifest/\(observerManifestTestDayString())")
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "2")
+        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/segments/\(observerManifestTestDayString())")
         guard let handler = Self.handler else {
             XCTFail("ObserverManifestURLProtocol handler not set")
             return

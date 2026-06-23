@@ -55,51 +55,14 @@ struct ProgressSnapshot: Decodable, Equatable, Sendable {
 
 typealias ProgressTodaySnapshot = ProgressSnapshot
 
-struct BriefingTime: Sendable, Equatable {
-    let hour: Int
-    let minute: Int
-    let tzIdentifier: String
-
-    init(hour: Int, minute: Int, tzIdentifier: String) {
-        self.hour = hour
-        self.minute = minute
-        self.tzIdentifier = tzIdentifier
-    }
-}
-
 @MainActor
 struct HomeAPIClient: Sendable {
-    private struct BriefingRequest: Encodable {
-        let hour: Int
-        let minute: Int
-        let tzIdentifier: String
-
-        enum CodingKeys: String, CodingKey {
-            case hour
-            case minute
-            case tzIdentifier = "tz_identifier"
-        }
-    }
-
     private let loopbackPort: Int
     private let session: URLSession
 
     init(loopbackPort: Int, session: URLSession = .shared) {
         self.loopbackPort = loopbackPort
         self.session = session
-    }
-
-    func setBriefingTime(_ time: BriefingTime) async throws {
-        let payload = BriefingRequest(
-            hour: time.hour,
-            minute: time.minute,
-            tzIdentifier: time.tzIdentifier
-        )
-        _ = try await perform(
-            path: "/api/settings/briefing-time",
-            method: "PUT",
-            body: try JSONEncoder().encode(payload)
-        )
     }
 
     func progressToday() async throws -> ProgressTodaySnapshot {

@@ -26,8 +26,6 @@ required_hints=(
   'Sources/Location/LocationSourceDetailView.swift:Chooses places only for location.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses places plus comings and goings for location. This is the recommended default.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses the complete picture for location.'
-  'Sources/MoreView.swift:Chooses the time for your morning briefing'
-  'Sources/MoreView.swift:Saves your morning briefing time'
   'Sources/MoreView.swift:Turns interface haptics on or off'
   'Sources/MoreView.swift:Clears this device pairing and returns to onboarding'
   'Sources/Voice/VoiceButton.swift:starts a voice session'

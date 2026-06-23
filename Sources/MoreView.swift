@@ -31,13 +31,6 @@ struct MoreView: View {
     @State private var showingObserverReset = false
     @State private var showingUnpairConfirm = false
     @State private var showingConnectJournal = false
-    @State private var selectedBriefingTime = Calendar.current.date(
-        bySettingHour: 7,
-        minute: 0,
-        second: 0,
-        of: .now
-    ) ?? .now
-    @State private var briefingError: String?
 
     private var serverHost: String {
         self.appConfig.host
@@ -304,30 +297,6 @@ struct MoreView: View {
                 .hoverEffect(.highlight)
             }
 
-            Section("briefing") {
-                DatePicker(
-                    "time",
-                    selection: self.$selectedBriefingTime,
-                    displayedComponents: .hourAndMinute
-                )
-                .datePickerStyle(.compact)
-                .accessibilityHint("Chooses the time for your morning briefing")
-
-                Button("save briefing time") {
-                    Task {
-                        await self.saveBriefingTime()
-                    }
-                }
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityHint("Saves your morning briefing time")
-
-                if let briefingError {
-                    Text(briefingError)
-                        .font(.body)
-                        .foregroundStyle(.red)
-                }
-            }
-
             Section("preferences") {
                 Toggle("haptics", isOn: Binding(
                     get: { UserSettings.haptics },
@@ -433,21 +402,6 @@ struct MoreView: View {
             if UserSettings.haptics {
                 UINotificationFeedbackGenerator().notificationOccurred(.warning)
             }
-        }
-    }
-
-    private func saveBriefingTime() async {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: self.selectedBriefingTime)
-        do {
-            let client = HomeAPIClient(loopbackPort: self.localPort)
-            try await client.setBriefingTime(BriefingTime(
-                hour: components.hour ?? 7,
-                minute: components.minute ?? 0,
-                tzIdentifier: TimeZone.current.identifier
-            ))
-            self.briefingError = nil
-        } catch {
-            self.briefingError = "unable to save briefing time."
         }
     }
 

@@ -67,8 +67,6 @@ private extension OnboardingAccessibilityTests {
 
         self.scrollToElement(app.buttons["enable notifications"], in: app)
         self.assertMetadata(for: app.buttons["enable notifications"], in: app)
-        self.scrollToElement(app.buttons["save briefing time"], in: app)
-        self.assertMetadata(for: app.buttons["save briefing time"], in: app)
         self.scrollToElement(app.switches["haptics"], in: app)
         self.assertMetadata(for: app.switches["haptics"], in: app)
         self.scrollToElement(app.buttons["unpair this device"], in: app)

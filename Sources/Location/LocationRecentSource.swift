@@ -34,12 +34,16 @@ nonisolated struct LocationRecentSource: LocationRecentProviding {
 
     func fetchToday(localPort: Int, handle: String) async -> LocationRecentResult {
         let day = Self.dayString(for: Date())
-        guard let url = ObserverServerURL.manifestURL(localPort: localPort, day: day) else {
+        guard let url = ObserverServerURL.segmentsURL(localPort: localPort, day: day) else {
             locationRecentLog.debug("location recent unavailable: invalid url")
             return .failed
         }
 
         var request = ObserverAuthorizedRequest.make(url: url, handle: handle)
+        request.setValue(
+            ObserverServerURL.segmentsProtocolVersion,
+            forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName
+        )
         request.timeoutInterval = 5
 
         do {
@@ -51,7 +55,7 @@ nonisolated struct LocationRecentSource: LocationRecentProviding {
 
             let payload = try JSONDecoder().decode(ManifestResponse.self, from: data)
             var locationItems: [(sortKey: String, item: LocationRecentItem)] = []
-            for segment in payload.segments {
+            for segment in payload.items {
                 if let item = self.locationItem(from: segment) {
                     locationItems.append(item)
                 }
@@ -109,29 +113,29 @@ nonisolated struct LocationRecentSource: LocationRecentProviding {
 
 private extension LocationRecentSource {
     nonisolated struct ManifestResponse: Decodable {
-        let segments: [Segment]
+        let items: [SegmentItem]
 
         init(from decoder: any Decoder) throws {
             if let singleValue = try? decoder.singleValueContainer(),
-               let segments = try? singleValue.decode([Segment].self)
+               let items = try? singleValue.decode([SegmentItem].self)
             {
-                self.segments = segments
+                self.items = items
                 return
             }
 
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.segments = try container.decodeIfPresent([Segment].self, forKey: .segments) ?? []
+            self.items = try container.decode([SegmentItem].self, forKey: .items)
         }
 
         private enum CodingKeys: String, CodingKey {
-            case segments
+            case items
         }
     }
 
-    nonisolated struct Segment: Decodable {
-        let key: String?
-        let observed: String?
-        let files: [SegmentFile]?
+    nonisolated struct SegmentItem: Decodable {
+        let key: String
+        let observed: Bool?
+        let files: [SegmentFile]
         let originalKey: String?
 
         enum CodingKeys: String, CodingKey {
@@ -146,19 +150,17 @@ private extension LocationRecentSource {
         let name: String?
     }
 
-    func locationItem(from segment: Segment) -> (sortKey: String, item: LocationRecentItem)? {
-        guard let segmentKey = segment.key ?? segment.originalKey,
-              segment.files?.contains(where: { $0.name == "location.jsonl" }) == true
-        else {
+    func locationItem(from segment: SegmentItem) -> (sortKey: String, item: LocationRecentItem)? {
+        guard segment.files.contains(where: { $0.name == "location.jsonl" }) else {
             return nil
         }
 
         return (
-            sortKey: segmentKey,
+            sortKey: segment.key,
             item: LocationRecentItem(
-                id: segmentKey,
+                id: segment.key,
                 timeLabel: Self.timeLabel(
-                    forSegmentKey: segmentKey,
+                    forSegmentKey: segment.key,
                     locale: self.locale,
                     timeZone: self.timeZone
                 )
