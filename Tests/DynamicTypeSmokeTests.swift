@@ -126,6 +126,9 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(PushNotificationManager())
             .environment(observerRegistration)
             .environment(observerUploader)
+            .environment(omiUploaderHolder)
+            .environment(importQueue)
+            .environment(locationUploader)
             .environment(observerManager)
         }
 

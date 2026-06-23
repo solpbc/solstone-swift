@@ -6,6 +6,7 @@ import Foundation
 nonisolated struct OnThisPhoneHeadline: Equatable {
     enum Role: Equatable {
         case syncing
+        case trouble
         case upToDate
         case needsAttention
     }
@@ -20,7 +21,7 @@ nonisolated struct OnThisPhoneHeadline: Equatable {
 
 nonisolated func onThisPhoneHeadline(
     migration: OnThisPhoneMigration,
-    reachingJournal: Bool? = nil
+    reachingJournal: Bool
 ) -> OnThisPhoneHeadline {
     guard !migration.isEmpty else { return OnThisPhoneHeadline(lines: []) }
     let backlog = migration.onThisPhone + migration.onItsWay
@@ -37,10 +38,11 @@ nonisolated func onThisPhoneHeadline(
     }
 
     if backlog > 0 {
-        // L3: when reachingJournal == false, swap the syncing line to stuck copy.
         lines.append(.init(
-            text: SourceVocabulary.migrationHeadlineSyncing(count: backlog),
-            role: .syncing
+            text: !reachingJournal
+                ? SourceVocabulary.migrationHeadlineTrouble(count: backlog)
+                : SourceVocabulary.migrationHeadlineSyncing(count: backlog),
+            role: !reachingJournal ? .trouble : .syncing
         ))
     } else if migration.needsAttention == 0 {
         lines.append(.init(

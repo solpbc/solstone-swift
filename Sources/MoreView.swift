@@ -22,6 +22,9 @@ struct MoreView: View {
     @Environment(\.openURL) private var openURL
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
+    @Environment(ImportQueue.self) private var importQueue
+    @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverManager.self) private var observerManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
@@ -43,8 +46,24 @@ struct MoreView: View {
         return "\(version) (\(build))"
     }
 
+    private var standingReach: UploadReach {
+        uploadReach(
+            observer: self.observerUploader,
+            omi: self.omiUploaderHolder,
+            importQueue: self.importQueue,
+            location: self.locationUploader
+        )
+    }
+
+    private var standingHealth: (health: ConnectionHealth, syncing: Bool) {
+        SourceVocabulary.standingHealth(
+            isConnected: self.tunnelManager.state.isConnected,
+            reach: self.standingReach
+        )
+    }
+
     private var healthColor: Color {
-        switch self.tunnelManager.connectionHealth {
+        switch self.standingHealth.health {
         case .healthy: .green
         case .degraded: .yellow
         case .unknown: .gray
@@ -170,9 +189,10 @@ struct MoreView: View {
                         Text(self.connectedSince, style: .timer)
                     }
                     LabeledContent("status") {
+                        let standingHealth = self.standingHealth
                         let line = SourceVocabulary.standingSyncLine(
-                            health: self.tunnelManager.connectionHealth,
-                            syncing: self.observerUploader.pendingCount > 0
+                            health: standingHealth.health,
+                            syncing: standingHealth.syncing
                         )
                         HStack(spacing: 6) {
                             Circle()

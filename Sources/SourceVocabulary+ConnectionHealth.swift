@@ -4,6 +4,24 @@
 import Foundation
 
 extension SourceVocabulary {
+    nonisolated static func standingHealth(
+        isConnected: Bool,
+        reach: UploadReach
+    ) -> (health: ConnectionHealth, syncing: Bool) {
+        guard isConnected else {
+            return (.unknown, false)
+        }
+
+        switch reach {
+        case .failing:
+            return (.degraded, false)
+        case .reaching:
+            return (.healthy, true)
+        case .idle:
+            return (.healthy, false)
+        }
+    }
+
     nonisolated static func standingSyncLine(health: ConnectionHealth, syncing: Bool) -> String {
         switch health {
         case .unknown: return Self.standingOffline

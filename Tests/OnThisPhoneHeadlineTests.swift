@@ -6,7 +6,7 @@ import XCTest
 
 nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     func testNeedsAttentionOnlyProducesNeedsAttentionLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1))
+        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1), reachingJournal: true)
 
         XCTAssertEqual(headline.lines, [
             OnThisPhoneHeadline.Line(text: "1 needs attention", role: .needsAttention),
@@ -14,7 +14,10 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     }
 
     func testNeedsAttentionPrecedesSyncingWhenBacklogExists() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2, needsAttention: 1))
+        let headline = onThisPhoneHeadline(
+            migration: Self.migration(onItsWay: 2, needsAttention: 1),
+            reachingJournal: true
+        )
 
         XCTAssertEqual(headline.lines.map(\.role), [.needsAttention, .syncing])
         XCTAssertEqual(headline.lines.map(\.text), [
@@ -24,7 +27,7 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     }
 
     func testOnThisPhoneBacklogProducesSingularSyncingLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onThisPhone: 1))
+        let headline = onThisPhoneHeadline(migration: Self.migration(onThisPhone: 1), reachingJournal: true)
 
         XCTAssertEqual(headline.lines, [
             OnThisPhoneHeadline.Line(text: "syncing 1 item to your journal", role: .syncing),
@@ -32,7 +35,7 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     }
 
     func testOnItsWayBacklogProducesPluralSyncingLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2))
+        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2), reachingJournal: true)
 
         XCTAssertEqual(headline.lines, [
             OnThisPhoneHeadline.Line(text: "syncing 2 items to your journal", role: .syncing),
@@ -40,7 +43,7 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     }
 
     func testDeliveredOnlyProducesUpToDateLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(inYourJournal: 3))
+        let headline = onThisPhoneHeadline(migration: Self.migration(inYourJournal: 3), reachingJournal: true)
 
         XCTAssertEqual(headline.lines, [
             OnThisPhoneHeadline.Line(text: "your journal is up to date", role: .upToDate),
@@ -48,7 +51,7 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     }
 
     func testEmptyMigrationProducesNoLines() {
-        let headline = onThisPhoneHeadline(migration: Self.migration())
+        let headline = onThisPhoneHeadline(migration: Self.migration(), reachingJournal: true)
 
         XCTAssertEqual(headline.lines, [])
     }

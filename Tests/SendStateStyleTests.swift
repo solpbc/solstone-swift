@@ -45,6 +45,23 @@ nonisolated final class SendStateStyleTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(darkRatio, 4.5, pair.foregroundAssetName)
         }
 
+        for foregroundAssetName in Self.systemBackgroundContrastGatedForegrounds {
+            let lightRatio = try self.contrastRatio(
+                foregroundAssetName: foregroundAssetName,
+                backgroundColor: .systemBackground,
+                in: bundle,
+                traits: lightTraits
+            )
+            let darkRatio = try self.contrastRatio(
+                foregroundAssetName: foregroundAssetName,
+                backgroundColor: .systemBackground,
+                in: bundle,
+                traits: darkTraits
+            )
+            XCTAssertGreaterThanOrEqual(lightRatio, 4.5, foregroundAssetName)
+            XCTAssertGreaterThanOrEqual(darkRatio, 4.5, foregroundAssetName)
+        }
+
         let lightForegrounds = try Self.foregroundAssetNames.map {
             try self.resolvedComponents(assetName: $0, in: bundle, traits: lightTraits)
         }
@@ -99,6 +116,36 @@ nonisolated final class SendStateStyleTests: XCTestCase {
             file: file,
             line: line
         )
+        return try Self.components(from: uiColor, file: file, line: line)
+    }
+
+    private func contrastRatio(
+        foregroundAssetName: String,
+        backgroundAssetName: String,
+        in bundle: Bundle,
+        traits: UITraitCollection
+    ) throws -> CGFloat {
+        let foreground = try self.resolvedComponents(assetName: foregroundAssetName, in: bundle, traits: traits)
+        let background = try self.resolvedComponents(assetName: backgroundAssetName, in: bundle, traits: traits)
+        return Self.contrastRatio(foreground: foreground, background: background)
+    }
+
+    private func contrastRatio(
+        foregroundAssetName: String,
+        backgroundColor: UIColor,
+        in bundle: Bundle,
+        traits: UITraitCollection
+    ) throws -> CGFloat {
+        let foreground = try self.resolvedComponents(assetName: foregroundAssetName, in: bundle, traits: traits)
+        let background = try Self.components(from: backgroundColor.resolvedColor(with: traits))
+        return Self.contrastRatio(foreground: foreground, background: background)
+    }
+
+    private static func components(
+        from uiColor: UIColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> RGBA {
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
@@ -111,17 +158,6 @@ nonisolated final class SendStateStyleTests: XCTestCase {
             line: line
         )
         return RGBA(red: red, green: green, blue: blue, alpha: alpha)
-    }
-
-    private func contrastRatio(
-        foregroundAssetName: String,
-        backgroundAssetName: String,
-        in bundle: Bundle,
-        traits: UITraitCollection
-    ) throws -> CGFloat {
-        let foreground = try self.resolvedComponents(assetName: foregroundAssetName, in: bundle, traits: traits)
-        let background = try self.resolvedComponents(assetName: backgroundAssetName, in: bundle, traits: traits)
-        return Self.contrastRatio(foreground: foreground, background: background)
     }
 
     private static func relativeLuminance(_ color: RGBA) -> CGFloat {
@@ -170,6 +206,10 @@ private extension SendStateStyleTests {
         "SendState/Sending/Foreground",
         "SendState/InYourJournal/Foreground",
         "SendState/NeedsAttention/Foreground",
+    ]
+
+    static let systemBackgroundContrastGatedForegrounds = [
+        "SendState/Sending/Foreground",
     ]
 
     static let contrastGatedPairs = [

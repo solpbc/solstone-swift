@@ -248,7 +248,13 @@ private extension OnThisPhoneMomentsView {
         items: [OnThisPhoneItem],
         summary: [OnThisPhoneSendStateSummary]
     ) -> some View {
-        let headline = onThisPhoneHeadline(migration: migration, reachingJournal: nil)
+        let reach = uploadReach(
+            observer: self.observerUploader,
+            omi: self.omiUploaderHolder,
+            importQueue: self.importQueue,
+            location: self.locationUploader
+        )
+        let headline = onThisPhoneHeadline(migration: migration, reachingJournal: reach != .failing)
         let lines = self.appConfig.isPaired
             ? headline.lines
             : headline.lines.filter { $0.role == .needsAttention }
@@ -302,6 +308,15 @@ private extension OnThisPhoneMomentsView {
             Text(line.text)
                 .font(.headline)
                 .accessibilityIdentifier("onThisPhone.status.headline")
+        case .trouble:
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(line.text)
+            }
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(Color("SendState/Sending/Foreground"))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("onThisPhone.status.headline")
         case .upToDate:
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle")

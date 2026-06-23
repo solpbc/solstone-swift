@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var showPairing = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
+    @State private var showOfflineBanner = false
+    @State private var offlineSettleTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var effectivePort: Int {
@@ -45,7 +47,7 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if self.appConfig.isPaired && self.tunnelManager.isNetworkSatisfied == false {
+            if self.appConfig.isPaired && self.showOfflineBanner {
                 OfflineBanner()
             }
         }
@@ -105,6 +107,10 @@ struct ContentView: View {
         }
         .onChange(of: self.appConfig.pairedAt) { _, _ in
             self.startTunnelIfPaired()
+            self.updateOfflineBannerVisibility()
+        }
+        .onChange(of: self.tunnelManager.isNetworkSatisfied) { _, _ in
+            self.updateOfflineBannerVisibility()
         }
         .onChange(of: self.pairingHandoff.pairURL) { _, _ in
             self.presentPairingIfHandoffPending()
@@ -113,6 +119,9 @@ struct ContentView: View {
             self.presentPairingIfHandoffPending()
         }
         .onAppear {
+            defer {
+                self.updateOfflineBannerVisibility()
+            }
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("--ui-test") {
                 let port = Self.uiTestPort
@@ -207,10 +216,38 @@ struct ContentView: View {
             self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
         }
+        .onDisappear {
+            self.offlineSettleTask?.cancel()
+            self.offlineSettleTask = nil
+        }
     }
 }
 
 private extension ContentView {
+    func updateOfflineBannerVisibility() {
+        self.offlineSettleTask?.cancel()
+        self.offlineSettleTask = nil
+
+        guard self.appConfig.isPaired,
+              self.tunnelManager.isNetworkSatisfied == false
+        else {
+            self.showOfflineBanner = false
+            return
+        }
+
+        self.offlineSettleTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled,
+                  self.appConfig.isPaired,
+                  self.tunnelManager.isNetworkSatisfied == false
+            else {
+                return
+            }
+            self.showOfflineBanner = true
+            self.offlineSettleTask = nil
+        }
+    }
+
     func clearPairingHandoff() {
         self.pairingHandoff.pairURL = nil
         self.pairingHandoff.pairURLError = nil

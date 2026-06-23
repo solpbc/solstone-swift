@@ -369,6 +369,12 @@ nonisolated enum SourceVocabulary {
             : "syncing \(count) items to your journal"
     }
 
+    static func migrationHeadlineTrouble(count: Int) -> String {
+        count == 1
+            ? "1 waiting · trouble reaching your journal"
+            : "\(count) waiting · trouble reaching your journal"
+    }
+
     static func lastActiveLine(relative: String) -> String {
         "last active · \(relative)"
     }

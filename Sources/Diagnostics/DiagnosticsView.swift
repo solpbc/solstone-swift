@@ -22,10 +22,12 @@ struct DiagnosticsView: View {
     @State private var isRetrying = false
 
     private var failedTotal: Int {
-        self.observerUploader.failedCount
-            + self.omiUploaderHolder.failedCount
-            + self.importQueue.failedCount
-            + self.locationUploader.failedCount
+        uploadFailedTotal(
+            observer: self.observerUploader,
+            omi: self.omiUploaderHolder,
+            importQueue: self.importQueue,
+            location: self.locationUploader
+        )
     }
 
     private var failedSegmentPresentation: FailedSegmentPresentation? {

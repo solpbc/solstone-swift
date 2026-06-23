@@ -9,7 +9,7 @@ private let offlineLog = Logger(subsystem: "app.solstone.swift", category: "offl
 struct OfflineBanner: View {
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "wifi.slash")
+            Image(systemName: "cloud.sun")
             Text("offline — safe on this phone · your journal will catch up")
                 .font(.body.weight(.semibold))
             Spacer()
