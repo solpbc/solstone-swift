@@ -281,7 +281,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.cancel, "cancel")
         XCTAssertEqual(SourceVocabulary.undo, "undo")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
-        XCTAssertEqual(SourceVocabulary.journalTunnel, "journal tunnel")
+        XCTAssertEqual(SourceVocabulary.journalTunnel, "private network")
         XCTAssertEqual(SourceVocabulary.standingConnected, "connected")
         XCTAssertEqual(SourceVocabulary.standingSyncing, "connected · syncing")
         XCTAssertEqual(SourceVocabulary.standingOffline, "offline")

@@ -70,28 +70,6 @@ struct MoreView: View {
         }
     }
 
-    private var networkStatusText: String {
-        guard let status = self.tunnelManager.currentPathStatus else {
-            return "unknown"
-        }
-        let iface: String
-        if status.isWiFi {
-            iface = "wifi"
-        } else if status.isCellular {
-            iface = "cellular"
-        } else {
-            iface = "other"
-        }
-        var parts = [iface, status.isSatisfied ? "satisfied" : "unsatisfied"]
-        if status.isExpensive {
-            parts.append("expensive")
-        }
-        if status.isConstrained {
-            parts.append("constrained")
-        }
-        return parts.joined(separator: " · ")
-    }
-
     private var probeDisplay: String? {
         guard let checkedAt = self.probeCheckedAt else { return nil }
         let secondsAgo = Date().timeIntervalSince(checkedAt)
@@ -236,9 +214,9 @@ struct MoreView: View {
                     .accessibilityLabel("reconnect count: \(self.tunnelManager.reconnectCount)")
 
                 LabeledContent("network") {
-                    Text(self.networkStatusText)
+                    Text(networkStatusText(self.tunnelManager.currentPathStatus))
                 }
-                .accessibilityLabel("network: \(self.networkStatusText)")
+                .accessibilityLabel("network: \(networkStatusText(self.tunnelManager.currentPathStatus))")
 
                 LabeledContent(SourceVocabulary.journalTunnel) {
                     Text(self.tunnelManager.state.isConnected ? "running" : "n/a")

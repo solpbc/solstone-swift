@@ -68,7 +68,7 @@ private extension OmiSourceDetailView {
             self.stateLine
 
             let mapped = self.mappedState
-            Text(mapped.state.subtext(activeSubtext: "pendant connected"))
+            Text(mapped.state.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 

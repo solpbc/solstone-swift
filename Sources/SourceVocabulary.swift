@@ -193,7 +193,7 @@ nonisolated enum SourceVocabulary {
     static let rawOriginalUnavailable = "raw original is no longer on this phone."
     static let openJournalLink = "open journal ↗"
     static let openInJournal = "open in journal"
-    static let journalTunnel = "journal tunnel"
+    static let journalTunnel = "private network"
     static let standingConnected = "connected"
     static let standingSyncing = "connected · syncing"
     static let standingOffline = "offline"

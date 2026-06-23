@@ -179,12 +179,6 @@ private extension SourcesView {
             enabled: self.omiSourceManager.enabled
         )
         let now = Date()
-        let audioHealth = OmiSourceLogic.audioHealth(
-            connectionState: self.omiSourceManager.connectionState,
-            lastAudioAt: self.omiSourceManager.lastAudioAt,
-            connectedSince: self.omiSourceManager.diagnostics.payload.uptime.connectedSince,
-            now: now
-        )
         let battery = OmiSourceLogic.surfacedBattery(
             live: self.omiSourceManager.battery,
             lastKnown: self.omiSourceManager.lastKnownBattery
@@ -199,7 +193,7 @@ private extension SourcesView {
             kind: .omi,
             group: .experiencingAlongsideYou,
             state: mapped.0,
-            activeSubtext: "pendant connected; audio \(OmiSourceLogic.audioHealthText(audioHealth, now: now))",
+            activeSubtext: SourceVocabulary.observerActiveSubtext,
             attention: mapped.1,
             pendingStatus: .nonePending,
             // VPX: tune row telemetry composition once multiple last-known states are visible.

@@ -26,6 +26,28 @@ public struct NetworkPathStatus: Equatable, Sendable {
     }
 }
 
+nonisolated func networkStatusText(_ status: NetworkPathStatus?) -> String {
+    guard let status else { return "unknown" }
+    let iface: String
+    if status.isWiFi {
+        iface = "wifi"
+    } else if status.isCellular {
+        iface = "cellular"
+    } else {
+        iface = "other"
+    }
+    if status.isSatisfied {
+        return iface
+    }
+    if status.isWiFi {
+        return "wifi · offline"
+    }
+    if status.isCellular {
+        return "cellular · offline"
+    }
+    return "offline"
+}
+
 private extension NetworkPathStatus {
     nonisolated init(path: NWPath) {
         self.init(
