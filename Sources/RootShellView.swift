@@ -13,7 +13,6 @@ struct RootShellView: View {
     let presentSourcesOnFirstAppear: Bool
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(ObserverManager.self) private var observerManager
     @Environment(LocationManager.self) private var locationManager
@@ -122,16 +121,6 @@ struct RootShellView: View {
                 }
             } else if !isConnected {
                 mainTabLog.info("showing disconnected shell state")
-            }
-        }
-        .onChange(of: self.bannerPresenter.showDiagnostics) { _, show in
-            if show {
-                self.showingYourSolstone = true
-                Task { @MainActor in
-                    await Task.yield()
-                    self.navigateToDiagnostics = true
-                }
-                self.bannerPresenter.showDiagnostics = false
             }
         }
         .onChange(of: self.pendingRoute.route) { _, route in

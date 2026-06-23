@@ -30,7 +30,6 @@ struct SolstoneSwiftApp: App {
     @State private var voiceManager: VoiceManager
     @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
-    @State private var bannerPresenter: BannerPresenter
     @State private var backgroundDisconnectTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -281,11 +280,6 @@ struct SolstoneSwiftApp: App {
         self._voiceManager = State(initialValue: voice)
         self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)
-        self._bannerPresenter = State(initialValue: BannerPresenter(
-            diagnosticLog: log,
-            voiceManager: voice,
-            tunnelManager: tunnel
-        ))
         self.appDelegate.observerUploader = observerUploader
         self.appDelegate.omiUploader = omiUploader
         self.appDelegate.importQueue = importQueue
@@ -312,7 +306,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.pairingHandoff)
                 .environment(self.brainStatusMonitor)
                 .environment(self.diagnosticLog)
-                .environment(self.bannerPresenter)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
                 .environment(self.pendingFold)

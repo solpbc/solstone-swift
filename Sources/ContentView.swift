@@ -11,9 +11,6 @@ struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(VoiceManager.self) private var voiceManager
-    @Environment(DiagnosticLog.self) private var diagnosticLog
-    @Environment(BannerPresenter.self) private var bannerPresenter
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
     @State private var showPairing = false
@@ -51,9 +48,6 @@ struct ContentView: View {
             if self.appConfig.isPaired && self.tunnelManager.isNetworkSatisfied == false {
                 OfflineBanner()
             }
-        }
-        .overlay(alignment: .bottom) {
-            BannerOverlay()
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.tunnelManager.state.isConnected)
         .sheet(isPresented: self.$showPairing) {
@@ -108,17 +102,6 @@ struct ContentView: View {
             default:
                 break
             }
-        }
-        .onChange(of: self.diagnosticLog.events.count) {
-            self.bannerPresenter.processNewEvents()
-        }
-        .onChange(of: self.tunnelManager.state.isConnected) { _, isConnected in
-            if !isConnected {
-                self.bannerPresenter.clearAll()
-            }
-        }
-        .onChange(of: self.voiceManager.state) { _, _ in
-            self.bannerPresenter.dismissInfoIfVoiceActive()
         }
         .onChange(of: self.appConfig.pairedAt) { _, _ in
             self.startTunnelIfPaired()
@@ -327,30 +310,6 @@ private extension ContentView {
             return nil
         }
         return Double(argument.dropFirst("--ui-test-network-reconnect-after=".count))
-    }
-}
-
-private struct BannerOverlay: View {
-    @Environment(BannerPresenter.self) private var bannerPresenter
-
-    var body: some View {
-        Group {
-            if let item = self.bannerPresenter.currentBanner {
-                BannerView(
-                    item: item,
-                    onTap: { self.bannerPresenter.tap() },
-                    onDismiss: {
-                        withAnimation {
-                            self.bannerPresenter.dismiss()
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .padding(.bottom, 60)
-            }
-        }
-        .animation(.easeInOut(duration: 0.3), value: self.bannerPresenter.currentBanner?.id)
-        .allowsHitTesting(self.bannerPresenter.currentBanner != nil)
     }
 }
 
