@@ -26,8 +26,9 @@ struct MoreView: View {
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
     @State private var isProbing = false
-    @State private var probeResult: String?
-    @State private var probeResultIsAlive = false
+    @State private var probeCheckedAt: Date?
+    @State private var probeAlive = false
+    @State private var probeMilliseconds = 0
     @State private var showingObserverReset = false
     @State private var showingUnpairConfirm = false
     @State private var showingConnectJournal = false
@@ -47,22 +48,6 @@ struct MoreView: View {
         case .healthy: .green
         case .degraded: .yellow
         case .unknown: .gray
-        }
-    }
-
-    private var healthLabel: String {
-        switch self.tunnelManager.connectionHealth {
-        case .healthy: "healthy"
-        case .degraded: "degraded"
-        case .unknown: "unknown"
-        }
-    }
-
-    private var connectionProbeStatusText: String {
-        switch self.tunnelManager.lastProbeAlive {
-        case true: SourceVocabulary.probeAvailable
-        case false: SourceVocabulary.probeNotReachable
-        case nil: SourceVocabulary.probeNotChecked
         }
     }
 
@@ -88,8 +73,18 @@ struct MoreView: View {
         return parts.joined(separator: " · ")
     }
 
-    private var probeResultColor: Color {
-        self.probeResultIsAlive ? .green : .orange
+    private var probeDisplay: String? {
+        guard let checkedAt = self.probeCheckedAt else { return nil }
+        let secondsAgo = Date().timeIntervalSince(checkedAt)
+        return SourceVocabulary.probeChecked(
+            alive: self.probeAlive,
+            milliseconds: self.probeMilliseconds,
+            relative: SourceVocabulary.probeRelativeLabel(secondsAgo: secondsAgo)
+        )
+    }
+
+    private var probeDisplayColor: Color {
+        self.probeAlive ? .green : .orange
     }
 
     private var permissionStatusText: String {
@@ -174,15 +169,19 @@ struct MoreView: View {
                     LabeledContent("uptime") {
                         Text(self.connectedSince, style: .timer)
                     }
-                    LabeledContent("health") {
+                    LabeledContent("status") {
+                        let line = SourceVocabulary.standingSyncLine(
+                            health: self.tunnelManager.connectionHealth,
+                            syncing: self.observerUploader.pendingCount > 0
+                        )
                         HStack(spacing: 6) {
                             Circle()
                                 .fill(self.healthColor)
                                 .frame(width: 8, height: 8)
-                            Text(self.healthLabel)
+                            Text(line)
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("health: \(self.healthLabel)")
+                        .accessibilityLabel("status: \(line)")
                     }
                 } header: {
                     Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
@@ -213,12 +212,6 @@ struct MoreView: View {
             }
 
             Section("diagnostics") {
-                LabeledContent(SourceVocabulary.connectionProbe) {
-                    Text(self.connectionProbeStatusText)
-                        .foregroundStyle(self.tunnelManager.lastProbeAlive == false ? .orange : .secondary)
-                }
-                .accessibilityLabel("\(SourceVocabulary.connectionProbe): \(self.connectionProbeStatusText)")
-
                 LabeledContent("reconnects", value: "\(self.tunnelManager.reconnectCount)")
                     .accessibilityLabel("reconnect count: \(self.tunnelManager.reconnectCount)")
 
@@ -239,20 +232,20 @@ struct MoreView: View {
                     }
                 } label: {
                     HStack {
-                        Text(SourceVocabulary.connectionProbe)
+                        Text(SourceVocabulary.checkConnection)
                         Spacer()
                         if self.isProbing {
                             ProgressView()
                                 .controlSize(.small)
-                        } else if let result = self.probeResult {
+                        } else if let result = self.probeDisplay {
                             Text(result)
                                 .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(self.probeResultColor)
+                                .foregroundStyle(self.probeDisplayColor)
                         }
                     }
                 }
                 .disabled(self.isProbing || !self.tunnelManager.state.isConnected)
-                .accessibilityLabel(SourceVocabulary.connectionProbe)
+                .accessibilityLabel(SourceVocabulary.checkConnection)
                 .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
                 .hoverEffect(.highlight)
 
@@ -386,14 +379,14 @@ struct MoreView: View {
 
     private func runProbe() async {
         self.isProbing = true
-        self.probeResult = nil
         let result = await self.tunnelManager.probeConnection()
         self.isProbing = false
         guard let (alive, latency) = result else { return }
         let milliseconds = Int(latency.components.seconds) * 1000
             + Int(latency.components.attoseconds / 1_000_000_000_000_000)
-        self.probeResultIsAlive = alive
-        self.probeResult = "\(alive ? SourceVocabulary.probeAvailable : SourceVocabulary.probeNotReachable) · \(milliseconds)ms"
+        self.probeAlive = alive
+        self.probeMilliseconds = milliseconds
+        self.probeCheckedAt = Date()
         if alive {
             if UserSettings.haptics {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)

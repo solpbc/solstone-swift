@@ -255,10 +255,45 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.undo, "undo")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
         XCTAssertEqual(SourceVocabulary.journalTunnel, "journal tunnel")
-        XCTAssertEqual(SourceVocabulary.connectionProbe, "connection probe")
-        XCTAssertEqual(SourceVocabulary.probeNotChecked, "not checked")
-        XCTAssertEqual(SourceVocabulary.probeAvailable, "available")
+        XCTAssertEqual(SourceVocabulary.standingConnected, "connected")
+        XCTAssertEqual(SourceVocabulary.standingSyncing, "connected · syncing")
+        XCTAssertEqual(SourceVocabulary.standingOffline, "offline")
+        XCTAssertEqual(SourceVocabulary.standingDegraded, "connected · trouble reaching your journal")
+        XCTAssertEqual(SourceVocabulary.checkConnection, "check connection")
+        XCTAssertEqual(SourceVocabulary.probeReachable, "reachable")
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
+    }
+
+    func testConnectionStandingAndProbeCopyDerivations() {
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncLine(health: .healthy, syncing: false),
+            "connected"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncLine(health: .healthy, syncing: true),
+            "connected · syncing"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncLine(health: .unknown, syncing: true),
+            "offline"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncLine(health: .degraded, syncing: true),
+            "connected · trouble reaching your journal"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncLine(health: .degraded, syncing: false),
+            "connected · trouble reaching your journal"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
+            "checked just now — reachable · 42 ms"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
+            "checked just now — not reachable"
+        )
+        XCTAssertEqual(SourceVocabulary.probeRelativeLabel(secondsAgo: 5), "just now")
     }
 
     func testLockedSourceSubtexts() {
@@ -330,6 +365,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         "watch",
         "server",
         "service",
+        "user",
     ]
 
     private static var forbiddenLodeCPattern: String {
@@ -351,6 +387,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFailureRowHint,
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1),
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
+            SourceVocabulary.standingConnected,
+            SourceVocabulary.standingSyncing,
+            SourceVocabulary.standingOffline,
+            SourceVocabulary.standingDegraded,
+            SourceVocabulary.checkConnection,
+            SourceVocabulary.probeReachable,
+            SourceVocabulary.standingSyncLine(health: .healthy, syncing: true),
+            SourceVocabulary.standingSyncLine(health: .healthy, syncing: false),
+            SourceVocabulary.standingSyncLine(health: .degraded, syncing: false),
+            SourceVocabulary.standingSyncLine(health: .unknown, syncing: false),
+            SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
+            SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
         ]
     }
 
@@ -516,9 +564,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.delete,
             SourceVocabulary.deleteJournalUnreachableLine,
             SourceVocabulary.journalTunnel,
-            SourceVocabulary.connectionProbe,
-            SourceVocabulary.probeNotChecked,
-            SourceVocabulary.probeAvailable,
             SourceVocabulary.probeNotReachable,
             ShareImportCopy.dismiss,
             ShareImportCopy.savedAccessibilityLabel,
