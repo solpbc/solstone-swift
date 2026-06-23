@@ -35,6 +35,37 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testSharingGrantReturnsInitialRawProviderCapabilityBeforeActive() async {
+        self.provider.capability = .always(accuracy: .reduced)
+        let manager = self.makeManager()
+
+        XCTAssertEqual(manager.sharingGrant, .always(accuracy: .reduced))
+        XCTAssertEqual(manager.sourceState, .off)
+    }
+
+    @MainActor
+    func testSharingGrantTracksAuthorizationChangesWhileActive() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.sharingGrant, .always(accuracy: .full))
+
+        self.provider.emitAuthorization(.always(accuracy: .reduced))
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.sharingGrant, .always(accuracy: .reduced))
+        XCTAssertEqual(manager.sourceState, .active)
+
+        self.provider.emitAuthorization(.whenInUse(accuracy: .reduced))
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.sharingGrant, .whenInUse(accuracy: .reduced))
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+    }
+
+    @MainActor
     func testLightRequestsWhenInUseOnlyAndStartsVisits() async {
         let manager = self.makeManager()
 

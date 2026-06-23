@@ -33,7 +33,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.deliverySendingTemplate, "{N} location {update} on the way to your journal.")
         XCTAssertEqual(LocationVocabulary.deliveryLastSavedTemplate, "last saved to your journal at {time}.")
         XCTAssertEqual(LocationVocabulary.deliveryQuietLine, "nothing waiting right now.")
-        XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in.")
+        XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — solstone never fills them in.")
         XCTAssertEqual(LocationVocabulary.openSettingsAction, "open iOS Settings")
         XCTAssertEqual(LocationVocabulary.matchToAllowedAction, "match it to what's allowed")
         XCTAssertEqual(LocationVocabulary.restrictedBody, "location is turned off for solstone by a restriction on this device. solstone can't keep your day until that's lifted.")
@@ -46,8 +46,14 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
     func testDowngradeBodySubstitutesTierLabel() {
         XCTAssertEqual(
             LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label),
-            "you chose places + comings and goings, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in."
+            "you chose places + comings and goings, but iOS hasn't authorized that. your journal will show the gaps honestly — solstone never fills them in."
         )
+    }
+
+    func testSharingStatusMapsEveryCapabilityVerbatim() {
+        for (capability, expected) in Self.sharingStatusExpectations {
+            XCTAssertEqual(LocationVocabulary.sharingStatus(for: capability), expected, "\(capability)")
+        }
     }
 
     func testDeleteReceiptHeadlineSubstitutesDayCount() {
@@ -104,6 +110,9 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             locationSourceState(effective: .denied, tier: .balanced, paused: false).1?.message,
             locationSourceState(effective: .whenInUse(accuracy: .full), tier: .balanced, paused: false).1?.message,
         ].compactMap { $0 }
+        let sharingStatusStrings = Self.sharingStatusExpectations.map { capability, _ in
+            LocationVocabulary.sharingStatus(for: capability)
+        }
 
         return [
             LocationVocabulary.sourceDisplayName,
@@ -147,6 +156,17 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.deliverySending(count: 1),
             LocationVocabulary.deliverySending(count: 3),
             LocationVocabulary.deliveryLastSaved(time: "3:42 PM"),
-        ] + tierStrings + presentationStrings + mappingStrings
+        ] + tierStrings + presentationStrings + mappingStrings + sharingStatusStrings
     }
+
+    private static let sharingStatusExpectations: [(LocationCapability, String)] = [
+        (.always(accuracy: .full), "sharing location: always · precise"),
+        (.always(accuracy: .reduced), "sharing location: always · reduced precision"),
+        (.whenInUse(accuracy: .full), "sharing location: while solstone is open · precise"),
+        (.whenInUse(accuracy: .reduced), "sharing location: while solstone is open · reduced precision"),
+        (.notDetermined, "sharing location: not yet decided"),
+        (.servicesDisabled, "sharing location: off · location services disabled"),
+        (.denied, "sharing location: off"),
+        (.restricted, "sharing location: restricted"),
+    ]
 }

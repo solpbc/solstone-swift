@@ -30,7 +30,7 @@ nonisolated enum LocationVocabulary {
     static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
     static let deliveryLastSavedTemplate = "last saved to your journal at {time}."
     static let deliveryQuietLine = "nothing waiting right now."
-    static let downgradeBodyTemplate = "you chose {tier}, but iOS is only sharing location while solstone is open. your journal will show the gaps honestly — solstone never fills them in."
+    static let downgradeBodyTemplate = "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — solstone never fills them in."
     static let openSettingsAction = "open iOS Settings"
     static let matchToAllowedAction = "match it to what's allowed"
     static let restrictedBody = "location is turned off for solstone by a restriction on this device. solstone can't keep your day until that's lifted."
@@ -38,6 +38,27 @@ nonisolated enum LocationVocabulary {
     static let deleteConfirmBody = "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone."
     static let deleteConfirmButton = "delete location's contributions"
     static let deleteReceiptHeadlineTemplate = "deleted. removed from your journal: where your day happened, across {N} days."
+
+    static func sharingStatus(for capability: LocationCapability) -> String {
+        switch capability {
+        case .always(accuracy: .full):
+            "sharing location: always · precise"
+        case .always(accuracy: .reduced):
+            "sharing location: always · reduced precision"
+        case .whenInUse(accuracy: .full):
+            "sharing location: while solstone is open · precise"
+        case .whenInUse(accuracy: .reduced):
+            "sharing location: while solstone is open · reduced precision"
+        case .notDetermined:
+            "sharing location: not yet decided"
+        case .servicesDisabled:
+            "sharing location: off · location services disabled"
+        case .denied:
+            "sharing location: off"
+        case .restricted:
+            "sharing location: restricted"
+        }
+    }
 
     static func downgradeBody(tierLabel: String) -> String {
         self.downgradeBodyTemplate.replacingOccurrences(of: "{tier}", with: tierLabel)

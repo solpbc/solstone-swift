@@ -77,6 +77,7 @@ private extension LocationSourceDetailView {
     var stateBlock: some View {
         let sourceState = self.locationManager.sourceState
         let recoveryActions = self.locationManager.recoveryActions
+        let sharingStatus = LocationVocabulary.sharingStatus(for: self.locationManager.sharingGrant)
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -88,6 +89,11 @@ private extension LocationSourceDetailView {
             Text(sourceState.subtext(activeSubtext: LocationVocabulary.activeSubtext))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            Text(sharingStatus)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(sharingStatus.replacingOccurrences(of: " · ", with: ", "))
 
             if let attention = self.locationManager.sourceAttention {
                 Text(attention.message)

@@ -68,7 +68,7 @@ final class LocationManager {
     @ObservationIgnored private var isBackgrounded = false
     @ObservationIgnored private var watchdogTripped = false
     @ObservationIgnored private var watchdogGeneration = 0
-    @ObservationIgnored private var lastCapability: LocationCapability
+    private var lastCapability: LocationCapability
 
     private enum Key {
         static let enabled = "location.enabled"
@@ -118,6 +118,10 @@ final class LocationManager {
 
     var sourceAttention: SourceAttention? {
         self.sourcePresentation.attention
+    }
+
+    var sharingGrant: LocationCapability {
+        self.lastCapability
     }
 
     var recoveryActions: [LocationRecovery] {
