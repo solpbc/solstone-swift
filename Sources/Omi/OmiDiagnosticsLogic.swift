@@ -98,6 +98,7 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         var timestamp: Date
         var batteryLevel: Double?
         var thermalState: String
+        var batteryState: String? = nil
     }
 
     struct GapTallies: Codable, Sendable, Equatable {
@@ -212,6 +213,17 @@ nonisolated enum OmiDiagnosticsLogic {
         return Double(errors) / Double(total)
     }
 
+    static func accumulatedCounter(
+        lifetime: Int,
+        lastSeen: Int,
+        incoming: Int
+    ) -> (lifetime: Int, lastSeen: Int) {
+        if incoming >= lastSeen {
+            return (lifetime + (incoming - lastSeen), incoming)
+        }
+        return (lifetime + incoming, incoming)
+    }
+
     static func diagnosticRows(payload: OmiDiagnosticsPayload, asOf date: Date) -> [(label: String, value: String)] {
         let uptimePercent = payload.firstObservedAt
             .flatMap { payload.uptime.connectedFraction(since: $0, asOf: date) }
@@ -313,6 +325,7 @@ nonisolated enum OmiDiagnosticsLogic {
         lines.append("connected time: \(Self.durationText(connectedSeconds))")
         lines.append("reconnects: \(reconnects.count)")
         lines.append("last reconnect: \(Self.lastReconnectText(reconnects))")
+        lines.append("disconnect profile: \(Self.disconnectProfileText(payload.reconnectEvents))")
         lines.append("disconnect gaps: \(payload.gapTallies.disconnectGapCount), \(Self.durationText(disconnectGapSeconds))")
         lines.append("connected-without-audio gaps: \(payload.gapTallies.connectedSilentGapCount), \(Self.durationText(connectedSilentGapSeconds))")
         lines.append("decode error rate: \(Self.percentText(decodeRate))")
@@ -327,6 +340,29 @@ nonisolated enum OmiDiagnosticsLogic {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    static func disconnectProfileText(_ events: [OmiDiagnosticsPayload.ReconnectEvent]) -> String {
+        guard !events.isEmpty else {
+            return "none"
+        }
+
+        let reconnectedCount = events.filter { $0.timeToReconnect != nil }.count
+        let buckets = Dictionary(grouping: events) { event in
+            "\(event.reason)/\(event.appStateAtDrop)"
+        }
+        let bucketText = buckets
+            .map { (key: $0.key, count: $0.value.count) }
+            .sorted {
+                if $0.count != $1.count {
+                    return $0.count > $1.count
+                }
+                return $0.key < $1.key
+            }
+            .map { "\($0.key) ×\($0.count)" }
+            .joined(separator: ", ")
+
+        return "\(events.count) disconnects (\(reconnectedCount) reconnected, \(events.count - reconnectedCount) unpaired); \(bucketText)"
+    }
+
     private static func lastReconnectText(_ events: [OmiDiagnosticsPayload.ReconnectEvent]) -> String {
         guard let event = events.last, let latency = event.timeToReconnect else {
             return "none"
@@ -335,10 +371,32 @@ nonisolated enum OmiDiagnosticsLogic {
     }
 
     private static func pendantBatteryText(_ samples: [OmiDiagnosticsPayload.PendantBatterySample]) -> String {
-        guard let sample = samples.last else {
-            return "unknown"
+        guard let first = samples.first, let last = samples.last else {
+            return "rate unavailable (0 samples)"
         }
-        return "\(sample.level)% (\(samples.count) samples)"
+
+        guard samples.count > 1 else {
+            return "\(first.level)%→\(last.level)%, rate unavailable (\(samples.count) samples)"
+        }
+
+        var totalDrop = 0.0
+        var totalHours = 0.0
+        for index in 0..<(samples.count - 1) {
+            let start = samples[index]
+            let end = samples[index + 1]
+            let seconds = end.timestamp.timeIntervalSince(start.timestamp)
+            guard seconds > 0 else {
+                continue
+            }
+            totalHours += seconds / 3_600
+            totalDrop += max(Double(start.level - end.level), 0)
+        }
+
+        guard totalHours > 0 else {
+            return "\(first.level)%→\(last.level)%, rate unavailable (\(samples.count) samples)"
+        }
+
+        return "\(first.level)%→\(last.level)%, drain \(String(format: "%.1f", totalDrop / totalHours))%/hr (\(samples.count) samples)"
     }
 
     private static func pendantSignalText(_ samples: [OmiDiagnosticsPayload.PendantSignalSample]?) -> String {
@@ -349,13 +407,49 @@ nonisolated enum OmiDiagnosticsLogic {
     }
 
     private static func phoneBatteryText(_ samples: [OmiDiagnosticsPayload.PhoneSample]) -> String {
-        guard let sample = samples.last else {
-            return "unknown"
+        let knownLevels = samples.compactMap { sample -> (sample: OmiDiagnosticsPayload.PhoneSample, percent: Double)? in
+            guard let level = sample.batteryLevel else {
+                return nil
+            }
+            return (sample, level * 100)
         }
-        guard let level = sample.batteryLevel else {
+        guard let first = knownLevels.first, let last = knownLevels.last else {
             return "unknown (\(samples.count) samples)"
         }
-        return "\(Int((level * 100).rounded()))% (\(samples.count) samples)"
+
+        let startPercent = Int(first.percent.rounded())
+        let endPercent = Int(last.percent.rounded())
+        guard knownLevels.count >= 2 else {
+            return "\(startPercent)%→\(endPercent)%, rate unavailable (\(samples.count) samples)"
+        }
+
+        var totalDrop = 0.0
+        var totalHours = 0.0
+        for index in 0..<(samples.count - 1) {
+            let start = samples[index]
+            let end = samples[index + 1]
+            guard start.batteryState == "unplugged",
+                  end.batteryState == "unplugged",
+                  let startLevel = start.batteryLevel,
+                  let endLevel = end.batteryLevel
+            else {
+                continue
+            }
+
+            let seconds = end.timestamp.timeIntervalSince(start.timestamp)
+            guard seconds > 0 else {
+                continue
+            }
+
+            totalHours += seconds / 3_600
+            totalDrop += max((startLevel * 100) - (endLevel * 100), 0)
+        }
+
+        guard totalHours > 0 else {
+            return "\(startPercent)%→\(endPercent)%, no on-battery interval (\(samples.count) samples)"
+        }
+
+        return "\(startPercent)%→\(endPercent)%, drain \(String(format: "%.1f", totalDrop / totalHours))%/hr (\(samples.count) samples)"
     }
 
     private static func openDuration(from start: Date?, asOf date: Date) -> TimeInterval {

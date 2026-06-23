@@ -173,6 +173,90 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
     }
 
     @MainActor
+    func testDecodeCountersAccumulateAcrossResetAndPersist() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_150)
+        let clock = MockObserverClock(now: start)
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let diagnostics = OmiDiagnostics(clock: clock, fileURL: fileURL)
+
+        diagnostics.updateDecodeCounters(ok: 2, errors: 1, gaps: 1, outOfOrder: 0)
+        diagnostics.updateDecodeCounters(ok: 5, errors: 1, gaps: 2, outOfOrder: 1)
+        diagnostics.updateDecodeCounters(ok: 9, errors: 2, gaps: 4, outOfOrder: 3)
+        diagnostics.updateDecodeCounters(ok: 3, errors: 0, gaps: 1, outOfOrder: 2)
+
+        let expected = OmiDiagnosticsPayload.DecodeCounters(
+            ok: 12,
+            errors: 2,
+            gaps: 5,
+            outOfOrder: 5
+        )
+        XCTAssertEqual(diagnostics.payload.decodeCounters, expected)
+
+        diagnostics.recordPhoneSample()
+        let reloaded = OmiDiagnostics(clock: MockObserverClock(now: start), fileURL: fileURL)
+        XCTAssertEqual(reloaded.payload.decodeCounters, expected)
+
+        let exportURL = try XCTUnwrap(diagnostics.exportFileURL())
+        let report = try String(contentsOf: exportURL, encoding: .utf8)
+        XCTAssertTrue(report.contains("decode frames: 12 ok, 2 errors"), report)
+        XCTAssertTrue(report.contains("audio gaps: 5"), report)
+        XCTAssertTrue(report.contains("out of order frames: 5"), report)
+    }
+
+    @MainActor
+    func testLoadsOldShapePhoneSamplesWithoutBatteryState() throws {
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let oldShapeJSON = """
+        {
+          "version": 1,
+          "firstObservedAt": "2024-04-20T12:00:00Z",
+          "uptime": {
+            "connectedSince": null,
+            "accumulatedConnectedSeconds": 1800
+          },
+          "reconnectEvents": [],
+          "decodeCounters": {
+            "ok": 42,
+            "errors": 2,
+            "gaps": 3,
+            "outOfOrder": 1
+          },
+          "pendantBatteryTrend": [],
+          "phoneSamples": [
+            {
+              "timestamp": "2024-04-20T12:06:00Z",
+              "batteryLevel": 0.75,
+              "thermalState": "nominal"
+            },
+            {
+              "timestamp": "2024-04-20T12:07:00Z",
+              "batteryLevel": 0.65,
+              "thermalState": "fair"
+            }
+          ],
+          "gapTallies": {
+            "disconnectGapCount": 0,
+            "disconnectGapSeconds": 0,
+            "connectedSilentGapCount": 0,
+            "connectedSilentGapSeconds": 0
+          },
+          "lastDecodedSampleAt": null,
+          "openDisconnectStartedAt": null,
+          "openConnectedSilentStartedAt": null
+        }
+        """
+        try Data(oldShapeJSON.utf8).write(to: fileURL)
+
+        let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
+        let samples = diagnostics.payload.phoneSamples
+
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertEqual(samples[0].batteryLevel, 0.75)
+        XCTAssertEqual(samples[1].batteryLevel, 0.65)
+        XCTAssertTrue(samples.allSatisfy { $0.batteryState == nil })
+    }
+
+    @MainActor
     func testExportFileContainsOwnerSummary() throws {
         let start = Date(timeIntervalSince1970: 1_713_624_200)
         let clock = MockObserverClock(now: start)
@@ -204,6 +288,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
             "connected time:",
             "reconnects:",
             "last reconnect:",
+            "disconnect profile:",
             "disconnect gaps:",
             "connected-without-audio gaps:",
             "decode error rate:",

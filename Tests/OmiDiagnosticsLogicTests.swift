@@ -11,6 +11,20 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
         XCTAssertEqual(OmiDiagnosticsLogic.decodeErrorRate(ok: 3, errors: 1), 0.25, accuracy: 0.0001)
     }
 
+    func testAccumulatedCounterHandlesRisingEqualAndResetValues() {
+        let rising = OmiDiagnosticsLogic.accumulatedCounter(lifetime: 5, lastSeen: 5, incoming: 9)
+        XCTAssertEqual(rising.lifetime, 9)
+        XCTAssertEqual(rising.lastSeen, 9)
+
+        let equal = OmiDiagnosticsLogic.accumulatedCounter(lifetime: 9, lastSeen: 9, incoming: 9)
+        XCTAssertEqual(equal.lifetime, 9)
+        XCTAssertEqual(equal.lastSeen, 9)
+
+        let reset = OmiDiagnosticsLogic.accumulatedCounter(lifetime: 9, lastSeen: 9, incoming: 3)
+        XCTAssertEqual(reset.lifetime, 12)
+        XCTAssertEqual(reset.lastSeen, 3)
+    }
+
     func testGapSummaryCountsContiguousDisconnectGap() {
         let start = Date(timeIntervalSince1970: 100)
         let summary = OmiDiagnosticsLogic.gapSummary(from: [
@@ -167,6 +181,7 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             "connected time:",
             "reconnects:",
             "last reconnect:",
+            "disconnect profile:",
             "disconnect gaps:",
             "connected-without-audio gaps:",
             "decode error rate:",
@@ -181,5 +196,151 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             XCTAssertTrue(report.contains(requiredLine), requiredLine)
         }
         XCTAssertTrue(report.hasSuffix("\n"))
+    }
+
+    func testExportSummaryReportsPhoneBatteryDrainForUnpluggedSamples() {
+        let start = Date(timeIntervalSince1970: 600)
+        let report = Self.report(phoneSamples: [
+            Self.phoneSample(level: 1.0, state: "unplugged", at: start),
+            Self.phoneSample(level: 0.91, state: "unplugged", at: start.addingTimeInterval(3_600))
+        ], asOf: start.addingTimeInterval(3_600))
+
+        XCTAssertTrue(report.contains("phone battery: 100%→91%, drain 9.0%/hr (2 samples)"), report)
+    }
+
+    func testExportSummaryExcludesChargingIntervalsFromPhoneBatteryDrain() {
+        let start = Date(timeIntervalSince1970: 700)
+        let report = Self.report(phoneSamples: [
+            Self.phoneSample(level: 1.0, state: "unplugged", at: start),
+            Self.phoneSample(level: 0.90, state: "unplugged", at: start.addingTimeInterval(3_600)),
+            Self.phoneSample(level: 0.95, state: "charging", at: start.addingTimeInterval(7_200)),
+            Self.phoneSample(level: 0.80, state: "unplugged", at: start.addingTimeInterval(10_800))
+        ], asOf: start.addingTimeInterval(10_800))
+
+        XCTAssertTrue(report.contains("phone battery: 100%→80%, drain 10.0%/hr (4 samples)"), report)
+    }
+
+    func testExportSummaryReportsNoOnBatteryIntervalForChargingOrUnknownPhoneState() {
+        let start = Date(timeIntervalSince1970: 800)
+        let chargingReport = Self.report(phoneSamples: [
+            Self.phoneSample(level: 1.0, state: "charging", at: start),
+            Self.phoneSample(level: 0.90, state: "charging", at: start.addingTimeInterval(3_600))
+        ], asOf: start.addingTimeInterval(3_600))
+        let unknownStateReport = Self.report(phoneSamples: [
+            Self.phoneSample(level: 1.0, state: "unknown", at: start),
+            Self.phoneSample(level: 0.90, state: "unknown", at: start.addingTimeInterval(3_600))
+        ], asOf: start.addingTimeInterval(3_600))
+
+        XCTAssertTrue(
+            chargingReport.contains("phone battery: 100%→90%, no on-battery interval (2 samples)"),
+            chargingReport
+        )
+        XCTAssertTrue(
+            unknownStateReport.contains("phone battery: 100%→90%, no on-battery interval (2 samples)"),
+            unknownStateReport
+        )
+    }
+
+    func testExportSummaryReportsUnknownPhoneBatteryWhenLevelsAreMissing() {
+        let start = Date(timeIntervalSince1970: 900)
+        let report = Self.report(phoneSamples: [
+            Self.phoneSample(level: nil, state: "unplugged", at: start),
+            Self.phoneSample(level: nil, state: "unplugged", at: start.addingTimeInterval(3_600))
+        ], asOf: start.addingTimeInterval(3_600))
+
+        XCTAssertTrue(report.contains("phone battery: unknown (2 samples)"), report)
+    }
+
+    func testExportSummaryReportsRateUnavailableForSinglePhoneBatterySample() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let report = Self.report(phoneSamples: [
+            Self.phoneSample(level: 0.87, state: "unplugged", at: start)
+        ], asOf: start.addingTimeInterval(3_600))
+
+        XCTAssertTrue(report.contains("phone battery: 87%→87%, rate unavailable (1 samples)"), report)
+    }
+
+    func testExportSummaryClampsNonMonotonicPhoneBatteryDrainToZero() {
+        let start = Date(timeIntervalSince1970: 1_100)
+        let report = Self.report(phoneSamples: [
+            Self.phoneSample(level: 0.90, state: "unplugged", at: start),
+            Self.phoneSample(level: 0.95, state: "unplugged", at: start.addingTimeInterval(3_600))
+        ], asOf: start.addingTimeInterval(3_600))
+
+        XCTAssertTrue(report.contains("phone battery: 90%→95%, drain 0.0%/hr (2 samples)"), report)
+    }
+
+    func testExportSummaryReportsPendantBatteryDrain() {
+        let start = Date(timeIntervalSince1970: 1_200)
+        let report = Self.report(pendantBatteryTrend: [
+            OmiDiagnosticsPayload.PendantBatterySample(timestamp: start, level: 88),
+            OmiDiagnosticsPayload.PendantBatterySample(timestamp: start.addingTimeInterval(3_600), level: 82)
+        ], asOf: start.addingTimeInterval(3_600))
+
+        XCTAssertTrue(report.contains("pendant battery: 88%→82%, drain 6.0%/hr (2 samples)"), report)
+    }
+
+    func testDisconnectProfileTextSummarizesAllDisconnectEvents() {
+        let start = Date(timeIntervalSince1970: 1_300)
+        let events = [
+            OmiDiagnosticsPayload.ReconnectEvent(
+                timestamp: start,
+                reason: "link lost",
+                appStateAtDrop: "background",
+                timeToReconnect: 1
+            ),
+            OmiDiagnosticsPayload.ReconnectEvent(
+                timestamp: start.addingTimeInterval(10),
+                reason: "link lost",
+                appStateAtDrop: "background",
+                timeToReconnect: 2
+            ),
+            OmiDiagnosticsPayload.ReconnectEvent(
+                timestamp: start.addingTimeInterval(20),
+                reason: "link lost",
+                appStateAtDrop: "foreground",
+                timeToReconnect: 3
+            ),
+            OmiDiagnosticsPayload.ReconnectEvent(
+                timestamp: start.addingTimeInterval(30),
+                reason: "timeout",
+                appStateAtDrop: "background",
+                timeToReconnect: nil
+            )
+        ]
+
+        XCTAssertEqual(
+            OmiDiagnosticsLogic.disconnectProfileText(events),
+            "4 disconnects (3 reconnected, 1 unpaired); link lost/background ×2, link lost/foreground ×1, timeout/background ×1"
+        )
+    }
+
+    func testDisconnectProfileTextReportsNoneForEmptyEvents() {
+        XCTAssertEqual(OmiDiagnosticsLogic.disconnectProfileText([]), "none")
+    }
+
+    private static func report(
+        pendantBatteryTrend: [OmiDiagnosticsPayload.PendantBatterySample] = [],
+        phoneSamples: [OmiDiagnosticsPayload.PhoneSample] = [],
+        asOf date: Date
+    ) -> String {
+        let payload = OmiDiagnosticsPayload(
+            pendantBatteryTrend: pendantBatteryTrend,
+            phoneSamples: phoneSamples
+        )
+        return OmiDiagnosticsLogic.exportSummary(payload: payload, asOf: date)
+    }
+
+    private static func phoneSample(
+        level: Double?,
+        state: String?,
+        at date: Date
+    ) -> OmiDiagnosticsPayload.PhoneSample {
+        OmiDiagnosticsPayload.PhoneSample(
+            timestamp: date,
+            batteryLevel: level,
+            thermalState: "nominal",
+            batteryState: state
+        )
     }
 }

@@ -23,6 +23,7 @@ final class OmiDiagnostics {
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let log = Logger(subsystem: "app.solstone.swift", category: "omi-diagnostics")
+    @ObservationIgnored private var decodeLastSeen = OmiDiagnosticsPayload.DecodeCounters()
 
     init(
         clock: any ObserverClock = SystemObserverClock(),
@@ -104,11 +105,40 @@ final class OmiDiagnostics {
         gaps: Int,
         outOfOrder: Int
     ) {
+        let current = self.payload.decodeCounters
+        let lastSeen = self.decodeLastSeen
+        let okAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.ok,
+            lastSeen: lastSeen.ok,
+            incoming: ok
+        )
+        let errorsAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.errors,
+            lastSeen: lastSeen.errors,
+            incoming: errors
+        )
+        let gapsAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.gaps,
+            lastSeen: lastSeen.gaps,
+            incoming: gaps
+        )
+        let outOfOrderAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.outOfOrder,
+            lastSeen: lastSeen.outOfOrder,
+            incoming: outOfOrder
+        )
+
         self.payload.decodeCounters = OmiDiagnosticsPayload.DecodeCounters(
-            ok: ok,
-            errors: errors,
-            gaps: gaps,
-            outOfOrder: outOfOrder
+            ok: okAcc.lifetime,
+            errors: errorsAcc.lifetime,
+            gaps: gapsAcc.lifetime,
+            outOfOrder: outOfOrderAcc.lifetime
+        )
+        self.decodeLastSeen = OmiDiagnosticsPayload.DecodeCounters(
+            ok: okAcc.lastSeen,
+            errors: errorsAcc.lastSeen,
+            gaps: gapsAcc.lastSeen,
+            outOfOrder: outOfOrderAcc.lastSeen
         )
     }
 
@@ -120,7 +150,8 @@ final class OmiDiagnostics {
         self.payload.phoneSamples.append(OmiDiagnosticsPayload.PhoneSample(
             timestamp: now,
             batteryLevel: rawBatteryLevel >= 0 ? Double(rawBatteryLevel) : nil,
-            thermalState: Self.thermalStateString(ProcessInfo.processInfo.thermalState)
+            thermalState: Self.thermalStateString(ProcessInfo.processInfo.thermalState),
+            batteryState: Self.batteryStateString(UIDevice.current.batteryState)
         ))
         self.persist()
     }
@@ -175,6 +206,21 @@ private extension OmiDiagnostics {
             "serious"
         case .critical:
             "critical"
+        @unknown default:
+            "unknown"
+        }
+    }
+
+    static func batteryStateString(_ state: UIDevice.BatteryState) -> String {
+        switch state {
+        case .unknown:
+            "unknown"
+        case .unplugged:
+            "unplugged"
+        case .charging:
+            "charging"
+        case .full:
+            "full"
         @unknown default:
             "unknown"
         }
