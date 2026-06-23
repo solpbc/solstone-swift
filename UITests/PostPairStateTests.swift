@@ -11,42 +11,6 @@ nonisolated final class PostPairStateTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    
-    @MainActor
-    func testDayZeroOverlayShowsProgressCounts() throws {
-        let app = try self.makeApp()
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.assertDayHomeRoot(in: app)
-
-        XCTAssertTrue(app.staticTexts["5 segments observed"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["2 meetings detected"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["8 entities identified"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["browse your journal"].waitForExistence(timeout: 5))
-    }
-
-    
-    @MainActor
-    func testDayOneAcknowledgmentDismissesOnce() throws {
-        let app = try self.makeApp()
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.assertDayHomeRoot(in: app)
-
-        let title = app.staticTexts["your first briefing"]
-        XCTAssertTrue(title.waitForExistence(timeout: 10))
-
-        let continueButton = app.buttons["continue"]
-        XCTAssertTrue(continueButton.waitForExistence(timeout: 5))
-        continueButton.tap()
-
-        app.terminate()
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        XCTAssertFalse(title.waitForExistence(timeout: 5))
-    }
-
-    
     @MainActor
     func testOfflineShellShowsNativeDayHome() {
         let app = self.makeSeededApp(extraArguments: [

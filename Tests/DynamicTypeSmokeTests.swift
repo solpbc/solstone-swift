@@ -225,11 +225,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             WelcomeScreen(onGetStarted: {})
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
-        try self.assertHosted(
-            DayZeroOverlayView(localPort: 7071, onBrowseJournal: {})
-                .environment(appConfig)
-                .environment(\.dynamicTypeSize, .accessibility3)
-        )
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))

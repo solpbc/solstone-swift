@@ -104,10 +104,7 @@ private extension OnThisPhoneItemDetailView {
     }
 
     var journalBlock: some View {
-        let conveyURL = ConveyURL.dayURL(
-            activeLocalPort: self.observerRegistration.activeLocalPort,
-            day: self.item.day
-        )
+        let conveyURL = ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
         let availability = OnThisPhoneItemDetailPresentation.journalAvailability(
             sendState: self.item.sendState,
             hasConveyURL: conveyURL != nil,
@@ -121,7 +118,7 @@ private extension OnThisPhoneItemDetailView {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button(SourceVocabulary.openJournalInConvey) {
+                Button(SourceVocabulary.openJournalLink) {
                     if let conveyURL {
                         self.openURL(conveyURL)
                     }
@@ -129,7 +126,7 @@ private extension OnThisPhoneItemDetailView {
                 .buttonStyle(.bordered)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(!availability.enabled)
-                .accessibilityLabel(SourceVocabulary.openJournalInConvey)
+                .accessibilityLabel(SourceVocabulary.openJournalLink)
                 .accessibilityHint("Opens your journal in the browser.")
             }
         }

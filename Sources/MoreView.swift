@@ -195,14 +195,14 @@ struct MoreView: View {
 
             Section {
                 let conveyURL = ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
-                Button(SourceVocabulary.openJournalInConvey) {
+                Button(SourceVocabulary.openJournalLink) {
                     if let conveyURL {
                         self.openURL(conveyURL)
                     }
                 }
                 .disabled(conveyURL == nil)
                 .hoverEffect(.highlight)
-                .accessibilityLabel(SourceVocabulary.openJournalInConvey)
+                .accessibilityLabel(SourceVocabulary.openJournalLink)
                 .accessibilityHint("Opens your journal in the browser.")
 
                 if conveyURL == nil {

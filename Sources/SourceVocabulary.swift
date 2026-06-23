@@ -190,7 +190,7 @@ nonisolated enum SourceVocabulary {
     static let notProvided = "not provided"
     static let originAppNotProvided = "origin app not provided"
     static let rawOriginalUnavailable = "raw original is no longer on this phone."
-    static let openJournalInConvey = "open journal ↗"
+    static let openJournalLink = "open journal ↗"
     static let openInJournal = "open in journal"
     static let journalTunnel = "journal tunnel"
     static let connectionProbe = "connection probe"

@@ -18,17 +18,10 @@ class Handler(BaseHTTPRequestHandler):
     count_file = None
     confirm_count = 0
     briefing_updates = []
-    progress_reads = 0
     unpair_count = 0
     push_register_count = 0
     push_deregister_count = 0
     last_push_payload = None
-    segments_observed = 12
-    meetings_detected = 3
-    entities_identified = 14
-    percent = 48
-    briefing_ready_after = 2
-    briefing_ready_immediately = False
 
     def log_message(self, format, *args):
         print(format % args, flush=True)
@@ -59,7 +52,6 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "confirm_count": cls.confirm_count,
                     "briefing_updates": cls.briefing_updates,
-                    "progress_reads": cls.progress_reads,
                     "unpair_count": cls.unpair_count,
                     "push_register_count": cls.push_register_count,
                     "push_deregister_count": cls.push_deregister_count,
@@ -115,30 +107,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_GET(self):
-        if self.path == "/api/home/progress-today":
-            with Handler.lock:
-                Handler.progress_reads += 1
-                Handler._write_state_file()
-                read_count = Handler.progress_reads
-            self._send_json(
-                200,
-                {
-                    "segments_observed": Handler.segments_observed,
-                    "meetings_detected": Handler.meetings_detected,
-                    "entities_identified": Handler.entities_identified,
-                    "percent": Handler.percent,
-                    "briefing_ready": Handler.briefing_ready_immediately or read_count >= Handler.briefing_ready_after,
-                },
-            )
-            return
-
         if self.path == "/api/pairing/status":
             self._send_json(
                 200,
                 {
                     "confirm_count": Handler.confirm_count,
                     "briefing_updates": Handler.briefing_updates,
-                    "progress_reads": Handler.progress_reads,
                     "unpair_count": Handler.unpair_count,
                     "push_register_count": Handler.push_register_count,
                     "push_deregister_count": Handler.push_deregister_count,
@@ -182,21 +156,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8676)
     parser.add_argument("--count-file")
-    parser.add_argument("--segments-observed", type=int, default=12)
-    parser.add_argument("--meetings-detected", type=int, default=3)
-    parser.add_argument("--entities-identified", type=int, default=14)
-    parser.add_argument("--percent", type=int, default=48)
-    parser.add_argument("--briefing-ready-after", type=int, default=2)
-    parser.add_argument("--briefing-ready-immediately", action="store_true")
     args = parser.parse_args()
 
     Handler.count_file = args.count_file
-    Handler.segments_observed = args.segments_observed
-    Handler.meetings_detected = args.meetings_detected
-    Handler.entities_identified = args.entities_identified
-    Handler.percent = args.percent
-    Handler.briefing_ready_after = max(args.briefing_ready_after, 1)
-    Handler.briefing_ready_immediately = args.briefing_ready_immediately
     Handler._write_state_file()
 
     SERVER = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)

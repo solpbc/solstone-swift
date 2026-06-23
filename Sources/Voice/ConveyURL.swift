@@ -6,14 +6,6 @@ import Foundation
 /// Builds loopback URLs into the connected journal's convey web UI, opened in
 /// system Safari (never embedded). Mirrors `VoiceServerURL`.
 nonisolated enum ConveyURL {
-    /// Day view, e.g. `/app/home/20260602`. Returns nil when not openable
-    /// (no live loopback port, or an empty/missing day). Segment is intentionally
-    /// not part of the route — the day is convey's addressable unit.
-    static func dayURL(activeLocalPort: Int?, day: String?) -> URL? {
-        guard let port = activeLocalPort, let day, !day.isEmpty else { return nil }
-        return self.url(localPort: port, path: "/app/home/\(day)")
-    }
-
     /// Journal root (`/`). Returns nil when there is no live loopback port.
     static func rootURL(activeLocalPort: Int?) -> URL? {
         guard let port = activeLocalPort else { return nil }

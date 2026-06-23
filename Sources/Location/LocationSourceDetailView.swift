@@ -245,7 +245,7 @@ private extension LocationSourceDetailView {
 
     var openJournalBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(SourceVocabulary.openJournalInConvey) {
+            Button(SourceVocabulary.openJournalLink) {
                 if let url = self.journalURL {
                     self.openURL(url)
                 }
@@ -253,7 +253,7 @@ private extension LocationSourceDetailView {
             .buttonStyle(.bordered)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .disabled(self.journalURL == nil)
-            .accessibilityLabel(SourceVocabulary.openJournalInConvey)
+            .accessibilityLabel(SourceVocabulary.openJournalLink)
             .accessibilityHint("Opens your journal in the browser.")
 
             if self.journalURL == nil {
@@ -265,14 +265,7 @@ private extension LocationSourceDetailView {
     }
 
     var journalURL: URL? {
-        ConveyURL.dayURL(
-            activeLocalPort: self.observerRegistration.activeLocalPort,
-            day: self.todayDayString
-        )
-    }
-
-    var todayDayString: String {
-        LocationRecentSource.dayString(for: Date())
+        ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
     }
 
     var pauseResumeLabel: String {

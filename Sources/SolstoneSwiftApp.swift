@@ -513,7 +513,6 @@ private extension SolstoneSwiftApp {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: "onboarding.step")
         defaults.removeObject(forKey: "onboarding.completed")
-        defaults.removeObject(forKey: "briefing.firstSeen")
         defaults.removeObject(forKey: AudioStorageKey.enrolled)
         defaults.removeObject(forKey: AudioStorageKey.magicMomentFirstSeen)
         defaults.removeObject(forKey: "push.pendingRegistrationToken")

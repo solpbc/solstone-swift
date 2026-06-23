@@ -9,8 +9,6 @@ cd "$ROOT"
 
 required_hints=(
   'Sources/Onboarding/WelcomeScreen.swift:opens the first source step'
-  'Sources/Home/DayZeroOverlayView.swift:Opens Today in your journal'
-  'Sources/Home/DayZeroOverlayView.swift:Dismisses this first-briefing message'
   'Sources/Location/LocationSourceDetailView.swift:Opens iOS Settings for location access.'
   'Sources/Location/LocationSourceDetailView.swift:Changes the detail level to what iOS allows.'
   'Sources/Location/LocationSourceDetailView.swift:Resumes location updates to your journal.'

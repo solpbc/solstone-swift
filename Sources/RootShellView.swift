@@ -80,16 +80,6 @@ struct RootShellView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .top) {
-            if self.dayHomeJournalState == .linkedOnline {
-                DayZeroOverlayView(
-                    localPort: self.localPort,
-                    onBrowseJournal: {
-                        self.openInJournal()
-                    }
-                )
-            }
-        }
-        .overlay(alignment: .top) {
             VoiceHUDOverlay(voiceManager: self.voiceManager)
                 .allowsHitTesting(true)
         }
@@ -205,8 +195,9 @@ struct RootShellView: View {
     }
 
     private func openInJournal() {
-        guard let url = URL(string: "http://127.0.0.1:\(self.localPort)/") else { return }
-        self.openURL(url)
+        if let url = ConveyURL.rootURL(activeLocalPort: self.localPort) {
+            self.openURL(url)
+        }
     }
 }
 
