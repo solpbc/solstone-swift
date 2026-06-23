@@ -306,57 +306,19 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testWatchdogTripForcesNeedsAttentionAndGapOnNextBatch() async {
+    func testStationaryAlwaysStaysActiveWithoutGap() async {
         self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager(watchdogThreshold: .seconds(10))
+        let manager = self.makeManager()
         await manager.start(tier: .balanced)
         await self.yieldToMainActor()
 
-        manager.noteAppDidEnterBackground()
-        await self.yieldToMainActor()
-        self.clock.advance(by: 10)
+        self.clock.advance(by: 3600)
         await self.yieldToMainActor()
 
-        XCTAssertEqual(manager.sourceState, .needsAttention)
-        XCTAssertEqual(manager.sourceAttention?.actionHint, LocationVocabulary.matchToAllowedAction)
-
-        self.clock.advance(by: 300)
-        await self.yieldToMainActor()
-        let batches = self.uploader.batches()
-        XCTAssertTrue(batches.last?.gap ?? false)
-    }
-
-    @MainActor
-    func testBackgroundFixDisarmsWatchdog() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager(watchdogThreshold: .seconds(10))
-        await manager.start(tier: .balanced)
-        await self.yieldToMainActor()
-
-        manager.noteAppDidEnterBackground()
-        await self.yieldToMainActor()
-        self.provider.emitFix(MockLocationProvider.fix(), context: .background)
-        await self.yieldToMainActor()
-        self.clock.advance(by: 10)
-        await self.yieldToMainActor()
-
-        XCTAssertEqual(manager.sourceState, .active)
-    }
-
-    @MainActor
-    func testAuthorizationSufficientUsesEffectiveCapability() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager(watchdogThreshold: .seconds(10))
-        await manager.start(tier: .balanced)
-        await self.yieldToMainActor()
         XCTAssertTrue(manager.isAuthorizationSufficient(for: .balanced))
-
-        manager.noteAppDidEnterBackground()
-        await self.yieldToMainActor()
-        self.clock.advance(by: 10)
-        await self.yieldToMainActor()
-
-        XCTAssertFalse(manager.isAuthorizationSufficient(for: .balanced))
+        XCTAssertEqual(manager.sourceState, .active)
+        XCTAssertNil(manager.sourceAttention)
+        XCTAssertEqual(self.uploader.batchCount(), 0)
     }
 
     @MainActor
@@ -632,15 +594,12 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    private func makeManager(
-        watchdogThreshold: Duration = .seconds(600)
-    ) -> LocationManager {
+    private func makeManager() -> LocationManager {
         LocationManager(
             provider: self.provider,
             uploader: self.uploader,
             clock: self.clock,
-            defaults: self.defaults,
-            watchdogThreshold: watchdogThreshold
+            defaults: self.defaults
         )
     }
 

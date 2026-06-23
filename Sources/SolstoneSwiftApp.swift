@@ -345,7 +345,6 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
-                self.locationManager.noteAppDidEnterForeground()
                 self.backgroundDisconnectTask?.cancel()
                 self.backgroundDisconnectTask = nil
                 if Self.isIntegrationMode || Self.isUITest {
@@ -371,7 +370,6 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .background:
-                self.locationManager.noteAppDidEnterBackground()
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
                 self.integrationObserverStartTask?.cancel()

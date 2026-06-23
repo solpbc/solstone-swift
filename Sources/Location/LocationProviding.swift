@@ -4,7 +4,6 @@
 import CoreLocation
 import Foundation
 import Observation
-import UIKit
 import os
 
 private let locationProviderLog = Logger(subsystem: "app.solstone.swift", category: "location")
@@ -24,11 +23,6 @@ nonisolated enum LocationObservationMode: Sendable, Equatable, Hashable {
     case liveUpdates
 }
 
-nonisolated enum LocationDeliveryContext: Sendable, Equatable {
-    case foreground
-    case background
-}
-
 nonisolated enum LocationGapReason: Sendable, Equatable {
     case authorizationChanged
     case unavailable
@@ -39,7 +33,7 @@ nonisolated enum LocationGapReason: Sendable, Equatable {
 @MainActor
 protocol LocationProviding: AnyObject {
     var onAuthorizationChanged: (@Sendable (LocationCapability) -> Void)? { get set }
-    var onFix: (@Sendable (LocationFix, LocationDeliveryContext) -> Void)? { get set }
+    var onFix: (@Sendable (LocationFix) -> Void)? { get set }
     var onVisit: (@Sendable (LocationVisit) -> Void)? { get set }
     var onGap: (@Sendable (LocationGapReason) -> Void)? { get set }
 
@@ -55,7 +49,7 @@ protocol LocationProviding: AnyObject {
 @MainActor
 final class LiveLocationProvider: NSObject, LocationProviding, CLLocationManagerDelegate {
     var onAuthorizationChanged: (@Sendable (LocationCapability) -> Void)?
-    var onFix: (@Sendable (LocationFix, LocationDeliveryContext) -> Void)?
+    var onFix: (@Sendable (LocationFix) -> Void)?
     var onVisit: (@Sendable (LocationVisit) -> Void)?
     var onGap: (@Sendable (LocationGapReason) -> Void)?
 
@@ -162,9 +156,8 @@ final class LiveLocationProvider: NSObject, LocationProviding, CLLocationManager
         let fixes = locations.map { Self.fix(from: $0, stationary: false) }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let context = self.deliveryContext()
             for fix in fixes {
-                self.onFix?(fix, context)
+                self.onFix?(fix)
             }
         }
     }
@@ -188,7 +181,7 @@ final class LiveLocationProvider: NSObject, LocationProviding, CLLocationManager
 private extension LiveLocationProvider {
     func handle(_ update: CLLocationUpdate) {
         if let location = update.location {
-            self.onFix?(Self.fix(from: location, stationary: update.stationary), self.deliveryContext())
+            self.onFix?(Self.fix(from: location, stationary: update.stationary))
         } else if update.authorizationDenied || update.authorizationDeniedGlobally || update.authorizationRestricted {
             self.onGap?(.authorizationChanged)
         } else if update.locationUnavailable {
@@ -198,10 +191,6 @@ private extension LiveLocationProvider {
         } else if update.accuracyLimited {
             self.onGap?(.accuracyLimited)
         }
-    }
-
-    func deliveryContext() -> LocationDeliveryContext {
-        UIApplication.shared.applicationState == .background ? .background : .foreground
     }
 
     nonisolated static func fix(from location: CLLocation, stationary: Bool) -> LocationFix {

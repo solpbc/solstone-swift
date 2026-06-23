@@ -44,8 +44,6 @@ nonisolated enum LocationRecovery: Sendable, Equatable {
 @MainActor
 @Observable
 final class LocationManager {
-    static let provisionalAlwaysWatchdogThreshold: Duration = .seconds(600) // VPE-tunable.
-
     var state: LocationState = .idle
     var tier: LocationTier
 
@@ -53,9 +51,7 @@ final class LocationManager {
     @ObservationIgnored private let uploader: any LocationUploading
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private let watchdogThreshold: Duration
     @ObservationIgnored private var segmentationTask: Task<Void, Never>?
-    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var paused = false
     @ObservationIgnored private var currentSessionID: UUID?
     @ObservationIgnored private var sessionStartedAt: Date?
@@ -65,9 +61,6 @@ final class LocationManager {
     @ObservationIgnored private var segmentVisits: [LocationVisit] = []
     @ObservationIgnored private var segmentHasGap = false
     @ObservationIgnored private var hasRequestedAlwaysForCurrentStart = false
-    @ObservationIgnored private var isBackgrounded = false
-    @ObservationIgnored private var watchdogTripped = false
-    @ObservationIgnored private var watchdogGeneration = 0
     private var lastCapability: LocationCapability
 
     private enum Key {
@@ -80,14 +73,12 @@ final class LocationManager {
         provider: any LocationProviding = LiveLocationProvider(),
         uploader: any LocationUploading = LocationUploader(),
         clock: any ObserverClock = SystemObserverClock(),
-        defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier),
-        watchdogThreshold: Duration = LocationManager.provisionalAlwaysWatchdogThreshold
+        defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier)
     ) {
         self.provider = provider
         self.uploader = uploader
         self.clock = clock
         self.defaults = defaults
-        self.watchdogThreshold = watchdogThreshold
         self.tier = Self.readTier(defaults: defaults)
         self.lastCapability = provider.currentCapability()
         self.provider.onAuthorizationChanged = { [weak self] capability in
@@ -95,9 +86,9 @@ final class LocationManager {
                 await self?.handleAuthorizationChanged(capability)
             }
         }
-        self.provider.onFix = { [weak self] fix, context in
+        self.provider.onFix = { [weak self] fix in
             Task { @MainActor [weak self] in
-                self?.handleFix(fix, context: context)
+                self?.handleFix(fix)
             }
         }
         self.provider.onVisit = { [weak self] visit in
@@ -141,7 +132,6 @@ final class LocationManager {
         self.paused = false
         self.state = .starting
         self.hasRequestedAlwaysForCurrentStart = false
-        self.watchdogTripped = false
         await self.advanceStartFlow(with: self.provider.currentCapability())
     }
 
@@ -179,7 +169,6 @@ final class LocationManager {
     func resume() async {
         self.paused = false
         self.persistPaused(false)
-        self.watchdogTripped = false
         await self.start(tier: self.tier)
     }
 
@@ -218,7 +207,6 @@ final class LocationManager {
 
     func changeTier(_ tier: LocationTier) async {
         self.persistTier(tier)
-        self.watchdogTripped = false
         guard case .active = self.state else { return }
         if tier.isSatisfied(by: self.effectiveCapability()) {
             await self.restartObservationForCurrentTier()
@@ -236,16 +224,6 @@ final class LocationManager {
         case .active, .stopping:
             break
         }
-    }
-
-    func noteAppDidEnterBackground() {
-        self.isBackgrounded = true
-        self.armWatchdogIfNeeded()
-    }
-
-    func noteAppDidEnterForeground() {
-        self.isBackgrounded = false
-        self.disarmWatchdog(clearTrip: false)
     }
 }
 
@@ -297,21 +275,10 @@ private extension LocationManager {
     }
 
     func effectiveCapability() -> LocationCapability {
-        let capability = self.provider.currentCapability()
-        guard self.watchdogTripped else { return capability }
-
-        switch capability {
-        case .always(let accuracy):
-            return .whenInUse(accuracy: accuracy)
-        case .notDetermined, .servicesDisabled, .denied, .restricted, .whenInUse:
-            return capability
-        }
+        self.provider.currentCapability()
     }
 
     func handleAuthorizationChanged(_ capability: LocationCapability) async {
-        if capability != self.lastCapability {
-            self.disarmWatchdog(clearTrip: true)
-        }
         self.lastCapability = capability
 
         if case .active = self.state, !self.tier.isSatisfied(by: self.effectiveCapability()) {
@@ -382,7 +349,6 @@ private extension LocationManager {
             self.persistEnabled(true)
             self.persistPaused(false)
             self.startSegmentationTask()
-            self.armWatchdogIfNeeded()
         } catch {
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
@@ -397,7 +363,6 @@ private extension LocationManager {
         }
         do {
             try await self.provider.startObservation(modes: self.tier.modes)
-            self.armWatchdogIfNeeded()
         } catch {
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
@@ -462,12 +427,9 @@ private extension LocationManager {
         ))
     }
 
-    func handleFix(_ fix: LocationFix, context: LocationDeliveryContext) {
+    func handleFix(_ fix: LocationFix) {
         guard case .active = self.state else { return }
         self.segmentFixes.append(fix)
-        if context == .background {
-            self.disarmWatchdog(clearTrip: true)
-        }
     }
 
     func handleVisit(_ visit: LocationVisit) {
@@ -478,42 +440,6 @@ private extension LocationManager {
     func markGap() {
         if case .active = self.state {
             self.segmentHasGap = true
-        }
-    }
-
-    func armWatchdogIfNeeded() {
-        guard self.isBackgrounded,
-              case .active = self.state,
-              self.tier.requiredAuthorization == .always,
-              case .always = self.provider.currentCapability(),
-              self.watchdogTask == nil
-        else { return }
-
-        self.watchdogGeneration += 1
-        let generation = self.watchdogGeneration
-        self.watchdogTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try await self.clock.sleep(for: self.watchdogThreshold)
-            } catch {
-                return
-            }
-            guard self.isBackgrounded,
-                  case .active = self.state,
-                  self.tier.requiredAuthorization == .always,
-                  self.watchdogGeneration == generation
-            else { return }
-            self.watchdogTripped = true
-            self.markGap()
-        }
-    }
-
-    func disarmWatchdog(clearTrip: Bool) {
-        self.watchdogGeneration += 1
-        self.watchdogTask?.cancel()
-        self.watchdogTask = nil
-        if clearTrip {
-            self.watchdogTripped = false
         }
     }
 
@@ -550,7 +476,6 @@ private extension LocationManager {
     func cancelTasks() {
         self.segmentationTask?.cancel()
         self.segmentationTask = nil
-        self.disarmWatchdog(clearTrip: false)
     }
 
     func resetRuntime() {
@@ -562,8 +487,5 @@ private extension LocationManager {
         self.segmentVisits = []
         self.segmentHasGap = false
         self.hasRequestedAlwaysForCurrentStart = false
-        self.isBackgrounded = false
-        self.watchdogTripped = false
-        self.watchdogGeneration += 1
     }
 }

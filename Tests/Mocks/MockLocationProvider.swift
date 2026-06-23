@@ -7,7 +7,7 @@ import Foundation
 @MainActor
 final class MockLocationProvider: LocationProviding {
     var onAuthorizationChanged: (@Sendable (LocationCapability) -> Void)?
-    var onFix: (@Sendable (LocationFix, LocationDeliveryContext) -> Void)?
+    var onFix: (@Sendable (LocationFix) -> Void)?
     var onVisit: (@Sendable (LocationVisit) -> Void)?
     var onGap: (@Sendable (LocationGapReason) -> Void)?
 
@@ -60,8 +60,8 @@ final class MockLocationProvider: LocationProviding {
         self.onAuthorizationChanged?(capability)
     }
 
-    func emitFix(_ fix: LocationFix = MockLocationProvider.fix(), context: LocationDeliveryContext = .foreground) {
-        self.onFix?(fix, context)
+    func emitFix(_ fix: LocationFix = MockLocationProvider.fix()) {
+        self.onFix?(fix)
     }
 
     func emitVisit(_ visit: LocationVisit = MockLocationProvider.visit()) {
