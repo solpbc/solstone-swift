@@ -92,6 +92,9 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             pendantBatteryTrend: [
                 OmiDiagnosticsPayload.PendantBatterySample(timestamp: start, level: 88)
             ],
+            pendantSignalTrend: [
+                OmiDiagnosticsPayload.PendantSignalSample(timestamp: start, level: -60)
+            ],
             phoneSamples: [
                 OmiDiagnosticsPayload.PhoneSample(timestamp: start, batteryLevel: 0.5, thermalState: "nominal")
             ],
@@ -171,6 +174,7 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             "audio gaps:",
             "out of order frames:",
             "pendant battery:",
+            "pendant signal:",
             "phone battery:",
             "phone thermal state:"
         ] {

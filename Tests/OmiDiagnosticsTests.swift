@@ -32,6 +32,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         diagnostics.noteDecodedSamples(at: start.addingTimeInterval(1))
         diagnostics.updateDecodeCounters(ok: 8, errors: 2, gaps: 1, outOfOrder: 3)
         diagnostics.recordBattery(level: 87, at: start.addingTimeInterval(2))
+        diagnostics.recordSignal(level: -62, at: start.addingTimeInterval(3))
         diagnostics.recordDisconnected(event: OmiSourceEvent(
             timestamp: start.addingTimeInterval(20),
             reason: "link lost",
@@ -57,11 +58,103 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         XCTAssertEqual(payload.pendantBatteryTrend, [
             OmiDiagnosticsPayload.PendantBatterySample(timestamp: start.addingTimeInterval(2), level: 87)
         ])
+        XCTAssertEqual(payload.pendantSignalTrend, [
+            OmiDiagnosticsPayload.PendantSignalSample(timestamp: start.addingTimeInterval(3), level: -62)
+        ])
         XCTAssertEqual(payload.phoneSamples.count, 1)
         XCTAssertEqual(payload.gapTallies.disconnectGapCount, 1)
         XCTAssertEqual(payload.gapTallies.disconnectGapSeconds, 4, accuracy: 0.001)
         XCTAssertNil(payload.openDisconnectStartedAt)
         XCTAssertEqual(payload.lastDecodedSampleAt, start.addingTimeInterval(1))
+    }
+
+    @MainActor
+    func testLoadsOldShapePayloadWithoutSignalTrend() throws {
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let oldShapeJSON = """
+        {
+          "version": 1,
+          "firstObservedAt": "2024-04-20T12:00:00Z",
+          "uptime": {
+            "connectedSince": "2024-04-20T12:40:00Z",
+            "accumulatedConnectedSeconds": 1800
+          },
+          "reconnectEvents": [
+            {
+              "timestamp": "2024-04-20T12:10:00Z",
+              "reason": "link lost",
+              "appStateAtDrop": "foreground",
+              "timeToReconnect": 4.5
+            }
+          ],
+          "decodeCounters": {
+            "ok": 42,
+            "errors": 2,
+            "gaps": 3,
+            "outOfOrder": 1
+          },
+          "pendantBatteryTrend": [
+            {
+              "timestamp": "2024-04-20T12:05:00Z",
+              "level": 87
+            }
+          ],
+          "phoneSamples": [
+            {
+              "timestamp": "2024-04-20T12:06:00Z",
+              "batteryLevel": 0.75,
+              "thermalState": "nominal"
+            }
+          ],
+          "gapTallies": {
+            "disconnectGapCount": 1,
+            "disconnectGapSeconds": 4.5,
+            "connectedSilentGapCount": 2,
+            "connectedSilentGapSeconds": 90
+          },
+          "lastDecodedSampleAt": "2024-04-20T12:08:00Z",
+          "openDisconnectStartedAt": null,
+          "openConnectedSilentStartedAt": "2024-04-20T12:41:00Z"
+        }
+        """
+        try Data(oldShapeJSON.utf8).write(to: fileURL)
+
+        let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
+        let payload = diagnostics.payload
+
+        XCTAssertEqual(payload.version, 1)
+        XCTAssertEqual(payload.firstObservedAt, Self.date("2024-04-20T12:00:00Z"))
+        XCTAssertEqual(payload.uptime.connectedSince, Self.date("2024-04-20T12:40:00Z"))
+        XCTAssertEqual(payload.uptime.accumulatedConnectedSeconds, 1800, accuracy: 0.001)
+        XCTAssertEqual(payload.reconnectEvents, [
+            OmiDiagnosticsPayload.ReconnectEvent(
+                timestamp: Self.date("2024-04-20T12:10:00Z"),
+                reason: "link lost",
+                appStateAtDrop: "foreground",
+                timeToReconnect: 4.5
+            )
+        ])
+        XCTAssertEqual(payload.decodeCounters, OmiDiagnosticsPayload.DecodeCounters(ok: 42, errors: 2, gaps: 3, outOfOrder: 1))
+        XCTAssertEqual(payload.pendantBatteryTrend, [
+            OmiDiagnosticsPayload.PendantBatterySample(timestamp: Self.date("2024-04-20T12:05:00Z"), level: 87)
+        ])
+        XCTAssertNil(payload.pendantSignalTrend)
+        XCTAssertEqual(payload.phoneSamples, [
+            OmiDiagnosticsPayload.PhoneSample(
+                timestamp: Self.date("2024-04-20T12:06:00Z"),
+                batteryLevel: 0.75,
+                thermalState: "nominal"
+            )
+        ])
+        XCTAssertEqual(payload.gapTallies, OmiDiagnosticsPayload.GapTallies(
+            disconnectGapCount: 1,
+            disconnectGapSeconds: 4.5,
+            connectedSilentGapCount: 2,
+            connectedSilentGapSeconds: 90
+        ))
+        XCTAssertEqual(payload.lastDecodedSampleAt, Self.date("2024-04-20T12:08:00Z"))
+        XCTAssertNil(payload.openDisconnectStartedAt)
+        XCTAssertEqual(payload.openConnectedSilentStartedAt, Self.date("2024-04-20T12:41:00Z"))
     }
 
     @MainActor
@@ -89,6 +182,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         diagnostics.recordConnected()
         diagnostics.updateDecodeCounters(ok: 9, errors: 1, gaps: 2, outOfOrder: 0)
         diagnostics.recordBattery(level: 92, at: start)
+        diagnostics.recordSignal(level: -58, at: start.addingTimeInterval(1))
         diagnostics.recordDisconnected(event: OmiSourceEvent(
             timestamp: start.addingTimeInterval(10),
             reason: "link lost",
@@ -117,11 +211,16 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
             "audio gaps:",
             "out of order frames:",
             "pendant battery:",
+            "pendant signal:",
             "phone battery:",
             "phone thermal state:"
         ] {
             XCTAssertTrue(report.contains(requiredLine), requiredLine)
         }
         XCTAssertTrue(report.hasSuffix("\n"))
+    }
+
+    private static func date(_ string: String) -> Date {
+        ISO8601DateFormatter().date(from: string)!
     }
 }

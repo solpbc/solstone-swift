@@ -106,10 +106,13 @@ private extension OmiSourceDetailView {
     }
 
     var pendantBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let now = Date()
+        return VStack(alignment: .leading, spacing: 10) {
             LabeledContent("name", value: self.manager.connectedPeripheralName ?? "not connected")
-            LabeledContent("signal", value: self.manager.connectedRSSI.map { "\($0)" } ?? "unknown")
-            LabeledContent("battery", value: self.batteryText)
+            // VPX: tune pendant reading hierarchy after audio, signal, and battery are all populated.
+            LabeledContent("audio", value: self.audioText(now: now))
+            LabeledContent("signal", value: self.signalText(now: now))
+            LabeledContent("battery", value: self.batteryText(now: now))
         }
         .font(.subheadline)
     }
@@ -150,13 +153,30 @@ private extension OmiSourceDetailView {
         omiSourceState(for: self.manager.connectionState, enabled: self.manager.enabled)
     }
 
-    var batteryText: String {
-        switch self.manager.battery {
-        case .value(let level):
-            "\(level)%"
-        case .notRead, .unavailable:
-            self.manager.battery.placeholderText ?? "unknown"
-        }
+    func audioText(now: Date) -> String {
+        let health = OmiSourceLogic.audioHealth(
+            connectionState: self.manager.connectionState,
+            lastAudioAt: self.manager.lastAudioAt,
+            connectedSince: self.manager.diagnostics.payload.uptime.connectedSince,
+            now: now
+        )
+        return OmiSourceLogic.audioHealthText(health, now: now)
+    }
+
+    func signalText(now: Date) -> String {
+        let reading = OmiSourceLogic.surfacedSignal(
+            live: self.manager.connectedRSSI,
+            lastKnown: self.manager.lastKnownSignal
+        )
+        return OmiSourceLogic.pendantSignalText(reading: reading, now: now)
+    }
+
+    func batteryText(now: Date) -> String {
+        let reading = OmiSourceLogic.surfacedBattery(
+            live: self.manager.battery,
+            lastKnown: self.manager.lastKnownBattery
+        )
+        return OmiSourceLogic.pendantBatteryText(reading: reading, now: now)
     }
 
     func refreshDiagnosticsExport() {

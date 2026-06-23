@@ -48,13 +48,40 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let activeSubtext: String
     let attention: SourceAttention?
     let pendingStatus: SourcePendingStatus
+    let detailSubtext: String?
+
+    init(
+        id: String,
+        displayName: String,
+        kind: SourceKind,
+        group: SourceGroup,
+        state: SourceState,
+        activeSubtext: String,
+        attention: SourceAttention?,
+        pendingStatus: SourcePendingStatus,
+        detailSubtext: String? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.kind = kind
+        self.group = group
+        self.state = state
+        self.activeSubtext = activeSubtext
+        self.attention = attention
+        self.pendingStatus = pendingStatus
+        self.detailSubtext = detailSubtext
+    }
 
     var subtext: String {
         self.state.subtext(activeSubtext: self.activeSubtext)
     }
 
     var voiceOverText: String {
-        self.state.voiceOverText(activeSubtext: self.activeSubtext)
+        let base = self.state.voiceOverText(activeSubtext: self.activeSubtext)
+        guard let detailSubtext else {
+            return base
+        }
+        return "\(base) \(detailSubtext)."
     }
 }
 

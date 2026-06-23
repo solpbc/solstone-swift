@@ -22,6 +22,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var connectedPeripheralName: String?
     var connectedPeripheralID: String?
     var connectedRSSI: Int?
+    var lastKnownBattery: TimedReading<Int>?
+    var lastKnownSignal: TimedReading<Int>?
     var firmware: BLEReadState<String> = .notRead
     var manufacturer: BLEReadState<String> = .notRead
     var model: BLEReadState<String> = .notRead
@@ -38,6 +40,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var audioMalformed = 0
     var audioMarkers = 0
     var lastMarkerDate: Date?
+    var lastAudioAt: Date?
     var uptime = OmiUptimeAccumulator()
     var lastDisconnectedAt: Date?
     var isSystemReconnecting = false
@@ -65,6 +68,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var phoneSampleTask: Task<Void, Never>?
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private var previousBatteryMonitoringEnabled: Bool?
+    @ObservationIgnored private var silentEpisodeRecoveryFired = false
+    @ObservationIgnored private var lastLoggedAudioHealth: OmiAudioHealth?
 
     init(
         defaults: UserDefaults = .standard,
@@ -75,6 +80,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.diagnostics = diagnostics
         self.clock = clock
         self.enabled = defaults.bool(forKey: Self.enabledKey)
+        self.lastKnownBattery = diagnostics.payload.pendantBatteryTrend.last.map {
+            TimedReading(value: $0.level, at: $0.timestamp)
+        }
+        self.lastKnownSignal = nil
         super.init()
         self.central = CBCentralManager(
             delegate: self,
@@ -425,6 +434,9 @@ private extension OmiSourceManager {
         self.diagnostics.recordConnected()
         self.uptime.noteConnected(at: Date())
         self.connectedRSSI = nil
+        self.lastAudioAt = nil
+        self.silentEpisodeRecoveryFired = false
+        self.lastLoggedAudioHealth = nil
         self.resetReadState()
         self.clearAudioState()
         self.characteristicsByID.removeAll()
@@ -598,7 +610,11 @@ private extension OmiSourceManager {
             self.log.info("omi rssi read failed: \(error.localizedDescription, privacy: .public)")
             return
         }
-        self.connectedRSSI = RSSI.intValue
+        let level = RSSI.intValue
+        let now = Date()
+        self.connectedRSSI = level
+        self.lastKnownSignal = TimedReading(value: level, at: now)
+        self.diagnostics.recordSignal(level: level, at: now)
     }
 
     func handleAudioData(_ data: Data) {
@@ -635,15 +651,20 @@ private extension OmiSourceManager {
             outOfOrder: self.audioOutOfOrder
         )
         if deltas.decodeOK > 0 {
-            self.diagnostics.noteDecodedSamples(at: Date())
+            let now = Date()
+            self.lastAudioAt = now
+            self.diagnostics.noteDecodedSamples(at: now)
+            self.evaluateAudioRecovery(now: now)
         }
     }
 
     func updateKnownField(_ uuid: CBUUID, data: Data) -> Bool {
         if uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic) {
             let level = Int(data[0])
+            let now = Date()
             self.battery = .value(level)
-            self.diagnostics.recordBattery(level: level, at: Date())
+            self.lastKnownBattery = TimedReading(value: level, at: now)
+            self.diagnostics.recordBattery(level: level, at: now)
             self.log.info("omi battery read")
             return true
         }
@@ -739,6 +760,8 @@ private extension OmiSourceManager {
         self.pendingConnectionID = nil
         self.reconnectStartedAt = nil
         self.isSystemReconnecting = false
+        self.silentEpisodeRecoveryFired = false
+        self.lastLoggedAudioHealth = nil
         self.resetReadState()
         self.clearAudioState()
     }
@@ -748,6 +771,8 @@ private extension OmiSourceManager {
         self.characteristicsByID.removeAll()
         self.isAudioSubscribed = false
         self.opusDecoder = nil
+        self.silentEpisodeRecoveryFired = false
+        self.lastLoggedAudioHealth = nil
     }
 
     func clearAudioState() {
@@ -822,6 +847,8 @@ private extension OmiSourceManager {
 
             while self.enabled {
                 self.diagnostics.recordPhoneSample()
+                self.refreshPendantReadings()
+                self.evaluateAudioRecovery(now: self.clock.now())
                 do {
                     try await self.clock.sleep(for: .seconds(60))
                 } catch {
@@ -834,6 +861,80 @@ private extension OmiSourceManager {
     func stopPhoneSampleLoop() {
         self.phoneSampleTask?.cancel()
         self.phoneSampleTask = nil
+    }
+
+    func refreshPendantReadings() {
+        self.readRSSI()
+
+        let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.batteryLevelCharacteristic)
+        let connected = self.connectionState == .connected && self.connectedPeripheral != nil
+        let hasCachedReadableCharacteristic = characteristic?.properties.contains(.read) == true
+        guard OmiSourceLogic.shouldReReadBattery(
+            connected: connected,
+            hasCachedReadableCharacteristic: hasCachedReadableCharacteristic
+        ),
+              let connectedPeripheral,
+              let characteristic
+        else {
+            return
+        }
+
+        connectedPeripheral.readValue(for: characteristic)
+    }
+
+    func evaluateAudioRecovery(now: Date) {
+        let health = OmiSourceLogic.audioHealth(
+            connectionState: self.connectionState,
+            lastAudioAt: self.lastAudioAt,
+            connectedSince: self.diagnostics.payload.uptime.connectedSince,
+            now: now
+        )
+        self.logAudioHealthTransition(health)
+
+        if health == .receiving {
+            self.silentEpisodeRecoveryFired = false
+        }
+
+        guard OmiSourceLogic.shouldAttemptResubscribe(
+            health: health,
+            isAudioSubscribed: self.isAudioSubscribed,
+            alreadyFired: self.silentEpisodeRecoveryFired
+        ) else {
+            return
+        }
+
+        self.silentEpisodeRecoveryFired = true
+        self.attemptAudioResubscribe()
+    }
+
+    func attemptAudioResubscribe() {
+        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.audioDataCharacteristic) else {
+            self.log.notice("omi audio recovery skipped: audio unavailable")
+            return
+        }
+
+        self.log.notice("omi audio recovery: resubscribing")
+        self.setAudioNotify(enabled: false, characteristic: characteristic)
+        self.subscribeAudio()
+    }
+
+    func logAudioHealthTransition(_ health: OmiAudioHealth) {
+        guard self.lastLoggedAudioHealth != health else {
+            return
+        }
+        self.lastLoggedAudioHealth = health
+        self.log.notice("omi audio health: \(self.audioHealthLogText(health), privacy: .public)")
+    }
+
+    func audioHealthLogText(_ health: OmiAudioHealth) -> String {
+        switch health {
+        case .receiving:
+            return "receiving"
+        case .silentWhileConnected:
+            return "silent while connected"
+        case .idle:
+            return "idle"
+        }
     }
 
     func cancelInitialConnectTimeout() {

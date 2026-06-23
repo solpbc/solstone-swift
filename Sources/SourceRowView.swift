@@ -26,6 +26,12 @@ struct SourceRowView: View {
                         Text(self.source.subtext)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        // VPX: tune row telemetry density once Omi readings are visible on device.
+                        if let detailSubtext = self.source.detailSubtext {
+                            Text(detailSubtext)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

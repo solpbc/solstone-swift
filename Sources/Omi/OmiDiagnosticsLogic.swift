@@ -89,6 +89,11 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         var level: Int
     }
 
+    struct PendantSignalSample: Codable, Sendable, Equatable {
+        var timestamp: Date
+        var level: Int
+    }
+
     struct PhoneSample: Codable, Sendable, Equatable {
         var timestamp: Date
         var batteryLevel: Double?
@@ -122,6 +127,7 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
     var reconnectEvents: [ReconnectEvent]
     var decodeCounters: DecodeCounters
     var pendantBatteryTrend: [PendantBatterySample]
+    var pendantSignalTrend: [PendantSignalSample]? = nil
     var phoneSamples: [PhoneSample]
     var gapTallies: GapTallies
     var lastDecodedSampleAt: Date?
@@ -135,6 +141,7 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         reconnectEvents: [ReconnectEvent] = [],
         decodeCounters: DecodeCounters = DecodeCounters(),
         pendantBatteryTrend: [PendantBatterySample] = [],
+        pendantSignalTrend: [PendantSignalSample]? = nil,
         phoneSamples: [PhoneSample] = [],
         gapTallies: GapTallies = GapTallies(),
         lastDecodedSampleAt: Date? = nil,
@@ -147,6 +154,7 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         self.reconnectEvents = reconnectEvents
         self.decodeCounters = decodeCounters
         self.pendantBatteryTrend = pendantBatteryTrend
+        self.pendantSignalTrend = pendantSignalTrend
         self.phoneSamples = phoneSamples
         self.gapTallies = gapTallies
         self.lastDecodedSampleAt = lastDecodedSampleAt
@@ -312,6 +320,7 @@ nonisolated enum OmiDiagnosticsLogic {
         lines.append("audio gaps: \(payload.decodeCounters.gaps)")
         lines.append("out of order frames: \(payload.decodeCounters.outOfOrder)")
         lines.append("pendant battery: \(Self.pendantBatteryText(payload.pendantBatteryTrend))")
+        lines.append("pendant signal: \(Self.pendantSignalText(payload.pendantSignalTrend))")
         lines.append("phone battery: \(Self.phoneBatteryText(payload.phoneSamples))")
         lines.append("phone thermal state: \(payload.phoneSamples.last?.thermalState ?? "unknown")")
 
@@ -330,6 +339,13 @@ nonisolated enum OmiDiagnosticsLogic {
             return "unknown"
         }
         return "\(sample.level)% (\(samples.count) samples)"
+    }
+
+    private static func pendantSignalText(_ samples: [OmiDiagnosticsPayload.PendantSignalSample]?) -> String {
+        guard let samples, let sample = samples.last else {
+            return "unknown"
+        }
+        return "\(sample.level) (\(samples.count) samples)"
     }
 
     private static func phoneBatteryText(_ samples: [OmiDiagnosticsPayload.PhoneSample]) -> String {

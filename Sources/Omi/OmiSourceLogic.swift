@@ -163,6 +163,28 @@ nonisolated struct OmiAudioCounterSnapshot: Equatable, Sendable {
     let decodeErrors: Int
 }
 
+nonisolated struct TimedReading<Value: Sendable & Equatable>: Equatable, Sendable {
+    var value: Value
+    var at: Date
+}
+
+nonisolated enum OmiReadingFallback: Equatable, Sendable {
+    case notRead
+    case unknown
+}
+
+nonisolated enum OmiSurfacedReading<Value: Sendable & Equatable>: Equatable, Sendable {
+    case live(Value)
+    case lastKnown(value: Value, at: Date)
+    case missing(OmiReadingFallback)
+}
+
+nonisolated enum OmiAudioHealth: Equatable, Sendable {
+    case receiving
+    case silentWhileConnected(since: Date)
+    case idle
+}
+
 nonisolated enum OmiSourceLogic {
     static func reconnectDecision(
         isManualDisconnect: Bool,
@@ -222,6 +244,132 @@ nonisolated enum OmiSourceLogic {
         id.uuidString
     }
 
+    static func surfacedBattery(
+        live: BLEReadState<Int>,
+        lastKnown: TimedReading<Int>?
+    ) -> OmiSurfacedReading<Int> {
+        switch live {
+        case .value(let value):
+            return .live(value)
+        case .notRead:
+            if let lastKnown {
+                return .lastKnown(value: lastKnown.value, at: lastKnown.at)
+            }
+            return .missing(.notRead)
+        case .unavailable:
+            if let lastKnown {
+                return .lastKnown(value: lastKnown.value, at: lastKnown.at)
+            }
+            return .missing(.unknown)
+        }
+    }
+
+    static func surfacedSignal(
+        live: Int?,
+        lastKnown: TimedReading<Int>?
+    ) -> OmiSurfacedReading<Int> {
+        if let live {
+            return .live(live)
+        }
+        if let lastKnown {
+            return .lastKnown(value: lastKnown.value, at: lastKnown.at)
+        }
+        return .missing(.unknown)
+    }
+
+    static func shouldReReadBattery(
+        connected: Bool,
+        hasCachedReadableCharacteristic: Bool
+    ) -> Bool {
+        connected && hasCachedReadableCharacteristic
+    }
+
+    static func audioHealth(
+        connectionState: OmiSourceState,
+        lastAudioAt: Date?,
+        connectedSince: Date?,
+        now: Date,
+        threshold: TimeInterval = OmiDiagnosticsLogic.connectedSilenceThreshold
+    ) -> OmiAudioHealth {
+        guard case .connected = connectionState else {
+            return .idle
+        }
+
+        let baseline: Date?
+        if let connectedSince {
+            baseline = lastAudioAt.map { max($0, connectedSince) } ?? connectedSince
+        } else {
+            baseline = lastAudioAt
+        }
+
+        guard let baseline else {
+            return .idle
+        }
+
+        if now.timeIntervalSince(baseline) <= threshold {
+            return .receiving
+        }
+        return .silentWhileConnected(since: baseline)
+    }
+
+    static func shouldAttemptResubscribe(
+        health: OmiAudioHealth,
+        isAudioSubscribed: Bool,
+        alreadyFired: Bool
+    ) -> Bool {
+        guard case .silentWhileConnected = health else {
+            return false
+        }
+        return isAudioSubscribed && !alreadyFired
+    }
+
+    static func pendantBatteryText(
+        reading: OmiSurfacedReading<Int>,
+        now: Date
+    ) -> String {
+        switch reading {
+        case .live(let value):
+            return "\(value)%"
+        case .lastKnown(let value, let at):
+            return "\(value)% (\(Self.asOfText(at: at, now: now)))"
+        case .missing(let fallback):
+            return Self.missingText(fallback)
+        }
+    }
+
+    static func pendantSignalText(
+        reading: OmiSurfacedReading<Int>,
+        now: Date
+    ) -> String {
+        switch reading {
+        case .live(let value):
+            return "\(value)"
+        case .lastKnown(let value, let at):
+            return "\(value) (\(Self.asOfText(at: at, now: now)))"
+        case .missing(let fallback):
+            return Self.missingText(fallback)
+        }
+    }
+
+    static func audioHealthText(_ health: OmiAudioHealth, now: Date) -> String {
+        switch health {
+        case .receiving:
+            return "flowing"
+        case .silentWhileConnected(let since):
+            return "connected, none for \(Self.elapsedMinuteText(since: since, now: now))"
+        case .idle:
+            return "unknown"
+        }
+    }
+
+    static func sourceReadingSubtext(
+        battery: OmiSurfacedReading<Int>,
+        signal: OmiSurfacedReading<Int>,
+        now: Date
+    ) -> String {
+        "battery \(Self.sourceBatteryText(battery, now: now)), signal \(Self.sourceSignalText(signal, now: now))"
+    }
+
     static func audioCounterSnapshot(
         reassembler: BLEAudioReassembler,
         decodeOK: Int,
@@ -257,5 +405,60 @@ nonisolated enum OmiSourceLogic {
         }
 
         return (decodeOK, decodeErrors)
+    }
+
+    private static func sourceBatteryText(_ reading: OmiSurfacedReading<Int>, now: Date) -> String {
+        switch reading {
+        case .live(let value):
+            return "\(value)%"
+        case .lastKnown(let value, let at):
+            return "\(value)% \(Self.asOfText(at: at, now: now))"
+        case .missing(let fallback):
+            return Self.missingText(fallback)
+        }
+    }
+
+    private static func sourceSignalText(_ reading: OmiSurfacedReading<Int>, now: Date) -> String {
+        switch reading {
+        case .live(let value):
+            return "\(value)"
+        case .lastKnown(let value, let at):
+            return "\(value) \(Self.asOfText(at: at, now: now))"
+        case .missing(let fallback):
+            return Self.missingText(fallback)
+        }
+    }
+
+    private static func missingText(_ fallback: OmiReadingFallback) -> String {
+        switch fallback {
+        case .notRead:
+            return "not read yet"
+        case .unknown:
+            return "unknown"
+        }
+    }
+
+    private static func asOfText(at date: Date, now: Date) -> String {
+        let seconds = max(Int(now.timeIntervalSince(date).rounded()), 0)
+        guard seconds >= 60 else {
+            return "as of now"
+        }
+
+        let minutes = seconds / 60
+        guard minutes >= 60 else {
+            return "as of \(minutes)m ago"
+        }
+
+        let hours = minutes / 60
+        guard hours >= 24 else {
+            return "as of \(hours)h ago"
+        }
+
+        return "as of \(hours / 24)d ago"
+    }
+
+    private static func elapsedMinuteText(since date: Date, now: Date) -> String {
+        let minutes = max(Int(now.timeIntervalSince(date) / 60), 1)
+        return "\(minutes)m"
     }
 }

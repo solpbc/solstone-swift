@@ -202,6 +202,212 @@ nonisolated final class OmiSourceLogicTests: XCTestCase {
         XCTAssertNil(OmiSourceLogic.persistedPeripheralID(from: "not-a-uuid"))
     }
 
+    func testSurfacedBatteryPrefersLiveThenLastKnownThenFallback() {
+        let timestamp = Date(timeIntervalSince1970: 600)
+        let lastKnown = TimedReading(value: 72, at: timestamp)
+
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedBattery(live: .value(91), lastKnown: lastKnown),
+            .live(91)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedBattery(live: .notRead, lastKnown: lastKnown),
+            .lastKnown(value: 72, at: timestamp)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedBattery(live: .notRead, lastKnown: nil),
+            .missing(.notRead)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedBattery(live: .unavailable, lastKnown: nil),
+            .missing(.unknown)
+        )
+    }
+
+    func testSurfacedSignalPrefersLiveThenLastKnownThenUnknown() {
+        let timestamp = Date(timeIntervalSince1970: 700)
+        let lastKnown = TimedReading(value: -64, at: timestamp)
+
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedSignal(live: -58, lastKnown: lastKnown),
+            .live(-58)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedSignal(live: nil, lastKnown: lastKnown),
+            .lastKnown(value: -64, at: timestamp)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedSignal(live: nil, lastKnown: nil),
+            .missing(.unknown)
+        )
+    }
+
+    func testSurfacedReadingsRetainLastKnownValueAndTimestampAfterLiveReset() {
+        let batteryAt = Date(timeIntervalSince1970: 720)
+        let signalAt = Date(timeIntervalSince1970: 740)
+        let lastKnownBattery = TimedReading(value: 81, at: batteryAt)
+        let lastKnownSignal = TimedReading(value: -59, at: signalAt)
+
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedBattery(live: .notRead, lastKnown: lastKnownBattery),
+            .lastKnown(value: 81, at: batteryAt)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedBattery(live: .unavailable, lastKnown: lastKnownBattery),
+            .lastKnown(value: 81, at: batteryAt)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.surfacedSignal(live: nil, lastKnown: lastKnownSignal),
+            .lastKnown(value: -59, at: signalAt)
+        )
+    }
+
+    func testSurfacedReadingTextIncludesLastKnownAge() {
+        let timestamp = Date(timeIntervalSince1970: 800)
+        let now = timestamp.addingTimeInterval(12 * 60)
+        let battery = OmiSurfacedReading<Int>.lastKnown(value: 87, at: timestamp)
+        let signal = OmiSurfacedReading<Int>.lastKnown(value: -61, at: timestamp)
+
+        XCTAssertEqual(
+            OmiSourceLogic.pendantBatteryText(reading: battery, now: now),
+            "87% (as of 12m ago)"
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.pendantSignalText(reading: signal, now: now),
+            "-61 (as of 12m ago)"
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.sourceReadingSubtext(battery: battery, signal: signal, now: now),
+            "battery 87% as of 12m ago, signal -61 as of 12m ago"
+        )
+    }
+
+    func testShouldReReadBatteryRequiresConnectedAndCachedReadableCharacteristic() {
+        XCTAssertTrue(OmiSourceLogic.shouldReReadBattery(connected: true, hasCachedReadableCharacteristic: true))
+        XCTAssertFalse(OmiSourceLogic.shouldReReadBattery(connected: false, hasCachedReadableCharacteristic: true))
+        XCTAssertFalse(OmiSourceLogic.shouldReReadBattery(connected: true, hasCachedReadableCharacteristic: false))
+        XCTAssertFalse(OmiSourceLogic.shouldReReadBattery(connected: false, hasCachedReadableCharacteristic: false))
+    }
+
+    func testAudioHealthMirrorsConnectedSilentFallback() {
+        let start = Date(timeIntervalSince1970: 900)
+
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .disconnected,
+                lastAudioAt: start,
+                connectedSince: start,
+                now: start.addingTimeInterval(420)
+            ),
+            .idle
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .connected,
+                lastAudioAt: nil,
+                connectedSince: nil,
+                now: start
+            ),
+            .idle
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .connected,
+                lastAudioAt: nil,
+                connectedSince: start,
+                now: start.addingTimeInterval(20)
+            ),
+            .receiving
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .connected,
+                lastAudioAt: start,
+                connectedSince: start,
+                now: start
+            ),
+            .receiving
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .connected,
+                lastAudioAt: start,
+                connectedSince: start,
+                now: start.addingTimeInterval(31)
+            ),
+            .silentWhileConnected(since: start)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .connected,
+                lastAudioAt: nil,
+                connectedSince: start,
+                now: start.addingTimeInterval(420 * 60)
+            ),
+            .silentWhileConnected(since: start)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealthText(.silentWhileConnected(since: start), now: start.addingTimeInterval(420 * 60)),
+            "connected, none for 420m"
+        )
+    }
+
+    func testShouldAttemptResubscribeRequiresSilentSubscribedAndUnfired() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let silent = OmiAudioHealth.silentWhileConnected(since: start)
+
+        XCTAssertTrue(OmiSourceLogic.shouldAttemptResubscribe(
+            health: silent,
+            isAudioSubscribed: true,
+            alreadyFired: false
+        ))
+        XCTAssertFalse(OmiSourceLogic.shouldAttemptResubscribe(
+            health: silent,
+            isAudioSubscribed: false,
+            alreadyFired: false
+        ))
+        XCTAssertFalse(OmiSourceLogic.shouldAttemptResubscribe(
+            health: silent,
+            isAudioSubscribed: true,
+            alreadyFired: true
+        ))
+        XCTAssertFalse(OmiSourceLogic.shouldAttemptResubscribe(
+            health: .receiving,
+            isAudioSubscribed: true,
+            alreadyFired: false
+        ))
+    }
+
+    func testAudioHealthStaysSilentAfterRecoveryAttemptFlagChanges() {
+        let start = Date(timeIntervalSince1970: 1_100)
+        let now = start.addingTimeInterval(90)
+        let healthBeforeAttempt = OmiSourceLogic.audioHealth(
+            connectionState: .connected,
+            lastAudioAt: start,
+            connectedSince: start,
+            now: now
+        )
+        let healthAfterAttempt = OmiSourceLogic.audioHealth(
+            connectionState: .connected,
+            lastAudioAt: start,
+            connectedSince: start,
+            now: now
+        )
+
+        XCTAssertEqual(healthBeforeAttempt, .silentWhileConnected(since: start))
+        XCTAssertEqual(healthAfterAttempt, .silentWhileConnected(since: start))
+        XCTAssertTrue(OmiSourceLogic.shouldAttemptResubscribe(
+            health: healthBeforeAttempt,
+            isAudioSubscribed: true,
+            alreadyFired: false
+        ))
+        XCTAssertFalse(OmiSourceLogic.shouldAttemptResubscribe(
+            health: healthAfterAttempt,
+            isAudioSubscribed: true,
+            alreadyFired: true
+        ))
+    }
+
     private static func event(_ index: Int) -> OmiSourceEvent {
         OmiSourceEvent(
             timestamp: Date(timeIntervalSince1970: TimeInterval(index)),

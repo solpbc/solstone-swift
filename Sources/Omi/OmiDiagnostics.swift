@@ -81,6 +81,17 @@ final class OmiDiagnostics {
         self.persist()
     }
 
+    func recordSignal(level: Int, at date: Date) {
+        self.ensureFirstObserved(at: date)
+        var samples = self.payload.pendantSignalTrend ?? []
+        samples.append(OmiDiagnosticsPayload.PendantSignalSample(
+            timestamp: date,
+            level: level
+        ))
+        self.payload.pendantSignalTrend = samples
+        self.persist()
+    }
+
     func noteDecodedSamples(at date: Date) {
         self.ensureFirstObserved(at: date)
         self.payload.lastDecodedSampleAt = date
