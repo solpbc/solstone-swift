@@ -204,6 +204,25 @@ nonisolated enum OmiDiagnosticsLogic {
         return Double(errors) / Double(total)
     }
 
+    static func diagnosticRows(payload: OmiDiagnosticsPayload, asOf date: Date) -> [(label: String, value: String)] {
+        let uptimePercent = payload.firstObservedAt
+            .flatMap { payload.uptime.connectedFraction(since: $0, asOf: date) }
+            .map { "\(String(format: "%.1f", $0 * 100))%" } ?? "unknown"
+        let reconnects = payload.reconnectEvents.filter { $0.timeToReconnect != nil }
+        let decodeRate = Self.decodeErrorRate(
+            ok: payload.decodeCounters.ok,
+            errors: payload.decodeCounters.errors
+        )
+
+        return [
+            ("uptime", uptimePercent),
+            ("reconnects", "\(reconnects.count)"),
+            ("disconnect gaps", "\(payload.gapTallies.disconnectGapCount)"),
+            ("connected-without-audio gaps", "\(payload.gapTallies.connectedSilentGapCount)"),
+            ("decode error rate", "\(String(format: "%.1f", decodeRate * 100))%")
+        ]
+    }
+
     static func gapSummary(
         from probes: [OmiDiagnosticsGapProbe],
         silenceThreshold: TimeInterval = Self.connectedSilenceThreshold

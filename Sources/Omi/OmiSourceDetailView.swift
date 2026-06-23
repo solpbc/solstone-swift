@@ -116,12 +116,15 @@ private extension OmiSourceDetailView {
 
     var diagnosticsBlock: some View {
         let payload = self.manager.diagnostics.payload
+        let rows = OmiDiagnosticsLogic.diagnosticRows(payload: payload, asOf: Date())
         return VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("uptime", value: self.uptimeText(payload))
-            LabeledContent("reconnects", value: "\(payload.reconnectEvents.filter { $0.timeToReconnect != nil }.count)")
-            LabeledContent("disconnect gaps", value: "\(payload.gapTallies.disconnectGapCount)")
-            LabeledContent("connected-without-audio gaps", value: "\(payload.gapTallies.connectedSilentGapCount)")
-            LabeledContent("decode error rate", value: self.decodeErrorRateText(payload))
+            DisclosureGroup("technical detail") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(rows, id: \.label) { row in
+                        LabeledContent(row.label, value: row.value)
+                    }
+                }
+            }
 
             if let diagnosticsExportURL {
                 ShareLink(item: diagnosticsExportURL) {
@@ -158,23 +161,5 @@ private extension OmiSourceDetailView {
 
     func refreshDiagnosticsExport() {
         self.diagnosticsExportURL = self.manager.diagnostics.exportFileURL()
-    }
-
-    func uptimeText(_ payload: OmiDiagnosticsPayload) -> String {
-        let now = Date()
-        guard let firstObservedAt = payload.firstObservedAt,
-              let fraction = payload.uptime.connectedFraction(since: firstObservedAt, asOf: now)
-        else {
-            return "unknown"
-        }
-        return "\(String(format: "%.1f", fraction * 100))%"
-    }
-
-    func decodeErrorRateText(_ payload: OmiDiagnosticsPayload) -> String {
-        let rate = OmiDiagnosticsLogic.decodeErrorRate(
-            ok: payload.decodeCounters.ok,
-            errors: payload.decodeCounters.errors
-        )
-        return "\(String(format: "%.1f", rate * 100))%"
     }
 }

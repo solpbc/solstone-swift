@@ -67,6 +67,58 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
         )
     }
 
+    func testDiagnosticRowsExposeFiveRawStatsInOrder() {
+        let start = Date(timeIntervalSince1970: 450)
+        let payload = OmiDiagnosticsPayload(
+            firstObservedAt: start,
+            uptime: OmiDiagnosticsPayload.UptimeSnapshot(
+                connectedSince: nil,
+                accumulatedConnectedSeconds: 30
+            ),
+            reconnectEvents: [
+                OmiDiagnosticsPayload.ReconnectEvent(
+                    timestamp: start.addingTimeInterval(10),
+                    reason: "link lost",
+                    appStateAtDrop: "foreground",
+                    timeToReconnect: 2.5
+                )
+            ],
+            decodeCounters: OmiDiagnosticsPayload.DecodeCounters(
+                ok: 9,
+                errors: 1,
+                gaps: 2,
+                outOfOrder: 3
+            ),
+            pendantBatteryTrend: [
+                OmiDiagnosticsPayload.PendantBatterySample(timestamp: start, level: 88)
+            ],
+            phoneSamples: [
+                OmiDiagnosticsPayload.PhoneSample(timestamp: start, batteryLevel: 0.5, thermalState: "nominal")
+            ],
+            gapTallies: OmiDiagnosticsPayload.GapTallies(
+                disconnectGapCount: 1,
+                disconnectGapSeconds: 12,
+                connectedSilentGapCount: 1,
+                connectedSilentGapSeconds: 8
+            )
+        )
+
+        let rows = OmiDiagnosticsLogic.diagnosticRows(payload: payload, asOf: start.addingTimeInterval(60))
+
+        XCTAssertEqual(rows.map(\.label), [
+            "uptime",
+            "reconnects",
+            "disconnect gaps",
+            "connected-without-audio gaps",
+            "decode error rate"
+        ])
+        XCTAssertEqual(rows.count, 5)
+        XCTAssertTrue(rows.allSatisfy { !$0.value.isEmpty })
+        XCTAssertEqual(rows.first(where: { $0.label == "uptime" })?.value, "50.0%")
+        XCTAssertEqual(rows.first(where: { $0.label == "reconnects" })?.value, "1")
+        XCTAssertEqual(rows.first(where: { $0.label == "decode error rate" })?.value, "10.0%")
+    }
+
     func testExportSummaryContainsRequiredMetricLines() {
         let start = Date(timeIntervalSince1970: 500)
         let payload = OmiDiagnosticsPayload(
