@@ -258,6 +258,27 @@ final class ImportQueue {
         await self.scheduleUpload(itemID: itemIDString)
     }
 
+    @MainActor
+    func retryFailed() async {
+        let failedDirectories = (try? self.fileManager.contentsOfDirectory(
+            at: self.failedDirectoryURL(),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        let sortedDirectories = failedDirectories.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for directory in sortedDirectories where self.isDirectory(directory) {
+            guard let itemID = UUID(uuidString: directory.lastPathComponent) else { continue }
+            do {
+                try await self.requeueFailedItem(itemID: itemID)
+            } catch {
+                self.lastError = String(describing: error)
+            }
+        }
+
+        self.refreshCounts()
+    }
+
     func dropItem(itemID: UUID) {
         let itemIDString = Self.itemIDString(itemID)
         self.retryTasksByItemID[itemIDString]?.cancel()

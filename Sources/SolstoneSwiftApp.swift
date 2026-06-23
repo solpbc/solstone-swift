@@ -430,6 +430,18 @@ struct SolstoneSwiftApp: App {
                 Task {
                     await self.locationUploader.resumeFromDisk()
                 }
+                Task {
+                    await self.observerUploader.retryFailed()
+                }
+                Task {
+                    await self.omiUploader.retryFailed()
+                }
+                Task {
+                    await self.importQueue.retryFailed()
+                }
+                Task {
+                    await self.locationUploader.retryFailed()
+                }
 
                 if Self.isIntegrationMode,
                    Self.shouldAutoStartIntegrationVoice,

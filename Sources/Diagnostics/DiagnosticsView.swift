@@ -6,6 +6,10 @@ import SwiftUI
 struct DiagnosticsView: View {
     @Environment(DiagnosticLog.self) private var log
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
+    @Environment(ImportQueue.self) private var importQueue
+    @Environment(LocationUploader.self) private var locationUploader
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
 
@@ -14,35 +18,42 @@ struct DiagnosticsView: View {
     @State private var justCopied = false
     @State private var copyTask: Task<Void, Never>?
     @State private var diagnosticsExportURL: URL?
+    @State private var problemsOnly = false
+    @State private var isRetrying = false
+
+    private var failedTotal: Int {
+        self.observerUploader.failedCount
+            + self.omiUploaderHolder.failedCount
+            + self.importQueue.failedCount
+            + self.locationUploader.failedCount
+    }
+
+    private var failedSegmentPresentation: FailedSegmentPresentation? {
+        FailedSegmentSection.presentation(
+            failedTotal: self.failedTotal,
+            isConnected: self.tunnelManager.state.isConnected
+        )
+    }
 
     private var filteredEvents: [DiagnosticEvent] {
-        Array(self.log.filtered(by: self.enabledCategories).reversed())
+        Array(self.log.events.filter { event in
+            DiagnosticsEventFilter.matches(
+                event,
+                categories: self.enabledCategories,
+                problemsOnly: self.problemsOnly
+            )
+        }.reversed())
     }
 
     var body: some View {
         Group {
-            if self.log.events.isEmpty {
-                ContentUnavailableView {
-                    Label("no events yet", systemImage: "clock")
-                } description: {
-                    Text("they'll appear as things happen.")
+            if let failedSegmentPresentation {
+                List {
+                    self.failedSegmentSection(failedSegmentPresentation)
+                    self.eventRows
                 }
             } else {
-                List(self.filteredEvents) { event in
-                    EventRow(
-                        event: event,
-                        isExpanded: self.expandedEventID == event.id,
-                        onTap: {
-                            withAnimation {
-                                if self.expandedEventID == event.id {
-                                    self.expandedEventID = nil
-                                } else {
-                                    self.expandedEventID = event.id
-                                }
-                            }
-                        }
-                    )
-                }
+                self.eventContent
             }
         }
         .navigationTitle("diagnostics")
@@ -63,6 +74,17 @@ struct DiagnosticsView: View {
                         ShareLink(item: diagnosticsExportURL) {
                             Label("export", systemImage: "square.and.arrow.up")
                         }
+                    }
+
+                    Divider()
+
+                    Button {
+                        self.problemsOnly.toggle()
+                    } label: {
+                        Label(
+                            "problems only",
+                            systemImage: self.problemsOnly ? "checkmark.circle.fill" : "circle"
+                        )
                     }
 
                     Divider()
@@ -96,6 +118,109 @@ struct DiagnosticsView: View {
         .onDisappear {
             self.copyTask?.cancel()
         }
+    }
+
+    @ViewBuilder
+    private var eventContent: some View {
+        if self.log.events.isEmpty {
+            self.emptyEventsView
+        } else {
+            List(self.filteredEvents) { event in
+                self.eventRow(event)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var eventRows: some View {
+        if self.log.events.isEmpty {
+            Section {
+                self.emptyEventsView
+            }
+        } else {
+            ForEach(self.filteredEvents) { event in
+                self.eventRow(event)
+            }
+        }
+    }
+
+    private var emptyEventsView: some View {
+        ContentUnavailableView {
+            Label("no events yet", systemImage: "clock")
+        } description: {
+            Text("they'll appear as things happen.")
+        }
+    }
+
+    private func eventRow(_ event: DiagnosticEvent) -> some View {
+        EventRow(
+            event: event,
+            isExpanded: self.expandedEventID == event.id,
+            onTap: {
+                withAnimation {
+                    if self.expandedEventID == event.id {
+                        self.expandedEventID = nil
+                    } else {
+                        self.expandedEventID = event.id
+                    }
+                }
+            }
+        )
+    }
+
+    private func failedSegmentSection(_ presentation: FailedSegmentPresentation) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(presentation.headline)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(presentation.subtext)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if presentation.showsButton {
+                    Button {
+                        Task { @MainActor in
+                            await self.retryFailedSegments()
+                        }
+                    } label: {
+                        Text(self.isRetrying ? "trying…" : "try now")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(self.isRetrying)
+                    .accessibilityLabel("retry \(self.failedTotal) failed segments now")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+        }
+    }
+
+    @MainActor
+    private func retryFailedSegments() async {
+        guard !self.isRetrying else { return }
+        let failedTotal = self.failedTotal
+        self.isRetrying = true
+        defer {
+            self.isRetrying = false
+        }
+
+        self.log.append(
+            category: .upload,
+            severity: .info,
+            message: "manual retry of failed segments requested",
+            detail: "count=\(failedTotal)"
+        )
+        if UserSettings.haptics {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        await self.observerUploader.retryFailed()
+        await self.omiUploaderHolder.uploader.retryFailed()
+        await self.importQueue.retryFailed()
+        await self.locationUploader.retryFailed()
     }
 
     private func copySnapshot() {

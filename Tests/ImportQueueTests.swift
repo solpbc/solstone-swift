@@ -382,6 +382,83 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testRetryFailedMovesFailedItemsToPendingAndUploads() async throws {
+        self.installSuccessfulImportHandler()
+        let itemIDs = try [
+            self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000001"),
+            self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000002"),
+            self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000003"),
+        ]
+        let queue = self.makeQueue()
+        XCTAssertEqual(queue.failedCount, itemIDs.count)
+
+        await queue.retryFailed()
+
+        try await self.waitFor("retry failed imports") {
+            queue.pendingCount == 0
+                && queue.failedCount == 0
+                && ImportQueueURLProtocol.callCount == itemIDs.count * 2
+        }
+        XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
+        let ledger = try self.readLedger()
+        for itemID in itemIDs {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+            XCTAssertNotNil(ledger[itemID])
+        }
+    }
+
+    @MainActor
+    func testRetryFailedSkipsInvalidAndIncompleteFailedItemsWithoutAborting() async throws {
+        self.installSuccessfulImportHandler()
+        let validItemID = try self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000010")
+        let invalidDirectory = self.tempDirectory
+            .appendingPathComponent("failed", isDirectory: true)
+            .appendingPathComponent("not-a-uuid", isDirectory: true)
+        try FileManager.default.createDirectory(at: invalidDirectory, withIntermediateDirectories: true)
+        let incompleteItemID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        let incompleteDirectory = self.itemDirectory(itemID: incompleteItemID, status: "failed")
+        try FileManager.default.createDirectory(at: incompleteDirectory, withIntermediateDirectories: true)
+        try Data("raw".utf8).write(to: self.rawURL(itemID: incompleteItemID, status: "failed"))
+        try Data("{}".utf8).write(to: self.noteURL(itemID: incompleteItemID, status: "failed"))
+        let queue = self.makeQueue()
+        XCTAssertEqual(queue.failedCount, 3)
+
+        await queue.retryFailed()
+        XCTAssertNotNil(queue.lastError)
+
+        try await self.waitFor("valid retry did not abort") {
+            ImportQueueURLProtocol.callCount == 2
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: validItemID, status: "failed").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: validItemID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: invalidDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: incompleteDirectory.path))
+        XCTAssertEqual(queue.failedCount, 2)
+    }
+
+    @MainActor
+    func testRetryFailedConcurrentWithResumeSchedulesEachItemAtMostOnce() async throws {
+        self.installSuccessfulImportHandler()
+        let pendingItemID = try self.writeLocalItem(status: "pending", itemID: "00000000-0000-0000-0000-000000000020")
+        let failedItemID = try self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000021")
+        let queue = self.makeQueue()
+
+        async let retry: Void = queue.retryFailed()
+        async let resume: Void = queue.resumeFromDisk()
+        _ = await (retry, resume)
+
+        try await self.waitFor("concurrent retry and resume") {
+            queue.pendingCount == 0
+                && queue.failedCount == 0
+                && ImportQueueURLProtocol.callCount == 4
+        }
+        let ledger = try self.readLedger()
+        XCTAssertNotNil(ledger[pendingItemID])
+        XCTAssertNotNil(ledger[failedItemID])
+        XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
+    }
+
+    @MainActor
     private func makeQueue(
         fileManager: FileManager = .default,
         retryDelays: [UInt64] = [0],
@@ -409,14 +486,30 @@ nonisolated final class ImportQueueTests: XCTestCase {
         )
     }
 
+    private func installSuccessfulImportHandler() {
+        ImportQueueURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/app/import/api/save":
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"path":"/imports/retry","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+                )
+            case "/app/import/api/start":
+                return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "nil")")
+                return (Self.response(for: request, statusCode: 404), Data())
+            }
+        }
+    }
+
     private func makeSourceFile(named name: String, data: Data) throws -> URL {
         let url = self.tempDirectory.appendingPathComponent(name)
         try data.write(to: url)
         return url
     }
 
-    private func writeLocalItem(status: String) throws -> String {
-        let itemID = UUID().uuidString.lowercased()
+    private func writeLocalItem(status: String, itemID: String = UUID().uuidString.lowercased()) throws -> String {
         let directory = self.tempDirectory
             .appendingPathComponent(status, isDirectory: true)
             .appendingPathComponent(itemID, isDirectory: true)
