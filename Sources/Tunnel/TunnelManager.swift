@@ -8,6 +8,17 @@ import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
 
+private enum PathInterfaceBucket: String, Sendable {
+    case wifi
+    case cellular
+    case other
+}
+
+private struct PathMeaningfulSignature: Equatable, Sendable {
+    let interface: PathInterfaceBucket
+    let isSatisfied: Bool
+}
+
 @Observable
 final class TunnelManager {
     var state: TunnelState = .disconnected
@@ -29,6 +40,8 @@ final class TunnelManager {
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
     var lastProbeAlive: Bool?
+    @ObservationIgnored private var consecutiveProbeFailures: Int = 0
+    @ObservationIgnored private var lastEmittedPathSignature: PathMeaningfulSignature?
     var consecutiveKeepaliveFailures: Int = 0
     var reconnectCount: Int = 0
     var connectionStages: [ConnectionStage] = []
@@ -65,7 +78,7 @@ final class TunnelManager {
     var connectionHealth: ConnectionHealth {
         switch self.state {
         case .connected:
-            return self.lastProbeAlive == false ? .degraded : .healthy
+            return self.consecutiveProbeFailures >= 2 ? .degraded : .healthy
         default:
             return .unknown
         }
@@ -167,6 +180,7 @@ final class TunnelManager {
                 self.completeStage(.connected)
                 self.consecutiveWiFiFailures = 0
                 self.lastProbeAlive = nil
+                self.consecutiveProbeFailures = 0
                 self.consecutiveKeepaliveFailures = 0
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
@@ -213,6 +227,7 @@ final class TunnelManager {
         self.state = .disconnected
         self.consecutiveWiFiFailures = 0
         self.lastProbeAlive = nil
+        self.consecutiveProbeFailures = 0
         self.consecutiveKeepaliveFailures = 0
         self.reconnectCount = 0
         self.connectionStages = []
@@ -270,11 +285,17 @@ final class TunnelManager {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.applyPathStatus(status)
-                self.diagnosticLog?.append(
-                    category: .tunnel,
-                    message: "path changed",
-                    detail: self.pathStatusDetail(status)
-                )
+                let detail = self.pathStatusDetail(status)
+                log.debug("[solstone-swift] path changed: \(detail, privacy: .public)")
+                let signature = self.pathMeaningfulSignature(status)
+                if signature != self.lastEmittedPathSignature {
+                    self.lastEmittedPathSignature = signature
+                    self.diagnosticLog?.append(
+                        category: .tunnel,
+                        message: "path changed",
+                        detail: detail
+                    )
+                }
                 switch self.state {
                 case .connected:
                     log.info("[solstone-swift] network: path changed while connected")
@@ -298,6 +319,7 @@ final class TunnelManager {
         self.currentPathStatus = nil
         self.isNetworkSatisfied = nil
         self.currentInterfaceIsWiFi = nil
+        self.lastEmittedPathSignature = nil
     }
 
     func probeConnection() async -> (alive: Bool, latency: Duration)? {
@@ -311,9 +333,14 @@ final class TunnelManager {
             request.httpMethod = "GET"
             request.timeoutInterval = 3
             do {
-                _ = try await self.probeSession.data(for: request)
-                alive = true
-                detail = "endpoint: /app/network/api/status"
+                let (_, response) = try await self.probeSession.data(for: request)
+                if let http = response as? HTTPURLResponse {
+                    alive = 200..<300 ~= http.statusCode
+                    detail = "endpoint: /app/network/api/status; status: \(http.statusCode)"
+                } else {
+                    alive = false
+                    detail = "endpoint: /app/network/api/status; non-http response"
+                }
             } catch {
                 alive = false
                 detail = "endpoint: /app/network/api/status; error: \(String(describing: error))"
@@ -324,6 +351,11 @@ final class TunnelManager {
         }
         let elapsed = clock.now - start
         self.lastProbeAlive = alive
+        if alive {
+            self.consecutiveProbeFailures = 0
+        } else {
+            self.consecutiveProbeFailures += 1
+        }
         self.diagnosticLog?.append(
             category: .tunnel,
             message: alive ? "manual probe available" : "manual probe not reachable",
@@ -360,16 +392,26 @@ final class TunnelManager {
     }
 
     private func pathStatusDetail(_ status: NetworkPathStatus) -> String {
-        let interface: String
-        if status.isWiFi {
-            interface = "wifi"
-        } else if status.isCellular {
-            interface = "cellular"
-        } else {
-            interface = "other"
-        }
+        let interface = self.pathInterfaceBucket(status).rawValue
         let satisfied = status.isSatisfied ? "satisfied" : "unsatisfied"
         return "\(interface) · \(satisfied) · expensive=\(status.isExpensive) · constrained=\(status.isConstrained)"
+    }
+
+    private func pathMeaningfulSignature(_ status: NetworkPathStatus) -> PathMeaningfulSignature {
+        PathMeaningfulSignature(
+            interface: self.pathInterfaceBucket(status),
+            isSatisfied: status.isSatisfied
+        )
+    }
+
+    private func pathInterfaceBucket(_ status: NetworkPathStatus) -> PathInterfaceBucket {
+        if status.isWiFi {
+            return .wifi
+        }
+        if status.isCellular {
+            return .cellular
+        }
+        return .other
     }
 
     private func candidateList() async throws -> [TransportEndpoint] {

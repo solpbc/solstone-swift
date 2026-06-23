@@ -37,7 +37,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
-        }
+        },
+        diagnosticLog: DiagnosticLog? = nil
     ) -> TunnelManager {
         TunnelManager(
             transport: transport,
@@ -47,7 +48,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
             initialRetryDelay: initialRetryDelay,
             probeSession: probeSession,
-            probeURLBuilder: probeURLBuilder
+            probeURLBuilder: probeURLBuilder,
+            diagnosticLog: diagnosticLog
         )
     }
 
@@ -288,7 +290,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testProbeConnectionMarksAvailableForAnyHTTPResponse() async throws {
+    func testProbeConnectionMarksNotAliveOnNon2xx() async throws {
         TunnelProbeURLProtocol.reset()
         TunnelProbeURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/app/network/api/status")
@@ -296,6 +298,33 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
                 Data("not ready".utf8)
+            )
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, probeSession: session)
+        manager.forceConnected(port: 8080, via: .lan)
+
+        let result = await manager.probeConnection()
+
+        XCTAssertEqual(result?.alive, false)
+        XCTAssertEqual(manager.lastProbeAlive, false)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
+    }
+
+    @MainActor
+    func testProbeConnectionMarksAliveOn2xx() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/network/api/status")
+            XCTAssertEqual(request.url?.port, 8080)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
             )
         }
         let session = Self.probeSession()
@@ -337,6 +366,90 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectionHealthRequiresSustainedProbeFailures() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("not ready".utf8)
+            )
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, probeSession: session)
+        manager.forceConnected(port: 8080, via: .lan)
+
+        XCTAssertEqual(manager.connectionHealth, .healthy)
+
+        let first = await manager.probeConnection()
+        XCTAssertEqual(first?.alive, false)
+        XCTAssertEqual(manager.lastProbeAlive, false)
+        XCTAssertEqual(manager.connectionHealth, .healthy)
+
+        let second = await manager.probeConnection()
+        XCTAssertEqual(second?.alive, false)
+        XCTAssertEqual(manager.connectionHealth, .degraded)
+
+        TunnelProbeURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        let third = await manager.probeConnection()
+        XCTAssertEqual(third?.alive, true)
+        XCTAssertEqual(manager.lastProbeAlive, true)
+        XCTAssertEqual(manager.connectionHealth, .healthy)
+    }
+
+    @MainActor
+    func testPathChangeDiagnosticsOnlyEmitForMeaningfulTransitions() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor, diagnosticLog: diagnosticLog)
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertEqual(Self.pathChangedEvents(in: diagnosticLog).count, 1)
+
+        source.trigger(NetworkPathStatus(
+            isSatisfied: true,
+            isWiFi: true,
+            isCellular: false,
+            isExpensive: true,
+            isConstrained: true
+        ))
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertEqual(Self.pathChangedEvents(in: diagnosticLog).count, 1)
+
+        source.trigger(NetworkPathStatus(
+            isSatisfied: false,
+            isWiFi: true,
+            isCellular: false,
+            isExpensive: true,
+            isConstrained: true
+        ))
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertEqual(Self.pathChangedEvents(in: diagnosticLog).count, 2)
+        manager.cancelReconnect()
+        manager.stopNetworkMonitoring()
+    }
+
+    @MainActor
     func testStatePreservationAcrossReconnects() async {
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plDirect
@@ -369,6 +482,11 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TunnelProbeURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    @MainActor
+    private static func pathChangedEvents(in log: DiagnosticLog) -> [DiagnosticEvent] {
+        log.events.filter { $0.category == .tunnel && $0.message == "path changed" }
     }
 
     private static func fixturePairing(

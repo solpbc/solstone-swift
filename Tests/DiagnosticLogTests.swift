@@ -78,4 +78,48 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
         XCTAssertNotNil(event.id)
         XCTAssertNotNil(event.timestamp)
     }
+
+    @MainActor
+    func testSnapshotRedactsSecretValues() {
+        self.log.append(
+            category: .tunnel,
+            severity: .warning,
+            message: "manual probe failed Bearer abc123TOKEN",
+            detail: "secret=hunter2 around diagnostic text"
+        )
+
+        let snapshot = self.log.snapshot(
+            tunnel: TunnelManager(),
+            voice: VoiceManager(),
+            brain: BrainStatusMonitor()
+        )
+
+        XCTAssertFalse(snapshot.contains("abc123TOKEN"))
+        XCTAssertFalse(snapshot.contains("hunter2"))
+        XCTAssertTrue(snapshot.contains("‹redacted›"))
+        XCTAssertTrue(snapshot.contains("manual probe failed"))
+        XCTAssertTrue(snapshot.contains("around diagnostic text"))
+    }
+
+    @MainActor
+    func testExportFileURLWritesRedactedSnapshot() throws {
+        self.log.append(
+            category: .upload,
+            severity: .error,
+            message: "upload failed",
+            detail: "Authorization: Bearer abc123TOKEN secret=hunter2"
+        )
+
+        let exportURL = try XCTUnwrap(self.log.exportFileURL(
+            tunnel: TunnelManager(),
+            voice: VoiceManager(),
+            brain: BrainStatusMonitor()
+        ))
+        let report = try String(contentsOf: exportURL, encoding: .utf8)
+
+        XCTAssertFalse(report.contains("abc123TOKEN"))
+        XCTAssertFalse(report.contains("hunter2"))
+        XCTAssertTrue(report.contains("‹redacted›"))
+        XCTAssertTrue(report.contains("upload failed"))
+    }
 }

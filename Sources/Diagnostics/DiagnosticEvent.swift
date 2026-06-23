@@ -15,6 +15,23 @@ enum DiagnosticSeverity: Sendable, Equatable {
     case info
     case warning
     case error
+
+    var rowEmphasis: DiagnosticRowEmphasis {
+        switch self {
+        case .info:
+            .normal
+        case .warning:
+            .warning
+        case .error:
+            .error
+        }
+    }
+}
+
+enum DiagnosticRowEmphasis: Sendable, Equatable {
+    case normal
+    case warning
+    case error
 }
 
 struct DiagnosticEvent: Identifiable, Sendable {

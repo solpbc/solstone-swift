@@ -13,6 +13,7 @@ struct DiagnosticsView: View {
     @State private var expandedEventID: UUID?
     @State private var justCopied = false
     @State private var copyTask: Task<Void, Never>?
+    @State private var diagnosticsExportURL: URL?
 
     private var filteredEvents: [DiagnosticEvent] {
         Array(self.log.filtered(by: self.enabledCategories).reversed())
@@ -58,6 +59,12 @@ struct DiagnosticsView: View {
                         }
                     }
 
+                    if let diagnosticsExportURL {
+                        ShareLink(item: diagnosticsExportURL) {
+                            Label("export", systemImage: "square.and.arrow.up")
+                        }
+                    }
+
                     Divider()
 
                     ForEach(DiagnosticCategory.allCases, id: \.self) { category in
@@ -79,6 +86,12 @@ struct DiagnosticsView: View {
                 }
                 .accessibilityLabel("filter and actions")
             }
+        }
+        .onAppear {
+            self.refreshDiagnosticsExport()
+        }
+        .onChange(of: self.log.events.count) {
+            self.refreshDiagnosticsExport()
         }
         .onDisappear {
             self.copyTask?.cancel()
@@ -108,6 +121,14 @@ struct DiagnosticsView: View {
             }
         }
     }
+
+    private func refreshDiagnosticsExport() {
+        self.diagnosticsExportURL = self.log.exportFileURL(
+            tunnel: self.tunnelManager,
+            voice: self.voiceManager,
+            brain: self.brainStatusMonitor
+        )
+    }
 }
 
 private struct EventRow: View {
@@ -121,21 +142,53 @@ private struct EventRow: View {
         return formatter.localizedString(for: self.event.timestamp, relativeTo: Date())
     }
 
-    private var categoryIcon: (name: String, color: Color) {
+    private var categoryIconName: String {
         switch self.event.category {
-        case .tunnel: ("antenna.radiowaves.left.and.right", .orange)
-        case .voice: ("mic", .blue)
-        case .network: ("wifi", .gray)
-        case .upload: ("arrow.up.circle", .green)
-        case .brain: ("brain", .purple)
+        case .tunnel: "antenna.radiowaves.left.and.right"
+        case .voice: "mic"
+        case .network: "wifi"
+        case .upload: "arrow.up.circle"
+        case .brain: "brain"
+        }
+    }
+
+    private var normalCategoryColor: Color {
+        switch self.event.category {
+        case .tunnel: .orange
+        case .voice: .blue
+        case .network: .gray
+        case .upload: .green
+        case .brain: .purple
+        }
+    }
+
+    private var iconTint: Color {
+        switch self.event.severity.rowEmphasis {
+        case .normal:
+            self.normalCategoryColor
+        case .warning:
+            .orange
+        case .error:
+            .red
+        }
+    }
+
+    private var severityText: String {
+        switch self.event.severity {
+        case .info:
+            "info"
+        case .warning:
+            "warning"
+        case .error:
+            "error"
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: self.categoryIcon.name)
-                    .foregroundStyle(self.categoryIcon.color)
+                Image(systemName: self.categoryIconName)
+                    .foregroundStyle(self.iconTint)
                     .frame(width: 20)
                 Text(self.event.message)
                     .font(.subheadline)
@@ -150,6 +203,10 @@ private struct EventRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(self.event.timestamp, format: .dateTime.year().month().day().hour().minute().second())
                         .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Text("severity: \(self.severityText)")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
 
                     if let detail = self.event.detail {
