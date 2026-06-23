@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import Observation
 import XCTest
 
 nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
@@ -53,6 +54,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: queues.importQueue,
             observerUploader: queues.observerUploader,
+            omiUploader: queues.omiUploader,
             locationUploader: queues.locationUploader
         )
 
@@ -71,6 +73,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let empty = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: emptyQueues.importQueue,
             observerUploader: emptyQueues.observerUploader,
+            omiUploader: emptyQueues.omiUploader,
             locationUploader: emptyQueues.locationUploader
         )
         XCTAssertEqual(empty.items, [])
@@ -105,6 +108,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: queues.importQueue,
             observerUploader: queues.observerUploader,
+            omiUploader: queues.omiUploader,
             locationUploader: queues.locationUploader
         )
 
@@ -112,6 +116,46 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertTrue(try self.isFailed(.share, in: snapshot))
         XCTAssertEqual(try self.count(for: .audio, in: snapshot), 1)
         XCTAssertEqual(try self.count(for: .location, in: snapshot), 1)
+    }
+
+    @MainActor
+    func testAggregatorIncludesOmiAudioWithDistinctNamespace() throws {
+        let queues = self.makeQueues()
+        let observerSessionID = UUID()
+        let omiSessionID = UUID()
+        let observerChunkID = "observer-chunk"
+        let omiChunkID = "omi-chunk"
+        let observerID = "audio:\(observerSessionID.uuidString):\(observerChunkID)"
+        let omiID = "omi:\(omiSessionID.uuidString):\(omiChunkID)"
+
+        try self.writeObserverChunk(
+            root: queues.observerRoot,
+            sessionID: observerSessionID,
+            chunkID: observerChunkID,
+            status: "pending",
+            startedAt: Date(timeIntervalSince1970: 1_780_480_800),
+            durationS: 42
+        )
+        try self.writeObserverChunk(
+            root: queues.omiRoot,
+            sessionID: omiSessionID,
+            chunkID: omiChunkID,
+            status: "pending",
+            startedAt: Date(timeIntervalSince1970: 1_780_480_900),
+            durationS: 12
+        )
+
+        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+            importQueue: queues.importQueue,
+            observerUploader: queues.observerUploader,
+            omiUploader: queues.omiUploader,
+            locationUploader: queues.locationUploader
+        )
+
+        XCTAssertEqual(snapshot.items.map(\.id), [omiID, observerID])
+        XCTAssertEqual(try self.count(for: .audio, in: snapshot), 2)
+        XCTAssertEqual(snapshot.items.first { $0.id == observerID }?.sourceLabel, SourceVocabulary.onThisPhoneObserverAudioSourceLabel)
+        XCTAssertEqual(snapshot.items.first { $0.id == omiID }?.sourceLabel, SourceVocabulary.onThisPhoneOmiAudioSourceLabel)
     }
 
     @MainActor
@@ -295,6 +339,14 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             itemTime: itemTime,
             audioDurationS: 75
         )
+        let failedAudio = Self.item(
+            id: "audio-failed.m4a",
+            sourceKind: .audio,
+            itemTime: itemTime,
+            sendState: .needsAttention,
+            audioDurationS: 75,
+            retryAvailable: true
+        )
         let location = Self.item(
             id: "location",
             sourceKind: .location,
@@ -319,6 +371,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         )
 
         XCTAssertEqual(audio.rowDescriptorText, "1m 15s")
+        XCTAssertEqual(failedAudio.rowDescriptorText, "1m 15s · \(SourceVocabulary.onThisPhoneFailureRowHint)")
         XCTAssertEqual(location.rowDescriptorText, "2 observations")
         XCTAssertEqual(share.rowDescriptorText, "share.pdf")
         XCTAssertEqual(audio.rowTimestampText, itemTime.formatted(date: .omitted, time: .shortened))
@@ -388,7 +441,11 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
         XCTAssertEqual(
             OnThisPhoneItemID(sourceKind: .audio, id: "audio:\(sessionID.uuidString):chunk:with:colons"),
-            .audio(sessionID: sessionID, chunkID: "chunk:with:colons")
+            .audio(sessionID: sessionID, chunkID: "chunk:with:colons", source: .observer)
+        )
+        XCTAssertEqual(
+            OnThisPhoneItemID(sourceKind: .audio, id: "omi:\(sessionID.uuidString):chunk"),
+            .audio(sessionID: sessionID, chunkID: "chunk", source: .omi)
         )
         XCTAssertEqual(
             OnThisPhoneItemID(sourceKind: .location, id: "location:20260603-110000_300"),
@@ -399,8 +456,33 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             .share(shareID)
         )
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "audio:not-a-uuid:chunk"))
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "omi:not-a-uuid:chunk"))
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .location, id: "20260603-110000_300"))
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .share, id: "location:20260603-110000_300"))
+    }
+
+    @MainActor
+    func testOmiUploaderHolderCountProxiesObserveUploaderCounts() async {
+        let queues = self.makeQueues()
+        let holder = OmiUploaderHolder(queues.omiUploader)
+        let pendingChanged = self.expectation(description: "pending count changed")
+        let failedChanged = self.expectation(description: "failed count changed")
+
+        withObservationTracking {
+            _ = holder.pendingCount
+        } onChange: {
+            pendingChanged.fulfill()
+        }
+        withObservationTracking {
+            _ = holder.failedCount
+        } onChange: {
+            failedChanged.fulfill()
+        }
+
+        queues.omiUploader.pendingCount = 1
+        queues.omiUploader.failedCount = 2
+
+        await fulfillment(of: [pendingChanged, failedChanged], timeout: 1)
     }
 }
 
@@ -408,9 +490,11 @@ private extension OnThisPhoneAggregatorTests {
     struct Queues {
         let importRoot: URL
         let observerRoot: URL
+        let omiRoot: URL
         let locationRoot: URL
         let importQueue: ImportQueue
         let observerUploader: ObserverUploader
+        let omiUploader: ObserverUploader
         let locationUploader: LocationUploader
     }
 
@@ -418,10 +502,12 @@ private extension OnThisPhoneAggregatorTests {
     func makeQueues(suffix: String = "main") -> Queues {
         let importRoot = self.tempDirectory.appendingPathComponent("\(suffix)-import", isDirectory: true)
         let observerRoot = self.tempDirectory.appendingPathComponent("\(suffix)-observer", isDirectory: true)
+        let omiRoot = self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true)
         let locationRoot = self.tempDirectory.appendingPathComponent("\(suffix)-location", isDirectory: true)
         return Queues(
             importRoot: importRoot,
             observerRoot: observerRoot,
+            omiRoot: omiRoot,
             locationRoot: locationRoot,
             importQueue: ImportQueue(
                 cacheRootURL: importRoot,
@@ -431,6 +517,12 @@ private extension OnThisPhoneAggregatorTests {
             observerUploader: ObserverUploader(
                 cacheRootURL: observerRoot,
                 sessionConfiguration: .ephemeral,
+                startPathMonitor: false
+            ),
+            omiUploader: ObserverUploader(
+                cacheRootURL: omiRoot,
+                sessionConfiguration: .ephemeral,
+                sourceType: "omi-audio",
                 startPathMonitor: false
             ),
             locationUploader: LocationUploader(
@@ -538,7 +630,11 @@ private extension OnThisPhoneAggregatorTests {
         sendState: OnThisPhoneSendState = .savedOnThisPhone,
         deliveredAt: Date? = nil,
         audioDurationS: Double? = nil,
-        locationFixCount: Int? = nil
+        locationFixCount: Int? = nil,
+        failureReason: String? = nil,
+        failureAttemptCount: Int? = nil,
+        sourceLabel: String? = nil,
+        retryAvailable: Bool = false
     ) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: id,
@@ -557,7 +653,11 @@ private extension OnThisPhoneAggregatorTests {
             deliveredAt: deliveredAt,
             rawFileURL: nil,
             audioDurationS: audioDurationS,
-            locationFixCount: locationFixCount
+            locationFixCount: locationFixCount,
+            failureReason: failureReason,
+            failureAttemptCount: failureAttemptCount,
+            sourceLabel: sourceLabel,
+            retryAvailable: retryAvailable
         )
     }
 }

@@ -25,6 +25,16 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             ensureRegistered: { "observer-key" },
             localPortProvider: { 7071 }
         )
+        let omiUploaderRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-OmiUploader-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: omiUploaderRoot) }
+        let omiUploader = ObserverUploader(
+            cacheRootURL: omiUploaderRoot,
+            sessionConfiguration: .ephemeral,
+            sourceType: "omi-audio",
+            startPathMonitor: false
+        )
+        let omiUploaderHolder = OmiUploaderHolder(omiUploader)
         let locationUploaderRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-LocationUploader-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: locationUploaderRoot) }
@@ -167,6 +177,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(importQueue)
                 .environment(observerManager)
                 .environment(observerUploader)
+                .environment(omiUploaderHolder)
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }
@@ -175,6 +186,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(importQueue)
                 .environment(observerManager)
                 .environment(observerUploader)
+                .environment(omiUploaderHolder)
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }

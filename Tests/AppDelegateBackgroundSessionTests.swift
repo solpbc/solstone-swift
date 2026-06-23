@@ -59,6 +59,51 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
     }
 
     @MainActor
+    func testOmiIdentifierRoutesOnlyToOmiUploader() async {
+        let appDelegate = AppDelegate()
+        let observerUploader = ObserverUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("observer", isDirectory: true),
+            startPathMonitor: false
+        )
+        let omiUploader = ObserverUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("omi", isDirectory: true),
+            sourceType: "omi-audio",
+            startPathMonitor: false
+        )
+        let importQueue = ImportQueue(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("queue", isDirectory: true),
+            startPathMonitor: false
+        )
+        let locationUploader = LocationUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("location", isDirectory: true),
+            startPathMonitor: false
+        )
+        appDelegate.observerUploader = observerUploader
+        appDelegate.omiUploader = omiUploader
+        appDelegate.importQueue = importQueue
+        appDelegate.locationUploader = locationUploader
+        let completionCounter = CompletionCounter()
+
+        appDelegate.application(
+            UIApplication.shared,
+            handleEventsForBackgroundURLSession: OmiSegmentWriter.backgroundSessionIdentifier
+        ) {
+            completionCounter.increment()
+        }
+
+        await Task.yield()
+        XCTAssertEqual(completionCounter.value(), 0)
+        observerUploader.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 0)
+        importQueue.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 0)
+        locationUploader.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 0)
+        omiUploader.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 1)
+    }
+
+    @MainActor
     func testShareIdentifierRoutesOnlyToImportQueue() async {
         let appDelegate = AppDelegate()
         let observerUploader = ObserverUploader(

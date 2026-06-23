@@ -36,6 +36,33 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(onThisPhoneSendState(location: .pending, isActivelyUploading: false), .savedOnThisPhone)
     }
 
+    func testFailureDetailDoesNotChangeOnThisPhoneSendState() {
+        let failedAudio = OnThisPhoneItem(
+            id: "audio:\(UUID().uuidString):chunk",
+            sourceKind: .audio,
+            sendState: onThisPhoneSendState(location: .failed, isActivelyUploading: false),
+            contentType: "audio/mp4",
+            filename: "chunk.m4a",
+            bytes: 42,
+            originApp: nil,
+            basis: nil,
+            itemTime: Date(),
+            targetJournal: nil,
+            stream: nil,
+            day: "20260602",
+            segment: "120000_300",
+            deliveredAt: nil,
+            rawFileURL: nil,
+            audioDurationS: 3,
+            failureReason: "journal rejected the upload (HTTP 503)",
+            failureAttemptCount: 5,
+            sourceLabel: SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
+            retryAvailable: true
+        )
+
+        XCTAssertEqual(failedAudio.sendState, .needsAttention)
+    }
+
     func testOnThisPhoneSendStateLabels() {
         XCTAssertEqual(OnThisPhoneSendState.savedOnThisPhone.label, SourceVocabulary.sendStateSaved)
         XCTAssertEqual(OnThisPhoneSendState.sending.label, SourceVocabulary.sendStateSending)

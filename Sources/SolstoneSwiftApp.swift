@@ -19,6 +19,7 @@ struct SolstoneSwiftApp: App {
     @State private var observerUploader: ObserverUploader
     @State private var omiRegistration: ObserverRegistration
     @State private var omiUploader: ObserverUploader
+    @State private var omiUploaderHolder: OmiUploaderHolder
     @State private var importQueue: ImportQueue
     @State private var locationUploader: LocationUploader
     @State private var locationManager: LocationManager
@@ -204,6 +205,7 @@ struct SolstoneSwiftApp: App {
             diagnosticLog: log,
             sourceType: "omi-audio"
         )
+        let omiUploaderHolder = OmiUploaderHolder(omiUploader)
         let importQueue = ImportQueue(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
@@ -271,6 +273,7 @@ struct SolstoneSwiftApp: App {
         self._observerUploader = State(initialValue: observerUploader)
         self._omiRegistration = State(initialValue: omiRegistration)
         self._omiUploader = State(initialValue: omiUploader)
+        self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
         self._importQueue = State(initialValue: importQueue)
         self._locationUploader = State(initialValue: locationUploader)
         self._locationManager = State(initialValue: locationManager)
@@ -300,6 +303,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.omiSourceManager)
                 .environment(self.observerRegistration)
                 .environment(self.observerUploader)
+                .environment(self.omiUploaderHolder)
                 .environment(self.importQueue)
                 .environment(self.locationManager)
                 .environment(self.locationUploader)

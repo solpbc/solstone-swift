@@ -111,6 +111,7 @@ func makeDropCommit(
     for item: OnThisPhoneItem,
     importQueue: ImportQueue,
     observerUploader: ObserverUploader,
+    omiUploader: ObserverUploader,
     locationUploader: LocationUploader
 ) -> (@MainActor () -> Void)? {
     guard let itemID = OnThisPhoneItemID(sourceKind: item.sourceKind, id: item.id) else {
@@ -122,9 +123,14 @@ func makeDropCommit(
         return {
             importQueue.dropItem(itemID: id)
         }
-    case .audio(let sessionID, let chunkID):
+    case .audio(let sessionID, let chunkID, let source):
         return {
-            observerUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+            switch source {
+            case .observer:
+                observerUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+            case .omi:
+                omiUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+            }
         }
     case .location(let fileID):
         return {

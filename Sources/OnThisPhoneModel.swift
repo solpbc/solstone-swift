@@ -20,6 +20,51 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
     }
 }
 
+nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
+    case observer
+    case omi
+
+    init?(sourceType: String) {
+        switch sourceType {
+        case "observer-audio":
+            self = .observer
+        case "omi-audio":
+            self = .omi
+        default:
+            return nil
+        }
+    }
+
+    init?(idPrefix: String) {
+        switch idPrefix {
+        case "audio":
+            self = .observer
+        case "omi":
+            self = .omi
+        default:
+            return nil
+        }
+    }
+
+    var idPrefix: String {
+        switch self {
+        case .observer:
+            "audio"
+        case .omi:
+            "omi"
+        }
+    }
+
+    var sourceLabel: String {
+        switch self {
+        case .observer:
+            SourceVocabulary.onThisPhoneObserverAudioSourceLabel
+        case .omi:
+            SourceVocabulary.onThisPhoneOmiAudioSourceLabel
+        }
+    }
+}
+
 nonisolated enum OnThisPhoneSendState: Equatable, Sendable {
     case savedOnThisPhone
     case sending
@@ -98,6 +143,10 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     let rawFileURL: URL?
     let audioDurationS: Double?
     let locationFixCount: Int?
+    let failureReason: String?
+    let failureAttemptCount: Int?
+    let sourceLabel: String?
+    let retryAvailable: Bool
 
     init(
         id: String,
@@ -116,7 +165,11 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         deliveredAt: Date?,
         rawFileURL: URL?,
         audioDurationS: Double? = nil,
-        locationFixCount: Int? = nil
+        locationFixCount: Int? = nil,
+        failureReason: String? = nil,
+        failureAttemptCount: Int? = nil,
+        sourceLabel: String? = nil,
+        retryAvailable: Bool = false
     ) {
         self.id = id
         self.sourceKind = sourceKind
@@ -135,6 +188,10 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         self.rawFileURL = rawFileURL
         self.audioDurationS = audioDurationS
         self.locationFixCount = locationFixCount
+        self.failureReason = failureReason
+        self.failureAttemptCount = failureAttemptCount
+        self.sourceLabel = sourceLabel
+        self.retryAvailable = retryAvailable
     }
 
     var hasLocalRaw: Bool {
@@ -148,15 +205,19 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     var rowDescriptorText: String {
         switch self.sourceKind {
         case .audio:
-            Self.formattedDuration(self.audioDurationS)
+            let base = Self.formattedDuration(self.audioDurationS)
                 ?? self.filename
                 ?? SourceVocabulary.notProvided
+            if self.sendState == .needsAttention, self.retryAvailable {
+                return "\(base) · \(SourceVocabulary.onThisPhoneFailureRowHint)"
+            }
+            return base
         case .location:
-            self.locationFixCount.map {
+            return self.locationFixCount.map {
                 SourceVocabulary.onThisPhoneLocationRowLabel(count: $0)
             } ?? SourceVocabulary.notProvided
         case .share:
-            self.filename ?? SourceVocabulary.notProvided
+            return self.filename ?? SourceVocabulary.notProvided
         }
     }
 
@@ -323,7 +384,7 @@ nonisolated enum OnThisPhoneItemSort {
 
 nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
     case share(UUID)
-    case audio(sessionID: UUID, chunkID: String)
+    case audio(sessionID: UUID, chunkID: String, source: OnThisPhoneAudioSource)
     case location(fileID: String)
 
     init?(sourceKind: OnThisPhoneSourceKind, id: String) {
@@ -334,13 +395,13 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
         case .audio:
             let parts = id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
             guard parts.count == 3,
-                  parts[0] == "audio",
+                  let source = OnThisPhoneAudioSource(idPrefix: String(parts[0])),
                   let sessionID = UUID(uuidString: String(parts[1])),
                   !parts[2].isEmpty
             else {
                 return nil
             }
-            self = .audio(sessionID: sessionID, chunkID: String(parts[2]))
+            self = .audio(sessionID: sessionID, chunkID: String(parts[2]), source: source)
         case .location:
             let prefix = "location:"
             guard id.hasPrefix(prefix) else { return nil }

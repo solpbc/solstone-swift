@@ -226,7 +226,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
 
         switch item.sourceKind {
         case .audio, .share:
-            return [
+            var rows = [
                 OnThisPhoneDetailRow(
                     label: SourceVocabulary.onThisPhoneFileLabel,
                     value: SourceVocabulary.onThisPhoneFileDetail(
@@ -236,6 +236,25 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
                 ),
                 OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneWhenLabel, value: when),
             ]
+            if let sourceLabel = self.nonEmpty(item.sourceLabel) {
+                rows.append(OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneSourceLabel, value: sourceLabel))
+            }
+            if let failureReason = self.nonEmpty(item.failureReason) {
+                rows.append(OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureReasonLabel, value: failureReason))
+            }
+            if let failureAttemptCount = item.failureAttemptCount {
+                rows.append(OnThisPhoneDetailRow(
+                    label: SourceVocabulary.onThisPhoneFailureStatusLabel,
+                    value: SourceVocabulary.onThisPhoneFailureAttemptStatus(count: failureAttemptCount)
+                ))
+            }
+            if item.retryAvailable {
+                rows.append(OnThisPhoneDetailRow(
+                    label: SourceVocabulary.onThisPhoneFailureNextActionLabel,
+                    value: SourceVocabulary.onThisPhoneFailureNextAction
+                ))
+            }
+            return rows
         case .location:
             return [
                 OnThisPhoneDetailRow(

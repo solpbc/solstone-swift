@@ -355,6 +355,40 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneWhenLabel, value: SourceVocabulary.notProvided),
         ])
     }
+
+    func testDetailRowsIncludeFailureDetailWhenAvailable() {
+        let itemTime = Self.date(year: 2026, month: 6, day: 14, hour: 9, minute: 30)
+        let rows = OnThisPhoneItemDetailPresentation.detailRows(
+            for: Self.item(
+                sourceKind: .audio,
+                sendState: .needsAttention,
+                filename: "chunk.m4a",
+                bytes: 2048,
+                itemTime: itemTime,
+                failureReason: "journal rejected the upload (HTTP 503)",
+                failureAttemptCount: 5,
+                sourceLabel: SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
+                retryAvailable: true
+            ),
+            locale: Self.locale,
+            timeZone: Self.timeZone
+        )
+
+        XCTAssertEqual(rows, [
+            OnThisPhoneDetailRow(
+                label: SourceVocabulary.onThisPhoneFileLabel,
+                value: SourceVocabulary.onThisPhoneFileDetail(
+                    filename: "chunk.m4a",
+                    size: ByteCountFormatter.string(fromByteCount: 2048, countStyle: .file)
+                )
+            ),
+            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneWhenLabel, value: Self.fullDateTime(itemTime)),
+            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneSourceLabel, value: SourceVocabulary.onThisPhoneOmiAudioSourceLabel),
+            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureReasonLabel, value: "journal rejected the upload (HTTP 503)"),
+            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureStatusLabel, value: "upload failed after 5 attempts"),
+            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureNextActionLabel, value: SourceVocabulary.onThisPhoneFailureNextAction),
+        ])
+    }
 }
 
 private extension OnThisPhoneItemDetailPresentationTests {
@@ -377,7 +411,11 @@ private extension OnThisPhoneItemDetailPresentationTests {
         itemTime: Date? = nil,
         rawFileURL: URL? = nil,
         audioDurationS: Double? = nil,
-        locationFixCount: Int? = nil
+        locationFixCount: Int? = nil,
+        failureReason: String? = nil,
+        failureAttemptCount: Int? = nil,
+        sourceLabel: String? = nil,
+        retryAvailable: Bool = false
     ) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: UUID().uuidString,
@@ -396,7 +434,11 @@ private extension OnThisPhoneItemDetailPresentationTests {
             deliveredAt: nil,
             rawFileURL: rawFileURL,
             audioDurationS: audioDurationS,
-            locationFixCount: locationFixCount
+            locationFixCount: locationFixCount,
+            failureReason: failureReason,
+            failureAttemptCount: failureAttemptCount,
+            sourceLabel: sourceLabel,
+            retryAvailable: retryAvailable
         )
     }
 

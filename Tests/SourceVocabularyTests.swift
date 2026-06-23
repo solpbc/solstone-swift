@@ -195,6 +195,16 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneFileLabel, "file")
         XCTAssertEqual(SourceVocabulary.onThisPhoneWhenLabel, "when")
         XCTAssertEqual(SourceVocabulary.onThisPhoneObservationsLabel, "observations")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneSourceLabel, "source")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonLabel, "why")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureStatusLabel, "status")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureNextActionLabel, "next")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneObserverAudioSourceLabel, "audio")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneOmiAudioSourceLabel, "omi pendant audio")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureNextAction, "tap retry to try again")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureRowHint, "needs a retry")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1), "upload failed after 1 attempt")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5), "upload failed after 5 attempts")
         XCTAssertEqual(SourceVocabulary.audioPlaybackObserverActiveHint, "pause listening to play this")
         XCTAssertEqual(SourceVocabulary.audioPlaybackPlayLabel, "play audio")
         XCTAssertEqual(SourceVocabulary.audioPlaybackPauseLabel, "pause audio")
@@ -293,6 +303,55 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         for string in strings {
             XCTAssertFalse(string.contains("back online"))
         }
+    }
+
+    func testLodeCOwnerVisibleCopyStaysLowercaseAndAvoidsForbiddenTerms() throws {
+        let regex = try NSRegularExpression(pattern: Self.forbiddenLodeCPattern, options: [.caseInsensitive])
+        for string in self.lodeCOwnerVisibleStrings {
+            let firstScalar = try XCTUnwrap(string.unicodeScalars.first)
+            XCTAssertTrue(
+                CharacterSet.lowercaseLetters.contains(firstScalar) || CharacterSet.decimalDigits.contains(firstScalar),
+                string
+            )
+            let range = NSRange(string.startIndex..<string.endIndex, in: string)
+            XCTAssertNil(regex.firstMatch(in: string, range: range), string)
+        }
+    }
+
+    private static let forbiddenLodeCTerms = [
+        "capture",
+        "record",
+        "recording",
+        "keeper",
+        "assistant",
+        "monitor",
+        "track",
+        "collect",
+        "watch",
+        "server",
+        "service",
+    ]
+
+    private static var forbiddenLodeCPattern: String {
+        let alternation = self.forbiddenLodeCTerms
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+            .joined(separator: "|")
+        return #"(?<![A-Za-z0-9_])("# + alternation + #")(?![A-Za-z0-9_])"#
+    }
+
+    private var lodeCOwnerVisibleStrings: [String] {
+        [
+            SourceVocabulary.onThisPhoneSourceLabel,
+            SourceVocabulary.onThisPhoneFailureReasonLabel,
+            SourceVocabulary.onThisPhoneFailureStatusLabel,
+            SourceVocabulary.onThisPhoneFailureNextActionLabel,
+            SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
+            SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
+            SourceVocabulary.onThisPhoneFailureNextAction,
+            SourceVocabulary.onThisPhoneFailureRowHint,
+            SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1),
+            SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
+        ]
     }
 
     private var allOwnerVisibleStrings: [String] {
@@ -422,6 +481,15 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFileLabel,
             SourceVocabulary.onThisPhoneWhenLabel,
             SourceVocabulary.onThisPhoneObservationsLabel,
+            SourceVocabulary.onThisPhoneSourceLabel,
+            SourceVocabulary.onThisPhoneFailureReasonLabel,
+            SourceVocabulary.onThisPhoneFailureStatusLabel,
+            SourceVocabulary.onThisPhoneFailureNextActionLabel,
+            SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
+            SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
+            SourceVocabulary.onThisPhoneFailureNextAction,
+            SourceVocabulary.onThisPhoneFailureRowHint,
+            SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
             SourceVocabulary.audioPlaybackObserverActiveHint,
             SourceVocabulary.audioPlaybackPlayLabel,
             SourceVocabulary.audioPlaybackPauseLabel,

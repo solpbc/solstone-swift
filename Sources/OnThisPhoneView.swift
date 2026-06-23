@@ -25,6 +25,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -126,6 +127,12 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 self.loadSnapshot()
             }
             .onChange(of: self.observerUploader.failedCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.omiUploaderHolder.pendingCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.omiUploaderHolder.failedCount) { _, _ in
                 self.loadSnapshot()
             }
             .onChange(of: self.importQueue.pendingCount) { _, _ in
@@ -585,6 +592,7 @@ private extension OnThisPhoneMomentsView {
             for: item,
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
+            omiUploader: self.omiUploaderHolder.uploader,
             locationUploader: self.locationUploader
         ) else {
             return
@@ -600,6 +608,7 @@ private extension OnThisPhoneMomentsView {
         let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
+            omiUploader: self.omiUploaderHolder.uploader,
             locationUploader: self.locationUploader
         )
         self.aggregate = aggregate

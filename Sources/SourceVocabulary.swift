@@ -212,6 +212,14 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneFileLabel = "file"
     static let onThisPhoneWhenLabel = "when"
     static let onThisPhoneObservationsLabel = "observations"
+    static let onThisPhoneSourceLabel = "source"
+    static let onThisPhoneFailureReasonLabel = "why"
+    static let onThisPhoneFailureStatusLabel = "status"
+    static let onThisPhoneFailureNextActionLabel = "next"
+    static let onThisPhoneObserverAudioSourceLabel = "audio"
+    static let onThisPhoneOmiAudioSourceLabel = "omi pendant audio"
+    static let onThisPhoneFailureNextAction = "tap retry to try again"
+    static let onThisPhoneFailureRowHint = "needs a retry"
     static let audioPlaybackObserverActiveHint = "pause listening to play this"
     static let audioPlaybackPlayLabel = "play audio"
     static let audioPlaybackPauseLabel = "pause audio"
@@ -323,6 +331,10 @@ nonisolated enum SourceVocabulary {
 
     static func onThisPhoneFileDetail(filename: String, size: String) -> String {
         "\(filename) · \(size)"
+    }
+
+    static func onThisPhoneFailureAttemptStatus(count: Int) -> String {
+        count == 1 ? "upload failed after 1 attempt" : "upload failed after \(count) attempts"
     }
 
     static func onThisPhoneFixCount(count: Int) -> String {

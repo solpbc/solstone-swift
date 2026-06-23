@@ -91,8 +91,18 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue((uploader.lastError ?? "").contains("HTTP 503"))
         let failedAudio = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("chunk-2.m4a")
         let failedSidecar = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("chunk-2.json")
+        let failedFailure = self.failureSidecarURL(sessionID: sessionID, chunkID: "chunk-2")
         XCTAssertTrue(FileManager.default.fileExists(atPath: failedAudio.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: failedSidecar.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedFailure.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedFailure.appendingPathExtension("json").path))
+        let failure = try self.decodeFailureSidecar(at: failedFailure)
+        XCTAssertEqual(failure.httpStatus, 503)
+        XCTAssertEqual(failure.attemptCount, 5)
+        XCTAssertEqual(failure.stage, "http-failure")
+        XCTAssertEqual(failure.sourceType, "observer-audio")
+        XCTAssertTrue(failure.reason.contains("HTTP 503"))
+        XCTAssertEqual(uploader.failedCount, 1)
     }
 
     @MainActor
@@ -238,6 +248,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         let pendingUpload = pendingAudio.deletingLastPathComponent().appendingPathComponent("\(chunkID).upload")
         let failedAudio = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).m4a")
         let failedSidecar = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).json")
+        let failedFailure = self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID)
         try FileManager.default.createDirectory(at: pendingAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: failedAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("audio".utf8).write(to: pendingAudio)
@@ -245,6 +256,14 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         try Data("upload".utf8).write(to: pendingUpload)
         try Data("failed audio".utf8).write(to: failedAudio)
         try Data("failed sidecar".utf8).write(to: failedSidecar)
+        try self.makeEncoder().encode(ObserverUploadFailureSidecar(
+            reason: "failed",
+            httpStatus: nil,
+            transportError: nil,
+            attemptCount: 5,
+            stage: "transport-failure",
+            sourceType: "observer-audio"
+        )).write(to: failedFailure)
         let uploader = self.makeUploader(ensureRegistered: {
             XCTFail("dropItem should not register")
             throw ObserverUploaderError.registrationUnavailable
@@ -261,6 +280,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: pendingUpload.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: failedAudio.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: failedSidecar.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedFailure.path))
         XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
     }
 
@@ -315,6 +335,144 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             .appendingPathComponent("Observer", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
         try? FileManager.default.removeItem(at: root)
+    }
+
+    @MainActor
+    func testOmiSourceTypeYieldsOmiIDAndSourceLabel() throws {
+        let uploader = self.makeUploader(sourceType: "omi-audio")
+        let sessionID = UUID()
+        let chunkID = "omi-chunk"
+        try self.writeFailedPair(sessionID: sessionID, chunkID: chunkID)
+
+        let items = try self.loadedItems(from: uploader.onThisPhoneSnapshot())
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.id, "omi:\(sessionID.uuidString):\(chunkID)")
+        XCTAssertEqual(item.sourceLabel, SourceVocabulary.onThisPhoneOmiAudioSourceLabel)
+        XCTAssertEqual(item.retryAvailable, true)
+    }
+
+    @MainActor
+    func testFailureSidecarSurvivesRelaunchAndPopulatesFailedItem() throws {
+        let sessionID = UUID()
+        let chunkID = "chunk-sidecar"
+        try self.writeFailedPair(
+            sessionID: sessionID,
+            chunkID: chunkID,
+            failure: ObserverUploadFailureSidecar(
+                reason: "journal rejected the upload (HTTP 503)",
+                httpStatus: 503,
+                transportError: nil,
+                attemptCount: 5,
+                stage: "http-failure",
+                sourceType: "observer-audio"
+            )
+        )
+
+        let freshUploader = self.makeUploader()
+        let items = try self.loadedItems(from: freshUploader.onThisPhoneSnapshot())
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.id, "audio:\(sessionID.uuidString):\(chunkID)")
+        XCTAssertEqual(item.failureReason, "journal rejected the upload (HTTP 503)")
+        XCTAssertEqual(item.failureAttemptCount, 5)
+        XCTAssertEqual(item.sourceLabel, SourceVocabulary.onThisPhoneObserverAudioSourceLabel)
+        XCTAssertEqual(item.retryAvailable, true)
+        XCTAssertEqual(item.sendState, .needsAttention)
+    }
+
+    @MainActor
+    func testCorruptFailureSidecarDoesNotHideFailedAudioItem() throws {
+        let sessionID = UUID()
+        let chunkID = "chunk-corrupt"
+        try self.writeFailedPair(sessionID: sessionID, chunkID: chunkID)
+        try Data("{".utf8).write(to: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID), options: .atomic)
+        let uploader = self.makeUploader()
+
+        let items = try self.loadedItems(from: uploader.onThisPhoneSnapshot())
+
+        let item = try XCTUnwrap(items.first)
+        XCTAssertEqual(item.id, "audio:\(sessionID.uuidString):\(chunkID)")
+        XCTAssertNil(item.failureReason)
+        XCTAssertNil(item.failureAttemptCount)
+        XCTAssertEqual(item.retryAvailable, true)
+    }
+
+    @MainActor
+    func testRequeueFailedItemMovesPairToPendingUploadsAndClearsFailure() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let sessionID = UUID()
+        let chunkID = "chunk-requeue"
+        try self.writeFailedPair(
+            sessionID: sessionID,
+            chunkID: chunkID,
+            failure: ObserverUploadFailureSidecar(
+                reason: "failed",
+                httpStatus: nil,
+                transportError: "network unavailable",
+                attemptCount: 5,
+                stage: "transport-failure",
+                sourceType: "observer-audio"
+            )
+        )
+        let uploader = self.makeUploader()
+        XCTAssertEqual(uploader.failedCount, 1)
+
+        try await uploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+
+        try await self.waitFor("requeue upload") {
+            ObserverUploaderURLProtocol.callCount == 1 && uploader.pendingCount == 0 && uploader.failedCount == 0
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
+    @MainActor
+    func testRequeueFailedItemMissingPairThrowsAndLeavesFailed() async throws {
+        let sessionID = UUID()
+        let chunkID = "chunk-partial"
+        let failedAudio = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).m4a")
+        try FileManager.default.createDirectory(at: failedAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: failedAudio)
+        let uploader = self.makeUploader()
+
+        do {
+            try await uploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+            XCTFail("expected missing artifact error")
+        } catch {
+            // expected
+        }
+
+        XCTAssertEqual(uploader.failedCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedAudio.path))
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testRetryFailedRequeuesCompletePairsAndSkipsIncompletePairs() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let sessionID = UUID()
+        try self.writeFailedPair(sessionID: sessionID, chunkID: "chunk-complete")
+        let partialAudio = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("chunk-partial.m4a")
+        try Data("audio".utf8).write(to: partialAudio)
+        let uploader = self.makeUploader()
+        XCTAssertEqual(uploader.failedCount, 2)
+
+        await uploader.retryFailed()
+
+        try await self.waitFor("retry failed upload") {
+            ObserverUploaderURLProtocol.callCount == 1 && uploader.failedCount == 1
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: partialAudio.path))
     }
 
     @MainActor
@@ -499,6 +657,49 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(detail.contains("reason=HTTP 503: \(visiblePrefix)"))
         XCTAssertFalse(detail.contains(sensitiveTail))
         XCTAssertTrue(events.contains { $0.message == "observer-audio upload retry-exhausted" && $0.severity == .error })
+
+        let failure = try self.decodeFailureSidecar(at: self.failureSidecarURL(sessionID: sessionID, chunkID: "chunk-http"))
+        XCTAssertEqual(failure.httpStatus, 503)
+        XCTAssertTrue(failure.reason.contains("HTTP 503: \(visiblePrefix)"))
+        XCTAssertFalse(failure.reason.contains(sensitiveTail))
+        XCTAssertFalse(failure.reason.contains("test-observer-key-abc"))
+    }
+
+    @MainActor
+    func testPersistedFailureReasonRedactsSecretsFromHTTPBodyPrefix() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("journal said no Authorization: Bearer persisted-secret-token".utf8)
+            )
+        }
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(diagnosticLog: log, maxAttempts: 1)
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-http-secret")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("http secret failure") {
+            uploader.failedCount == 1
+        }
+
+        let failure = try self.decodeFailureSidecar(
+            at: self.failureSidecarURL(sessionID: sessionID, chunkID: "chunk-http-secret")
+        )
+        XCTAssertTrue(failure.reason.contains("journal said no Authorization: [redacted]"))
+        XCTAssertFalse(failure.reason.contains("persisted-secret-token"))
+        XCTAssertFalse(failure.reason.contains("Bearer persisted-secret-token"))
+        XCTAssertFalse(failure.reason.contains("test-observer-key-abc"))
+        XCTAssertFalse((uploader.lastError ?? "").contains("persisted-secret-token"))
+        for event in self.uploadEvents(in: log) {
+            XCTAssertFalse(event.message.contains("persisted-secret-token"))
+            XCTAssertFalse((event.detail ?? "").contains("persisted-secret-token"))
+            XCTAssertFalse((event.detail ?? "").contains("Bearer persisted-secret-token"))
+        }
     }
 
     @MainActor
@@ -658,9 +859,41 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             .appendingPathComponent("\(chunkID).json", isDirectory: false)
     }
 
+    private func writeFailedPair(
+        sessionID: UUID,
+        chunkID: String,
+        failure: ObserverUploadFailureSidecar? = nil
+    ) throws {
+        let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
+        try FileManager.default.createDirectory(at: failedDirectory, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: failedDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
+        try self.makeEncoder().encode(self.makeSidecar(sessionID: sessionID, chunkIndex: 0))
+            .write(to: failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
+        if let failure {
+            try self.makeEncoder().encode(failure).write(to: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
+        }
+    }
+
     private func failedDirectoryURL(sessionID: UUID) -> URL {
         self.sessionDirectoryURL(sessionID: sessionID)
             .appendingPathComponent("failed", isDirectory: true)
+    }
+
+    private func failureSidecarURL(sessionID: UUID, chunkID: String) -> URL {
+        self.failedDirectoryURL(sessionID: sessionID)
+            .appendingPathComponent("\(chunkID).failure", isDirectory: false)
+    }
+
+    private func decodeFailureSidecar(at url: URL) throws -> ObserverUploadFailureSidecar {
+        try JSONDecoder().decode(ObserverUploadFailureSidecar.self, from: Data(contentsOf: url))
+    }
+
+    private func loadedItems(from result: OnThisPhoneSourceResult) throws -> [OnThisPhoneItem] {
+        guard case .loaded(let items) = result else {
+            XCTFail("Expected loaded result")
+            return []
+        }
+        return items
     }
 
     private func directoryEntries(at directory: URL) throws -> [URL] {

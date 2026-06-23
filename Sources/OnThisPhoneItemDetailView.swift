@@ -10,6 +10,8 @@ struct OnThisPhoneItemDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverManager.self) private var observerManager
+    @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
 
     let item: OnThisPhoneItem
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
@@ -151,7 +153,16 @@ private extension OnThisPhoneItemDetailView {
 
                 if self.item.sendState == .needsAttention, self.item.sourceKind == .share {
                     Button(SourceVocabulary.retry) {
-                        self.retry()
+                        self.retryShare()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 44)
+                    .accessibilityHint("Tries sending this again.")
+                }
+
+                if self.item.sourceKind == .audio, self.item.retryAvailable {
+                    Button(SourceVocabulary.retry) {
+                        self.retryAudio()
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(minHeight: 44)
@@ -194,10 +205,31 @@ private extension OnThisPhoneItemDetailView {
         return false
     }
 
-    func retry() {
+    func retryShare() {
         guard let itemID = UUID(uuidString: self.item.id) else { return }
         Task {
             try? await self.importQueue.requeueFailedItem(itemID: itemID)
+            self.dismiss()
+        }
+    }
+
+    func retryAudio() {
+        guard case .audio(let sessionID, let chunkID, let source) = OnThisPhoneItemID(
+            sourceKind: self.item.sourceKind,
+            id: self.item.id
+        ) else {
+            return
+        }
+
+        let uploader = switch source {
+        case .observer:
+            self.observerUploader
+        case .omi:
+            self.omiUploaderHolder.uploader
+        }
+
+        Task {
+            try? await uploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
             self.dismiss()
         }
     }

@@ -8,7 +8,7 @@ import os
 
 private let uploaderLog = Logger(subsystem: "app.solstone.swift", category: "uploader")
 
-struct ChunkSidecar: Codable, Equatable, Sendable {
+nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
     let segment: String
     let day: String
     let chunkIndex: Int
@@ -26,6 +26,15 @@ struct ChunkSidecar: Codable, Equatable, Sendable {
         case sessionID = "session_id"
         case mode
     }
+}
+
+nonisolated struct ObserverUploadFailureSidecar: Codable, Equatable, Sendable {
+    let reason: String
+    let httpStatus: Int?
+    let transportError: String?
+    let attemptCount: Int
+    let stage: String
+    let sourceType: String
 }
 
 final class ObserverUploaderSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
@@ -247,15 +256,78 @@ final class ObserverUploader {
         self.backgroundCompletionHandler = completionHandler
     }
 
-    func dropItem(sessionID: UUID, chunkID: String) {
-        self.retryTasksByChunkID[chunkID]?.cancel()
-        self.retryTasksByChunkID.removeValue(forKey: chunkID)
-        self.attemptCountByChunkID.removeValue(forKey: chunkID)
-        if let taskID = self.activeTaskIDByChunkID.removeValue(forKey: chunkID) {
-            self.taskInfoByTaskID.removeValue(forKey: taskID)
-            self.activeTasksByTaskID.removeValue(forKey: taskID)
-            self.responseDataByTaskID.removeValue(forKey: taskID)
+    func requeueFailedItem(sessionID: UUID, chunkID: String) async throws {
+        let failedAudioURL = self.failedDirectoryURL(sessionID: sessionID)
+            .appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+        let failedSidecarURL = self.failedDirectoryURL(sessionID: sessionID)
+            .appendingPathComponent("\(chunkID).json", isDirectory: false)
+        guard self.fileManager.fileExists(atPath: failedAudioURL.path),
+              self.fileManager.fileExists(atPath: failedSidecarURL.path)
+        else {
+            throw ObserverUploaderError.missingRequiredArtifact(sessionID: sessionID, chunkID: chunkID)
         }
+
+        try self.ensureSessionDirectories(sessionID: sessionID)
+        self.clearUploadState(chunkID: chunkID)
+
+        let pendingAudioURL = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
+        let pendingSidecarURL = self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID)
+        let pendingUploadURL = self.pendingDirectoryURL(sessionID: sessionID)
+            .appendingPathComponent("\(chunkID).upload", isDirectory: false)
+        for staleURL in [pendingAudioURL, pendingSidecarURL, pendingUploadURL] where self.fileManager.fileExists(atPath: staleURL.path) {
+            try self.fileManager.removeItem(at: staleURL)
+        }
+
+        try self.fileManager.moveItem(at: failedAudioURL, to: pendingAudioURL)
+        try self.fileManager.moveItem(at: failedSidecarURL, to: pendingSidecarURL)
+        try? self.fileManager.removeItem(at: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
+        self.refreshCounts()
+        await self.scheduleUpload(chunkID: chunkID, sessionID: sessionID)
+    }
+
+    func retryFailed() async {
+        do {
+            try self.fileManager.createDirectory(at: self.cacheRootURL, withIntermediateDirectories: true)
+            let sessionDirectories = try self.fileManager.contentsOfDirectory(
+                at: self.cacheRootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+
+            for sessionDirectory in sessionDirectories where self.isDirectory(sessionDirectory) {
+                guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
+                let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
+                guard self.fileManager.fileExists(atPath: failedDirectory.path) else { continue }
+                let entries = try self.fileManager.contentsOfDirectory(
+                    at: failedDirectory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+                let audioChunkIDs = entries
+                    .filter { $0.pathExtension == "m4a" }
+                    .map { $0.deletingPathExtension().lastPathComponent }
+                    .sorted()
+                for chunkID in audioChunkIDs {
+                    let sidecarURL = failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false)
+                    guard self.fileManager.fileExists(atPath: sidecarURL.path) else { continue }
+                    do {
+                        try await self.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+                    } catch {
+                        self.lastError = String(describing: error)
+                    }
+                }
+            }
+        } catch {
+            let detail = String(describing: error)
+            uploaderLog.error("observer retry failed move failed: \(detail, privacy: .public)")
+            self.lastError = detail
+        }
+
+        self.refreshCounts()
+    }
+
+    func dropItem(sessionID: UUID, chunkID: String) {
+        self.clearUploadState(chunkID: chunkID)
 
         let pendingDirectory = self.pendingDirectoryURL(sessionID: sessionID)
         try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
@@ -265,6 +337,7 @@ final class ObserverUploader {
         let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
         try? self.fileManager.removeItem(at: failedDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
         try? self.fileManager.removeItem(at: failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
+        try? self.fileManager.removeItem(at: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
 
         self.refreshCounts()
         uploaderLog.info("observer item dropped \(chunkID, privacy: .public)")
@@ -327,6 +400,14 @@ private extension ObserverUploader {
         let prefix: String?
     }
 
+    var audioSource: OnThisPhoneAudioSource {
+        guard let source = OnThisPhoneAudioSource(sourceType: self.sourceType) else {
+            uploaderLog.error("observer uploader configured with unknown sourceType \(self.sourceType, privacy: .public)")
+            return .observer
+        }
+        return source
+    }
+
     func onThisPhoneItems(
         sessionID: UUID,
         directory: URL,
@@ -341,6 +422,7 @@ private extension ObserverUploader {
             options: [.skipsHiddenFiles]
         )
         var items: [OnThisPhoneItem] = []
+        let audioSource = self.audioSource
         for sidecarURL in entries where sidecarURL.pathExtension == "json" {
             let chunkID = sidecarURL.deletingPathExtension().lastPathComponent
             let audioURL = directory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
@@ -352,8 +434,11 @@ private extension ObserverUploader {
             do {
                 let sidecar = try self.loadSidecar(from: sidecarURL)
                 let isActivelyUploading = location == .pending && self.activeTaskIDByChunkID[chunkID] != nil
+                let failure = location == .failed
+                    ? self.loadFailureSidecarIfAvailable(sessionID: sessionID, chunkID: chunkID)
+                    : nil
                 items.append(OnThisPhoneItem(
-                    id: "audio:\(sessionID.uuidString):\(chunkID)",
+                    id: "\(audioSource.idPrefix):\(sessionID.uuidString):\(chunkID)",
                     sourceKind: .audio,
                     sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
                     contentType: "audio/mp4",
@@ -368,7 +453,11 @@ private extension ObserverUploader {
                     segment: sidecar.segment,
                     deliveredAt: nil,
                     rawFileURL: audioURL,
-                    audioDurationS: sidecar.durationS
+                    audioDurationS: sidecar.durationS,
+                    failureReason: failure?.reason,
+                    failureAttemptCount: failure?.attemptCount,
+                    sourceLabel: audioSource.sourceLabel,
+                    retryAvailable: location == .failed
                 ))
             } catch {
                 uploaderLog.debug("observer on-this-phone item skipped: sidecar unavailable")
@@ -485,6 +574,17 @@ private extension ObserverUploader {
             if self.activeTaskIDByChunkID[resolvedChunkID] == taskID {
                 self.activeTaskIDByChunkID.removeValue(forKey: resolvedChunkID)
             }
+        }
+    }
+
+    func clearUploadState(chunkID: String) {
+        self.retryTasksByChunkID[chunkID]?.cancel()
+        self.retryTasksByChunkID.removeValue(forKey: chunkID)
+        self.attemptCountByChunkID.removeValue(forKey: chunkID)
+        if let taskID = self.activeTaskIDByChunkID.removeValue(forKey: chunkID) {
+            self.taskInfoByTaskID.removeValue(forKey: taskID)
+            self.activeTasksByTaskID.removeValue(forKey: taskID)
+            self.responseDataByTaskID.removeValue(forKey: taskID)
         }
     }
 
@@ -749,6 +849,36 @@ private extension ObserverUploader {
         return String(body.prefix(200))
     }
 
+    func persistedFailureReason(
+        reason: String,
+        context: UploadFailureContext,
+        attemptCount: Int
+    ) -> String {
+        if context.httpStatus != nil {
+            return self.redactedFailureDetail(reason)
+        }
+        if let transportError = context.transportError, !transportError.isEmpty {
+            return self.redactedFailureDetail(transportError)
+        }
+        return SourceVocabulary.onThisPhoneFailureAttemptStatus(count: attemptCount)
+    }
+
+    func redactedFailureDetail(_ detail: String) -> String {
+        var redacted = detail.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        if let authorizationRange = redacted.range(of: "Authorization:", options: [.caseInsensitive]) {
+            redacted = String(redacted[..<authorizationRange.lowerBound]) + "Authorization: [redacted]"
+        }
+        while let bearerRange = redacted.range(of: "Bearer ") {
+            var end = bearerRange.upperBound
+            while end < redacted.endIndex, !redacted[end].isWhitespace {
+                end = redacted.index(after: end)
+            }
+            redacted.replaceSubrange(bearerRange.lowerBound..<end, with: "Bearer [redacted]")
+        }
+        return redacted
+    }
+
     func handleUploadFailure(
         chunkID: String,
         sessionID: UUID,
@@ -759,7 +889,7 @@ private extension ObserverUploader {
     ) async {
         let nextAttempt = self.attemptCountByChunkID[chunkID, default: 0] + 1
         self.attemptCountByChunkID[chunkID] = nextAttempt
-        self.lastError = reason
+        self.lastError = self.redactedFailureDetail(reason)
         self.appendUploadDiagnostic(
             stage: context.stage,
             severity: context.severity,
@@ -792,7 +922,19 @@ private extension ObserverUploader {
                     chunkID: chunkID,
                     audioURL: audioURL,
                     sidecarURL: sidecarURL,
-                    reason: reason
+                    reason: reason,
+                    failureSidecar: ObserverUploadFailureSidecar(
+                        reason: self.persistedFailureReason(
+                            reason: reason,
+                            context: context,
+                            attemptCount: nextAttempt
+                        ),
+                        httpStatus: context.httpStatus,
+                        transportError: context.transportError.map { self.redactedFailureDetail($0) },
+                        attemptCount: nextAttempt,
+                        stage: context.stage,
+                        sourceType: context.sourceType
+                    )
                 )
             } catch {
                 self.lastError = String(describing: error)
@@ -806,7 +948,7 @@ private extension ObserverUploader {
 
         let delayIndex = min(nextAttempt - 1, max(self.retryDelays.count - 1, 0))
         let delay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
-        uploaderLog.error("observer chunk upload failed \(chunkID, privacy: .public): \(reason, privacy: .public)")
+        uploaderLog.error("observer chunk upload failed \(chunkID, privacy: .public): \(self.redactedFailureDetail(reason), privacy: .public)")
         self.appendUploadDiagnostic(
             stage: "retry-scheduled",
             severity: .info,
@@ -842,15 +984,17 @@ private extension ObserverUploader {
         reason: String
     ) {
         let source = sourceType ?? self.sourceType
+        let safeTransportError = transportError.map { self.redactedFailureDetail($0) }
+        let safeReason = self.redactedFailureDetail(reason)
         let detail = [
             "source=\(source)",
             "chunkID=\(chunkID)",
             "prefix=\(prefix?.isEmpty == false ? prefix! : "unknown")",
             "localPort=\(localPort.map(String.init) ?? "none")",
             "httpStatus=\(httpStatus.map(String.init) ?? "none")",
-            "transportError=\(transportError?.isEmpty == false ? transportError! : "none")",
+            "transportError=\(safeTransportError?.isEmpty == false ? safeTransportError! : "none")",
             "attempt=\(attempt)/\(self.maxAttempts)",
-            "reason=\(reason)",
+            "reason=\(safeReason)",
         ].joined(separator: " ")
         self.diagnosticLog?.append(
             category: .upload,
@@ -865,7 +1009,8 @@ private extension ObserverUploader {
         chunkID: String,
         audioURL: URL?,
         sidecarURL: URL?,
-        reason: String
+        reason: String,
+        failureSidecar: ObserverUploadFailureSidecar? = nil
     ) throws {
         let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
         try self.fileManager.createDirectory(at: failedDirectory, withIntermediateDirectories: true)
@@ -886,8 +1031,14 @@ private extension ObserverUploader {
             try self.fileManager.moveItem(at: sidecarURL, to: target)
         }
 
-        uploaderLog.error("observer chunk moved to failed \(chunkID, privacy: .public): \(reason, privacy: .public)")
-        self.lastError = reason
+        if let failureSidecar {
+            let data = try self.encoder.encode(failureSidecar)
+            try data.write(to: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID), options: .atomic)
+        }
+
+        let safeReason = self.redactedFailureDetail(reason)
+        uploaderLog.error("observer chunk moved to failed \(chunkID, privacy: .public): \(safeReason, privacy: .public)")
+        self.lastError = safeReason
     }
 
     func buildMultipartRequestBody(audioURL: URL, sidecar: ChunkSidecar) throws -> URL {
@@ -939,6 +1090,12 @@ private extension ObserverUploader {
         try self.decoder.decode(ChunkSidecar.self, from: Data(contentsOf: url))
     }
 
+    func loadFailureSidecarIfAvailable(sessionID: UUID, chunkID: String) -> ObserverUploadFailureSidecar? {
+        let url = self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID)
+        guard self.fileManager.fileExists(atPath: url.path) else { return nil }
+        return try? self.decoder.decode(ObserverUploadFailureSidecar.self, from: Data(contentsOf: url))
+    }
+
     func ensureSessionDirectories(sessionID: UUID) throws {
         try self.fileManager.createDirectory(at: self.inProgressDirectoryURL(sessionID: sessionID), withIntermediateDirectories: true)
         try self.fileManager.createDirectory(at: self.pendingDirectoryURL(sessionID: sessionID), withIntermediateDirectories: true)
@@ -955,6 +1112,10 @@ private extension ObserverUploader {
 
     func failedDirectoryURL(sessionID: UUID) -> URL {
         self.sessionDirectoryURL(sessionID: sessionID).appendingPathComponent("failed", isDirectory: true)
+    }
+
+    func failureSidecarURL(sessionID: UUID, chunkID: String) -> URL {
+        self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).failure", isDirectory: false)
     }
 
     func sessionDirectoryURL(sessionID: UUID) -> URL {
@@ -993,4 +1154,5 @@ private extension ObserverUploader {
 
 enum ObserverUploaderError: Error {
     case registrationUnavailable
+    case missingRequiredArtifact(sessionID: UUID, chunkID: String)
 }
