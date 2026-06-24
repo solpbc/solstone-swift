@@ -24,6 +24,7 @@ struct SolstoneSwiftApp: App {
     @State private var locationUploader: LocationUploader
     @State private var locationManager: LocationManager
     @State private var observerManager: ObserverManager
+    @State private var watchLink: WatchLink
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pendingFold = PendingFoldState()
     @State private var pairingHandoff = PairingHandoffState()
@@ -230,6 +231,8 @@ struct SolstoneSwiftApp: App {
         let locationManager = LocationManager(uploader: locationUploader)
         let observerRecorder = Self.makeObserverRecorder()
         let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
+        let watchLink = WatchLink()
+        watchLink.activate()
         let voice = VoiceManager(
             webrtc: Self.makeWebRTCConnector(),
             diagnosticLog: log
@@ -281,6 +284,7 @@ struct SolstoneSwiftApp: App {
         self._locationUploader = State(initialValue: locationUploader)
         self._locationManager = State(initialValue: locationManager)
         self._observerManager = State(initialValue: observerManager)
+        self._watchLink = State(initialValue: watchLink)
         self._voiceManager = State(initialValue: voice)
         self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)

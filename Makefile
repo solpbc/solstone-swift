@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -12,6 +12,7 @@ TEAM_ID   ?= 7QCG8V4M6H
 DEVICE    ?= 1776B0A9-E149-52A1-9F6F-04CCDE223940
 SIM       ?= iPhone 17 Pro
 SIM_IPAD  ?= iPad Pro 13-inch (M4)
+SIM_WATCH ?= Apple Watch Series 11 (46mm)
 ARCHIVE   ?= build/solstone-swift.xcarchive
 APP       ?= $(ARCHIVE)/Products/Applications/solstone-swift.app
 LOG_SUB   ?= app.solstone.swift
@@ -103,6 +104,22 @@ sim-ipad-json: generate
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-destination 'platform=iOS Simulator,name=$(SIM_IPAD)' \
+		-derivedDataPath $(DERIVED) \
+		COMPILATION_CACHE_ENABLE_CACHING=YES \
+		build 2>&1 | xcsift
+
+watch-sim: generate
+	xcodebuild -project $(PROJECT) -scheme SolstoneWatch \
+		-skipMacroValidation \
+		-destination 'platform=watchOS Simulator,name=$(SIM_WATCH)' \
+		-derivedDataPath $(DERIVED) \
+		COMPILATION_CACHE_ENABLE_CACHING=YES \
+		build
+
+watch-sim-json: generate
+	xcodebuild -project $(PROJECT) -scheme SolstoneWatch \
+		-skipMacroValidation \
+		-destination 'platform=watchOS Simulator,name=$(SIM_WATCH)' \
 		-derivedDataPath $(DERIVED) \
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build 2>&1 | xcsift
@@ -594,6 +611,7 @@ ci: generate
 	bash test/assert_tap_targets.sh
 	bash test/assert_casing.sh
 	bash test/assert_background_modes.sh
+	bash test/assert_watch_background_modes.sh
 	PROJECT='$(PROJECT)' SCHEME='$(SCHEME)' DERIVED='$(DERIVED)' \
 		CI_SIM_NAME='$(CI_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_SIM_DEVICETYPE)' \
 		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
