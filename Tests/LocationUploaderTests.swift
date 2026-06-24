@@ -212,7 +212,8 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         XCTAssertEqual(try self.extractField("platform", from: bodyString), "ios")
         XCTAssertEqual(try self.extractField("day", from: bodyString), "20260602")
         XCTAssertEqual(try self.extractField("segment", from: bodyString), "235800_300")
-        XCTAssertTrue(bodyString.contains(#"name="files[]"; filename="location.jsonl""#))
+        XCTAssertTrue(bodyString.contains(#"name="files"; filename="location.jsonl""#))
+        XCTAssertFalse(bodyString.contains("name=\"" + "files" + "[]\""))
     }
 
     @MainActor
@@ -929,7 +930,7 @@ nonisolated final class LocationUploaderTests: XCTestCase {
 
     private func extractFilePart(named filename: String, from body: Data) throws -> Data {
         let bodyString = String(decoding: body, as: UTF8.self)
-        let marker = "Content-Disposition: form-data; name=\"files[]\"; filename=\"\(filename)\""
+        let marker = "Content-Disposition: form-data; name=\"files\"; filename=\"\(filename)\""
         let markerRange = try XCTUnwrap(bodyString.range(of: marker))
         let afterMarker = bodyString[markerRange.upperBound...]
         let separator = try XCTUnwrap(afterMarker.range(of: "\r\n\r\n"))

@@ -900,7 +900,7 @@ private extension LocationUploader {
 
         let segmentData = try Data(contentsOf: segmentURL)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: application/jsonl\r\n\r\n".data(using: .utf8)!)
         body.append(segmentData)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)

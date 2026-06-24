@@ -179,9 +179,10 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         let body = try self.capturedBodyString()
         XCTAssertEqual(try self.multipartValue(named: "platform", in: body), "watchos")
         XCTAssertEqual(self.filesPartCount(in: body), 2)
-        XCTAssertTrue(body.contains("name=\"files[]\"; filename=\"audio.m4a\""))
+        XCTAssertTrue(body.contains("name=\"files\"; filename=\"audio.m4a\""))
+        XCTAssertFalse(body.contains("name=\"" + "files" + "[]\""))
         XCTAssertTrue(body.contains("Content-Type: audio/mp4"))
-        XCTAssertTrue(body.contains("name=\"files[]\"; filename=\"location.jsonl\""))
+        XCTAssertTrue(body.contains("name=\"files\"; filename=\"location.jsonl\""))
         XCTAssertTrue(body.contains("Content-Type: application/x-ndjson"))
         XCTAssertTrue(body.contains(String(decoding: locationBytes, as: UTF8.self)))
         XCTAssertFalse(body.contains("filename=\"\(manifest.id.uuidString).m4a\""))
@@ -238,7 +239,8 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         XCTAssertEqual(try self.multipartValue(named: "segment", in: body), manifest.segment)
         XCTAssertEqual(try self.multipartValue(named: "day", in: body), manifest.day)
         XCTAssertEqual(self.filesPartCount(in: body), 1)
-        XCTAssertTrue(body.contains("name=\"files[]\"; filename=\"location.jsonl\""))
+        XCTAssertTrue(body.contains("name=\"files\"; filename=\"location.jsonl\""))
+        XCTAssertFalse(body.contains("name=\"" + "files" + "[]\""))
         XCTAssertFalse(body.contains("filename=\"audio.m4a\""))
         XCTAssertTrue(body.contains(String(decoding: locationBytes, as: UTF8.self)))
         XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
@@ -414,7 +416,7 @@ private extension WatchSegmentDrainTests {
     }
 
     func filesPartCount(in body: String) -> Int {
-        body.components(separatedBy: "name=\"files[]\"").count - 1
+        body.components(separatedBy: "name=\"files\"").count - 1
     }
 
     @MainActor

@@ -236,7 +236,7 @@ private extension WatchSegmentDrain {
         ))
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
         body.append(locationData)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)

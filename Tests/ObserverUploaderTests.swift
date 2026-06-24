@@ -656,7 +656,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(body.contains(#"name="day""#))
         XCTAssertTrue(body.contains(#"name="platform""#))
         XCTAssertTrue(body.contains(#"name="meta""#))
-        XCTAssertTrue(body.contains(#"name="files[]"; filename="audio.m4a""#))
+        XCTAssertTrue(body.contains(#"name="files"; filename="audio.m4a""#))
+        XCTAssertFalse(body.contains("name=\"" + "files" + "[]\""))
         let metaHeader = try XCTUnwrap(body.range(of: #"Content-Disposition: form-data; name="meta""#))
         let afterMetaHeader = body[metaHeader.upperBound...]
         let separator = try XCTUnwrap(afterMetaHeader.range(of: "\r\n\r\n"))

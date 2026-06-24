@@ -6,6 +6,7 @@ import Foundation
 nonisolated enum ObserverServerURL {
     static let protocolVersionHeaderName = "X-Solstone-Protocol-Version"
     static let segmentsProtocolVersion = "2"
+    static let filesFieldName = "files"
 
     static func registrationURL(localPort: Int) -> URL? {
         self.url(localPort: localPort, path: "/app/observer/register")
