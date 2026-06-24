@@ -73,11 +73,12 @@ final class OmiDiagnostics {
         self.persist()
     }
 
-    func recordBattery(level: Int, at date: Date) {
+    func recordBattery(level: Int, at date: Date, rawByte: UInt8? = nil) {
         self.ensureFirstObserved(at: date)
         self.payload.pendantBatteryTrend.append(OmiDiagnosticsPayload.PendantBatterySample(
             timestamp: date,
-            level: level
+            level: level,
+            rawByte: rawByte
         ))
         self.persist()
     }
@@ -90,6 +91,85 @@ final class OmiDiagnostics {
             level: level
         ))
         self.payload.pendantSignalTrend = samples
+        self.persist()
+    }
+
+    func appendSubscribeLatency(
+        timestamp: Date,
+        latencySeconds: TimeInterval,
+        appState: String
+    ) {
+        self.ensureFirstObserved(at: timestamp)
+        var samples = self.payload.subscribeLatencySamples ?? []
+        samples.append(OmiDiagnosticsPayload.SubscribeLatencySample(
+            timestamp: timestamp,
+            latencySeconds: latencySeconds,
+            appState: appState
+        ))
+        self.payload.subscribeLatencySamples = samples
+        self.persist()
+    }
+
+    func attributeConnectedSilentSeconds(elapsed: TimeInterval, appState: String) {
+        self.payload.gapTallies = OmiDiagnosticsLogic.addingSilentAttribution(
+            to: self.payload.gapTallies,
+            elapsed: elapsed,
+            appState: appState
+        )
+        self.persist()
+    }
+
+    func appendStorageBacklogSample(
+        timestamp: Date,
+        usedBytes: UInt32,
+        rawHex: String,
+        fileCountUnconfirmed: UInt32
+    ) {
+        self.ensureFirstObserved(at: timestamp)
+        var samples = self.payload.storageBacklogSamples ?? []
+        samples.append(OmiDiagnosticsPayload.StorageBacklogSample(
+            timestamp: timestamp,
+            usedBytes: usedBytes,
+            rawHex: rawHex,
+            fileCountUnconfirmed: fileCountUnconfirmed
+        ))
+        self.payload.storageBacklogSamples = samples
+        self.persist()
+    }
+
+    func appendPendantRebootEvent(
+        observedAt: Date,
+        epochBefore: UInt32,
+        epochAfter: UInt32
+    ) {
+        self.ensureFirstObserved(at: observedAt)
+        var events = self.payload.pendantRebootEvents ?? []
+        events.append(OmiDiagnosticsPayload.PendantRebootEvent(
+            observedAt: observedAt,
+            epochBefore: epochBefore,
+            epochAfter: epochAfter
+        ))
+        self.payload.pendantRebootEvents = events
+        self.persist()
+    }
+
+    func clearPerConnectionPointReadingsForNewConnection() {
+        self.payload.mtuAtSubscribeConfirm = nil
+        self.payload.connectToFirstAudioSeconds = nil
+    }
+
+    func setMTUAtConnect(_ value: Int?) {
+        self.payload.mtuAtConnect = value
+        self.persist()
+    }
+
+    func setMTUAtSubscribeConfirm(_ value: Int?) {
+        self.payload.mtuAtSubscribeConfirm = value
+        self.persist()
+    }
+
+    func setConnectToFirstAudioSeconds(_ value: TimeInterval?) {
+        self.payload.connectToFirstAudioSeconds = value
         self.persist()
     }
 
@@ -158,6 +238,7 @@ final class OmiDiagnostics {
 
     func persist() {
         do {
+            self.payload.version = OmiDiagnosticsPayload.currentVersion
             try FileManager.default.createDirectory(
                 at: self.fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true

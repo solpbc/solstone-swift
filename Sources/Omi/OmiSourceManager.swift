@@ -72,6 +72,14 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var silentEpisodeRecoveryFired = false
     @ObservationIgnored private(set) var didAttemptWriterStart = false
     @ObservationIgnored private var lastLoggedAudioHealth: OmiAudioHealth?
+    @ObservationIgnored private var connectedAt: Date?
+    @ObservationIgnored private var subscribePending = false
+    @ObservationIgnored private var currentConnectionMTUAtConnect: Int?
+    @ObservationIgnored private var currentConnectionMTUAtSubscribeConfirm: Int?
+    @ObservationIgnored private var currentConnectionFirstAudioAt: Date?
+    @ObservationIgnored private var currentConnectionConnectToFirstAudioSeconds: TimeInterval?
+    @ObservationIgnored private var lastSilentAttributionAt: Date?
+    @ObservationIgnored private var lastSeenMarkerEpoch: UInt32?
 
     init(
         defaults: UserDefaults = .standard,
@@ -161,7 +169,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
         self.omiSegmentWriter?.stop()
         self.clearConnectionArtifacts()
-        self.uptime.noteDisconnected(at: Date())
+        self.uptime.noteDisconnected(at: self.clock.now())
         self.connectionState = .disconnected
         self.log.info("omi stopped")
     }
@@ -403,10 +411,18 @@ private extension OmiSourceManager {
         case .discoverServices:
             self.adoptConnectedPeripheral(peripheral)
             self.connectionState = .connected
+            self.beginConnectionInstrumentation(
+                now: self.clock.now(),
+                expectsSubscribeConfirm: true
+            )
             peripheral.discoverServices(self.restoreServiceUUIDs)
         case .subscribeAudio:
             self.adoptConnectedPeripheral(peripheral)
             self.connectionState = .connected
+            self.beginConnectionInstrumentation(
+                now: self.clock.now(),
+                expectsSubscribeConfirm: true
+            )
             if let audioCharacteristic {
                 self.setAudioNotify(enabled: true, characteristic: audioCharacteristic)
             } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioService) }) {
@@ -418,6 +434,11 @@ private extension OmiSourceManager {
         case .alreadyLive:
             self.adoptConnectedPeripheral(peripheral)
             self.connectionState = .connected
+            self.beginConnectionInstrumentation(
+                now: self.clock.now(),
+                expectsSubscribeConfirm: false,
+                appendAdoptedLatency: true
+            )
             self.isAudioSubscribed = true
             if self.opusDecoder == nil {
                 self.buildOpusDecoder()
@@ -429,9 +450,10 @@ private extension OmiSourceManager {
         self.cancelInitialConnectTimeout()
         self.pendingConnectionID = nil
         self.adoptConnectedPeripheral(peripheral)
+        let now = self.clock.now()
 
         if let reconnectStartedAt {
-            let latency = Date().timeIntervalSince(reconnectStartedAt)
+            let latency = now.timeIntervalSince(reconnectStartedAt)
             self.lastReconnectLatencySeconds = latency
             self.reconnectCount += 1
             self.eventRing.backfillMostRecentReconnect(timeToReconnect: latency)
@@ -441,8 +463,11 @@ private extension OmiSourceManager {
         }
 
         self.connectionState = .connected
+        self.beginConnectionInstrumentation(now: now, expectsSubscribeConfirm: true)
+        self.attributeOpenConnectedSilentGap(at: now)
         self.diagnostics.recordConnected()
-        self.uptime.noteConnected(at: Date())
+        self.lastSilentAttributionAt = nil
+        self.uptime.noteConnected(at: now)
         self.connectedRSSI = nil
         self.lastAudioAt = nil
         self.silentEpisodeRecoveryFired = false
@@ -473,6 +498,7 @@ private extension OmiSourceManager {
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
         self.lastDisconnectedAt = disconnectedAt
         self.uptime.noteDisconnected(at: disconnectedAt)
+        self.attributeOpenConnectedSilentGap(at: disconnectedAt)
 
         let decision = OmiSourceLogic.reconnectDecision(
             isManualDisconnect: self.manuallyDisconnected,
@@ -488,6 +514,7 @@ private extension OmiSourceManager {
             )
             self.eventRing.append(event)
             self.diagnostics.recordDisconnected(event: event)
+            self.lastSilentAttributionAt = nil
         }
 
         switch decision {
@@ -601,6 +628,7 @@ private extension OmiSourceManager {
 
         if characteristic.isNotifying {
             self.isAudioSubscribed = true
+            self.appendSubscribeLatencyIfNeeded(at: self.clock.now())
             self.resetAudioLiveState()
             self.buildOpusDecoder()
             self.log.info("omi audio stream enabled")
@@ -621,7 +649,7 @@ private extension OmiSourceManager {
             return
         }
         let level = RSSI.intValue
-        let now = Date()
+        let now = self.clock.now()
         self.connectedRSSI = level
         self.lastKnownSignal = TimedReading(value: level, at: now)
         self.diagnostics.recordSignal(level: level, at: now)
@@ -631,6 +659,20 @@ private extension OmiSourceManager {
         let output = self.reassembler.ingest(data)
 
         for marker in output.markers {
+            let observedAt = self.clock.now()
+            if let lastSeenMarkerEpoch,
+               OmiDiagnosticsLogic.isPendantReboot(
+                   epochBefore: lastSeenMarkerEpoch,
+                   epochAfter: marker.epoch
+               )
+            {
+                self.diagnostics.appendPendantRebootEvent(
+                    observedAt: observedAt,
+                    epochBefore: lastSeenMarkerEpoch,
+                    epochAfter: marker.epoch
+                )
+            }
+            self.lastSeenMarkerEpoch = marker.epoch
             self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
             self.log.info("omi audio marker: \(marker.epoch, privacy: .public)")
         }
@@ -662,21 +704,43 @@ private extension OmiSourceManager {
         )
         if deltas.decodeOK > 0 {
             self.startSegmentWriterIfNeeded()
-            let now = Date()
+            let now = self.clock.now()
+            self.noteFirstAudioIfNeeded(at: now)
+            self.attributeOpenConnectedSilentGap(at: now)
             self.lastAudioAt = now
             self.diagnostics.noteDecodedSamples(at: now)
+            self.lastSilentAttributionAt = nil
             self.evaluateAudioRecovery(now: now)
         }
     }
 
     func updateKnownField(_ uuid: CBUUID, data: Data) -> Bool {
         if uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic) {
-            let level = Int(data[0])
-            let now = Date()
+            let rawByte = Self.byte(data, offset: 0)
+            let level = Int(rawByte)
+            let now = self.clock.now()
             self.battery = .value(level)
             self.lastKnownBattery = TimedReading(value: level, at: now)
-            self.diagnostics.recordBattery(level: level, at: now)
+            self.diagnostics.recordBattery(level: level, at: now, rawByte: rawByte)
             self.log.info("omi battery read")
+            return true
+        }
+
+        if uuidMatches(uuid, BLEDiagnosticUUIDs.storageControlCharacteristic) {
+            guard data.count >= 4 else {
+                self.log.error("omi storage backlog read too short: \(data.count, privacy: .public) bytes")
+                return true
+            }
+
+            let usedBytes = Self.littleEndianUInt32(data, offset: 0)
+            let fileCount = data.count >= 8 ? Self.littleEndianUInt32(data, offset: 4) : 0
+            self.diagnostics.appendStorageBacklogSample(
+                timestamp: self.clock.now(),
+                usedBytes: usedBytes,
+                rawHex: Self.hexString(data),
+                fileCountUnconfirmed: fileCount
+            )
+            self.log.info("omi storage backlog read")
             return true
         }
 
@@ -763,6 +827,86 @@ private extension OmiSourceManager {
         peripheral.delegate = self
     }
 
+    func beginConnectionInstrumentation(
+        now: Date,
+        expectsSubscribeConfirm: Bool,
+        appendAdoptedLatency: Bool = false
+    ) {
+        self.clearPerConnectionInstrumentationState()
+        self.connectedAt = now
+        self.subscribePending = expectsSubscribeConfirm
+        self.currentConnectionMTUAtConnect = self.connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
+        self.diagnostics.clearPerConnectionPointReadingsForNewConnection()
+        self.diagnostics.setMTUAtConnect(self.currentConnectionMTUAtConnect)
+
+        if appendAdoptedLatency {
+            self.diagnostics.appendSubscribeLatency(
+                timestamp: now,
+                latencySeconds: 0,
+                appState: self.currentAppStateString
+            )
+        }
+    }
+
+    func appendSubscribeLatencyIfNeeded(at date: Date) {
+        guard self.subscribePending, let connectedAt else {
+            return
+        }
+
+        self.diagnostics.appendSubscribeLatency(
+            timestamp: date,
+            latencySeconds: date.timeIntervalSince(connectedAt),
+            appState: self.currentAppStateString
+        )
+        self.currentConnectionMTUAtSubscribeConfirm = self.connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
+        self.diagnostics.setMTUAtSubscribeConfirm(self.currentConnectionMTUAtSubscribeConfirm)
+        self.subscribePending = false
+    }
+
+    func noteFirstAudioIfNeeded(at date: Date) {
+        guard let connectedAt,
+              self.currentConnectionFirstAudioAt == nil,
+              self.currentConnectionConnectToFirstAudioSeconds == nil
+        else {
+            return
+        }
+
+        let latency = max(date.timeIntervalSince(connectedAt), 0)
+        self.currentConnectionFirstAudioAt = date
+        self.currentConnectionConnectToFirstAudioSeconds = latency
+        self.diagnostics.setConnectToFirstAudioSeconds(latency)
+    }
+
+    func attributeOpenConnectedSilentGap(at date: Date) {
+        guard let openStartedAt = self.diagnostics.payload.openConnectedSilentStartedAt else {
+            self.lastSilentAttributionAt = nil
+            return
+        }
+
+        let priorAttributionAt = self.lastSilentAttributionAt ?? openStartedAt
+        let start = max(priorAttributionAt, openStartedAt)
+        let elapsed = max(date.timeIntervalSince(start), 0)
+        if elapsed > 0 {
+            self.diagnostics.attributeConnectedSilentSeconds(
+                elapsed: elapsed,
+                appState: self.currentAppStateString
+            )
+            self.lastSilentAttributionAt = date
+        } else {
+            self.lastSilentAttributionAt = start
+        }
+    }
+
+    func clearPerConnectionInstrumentationState() {
+        self.connectedAt = nil
+        self.subscribePending = false
+        self.currentConnectionMTUAtConnect = nil
+        self.currentConnectionMTUAtSubscribeConfirm = nil
+        self.currentConnectionFirstAudioAt = nil
+        self.currentConnectionConnectToFirstAudioSeconds = nil
+        self.lastSilentAttributionAt = nil
+    }
+
     func clearConnectionArtifacts() {
         self.connectedRSSI = nil
         self.connectedPeripheral = nil
@@ -777,6 +921,7 @@ private extension OmiSourceManager {
         self.lastLoggedAudioHealth = nil
         self.resetReadState()
         self.clearAudioState()
+        self.clearPerConnectionInstrumentationState()
     }
 
     func clearTransientConnectionState() {
@@ -787,6 +932,7 @@ private extension OmiSourceManager {
         self.silentEpisodeRecoveryFired = false
         self.didAttemptWriterStart = false
         self.lastLoggedAudioHealth = nil
+        self.clearPerConnectionInstrumentationState()
     }
 
     func clearAudioState() {
@@ -860,9 +1006,12 @@ private extension OmiSourceManager {
             }
 
             while self.enabled {
+                let now = self.clock.now()
                 self.diagnostics.recordPhoneSample()
                 self.refreshPendantReadings()
-                self.evaluateAudioRecovery(now: self.clock.now())
+                self.refreshStorageBacklogReading()
+                self.attributeOpenConnectedSilentGap(at: now)
+                self.evaluateAudioRecovery(now: now)
                 do {
                     try await self.clock.sleep(for: .seconds(60))
                 } catch {
@@ -889,6 +1038,19 @@ private extension OmiSourceManager {
         ),
               let connectedPeripheral,
               let characteristic
+        else {
+            return
+        }
+
+        connectedPeripheral.readValue(for: characteristic)
+    }
+
+    func refreshStorageBacklogReading() {
+        let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic)
+        guard self.connectionState == .connected,
+              let connectedPeripheral,
+              let characteristic,
+              characteristic.properties.contains(.read)
         else {
             return
         }
@@ -1038,16 +1200,25 @@ private extension OmiSourceManager {
     }
 
     var currentAppStateString: String {
-        switch UIApplication.shared.applicationState {
-        case .active:
-            "foreground"
-        case .background:
-            "background"
-        case .inactive:
-            "inactive"
-        @unknown default:
-            "inactive"
-        }
+        OmiDiagnosticsLogic.appStateBucket(
+            applicationStateIsActive: UIApplication.shared.applicationState == .active,
+            isProtectedDataAvailable: UIApplication.shared.isProtectedDataAvailable
+        )
+    }
+
+    static func littleEndianUInt32(_ data: Data, offset: Int) -> UInt32 {
+        UInt32(Self.byte(data, offset: offset))
+            | (UInt32(Self.byte(data, offset: offset + 1)) << 8)
+            | (UInt32(Self.byte(data, offset: offset + 2)) << 16)
+            | (UInt32(Self.byte(data, offset: offset + 3)) << 24)
+    }
+
+    static func byte(_ data: Data, offset: Int) -> UInt8 {
+        data[data.index(data.startIndex, offsetBy: offset)]
+    }
+
+    static func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
     }
 
     func displayName(for id: UUID) -> String {

@@ -25,6 +25,87 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
         XCTAssertEqual(reset.lastSeen, 3)
     }
 
+    func testAppStateBucketUsesForegroundLockedBackgroundOrder() {
+        XCTAssertEqual(
+            OmiDiagnosticsLogic.appStateBucket(
+                applicationStateIsActive: true,
+                isProtectedDataAvailable: false
+            ),
+            "foreground"
+        )
+        XCTAssertEqual(
+            OmiDiagnosticsLogic.appStateBucket(
+                applicationStateIsActive: false,
+                isProtectedDataAvailable: false
+            ),
+            "locked"
+        )
+        XCTAssertEqual(
+            OmiDiagnosticsLogic.appStateBucket(
+                applicationStateIsActive: false,
+                isProtectedDataAvailable: true
+            ),
+            "background"
+        )
+    }
+
+    func testSubscribeLatencyBreakdownSumsStatesAndNormalizesUnknownToBackground() {
+        let start = Date(timeIntervalSince1970: 50)
+        let breakdown = OmiDiagnosticsLogic.subscribeLatencyBreakdown([
+            OmiDiagnosticsPayload.SubscribeLatencySample(
+                timestamp: start,
+                latencySeconds: 1.25,
+                appState: "foreground"
+            ),
+            OmiDiagnosticsPayload.SubscribeLatencySample(
+                timestamp: start.addingTimeInterval(1),
+                latencySeconds: 2,
+                appState: "locked"
+            ),
+            OmiDiagnosticsPayload.SubscribeLatencySample(
+                timestamp: start.addingTimeInterval(2),
+                latencySeconds: 3,
+                appState: "inactive"
+            )
+        ])
+
+        XCTAssertEqual(breakdown.sampleCount, 3)
+        XCTAssertEqual(breakdown.totalSeconds, 6.25, accuracy: 0.001)
+        XCTAssertEqual(breakdown.foregroundSeconds, 1.25, accuracy: 0.001)
+        XCTAssertEqual(breakdown.lockedSeconds, 2, accuracy: 0.001)
+        XCTAssertEqual(breakdown.backgroundSeconds, 3, accuracy: 0.001)
+    }
+
+    func testAddingSilentAttributionTreatsNilAsZeroAndUnknownAsBackground() {
+        var tallies = OmiDiagnosticsPayload.GapTallies(
+            connectedSilentGapCount: 1,
+            connectedSilentGapSeconds: 75
+        )
+        tallies = OmiDiagnosticsLogic.addingSilentAttribution(
+            to: tallies,
+            elapsed: 30,
+            appState: "foreground"
+        )
+        tallies = OmiDiagnosticsLogic.addingSilentAttribution(
+            to: tallies,
+            elapsed: 40,
+            appState: "background"
+        )
+        tallies = OmiDiagnosticsLogic.addingSilentAttribution(
+            to: tallies,
+            elapsed: 5,
+            appState: "inactive"
+        )
+
+        XCTAssertEqual(tallies.connectedSilentForegroundSeconds, 30)
+        XCTAssertEqual(tallies.connectedSilentBackgroundSeconds, 45)
+        XCTAssertNil(tallies.connectedSilentLockedSeconds)
+        let bucketTotal = (tallies.connectedSilentForegroundSeconds ?? 0)
+            + (tallies.connectedSilentBackgroundSeconds ?? 0)
+            + (tallies.connectedSilentLockedSeconds ?? 0)
+        XCTAssertEqual(bucketTotal, tallies.connectedSilentGapSeconds, accuracy: 0.001)
+    }
+
     func testGapSummaryCountsContiguousDisconnectGap() {
         let start = Date(timeIntervalSince1970: 100)
         let summary = OmiDiagnosticsLogic.gapSummary(from: [
@@ -191,7 +272,17 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             "pendant battery:",
             "pendant signal:",
             "phone battery:",
-            "phone thermal state:"
+            "phone thermal state:",
+            "unrecoverable connect-to-subscribe:",
+            "connected-without-audio buckets:",
+            "disconnect window:",
+            "voiced-seconds received live:",
+            "recovery note:",
+            "silence note:",
+            "storage backlog:",
+            "supporting readings: raw millivolts are not exposed over BLE on 3.0.19",
+            "supporting readings: reboot count",
+            "supporting readings: mtu connect"
         ] {
             XCTAssertTrue(report.contains(requiredLine), requiredLine)
         }
@@ -317,6 +408,198 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
 
     func testDisconnectProfileTextReportsNoneForEmptyEvents() {
         XCTAssertEqual(OmiDiagnosticsLogic.disconnectProfileText([]), "none")
+    }
+
+    func testDisconnectWindowLinesRenderClosedOpenAndCapacityCaution() {
+        let start = Date(timeIntervalSince1970: 1_400)
+        let lines = OmiDiagnosticsLogic.disconnectWindowLines(
+            events: [
+                OmiDiagnosticsPayload.ReconnectEvent(
+                    timestamp: start,
+                    reason: "link lost",
+                    appStateAtDrop: "background",
+                    timeToReconnect: 5
+                ),
+                OmiDiagnosticsPayload.ReconnectEvent(
+                    timestamp: start.addingTimeInterval(10),
+                    reason: "timeout",
+                    appStateAtDrop: "locked",
+                    timeToReconnect: nil
+                )
+            ],
+            capacity: 2,
+            asOf: start.addingTimeInterval(20)
+        )
+
+        XCTAssertEqual(lines.first, "disconnect windows: showing most recent 2 retained disconnects")
+        XCTAssertTrue(lines[1].contains("reason: link lost, app state: background"), lines.joined(separator: "\n"))
+        XCTAssertTrue(lines[1].contains("[1970-01-01T00:23:20Z,1970-01-01T00:23:25Z]"), lines[1])
+        XCTAssertTrue(lines[2].contains("[1970-01-01T00:23:30Z,open]"), lines[2])
+        XCTAssertTrue(lines[2].contains("reason: timeout, app state: locked"), lines[2])
+    }
+
+    func testVoicedSecondsUsesTwentyMillisecondsPerDecodeOKFrame() {
+        XCTAssertEqual(OmiDiagnosticsLogic.voicedSeconds(decodeOK: 9), 0.18, accuracy: 0.0001)
+    }
+
+    func testStorageBacklogProjectionHandlesMissingSingleGrowthAndFullCases() throws {
+        let start = Date(timeIntervalSince1970: 1_500)
+
+        XCTAssertNil(OmiDiagnosticsLogic.storageBacklogProjection(samples: []))
+
+        let single = try XCTUnwrap(OmiDiagnosticsLogic.storageBacklogProjection(samples: [
+            OmiDiagnosticsPayload.StorageBacklogSample(
+                timestamp: start,
+                usedBytes: 100,
+                rawHex: "64000000",
+                fileCountUnconfirmed: 2
+            )
+        ], capacityBytes: 500))
+        XCTAssertEqual(single.startUsedBytes, 100)
+        XCTAssertEqual(single.endUsedBytes, 100)
+        XCTAssertEqual(single.growthBytes, 0)
+        XCTAssertNil(single.timeToFullSeconds)
+
+        let growing = try XCTUnwrap(OmiDiagnosticsLogic.storageBacklogProjection(samples: [
+            OmiDiagnosticsPayload.StorageBacklogSample(
+                timestamp: start,
+                usedBytes: 100,
+                rawHex: "64000000",
+                fileCountUnconfirmed: 2
+            ),
+            OmiDiagnosticsPayload.StorageBacklogSample(
+                timestamp: start.addingTimeInterval(100),
+                usedBytes: 200,
+                rawHex: "c8000000",
+                fileCountUnconfirmed: 3
+            )
+        ], capacityBytes: 500))
+        XCTAssertEqual(growing.growthBytes, 100)
+        XCTAssertEqual(growing.fileCountUnconfirmed, 3)
+        XCTAssertEqual(try XCTUnwrap(growing.timeToFullSeconds), 300, accuracy: 0.001)
+
+        let full = try XCTUnwrap(OmiDiagnosticsLogic.storageBacklogProjection(samples: [
+            OmiDiagnosticsPayload.StorageBacklogSample(
+                timestamp: start,
+                usedBytes: 400,
+                rawHex: "90010000",
+                fileCountUnconfirmed: 2
+            ),
+            OmiDiagnosticsPayload.StorageBacklogSample(
+                timestamp: start.addingTimeInterval(100),
+                usedBytes: 500,
+                rawHex: "f4010000",
+                fileCountUnconfirmed: 3
+            )
+        ], capacityBytes: 500))
+        XCTAssertNil(full.timeToFullSeconds)
+    }
+
+    func testPendantRebootPredicateDetectsLargeDropsAndSentinelCrossing() {
+        XCTAssertTrue(OmiDiagnosticsLogic.isPendantReboot(epochBefore: 2_000, epochAfter: 1_000))
+        XCTAssertTrue(OmiDiagnosticsLogic.isPendantReboot(epochBefore: 1_700_000_000, epochAfter: 1_000))
+        XCTAssertFalse(OmiDiagnosticsLogic.isPendantReboot(epochBefore: 2_000, epochAfter: 1_800))
+        XCTAssertFalse(OmiDiagnosticsLogic.isPendantReboot(epochBefore: 2_000, epochAfter: 2_100))
+    }
+
+    func testPendantRebootEventsUseMaxBaselineAndResetAfterEvent() {
+        let start = Date(timeIntervalSince1970: 1_600)
+        let events = OmiDiagnosticsLogic.pendantRebootEvents(from: [
+            (observedAt: start, epoch: 1_000),
+            (observedAt: start.addingTimeInterval(1), epoch: 1_100),
+            (observedAt: start.addingTimeInterval(2), epoch: 1_050),
+            (observedAt: start.addingTimeInterval(3), epoch: 700),
+            (observedAt: start.addingTimeInterval(4), epoch: 800),
+            (observedAt: start.addingTimeInterval(5), epoch: 1_700_000_000),
+            (observedAt: start.addingTimeInterval(6), epoch: 900)
+        ])
+
+        XCTAssertEqual(events, [
+            OmiDiagnosticsPayload.PendantRebootEvent(
+                observedAt: start.addingTimeInterval(3),
+                epochBefore: 1_100,
+                epochAfter: 700
+            ),
+            OmiDiagnosticsPayload.PendantRebootEvent(
+                observedAt: start.addingTimeInterval(6),
+                epochBefore: 1_700_000_000,
+                epochAfter: 900
+            )
+        ])
+    }
+
+    func testExportSummaryIncludesLossRecoverabilityAdditions() {
+        let start = Date(timeIntervalSince1970: 1_700)
+        let payload = OmiDiagnosticsPayload(
+            reconnectEvents: [
+                OmiDiagnosticsPayload.ReconnectEvent(
+                    timestamp: start,
+                    reason: "link lost",
+                    appStateAtDrop: "locked",
+                    timeToReconnect: 5
+                )
+            ],
+            decodeCounters: OmiDiagnosticsPayload.DecodeCounters(ok: 9, errors: 1),
+            gapTallies: OmiDiagnosticsPayload.GapTallies(
+                connectedSilentGapCount: 1,
+                connectedSilentGapSeconds: 18,
+                connectedSilentForegroundSeconds: 5,
+                connectedSilentBackgroundSeconds: 6,
+                connectedSilentLockedSeconds: 7
+            ),
+            subscribeLatencySamples: [
+                OmiDiagnosticsPayload.SubscribeLatencySample(
+                    timestamp: start,
+                    latencySeconds: 3,
+                    appState: "foreground"
+                )
+            ],
+            storageBacklogSamples: [
+                OmiDiagnosticsPayload.StorageBacklogSample(
+                    timestamp: start,
+                    usedBytes: 100,
+                    rawHex: "6400000001000000",
+                    fileCountUnconfirmed: 1
+                ),
+                OmiDiagnosticsPayload.StorageBacklogSample(
+                    timestamp: start.addingTimeInterval(100),
+                    usedBytes: 200,
+                    rawHex: "c800000002000000",
+                    fileCountUnconfirmed: 2
+                )
+            ],
+            pendantRebootEvents: [
+                OmiDiagnosticsPayload.PendantRebootEvent(
+                    observedAt: start.addingTimeInterval(20),
+                    epochBefore: 2_000,
+                    epochAfter: 1_000
+                )
+            ],
+            mtuAtConnect: 182,
+            mtuAtSubscribeConfirm: 182,
+            connectToFirstAudioSeconds: 1.5
+        )
+
+        let report = OmiDiagnosticsLogic.exportSummary(payload: payload, asOf: start.addingTimeInterval(200))
+
+        XCTAssertTrue(report.contains("unrecoverable connect-to-subscribe: 3.00s total not on SD / unrecoverable"), report)
+        XCTAssertTrue(report.contains("connected-without-audio buckets: foreground 5s, background 6s, locked 7s"), report)
+        XCTAssertTrue(report.contains("disconnect window:"), report)
+        XCTAssertTrue(report.contains("voiced-seconds received live: 0.18s voiced"), report)
+        XCTAssertTrue(report.contains("recovery note: SD fills disconnect windows with voiced-only audio"), report)
+        XCTAssertTrue(report.contains("silence note: connected-without-audio may be VAD silence"), report)
+        XCTAssertTrue(report.contains("storage backlog: 100->200 bytes, growth 100, time-to-full projection"), report)
+        XCTAssertTrue(report.contains("files 2 (layout-unconfirmed)"), report)
+        XCTAssertTrue(report.contains("supporting readings: raw millivolts are not exposed over BLE on 3.0.19"), report)
+        XCTAssertTrue(report.contains("supporting readings: reboot count 1"), report)
+        XCTAssertTrue(report.contains("supporting readings: mtu connect 182, mtu subscribe-confirm 182, connect-to-first-audio 1.50s"), report)
+    }
+
+    func testExportSummaryReportsStorageUnavailableWhenNeverRead() {
+        let report = OmiDiagnosticsLogic.exportSummary(payload: OmiDiagnosticsPayload(), asOf: Date(timeIntervalSince1970: 1_800))
+
+        XCTAssertTrue(report.contains("storage backlog: unavailable (characteristic never read)"), report)
+        XCTAssertTrue(report.contains("unrecoverable connect-to-subscribe: unavailable (no subscribe-confirm samples)"), report)
     }
 
     private static func report(

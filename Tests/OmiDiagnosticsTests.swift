@@ -257,6 +257,71 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadsV1ShapePayloadWithoutLossInstrumentationFields() throws {
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let oldShapeJSON = """
+        {
+          "version": 1,
+          "firstObservedAt": "2024-04-20T12:00:00Z",
+          "uptime": {
+            "connectedSince": null,
+            "accumulatedConnectedSeconds": 1800
+          },
+          "reconnectEvents": [],
+          "decodeCounters": {
+            "ok": 42,
+            "errors": 2,
+            "gaps": 3,
+            "outOfOrder": 1
+          },
+          "pendantBatteryTrend": [
+            {
+              "timestamp": "2024-04-20T12:05:00Z",
+              "level": 87
+            }
+          ],
+          "phoneSamples": [],
+          "gapTallies": {
+            "disconnectGapCount": 0,
+            "disconnectGapSeconds": 0,
+            "connectedSilentGapCount": 1,
+            "connectedSilentGapSeconds": 60
+          },
+          "lastDecodedSampleAt": null,
+          "openDisconnectStartedAt": null,
+          "openConnectedSilentStartedAt": null
+        }
+        """
+        try Data(oldShapeJSON.utf8).write(to: fileURL)
+
+        let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
+        let payload = diagnostics.payload
+
+        XCTAssertEqual(payload.version, 1)
+        XCTAssertEqual(payload.pendantBatteryTrend.first?.rawByte, nil)
+        XCTAssertNil(payload.gapTallies.connectedSilentForegroundSeconds)
+        XCTAssertNil(payload.gapTallies.connectedSilentBackgroundSeconds)
+        XCTAssertNil(payload.gapTallies.connectedSilentLockedSeconds)
+        XCTAssertNil(payload.subscribeLatencySamples)
+        XCTAssertNil(payload.storageBacklogSamples)
+        XCTAssertNil(payload.pendantRebootEvents)
+        XCTAssertNil(payload.mtuAtConnect)
+        XCTAssertNil(payload.mtuAtSubscribeConfirm)
+        XCTAssertNil(payload.connectToFirstAudioSeconds)
+
+        let latency = OmiDiagnosticsLogic.subscribeLatencyBreakdown(payload.subscribeLatencySamples ?? [])
+        XCTAssertEqual(latency.sampleCount, 0)
+        XCTAssertEqual(latency.totalSeconds, 0)
+
+        let attributed = OmiDiagnosticsLogic.addingSilentAttribution(
+            to: payload.gapTallies,
+            elapsed: 5,
+            appState: "locked"
+        )
+        XCTAssertEqual(attributed.connectedSilentLockedSeconds, 5)
+    }
+
+    @MainActor
     func testExportFileContainsOwnerSummary() throws {
         let start = Date(timeIntervalSince1970: 1_713_624_200)
         let clock = MockObserverClock(now: start)
@@ -298,7 +363,17 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
             "pendant battery:",
             "pendant signal:",
             "phone battery:",
-            "phone thermal state:"
+            "phone thermal state:",
+            "unrecoverable connect-to-subscribe:",
+            "connected-without-audio buckets:",
+            "disconnect window:",
+            "voiced-seconds received live:",
+            "recovery note:",
+            "silence note:",
+            "storage backlog:",
+            "supporting readings: raw millivolts are not exposed over BLE on 3.0.19",
+            "supporting readings: reboot count",
+            "supporting readings: mtu connect"
         ] {
             XCTAssertTrue(report.contains(requiredLine), requiredLine)
         }

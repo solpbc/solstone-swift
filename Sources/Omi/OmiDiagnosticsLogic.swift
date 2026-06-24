@@ -87,6 +87,26 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
     struct PendantBatterySample: Codable, Sendable, Equatable {
         var timestamp: Date
         var level: Int
+        var rawByte: UInt8? = nil
+    }
+
+    struct SubscribeLatencySample: Codable, Sendable, Equatable {
+        var timestamp: Date
+        var latencySeconds: TimeInterval
+        var appState: String
+    }
+
+    struct StorageBacklogSample: Codable, Sendable, Equatable {
+        var timestamp: Date
+        var usedBytes: UInt32
+        var rawHex: String
+        var fileCountUnconfirmed: UInt32
+    }
+
+    struct PendantRebootEvent: Codable, Sendable, Equatable {
+        var observedAt: Date
+        var epochBefore: UInt32
+        var epochAfter: UInt32
     }
 
     struct PendantSignalSample: Codable, Sendable, Equatable {
@@ -106,21 +126,30 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         var disconnectGapSeconds: TimeInterval
         var connectedSilentGapCount: Int
         var connectedSilentGapSeconds: TimeInterval
+        var connectedSilentForegroundSeconds: TimeInterval? = nil
+        var connectedSilentBackgroundSeconds: TimeInterval? = nil
+        var connectedSilentLockedSeconds: TimeInterval? = nil
 
         init(
             disconnectGapCount: Int = 0,
             disconnectGapSeconds: TimeInterval = 0,
             connectedSilentGapCount: Int = 0,
-            connectedSilentGapSeconds: TimeInterval = 0
+            connectedSilentGapSeconds: TimeInterval = 0,
+            connectedSilentForegroundSeconds: TimeInterval? = nil,
+            connectedSilentBackgroundSeconds: TimeInterval? = nil,
+            connectedSilentLockedSeconds: TimeInterval? = nil
         ) {
             self.disconnectGapCount = disconnectGapCount
             self.disconnectGapSeconds = disconnectGapSeconds
             self.connectedSilentGapCount = connectedSilentGapCount
             self.connectedSilentGapSeconds = connectedSilentGapSeconds
+            self.connectedSilentForegroundSeconds = connectedSilentForegroundSeconds
+            self.connectedSilentBackgroundSeconds = connectedSilentBackgroundSeconds
+            self.connectedSilentLockedSeconds = connectedSilentLockedSeconds
         }
     }
 
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     var version: Int
     var firstObservedAt: Date?
@@ -134,6 +163,12 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
     var lastDecodedSampleAt: Date?
     var openDisconnectStartedAt: Date?
     var openConnectedSilentStartedAt: Date?
+    var subscribeLatencySamples: [SubscribeLatencySample]? = nil
+    var storageBacklogSamples: [StorageBacklogSample]? = nil
+    var pendantRebootEvents: [PendantRebootEvent]? = nil
+    var mtuAtConnect: Int? = nil
+    var mtuAtSubscribeConfirm: Int? = nil
+    var connectToFirstAudioSeconds: TimeInterval? = nil
 
     init(
         version: Int = Self.currentVersion,
@@ -147,7 +182,13 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         gapTallies: GapTallies = GapTallies(),
         lastDecodedSampleAt: Date? = nil,
         openDisconnectStartedAt: Date? = nil,
-        openConnectedSilentStartedAt: Date? = nil
+        openConnectedSilentStartedAt: Date? = nil,
+        subscribeLatencySamples: [SubscribeLatencySample]? = nil,
+        storageBacklogSamples: [StorageBacklogSample]? = nil,
+        pendantRebootEvents: [PendantRebootEvent]? = nil,
+        mtuAtConnect: Int? = nil,
+        mtuAtSubscribeConfirm: Int? = nil,
+        connectToFirstAudioSeconds: TimeInterval? = nil
     ) {
         self.version = version
         self.firstObservedAt = firstObservedAt
@@ -161,6 +202,12 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         self.lastDecodedSampleAt = lastDecodedSampleAt
         self.openDisconnectStartedAt = openDisconnectStartedAt
         self.openConnectedSilentStartedAt = openConnectedSilentStartedAt
+        self.subscribeLatencySamples = subscribeLatencySamples
+        self.storageBacklogSamples = storageBacklogSamples
+        self.pendantRebootEvents = pendantRebootEvents
+        self.mtuAtConnect = mtuAtConnect
+        self.mtuAtSubscribeConfirm = mtuAtSubscribeConfirm
+        self.connectToFirstAudioSeconds = connectToFirstAudioSeconds
     }
 }
 
@@ -202,8 +249,51 @@ nonisolated struct OmiDiagnosticsGapSummary: Equatable, Sendable {
     }
 }
 
+nonisolated struct SubscribeLatencyBreakdown: Equatable, Sendable {
+    var sampleCount: Int
+    var totalSeconds: TimeInterval
+    var foregroundSeconds: TimeInterval
+    var backgroundSeconds: TimeInterval
+    var lockedSeconds: TimeInterval
+
+    init(
+        sampleCount: Int = 0,
+        totalSeconds: TimeInterval = 0,
+        foregroundSeconds: TimeInterval = 0,
+        backgroundSeconds: TimeInterval = 0,
+        lockedSeconds: TimeInterval = 0
+    ) {
+        self.sampleCount = sampleCount
+        self.totalSeconds = totalSeconds
+        self.foregroundSeconds = foregroundSeconds
+        self.backgroundSeconds = backgroundSeconds
+        self.lockedSeconds = lockedSeconds
+    }
+}
+
+nonisolated struct StorageBacklogProjection: Equatable, Sendable {
+    var startUsedBytes: UInt32
+    var endUsedBytes: UInt32
+    var growthBytes: Int64
+    var timeToFullSeconds: TimeInterval?
+    var fileCountUnconfirmed: UInt32
+}
+
 nonisolated enum OmiDiagnosticsLogic {
     static let connectedSilenceThreshold: TimeInterval = 30
+
+    static func appStateBucket(
+        applicationStateIsActive: Bool,
+        isProtectedDataAvailable: Bool
+    ) -> String {
+        if applicationStateIsActive {
+            return "foreground"
+        }
+        if !isProtectedDataAvailable {
+            return "locked"
+        }
+        return "background"
+    }
 
     static func decodeErrorRate(ok: Int, errors: Int) -> Double {
         let total = ok + errors
@@ -211,6 +301,150 @@ nonisolated enum OmiDiagnosticsLogic {
             return 0
         }
         return Double(errors) / Double(total)
+    }
+
+    static func subscribeLatencyBreakdown(
+        _ samples: [OmiDiagnosticsPayload.SubscribeLatencySample]
+    ) -> SubscribeLatencyBreakdown {
+        var breakdown = SubscribeLatencyBreakdown(sampleCount: samples.count)
+        for sample in samples {
+            let latency = max(sample.latencySeconds, 0)
+            breakdown.totalSeconds += latency
+            switch Self.normalizedAppState(sample.appState) {
+            case "foreground":
+                breakdown.foregroundSeconds += latency
+            case "locked":
+                breakdown.lockedSeconds += latency
+            default:
+                breakdown.backgroundSeconds += latency
+            }
+        }
+        return breakdown
+    }
+
+    static func addingSilentAttribution(
+        to tallies: OmiDiagnosticsPayload.GapTallies,
+        elapsed: TimeInterval,
+        appState: String
+    ) -> OmiDiagnosticsPayload.GapTallies {
+        let elapsed = max(elapsed, 0)
+        guard elapsed > 0 else {
+            return tallies
+        }
+
+        var updated = tallies
+        switch Self.normalizedAppState(appState) {
+        case "foreground":
+            updated.connectedSilentForegroundSeconds = (updated.connectedSilentForegroundSeconds ?? 0) + elapsed
+        case "locked":
+            updated.connectedSilentLockedSeconds = (updated.connectedSilentLockedSeconds ?? 0) + elapsed
+        default:
+            updated.connectedSilentBackgroundSeconds = (updated.connectedSilentBackgroundSeconds ?? 0) + elapsed
+        }
+        return updated
+    }
+
+    static func disconnectWindowLines(
+        events: [OmiDiagnosticsPayload.ReconnectEvent],
+        capacity: Int,
+        asOf date: Date
+    ) -> [String] {
+        guard !events.isEmpty else {
+            return ["disconnect windows: none"]
+        }
+
+        var lines: [String] = []
+        if capacity > 0, events.count == capacity {
+            lines.append("disconnect windows: showing most recent \(capacity) retained disconnects")
+        }
+
+        for event in events {
+            let endText: String
+            if let latency = event.timeToReconnect {
+                endText = Self.dateText(event.timestamp.addingTimeInterval(max(latency, 0)))
+            } else {
+                endText = "open"
+            }
+            lines.append(
+                "disconnect window: [\(Self.dateText(event.timestamp)),\(endText)] reason: \(event.reason), app state: \(event.appStateAtDrop)"
+            )
+        }
+        return lines
+    }
+
+    static func voicedSeconds(decodeOK: Int) -> TimeInterval {
+        Double(max(decodeOK, 0)) * 0.02
+    }
+
+    static func storageBacklogProjection(
+        samples: [OmiDiagnosticsPayload.StorageBacklogSample],
+        capacityBytes: UInt32 = 480_000_000
+    ) -> StorageBacklogProjection? {
+        guard let first = samples.first, let last = samples.last else {
+            return nil
+        }
+
+        let growth = Int64(last.usedBytes) - Int64(first.usedBytes)
+        let elapsed = last.timestamp.timeIntervalSince(first.timestamp)
+        let timeToFull: TimeInterval?
+        if samples.count >= 2,
+           growth > 0,
+           elapsed > 0,
+           last.usedBytes < capacityBytes
+        {
+            let bytesPerSecond = Double(growth) / elapsed
+            let remaining = Double(capacityBytes - last.usedBytes)
+            timeToFull = remaining / bytesPerSecond
+        } else {
+            timeToFull = nil
+        }
+
+        return StorageBacklogProjection(
+            startUsedBytes: first.usedBytes,
+            endUsedBytes: last.usedBytes,
+            growthBytes: growth,
+            timeToFullSeconds: timeToFull,
+            fileCountUnconfirmed: last.fileCountUnconfirmed
+        )
+    }
+
+    static func isPendantReboot(
+        epochBefore: UInt32,
+        epochAfter: UInt32,
+        sentinel: UInt32 = 1_609_459_200,
+        decreaseThreshold: UInt32 = 300
+    ) -> Bool {
+        if epochBefore >= sentinel, epochAfter < sentinel {
+            return true
+        }
+        guard epochBefore > epochAfter else {
+            return false
+        }
+        return epochBefore - epochAfter > decreaseThreshold
+    }
+
+    static func pendantRebootEvents(
+        from observations: [(observedAt: Date, epoch: UInt32)]
+    ) -> [OmiDiagnosticsPayload.PendantRebootEvent] {
+        guard let first = observations.first else {
+            return []
+        }
+
+        var baseline = first.epoch
+        var events: [OmiDiagnosticsPayload.PendantRebootEvent] = []
+        for observation in observations.dropFirst() {
+            if Self.isPendantReboot(epochBefore: baseline, epochAfter: observation.epoch) {
+                events.append(OmiDiagnosticsPayload.PendantRebootEvent(
+                    observedAt: observation.observedAt,
+                    epochBefore: baseline,
+                    epochAfter: observation.epoch
+                ))
+                baseline = observation.epoch
+            } else if observation.epoch > baseline {
+                baseline = observation.epoch
+            }
+        }
+        return events
     }
 
     static func accumulatedCounter(
@@ -336,6 +570,20 @@ nonisolated enum OmiDiagnosticsLogic {
         lines.append("pendant signal: \(Self.pendantSignalText(payload.pendantSignalTrend))")
         lines.append("phone battery: \(Self.phoneBatteryText(payload.phoneSamples))")
         lines.append("phone thermal state: \(payload.phoneSamples.last?.thermalState ?? "unknown")")
+        lines.append(Self.subscribeLatencyText(payload.subscribeLatencySamples ?? []))
+        lines.append(Self.connectedSilentBucketsText(payload.gapTallies))
+        lines.append(contentsOf: Self.disconnectWindowLines(
+            events: payload.reconnectEvents,
+            capacity: OmiEventRing.capacity,
+            asOf: date
+        ))
+        lines.append("voiced-seconds received live: \(Self.secondsText(Self.voicedSeconds(decodeOK: payload.decodeCounters.ok))) voiced")
+        lines.append("recovery note: SD fills disconnect windows with voiced-only audio, so recovered audio is <= wall-clock.")
+        lines.append("silence note: connected-without-audio may be VAD silence, not loss; silence is never quantified as loss.")
+        lines.append(Self.storageBacklogText(payload.storageBacklogSamples ?? []))
+        lines.append("supporting readings: raw millivolts are not exposed over BLE on 3.0.19")
+        lines.append(Self.rebootText(payload.pendantRebootEvents ?? []))
+        lines.append(Self.supportingReadingsText(payload))
 
         return lines.joined(separator: "\n") + "\n"
     }
@@ -452,6 +700,42 @@ nonisolated enum OmiDiagnosticsLogic {
         return "\(startPercent)%→\(endPercent)%, drain \(String(format: "%.1f", totalDrop / totalHours))%/hr (\(samples.count) samples)"
     }
 
+    private static func subscribeLatencyText(_ samples: [OmiDiagnosticsPayload.SubscribeLatencySample]) -> String {
+        guard !samples.isEmpty else {
+            return "unrecoverable connect-to-subscribe: unavailable (no subscribe-confirm samples)"
+        }
+
+        let breakdown = Self.subscribeLatencyBreakdown(samples)
+        return "unrecoverable connect-to-subscribe: \(Self.secondsText(breakdown.totalSeconds)) total not on SD / unrecoverable (foreground \(Self.secondsText(breakdown.foregroundSeconds)), background \(Self.secondsText(breakdown.backgroundSeconds)), locked \(Self.secondsText(breakdown.lockedSeconds)), \(breakdown.sampleCount) samples)"
+    }
+
+    private static func connectedSilentBucketsText(_ tallies: OmiDiagnosticsPayload.GapTallies) -> String {
+        "connected-without-audio buckets: foreground \(Self.durationText(tallies.connectedSilentForegroundSeconds ?? 0)), background \(Self.durationText(tallies.connectedSilentBackgroundSeconds ?? 0)), locked \(Self.durationText(tallies.connectedSilentLockedSeconds ?? 0))"
+    }
+
+    private static func storageBacklogText(_ samples: [OmiDiagnosticsPayload.StorageBacklogSample]) -> String {
+        guard let projection = Self.storageBacklogProjection(samples: samples) else {
+            return "storage backlog: unavailable (characteristic never read)"
+        }
+
+        let timeToFull = projection.timeToFullSeconds.map(Self.durationText) ?? "unavailable"
+        return "storage backlog: \(projection.startUsedBytes)->\(projection.endUsedBytes) bytes, growth \(projection.growthBytes), time-to-full projection \(timeToFull), files \(projection.fileCountUnconfirmed) (layout-unconfirmed)"
+    }
+
+    private static func rebootText(_ events: [OmiDiagnosticsPayload.PendantRebootEvent]) -> String {
+        let times = events.isEmpty
+            ? "none"
+            : events.map { Self.dateText($0.observedAt) }.joined(separator: ", ")
+        return "supporting readings: reboot count \(events.count), times \(times)"
+    }
+
+    private static func supportingReadingsText(_ payload: OmiDiagnosticsPayload) -> String {
+        let mtuConnect = payload.mtuAtConnect.map(String.init) ?? "unknown"
+        let mtuSubscribe = payload.mtuAtSubscribeConfirm.map(String.init) ?? "unknown"
+        let firstAudio = payload.connectToFirstAudioSeconds.map(Self.secondsText) ?? "unknown"
+        return "supporting readings: mtu connect \(mtuConnect), mtu subscribe-confirm \(mtuSubscribe), connect-to-first-audio \(firstAudio)"
+    }
+
     private static func openDuration(from start: Date?, asOf date: Date) -> TimeInterval {
         guard let start else {
             return 0
@@ -473,7 +757,20 @@ nonisolated enum OmiDiagnosticsLogic {
         return "\(minutes)m \(secondsRemainder)s"
     }
 
+    private static func secondsText(_ seconds: TimeInterval) -> String {
+        "\(String(format: "%.2f", max(seconds, 0)))s"
+    }
+
     private static func dateText(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func normalizedAppState(_ appState: String) -> String {
+        switch appState {
+        case "foreground", "locked":
+            return appState
+        default:
+            return "background"
+        }
     }
 }
