@@ -22,4 +22,12 @@ final class WatchUploaderHolder {
     var failedCount: Int {
         self.uploader.failedCount
     }
+
+    var lastUploadAt: Date? {
+        self.uploader.lastUploadAt
+    }
+
+    var lastError: String? {
+        self.uploader.lastError
+    }
 }

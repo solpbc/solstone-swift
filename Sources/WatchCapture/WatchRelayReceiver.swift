@@ -2,17 +2,23 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import Observation
 import os
 
 private let watchRelayReceiverLog = Logger(subsystem: "app.solstone.swift", category: "watch-relay")
 
 @MainActor
+@Observable
 final class WatchRelayReceiver {
     static let rootDirectoryName = ["watch", "relay"].map(\.capitalized).joined()
     static let stagingDirectoryName = "staging"
     static let incomingDirectoryName = ".incoming"
 
     let stagingRootURL: URL
+    private(set) var receivedCount = 0
+    private(set) var lastReceivedAt: Date?
+    private(set) var lastStagingError: String?
+    @ObservationIgnored
     var onSegmentStaged: ((UUID) -> Void)?
 
     private let session: any WatchConnectivitySession
@@ -51,6 +57,7 @@ final class WatchRelayReceiver {
         let committedURL = self.committedURL(for: id)
         if self.fileWriter.fileExists(at: committedURL) {
             watchRelayReceiverLog.info("watch relay duplicate staged id=\(id.uuidString, privacy: .public)")
+            self.lastReceivedAt = Date()
             self.sendACK(id: id)
             self.onSegmentStaged?(id)
             return
@@ -66,11 +73,15 @@ final class WatchRelayReceiver {
                 fileWriter: self.fileWriter
             )
             try self.fileWriter.moveItem(at: incomingURL, to: committedURL)
+            self.receivedCount += 1
+            self.lastReceivedAt = Date()
+            self.lastStagingError = nil
             self.sendACK(id: id)
             self.onSegmentStaged?(id)
             watchRelayReceiverLog.info("watch relay staged id=\(id.uuidString, privacy: .public)")
         } catch {
             try? self.fileWriter.removeItem(at: incomingURL)
+            self.lastStagingError = String(describing: error)
             watchRelayReceiverLog.error("watch relay staging failed id=\(id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }

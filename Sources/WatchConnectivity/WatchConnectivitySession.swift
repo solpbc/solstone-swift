@@ -11,8 +11,12 @@ nonisolated private let watchConnectivityLog = Logger(subsystem: "app.solstone.s
 protocol WatchConnectivitySession: AnyObject {
     var isSupported: Bool { get }
     var isReachable: Bool { get }
+    var isPaired: Bool { get }
+    var isWatchAppInstalled: Bool { get }
+    var activationState: WCSessionActivationState { get }
     var onActivationChanged: (@Sendable (Bool) -> Void)? { get set }
     var onReachabilityChanged: (@Sendable (Bool) -> Void)? { get set }
+    var onWatchStateChanged: (@Sendable () -> Void)? { get set }
     var onReceiveFile: ((URL, [String: Any]) -> Void)? { get set }
     var onReceiveUserInfo: (([String: Any]) -> Void)? { get set }
 
@@ -26,6 +30,7 @@ protocol WatchConnectivitySession: AnyObject {
 final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WCSessionDelegate {
     var onActivationChanged: (@Sendable (Bool) -> Void)?
     var onReachabilityChanged: (@Sendable (Bool) -> Void)?
+    var onWatchStateChanged: (@Sendable () -> Void)?
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
 
@@ -38,6 +43,28 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var isReachable: Bool {
         self.session?.isReachable ?? false
     }
+
+    var activationState: WCSessionActivationState {
+        self.session?.activationState ?? .notActivated
+    }
+
+#if os(iOS)
+    var isPaired: Bool {
+        self.session?.isPaired ?? false
+    }
+
+    var isWatchAppInstalled: Bool {
+        self.session?.isWatchAppInstalled ?? false
+    }
+#else
+    var isPaired: Bool {
+        false
+    }
+
+    var isWatchAppInstalled: Bool {
+        false
+    }
+#endif
 
     override init() {
         self.session = WCSession.isSupported() ? WCSession.default : nil
@@ -101,6 +128,12 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         Task { @MainActor [weak self] in
             self?.activate()
+        }
+    }
+
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor [weak self] in
+            self?.onWatchStateChanged?()
         }
     }
 #endif

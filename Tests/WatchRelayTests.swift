@@ -177,6 +177,88 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(stagedIDs, [id, id])
     }
 
+    func testReceiverInstrumentationTracksSuccessfulReceive() throws {
+        let storage = try self.makeStorage("instrumentation-success-watch")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("instrumentation-success-staging", isDirectory: true)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let invalidScratch = self.tempDirectory.appendingPathComponent("invalid-watchrelay")
+        try Data("not a segment bundle".utf8).write(to: invalidScratch, options: .atomic)
+        receiver.receiveFile(invalidScratch, metadata: ["id": UUID().uuidString])
+        XCTAssertNotNil(receiver.lastStagingError)
+        defer { withExtendedLifetime(receiver) {} }
+
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(receiver.receivedCount, 1)
+        XCTAssertNotNil(receiver.lastReceivedAt)
+        XCTAssertNil(receiver.lastStagingError)
+
+        let waiting = WatchSourceDetailPresentation.syncSummary(
+            received: receiver.receivedCount,
+            pending: 1,
+            failed: 0,
+            lastUploadAt: nil
+        )
+        XCTAssertEqual(waiting.received, 1)
+        XCTAssertEqual(waiting.waiting, 1)
+        XCTAssertEqual(waiting.handedToJournal, 0)
+
+        let handed = WatchSourceDetailPresentation.syncSummary(
+            received: receiver.receivedCount,
+            pending: 0,
+            failed: 0,
+            lastUploadAt: Date(timeIntervalSince1970: 1_000)
+        )
+        XCTAssertEqual(handed.received, 1)
+        XCTAssertEqual(handed.waiting, 0)
+        XCTAssertEqual(handed.handedToJournal, 1)
+    }
+
+    func testReceiverInstrumentationRefreshesDuplicateWithoutIncrementing() throws {
+        let storage = try self.makeStorage("instrumentation-duplicate-watch")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("instrumentation-duplicate-staging", isDirectory: true)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        defer { withExtendedLifetime(receiver) {} }
+
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+        let firstReceivedAt = try XCTUnwrap(receiver.lastReceivedAt)
+        Thread.sleep(forTimeInterval: 0.01)
+
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
+
+        XCTAssertEqual(receiver.receivedCount, 1)
+        let duplicateReceivedAt = try XCTUnwrap(receiver.lastReceivedAt)
+        XCTAssertGreaterThan(duplicateReceivedAt.timeIntervalSinceReferenceDate, firstReceivedAt.timeIntervalSinceReferenceDate)
+    }
+
+    func testReceiverInstrumentationTracksStagingFailure() throws {
+        let stagingRoot = self.tempDirectory.appendingPathComponent("instrumentation-failure-staging", isDirectory: true)
+        let phoneSession = MockWatchConnectivitySession()
+        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let scratchURL = self.tempDirectory.appendingPathComponent("invalid-watchrelay")
+        try Data("not a segment bundle".utf8).write(to: scratchURL, options: .atomic)
+        defer { withExtendedLifetime(receiver) {} }
+
+        receiver.receiveFile(scratchURL, metadata: ["id": UUID().uuidString])
+
+        XCTAssertEqual(receiver.receivedCount, 0)
+        XCTAssertNil(receiver.lastReceivedAt)
+        XCTAssertNotNil(receiver.lastStagingError)
+    }
+
     func testBacklogDrainsOneDistinctSegmentAtATime() throws {
         let storage = try self.makeStorage("backlog-watch")
         let stagingRoot = self.tempDirectory.appendingPathComponent("backlog-staging", isDirectory: true)

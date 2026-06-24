@@ -24,6 +24,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchUploader: ObserverUploader
     @State private var watchUploaderHolder: WatchUploaderHolder
     @State private var watchSegmentDrain: WatchSegmentDrain?
+    @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var importQueue: ImportQueue
     @State private var locationUploader: LocationUploader
     @State private var locationManager: LocationManager
@@ -369,6 +370,7 @@ struct SolstoneSwiftApp: App {
         self._watchUploader = State(initialValue: watchUploader)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
+        self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._importQueue = State(initialValue: importQueue)
         self._locationUploader = State(initialValue: locationUploader)
         self._locationManager = State(initialValue: locationManager)
@@ -397,6 +399,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.observerUploader)
                 .environment(self.omiUploaderHolder)
                 .environment(self.watchUploaderHolder)
+                .environment(self.watchLink)
+                .environment(self.watchRelayReceiver)
                 .environment(self.importQueue)
                 .environment(self.locationManager)
                 .environment(self.locationUploader)

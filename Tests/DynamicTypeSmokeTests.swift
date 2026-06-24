@@ -46,6 +46,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             startPathMonitor: false
         )
         let watchUploaderHolder = WatchUploaderHolder(watchUploader)
+        let watchSession = MockWatchConnectivitySession()
+        let watchRelayRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-WatchRelay-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: watchRelayRoot) }
+        let watchRelayReceiver = try WatchRelayReceiver(session: watchSession, stagingRootURL: watchRelayRoot)
+        let watchLink = WatchLink(session: watchSession, receiver: watchRelayReceiver)
         let locationUploaderRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-LocationUploader-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: locationUploaderRoot) }
@@ -153,6 +159,9 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(importQueue)
                 .environment(locationManager)
                 .environment(omiSourceManager)
+                .environment(watchLink)
+                .environment(watchRelayReceiver)
+                .environment(watchUploaderHolder)
         }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -163,6 +172,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let omiSourceDetailView = NavigationStack {
             OmiSourceDetailView()
                 .environment(omiSourceManager)
+        }
+        let watchSourceDetailView = NavigationStack {
+            WatchSourceDetailView()
+                .environment(watchLink)
+                .environment(watchRelayReceiver)
+                .environment(watchUploaderHolder)
         }
         let activeLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -248,6 +263,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(omiSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(watchSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(activeLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(needsAttentionLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))

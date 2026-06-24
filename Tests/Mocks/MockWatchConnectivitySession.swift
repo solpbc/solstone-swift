@@ -3,13 +3,18 @@
 
 @testable import solstone_swift
 import Foundation
+import WatchConnectivity
 
 @MainActor
 final class MockWatchConnectivitySession: WatchConnectivitySession {
     var isSupported = true
     var isReachable = false
+    var isPaired = false
+    var isWatchAppInstalled = false
+    var activationState: WCSessionActivationState = .notActivated
     var onActivationChanged: (@Sendable (Bool) -> Void)?
     var onReachabilityChanged: (@Sendable (Bool) -> Void)?
+    var onWatchStateChanged: (@Sendable () -> Void)?
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
 
@@ -20,6 +25,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func activate() {
         self.activateCallCount += 1
+        self.activationState = .activated
         self.onActivationChanged?(true)
     }
 
@@ -38,6 +44,17 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     func emitReachability(_ isReachable: Bool) {
         self.isReachable = isReachable
         self.onReachabilityChanged?(isReachable)
+    }
+
+    func emitWatchState(
+        isPaired: Bool,
+        isWatchAppInstalled: Bool,
+        activationState: WCSessionActivationState
+    ) {
+        self.isPaired = isPaired
+        self.isWatchAppInstalled = isWatchAppInstalled
+        self.activationState = activationState
+        self.onWatchStateChanged?()
     }
 
     func deliverFile(_ url: URL, metadata: [String: Any]) {

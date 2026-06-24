@@ -219,6 +219,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureStatusLabel, "status")
         XCTAssertEqual(SourceVocabulary.onThisPhoneObserverAudioSourceLabel, "audio")
         XCTAssertEqual(SourceVocabulary.onThisPhoneOmiAudioSourceLabel, "omi pendant audio")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneWatchAudioSourceLabel, "watch audio")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureRowHint, "needs a retry")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1), "upload failed after 1 attempt")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5), "upload failed after 5 attempts")
@@ -299,11 +300,64 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.checkConnection, "check connection")
         XCTAssertEqual(SourceVocabulary.probeReachable, "reachable")
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
+        XCTAssertEqual(SourceVocabulary.watchNotSupported, "not available on this device")
+        XCTAssertEqual(SourceVocabulary.watchNoWatchPaired, "no watch paired with this iphone")
+        XCTAssertEqual(SourceVocabulary.watchAppNotInstalled, "solstone isn't on your watch yet")
+        XCTAssertEqual(SourceVocabulary.watchSourceDisplayName, "watch")
+        XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch — listening")
+        XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install solstone on your watch")
+        XCTAssertEqual(SourceVocabulary.watchInstallInstruction, "open the Watch app to install it")
+        XCTAssertEqual(SourceVocabulary.watchStateBlockTitle, "state")
+        XCTAssertEqual(SourceVocabulary.watchDeviceBlockTitle, "watch")
+        XCTAssertEqual(SourceVocabulary.watchDiagnosticsBlockTitle, "diagnostics")
+        XCTAssertEqual(SourceVocabulary.watchTechnicalDetailTitle, "technical detail")
+        XCTAssertEqual(SourceVocabulary.watchReceivedLabel, "received")
+        XCTAssertEqual(SourceVocabulary.watchWaitingLabel, "waiting")
+        XCTAssertEqual(SourceVocabulary.watchHandedToJournalLabel, "handed to your journal")
+        XCTAssertEqual(SourceVocabulary.watchLastSyncLabel, "last sync")
+        XCTAssertEqual(SourceVocabulary.watchLastSyncNever, "no sync yet")
+        XCTAssertEqual(SourceVocabulary.watchActivationLabel, "activation")
+        XCTAssertEqual(SourceVocabulary.watchPairedWithPhoneLabel, "paired with this iphone")
+        XCTAssertEqual(SourceVocabulary.watchInstalledLabel, "installed")
+        XCTAssertEqual(SourceVocabulary.watchLastReceivedLabel, "last received")
+        XCTAssertEqual(SourceVocabulary.watchLastReceivedNever, "nothing received yet")
+        XCTAssertEqual(SourceVocabulary.watchLastStagingDetailLabel, "last staging detail")
+        XCTAssertEqual(SourceVocabulary.watchLastSyncDetailLabel, "last sync detail")
+        XCTAssertEqual(SourceVocabulary.watchLastUploadErrorLabel, "last upload error")
+        XCTAssertEqual(SourceVocabulary.watchDetailNone, "none")
+        XCTAssertEqual(SourceVocabulary.watchDetailPresent, "present")
+        XCTAssertEqual(SourceVocabulary.watchBooleanYes, "yes")
+        XCTAssertEqual(SourceVocabulary.watchBooleanNo, "no")
+        XCTAssertEqual(SourceVocabulary.watchActivationActivated, "activated")
+        XCTAssertEqual(SourceVocabulary.watchActivationInactive, "inactive")
+        XCTAssertEqual(SourceVocabulary.watchActivationNotActivated, "not activated")
+        XCTAssertEqual(SourceVocabulary.watchRelativeJustNow, "just now")
+        XCTAssertEqual(SourceVocabulary.watchShareDiagnosticsLabel, "share diagnostics")
+        XCTAssertEqual(SourceVocabulary.watchShareDiagnosticsHint, "shares watch diagnostics.")
+        XCTAssertEqual(SourceVocabulary.watchPrepareDiagnosticsHint, "prepares watch diagnostics.")
+        XCTAssertEqual(SourceVocabulary.watchDiagnosticsExportTitle, "watch diagnostics")
+        XCTAssertEqual(SourceVocabulary.watchDiagnosticsExportFileName, "watch-diagnostics.txt")
     }
 
     func testWatchTrustLineUsesConfiguredPrivacyCopy() {
         XCTAssertEqual(watchTrustLine(), SourceVocabulary.trustLineConfigured)
         XCTAssertEqual(watchTrustLine(), "feeds only your journal — nowhere else")
+    }
+
+    func testWatchOwnerVisibleCopyAllowsOnlyRequiredWatchNounsAndAvoidsForbiddenTerms() throws {
+        let regex = try NSRegularExpression(pattern: Self.forbiddenWatchPattern, options: [.caseInsensitive])
+
+        for string in self.watchOwnerVisibleStrings {
+            let firstScalar = try XCTUnwrap(string.unicodeScalars.first)
+            XCTAssertTrue(
+                CharacterSet.lowercaseLetters.contains(firstScalar) || CharacterSet.decimalDigits.contains(firstScalar),
+                string
+            )
+            let normalized = self.removingAllowedWatchNouns(from: string)
+            let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+            XCTAssertNil(regex.firstMatch(in: normalized, range: range), string)
+            XCTAssertFalse(string.localizedCaseInsensitiveContains("always on"), string)
+        }
     }
 
     func testConnectionStandingAndProbeCopyDerivations() {
@@ -415,6 +469,79 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             .map { NSRegularExpression.escapedPattern(for: $0) }
             .joined(separator: "|")
         return #"(?<![A-Za-z0-9_])("# + alternation + #")(?![A-Za-z0-9_])"#
+    }
+
+    private static let forbiddenWatchTerms = [
+        "capture",
+        "record",
+        "recording",
+        "keeper",
+        "assistant",
+        "monitor",
+        "track",
+        "collect",
+        "watches",
+        "watched",
+        "watching",
+        "server",
+        "service",
+    ]
+
+    private static var forbiddenWatchPattern: String {
+        let alternation = self.forbiddenWatchTerms
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+            .joined(separator: "|")
+        return #"(?<![A-Za-z0-9_])("# + alternation + #")(?![A-Za-z0-9_])"#
+    }
+
+    private func removingAllowedWatchNouns(from string: String) -> String {
+        string
+            .replacingOccurrences(of: "Watch app", with: "")
+            .replacingOccurrences(of: "watch audio", with: "")
+            .replacingOccurrences(of: "your watch", with: "")
+            .replacingOccurrences(of: "watch", with: "")
+    }
+
+    private var watchOwnerVisibleStrings: [String] {
+        [
+            SourceVocabulary.watchNotSupported,
+            SourceVocabulary.watchNoWatchPaired,
+            SourceVocabulary.watchAppNotInstalled,
+            SourceVocabulary.watchSourceDisplayName,
+            SourceVocabulary.watchListeningSubtext,
+            SourceVocabulary.watchInstallTitle,
+            SourceVocabulary.watchInstallInstruction,
+            SourceVocabulary.watchStateBlockTitle,
+            SourceVocabulary.watchDeviceBlockTitle,
+            SourceVocabulary.watchDiagnosticsBlockTitle,
+            SourceVocabulary.watchTechnicalDetailTitle,
+            SourceVocabulary.watchReceivedLabel,
+            SourceVocabulary.watchWaitingLabel,
+            SourceVocabulary.watchHandedToJournalLabel,
+            SourceVocabulary.watchLastSyncLabel,
+            SourceVocabulary.watchLastSyncNever,
+            SourceVocabulary.watchActivationLabel,
+            SourceVocabulary.watchPairedWithPhoneLabel,
+            SourceVocabulary.watchInstalledLabel,
+            SourceVocabulary.watchLastReceivedLabel,
+            SourceVocabulary.watchLastReceivedNever,
+            SourceVocabulary.watchLastStagingDetailLabel,
+            SourceVocabulary.watchLastSyncDetailLabel,
+            SourceVocabulary.watchLastUploadErrorLabel,
+            SourceVocabulary.watchDetailNone,
+            SourceVocabulary.watchDetailPresent,
+            SourceVocabulary.watchBooleanYes,
+            SourceVocabulary.watchBooleanNo,
+            SourceVocabulary.watchActivationActivated,
+            SourceVocabulary.watchActivationInactive,
+            SourceVocabulary.watchActivationNotActivated,
+            SourceVocabulary.watchRelativeJustNow,
+            SourceVocabulary.watchShareDiagnosticsLabel,
+            SourceVocabulary.watchShareDiagnosticsHint,
+            SourceVocabulary.watchPrepareDiagnosticsHint,
+            SourceVocabulary.watchDiagnosticsExportTitle,
+            SourceVocabulary.onThisPhoneWatchAudioSourceLabel,
+        ]
     }
 
     private var lodeCOwnerVisibleStrings: [String] {

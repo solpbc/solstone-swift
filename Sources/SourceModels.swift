@@ -9,6 +9,7 @@ nonisolated enum SourceKind: Equatable, Sendable {
     case importer
     case location
     case omi
+    case watch
 }
 
 nonisolated enum SourceGroup: Equatable, Sendable {

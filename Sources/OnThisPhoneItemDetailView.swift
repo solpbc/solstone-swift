@@ -148,9 +148,24 @@ private extension OnThisPhoneItemDetailView {
         return SourceDetailBlock(title: SourceVocabulary.details) {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(rows) { row in
-                    LabeledContent(row.label, value: row.value)
+                    self.detailRow(row)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    func detailRow(_ row: OnThisPhoneDetailRow) -> some View {
+        if self.item.audioSource == .watch,
+           row.label == SourceVocabulary.onThisPhoneSourceLabel {
+            NavigationLink {
+                WatchSourceDetailView()
+            } label: {
+                LabeledContent(row.label, value: row.value)
+            }
+            .buttonStyle(.plain)
+        } else {
+            LabeledContent(row.label, value: row.value)
         }
     }
 

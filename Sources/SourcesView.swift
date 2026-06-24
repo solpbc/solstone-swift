@@ -10,9 +10,13 @@ struct SourcesView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationManager.self) private var locationManager
     @Environment(OmiSourceManager.self) private var omiSourceManager
+    @Environment(WatchLink.self) private var watchLink
+    @Environment(WatchRelayReceiver.self) private var watchRelayReceiver: WatchRelayReceiver?
+    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSourceRoute: SourceRoute?
     @State private var showingConnectJournal = false
+    @State private var now = Date()
 
     var body: some View {
         NavigationStack {
@@ -40,6 +44,9 @@ struct SourcesView: View {
                         }
                         SourceRowView(source: self.omiSource) {
                             self.selectedSourceRoute = .omi
+                        }
+                        SourceRowView(source: self.watchSource) {
+                            self.selectedSourceRoute = .watch
                         }
                     }
 
@@ -78,6 +85,8 @@ struct SourcesView: View {
                     LocationSourceDetailView()
                 case .omi:
                     OmiSourceDetailView()
+                case .watch:
+                    WatchSourceDetailView()
                 case .share:
                     ImporterSourceDetailView(source: self.shareSource)
                 }
@@ -85,18 +94,22 @@ struct SourcesView: View {
             .sheet(isPresented: self.$showingConnectJournal) {
                 ConnectJournalSheet(isPresented: self.$showingConnectJournal)
             }
+            .task {
+                await self.refreshNowPeriodically()
+            }
         }
     }
 }
 
 private enum SourceRoute: Hashable, Identifiable {
-    case audio, location, omi, share
+    case audio, location, omi, watch, share
 
     var id: String {
         switch self {
         case .audio: "audio"
         case .location: "location"
         case .omi: "omi"
+        case .watch: "watch"
         case .share: "share"
         }
     }
@@ -144,7 +157,7 @@ private extension SourcesView {
     }
 
     var showsZeroActiveSummary: Bool {
-        [self.audioSource.state, self.shareSource.state, self.locationSource.state, self.omiSource.state].allSatisfy(\.isZeroActive)
+        [self.audioSource.state, self.shareSource.state, self.locationSource.state, self.omiSource.state, self.watchSource.state].allSatisfy(\.isZeroActive)
     }
 
     var shareSource: Source {
@@ -196,13 +209,52 @@ private extension SourcesView {
             activeSubtext: SourceVocabulary.observerActiveSubtext,
             attention: mapped.1,
             pendingStatus: .nonePending,
-            // VPX: tune row telemetry composition once multiple last-known states are visible.
+            // VPX: tune row summary composition once multiple last-known states are visible.
             detailSubtext: OmiSourceLogic.sourceReadingSubtext(
                 battery: battery,
                 signal: signal,
                 now: now
             )
         )
+    }
+
+    var watchSource: Source {
+        let install = watchInstallState(
+            isSupported: self.watchLink.isSupported,
+            isPaired: self.watchLink.isPaired,
+            isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
+            activationState: self.watchLink.activationState
+        )
+        let observing = isWatchObserving(
+            lastReceivedAt: self.watchRelayReceiver?.lastReceivedAt,
+            now: self.now
+        )
+        let mapped = phoneWatchSourceState(
+            install: install,
+            observing: observing,
+            enabled: true
+        )
+        return Source(
+            id: "watch",
+            displayName: SourceVocabulary.watchSourceDisplayName,
+            kind: .watch,
+            group: .experiencingAlongsideYou,
+            state: mapped.0,
+            activeSubtext: SourceVocabulary.watchListeningSubtext,
+            attention: mapped.1,
+            pendingStatus: .nonePending,
+            detailSubtext: mapped.1?.message
+        )
+    }
+
+    func refreshNowPeriodically() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else {
+                return
+            }
+            self.now = Date()
+        }
     }
 }
 
