@@ -249,11 +249,15 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
 
     @MainActor private func assertHosted<V: View>(_ view: V) throws {
         let controller = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = controller
+        window.isHidden = false
         controller.loadViewIfNeeded()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-        controller.view.setNeedsLayout()
-        controller.view.layoutIfNeeded()
+        controller.view.frame = window.bounds
+        window.layoutIfNeeded()
         XCTAssertGreaterThan(controller.view.systemLayoutSizeFitting(CGSize(width: 393, height: 852)).height, 0)
+        window.isHidden = true
+        window.rootViewController = nil
     }
 
     private static func shareSource() -> Source {
