@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import Foundation
+import Observation
+
+@MainActor
+@Observable
+final class WatchCaptureModel {
+    var presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0)
+
+    @ObservationIgnored private var engine: WatchCaptureEngine?
+
+    init() {
+        do {
+            let storage = try WatchCaptureStorage()
+            let engine = WatchCaptureEngine(
+                audioRecorder: LiveWatchAudioRecorder(),
+                audioSession: LiveWatchAudioSessionController(),
+                locationProvider: LiveWatchLocationProvider(),
+                storage: storage,
+                audioProbe: LiveWatchAudioProbe()
+            )
+            engine.onPresentationChanged = { [weak self] presentation in
+                self?.presentation = presentation
+            }
+            self.engine = engine
+            Task { @MainActor [weak self, engine] in
+                await engine.reconcileOnLaunch()
+                self?.presentation = engine.ownerPresentation
+            }
+        } catch {
+            self.presentation = WatchCaptureOwnerPresentation(
+                status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
+                queuedCount: 0
+            )
+        }
+    }
+
+    var isRunning: Bool {
+        switch self.presentation.status {
+        case .enrolling, .active, .paused:
+            true
+        case .needsAttention:
+            self.presentation.isSessionRunning
+        case .off:
+            false
+        }
+    }
+
+    var primaryText: String {
+        if let pendingText = self.presentation.pendingText {
+            return pendingText
+        }
+        let (state, _) = watchSourceState(for: self.presentation)
+        return state.label
+    }
+
+    var detailText: String {
+        if let pendingDetailText = self.presentation.pendingDetailText {
+            return pendingDetailText
+        }
+        let (_, attention) = watchSourceState(for: self.presentation)
+        if let attention {
+            return attention.message
+        }
+        return watchTrustLine()
+    }
+
+    var actionText: String {
+        self.isRunning ? "stop" : "start"
+    }
+
+    func start() {
+        Task { @MainActor [weak self] in
+            await self?.engine?.start()
+            if let engine = self?.engine {
+                self?.presentation = engine.ownerPresentation
+            }
+        }
+    }
+
+    func stop() {
+        Task { @MainActor [weak self] in
+            await self?.engine?.stop()
+            if let engine = self?.engine {
+                self?.presentation = engine.ownerPresentation
+            }
+        }
+    }
+}

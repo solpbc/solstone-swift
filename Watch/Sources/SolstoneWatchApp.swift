@@ -6,10 +6,11 @@ import SwiftUI
 @main
 struct SolstoneWatchApp: App {
     @State private var sessionModel = WatchSessionModel()
+    @State private var captureModel = WatchCaptureModel()
 
     var body: some Scene {
         WindowGroup {
-            WatchHomeView(model: self.sessionModel)
+            WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
                 .task {
                     self.sessionModel.activate()
                 }

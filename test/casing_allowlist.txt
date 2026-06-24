@@ -82,4 +82,6 @@ ImportQueue.swift|Boundary-
 ImportQueue.swift|Content-Disposition
 ImportQueue.swift|"ImportQueue"
 ImportQueue.swift|"HHmmss"
+WatchCaptureStorage.swift|"WatchCapture"
+WatchCaptureStorage.swift|"HHmmss"
 ShareImportCoordinator.swift|SolstoneShareImport

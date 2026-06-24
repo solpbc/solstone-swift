@@ -16,29 +16,6 @@ struct ObserverSession: Equatable, Sendable {
     let elapsed: TimeInterval
 }
 
-enum ObserverError: Error, Equatable, Sendable {
-    case permissionDenied
-    case audioSessionConflict
-    case diskFull
-    case uploadFailed(chunkID: String)
-    case unavailable(reason: String)
-
-    var message: String {
-        switch self {
-        case .permissionDenied:
-            "microphone access is required to listen"
-        case .audioSessionConflict:
-            "audio session changed while listening"
-        case .diskFull:
-            "storage is full"
-        case .uploadFailed:
-            "upload failed"
-        case .unavailable(let reason):
-            reason
-        }
-    }
-}
-
 enum ObserverState: Equatable, Sendable {
     case idle
     case starting

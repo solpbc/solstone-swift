@@ -277,15 +277,6 @@ nonisolated enum SourceVocabulary {
         count == 1 ? "1 observation" : "\(count) observations"
     }
 
-    static func onThisPhoneDropConfirmMessage(sendState: OnThisPhoneSendState) -> String {
-        switch sendState {
-        case .savedOnThisPhone, .sending, .needsAttention:
-            return "this is only on your phone. dropping it means it won't reach your journal."
-        case .inYourJournal:
-            return "this is safely in your journal. dropping just clears it from this phone."
-        }
-    }
-
     static func onThisPhoneDropSnackbar(descriptor: String) -> String {
         "dropped “\(descriptor)”."
     }
@@ -384,7 +375,25 @@ nonisolated enum SourceVocabulary {
         "\(count) \(stage)"
     }
 
-    static func onThisPhoneSourceName(for sourceKind: OnThisPhoneSourceKind) -> String {
+    private static func onThisPhoneDatePhrase(relativeDay: String?, shortTime: String?) -> String? {
+        guard let relativeDay else { return nil }
+        guard let shortTime else { return relativeDay }
+        return "\(relativeDay) at \(shortTime)"
+    }
+}
+
+#if !os(watchOS)
+extension SourceVocabulary {
+    nonisolated static func onThisPhoneDropConfirmMessage(sendState: OnThisPhoneSendState) -> String {
+        switch sendState {
+        case .savedOnThisPhone, .sending, .needsAttention:
+            return "this is only on your phone. dropping it means it won't reach your journal."
+        case .inYourJournal:
+            return "this is safely in your journal. dropping just clears it from this phone."
+        }
+    }
+
+    nonisolated static func onThisPhoneSourceName(for sourceKind: OnThisPhoneSourceKind) -> String {
         switch sourceKind {
         case .audio:
             "audio"
@@ -394,10 +403,5 @@ nonisolated enum SourceVocabulary {
             Self.shareSheetDisplayName
         }
     }
-
-    private static func onThisPhoneDatePhrase(relativeDay: String?, shortTime: String?) -> String? {
-        guard let relativeDay else { return nil }
-        guard let shortTime else { return relativeDay }
-        return "\(relativeDay) at \(shortTime)"
-    }
 }
+#endif

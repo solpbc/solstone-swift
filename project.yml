@@ -211,6 +211,12 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - Watch/Sources
+      - Sources/WatchCapture
+      - Sources/Observer/ObserverClock.swift
+      - Sources/Observer/ObserverError.swift
+      - Sources/Services/AppGroupContainer.swift
+      - Sources/SourceVocabulary.swift
+      - Sources/SourceModels.swift
     entitlements:
       path: Watch/SolstoneWatch.entitlements
       properties:
