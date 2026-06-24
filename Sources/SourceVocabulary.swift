@@ -104,9 +104,30 @@ nonisolated enum SourceVocabulary {
     static let bringingInYourselfHeader = "bringing in yourself"
     static let trustLineUnpaired = "kept on this phone, only — nowhere else, until you connect a journal"
     static let trustLineConfigured = "feeds only your journal — nowhere else"
+    static let watchHeadlineOff = "off"
+    static let watchHeadlineEnrolling = "setting up"
+    static let watchHeadlineListening = "listening"
+    static let watchHeadlinePaused = "paused"
+    static let watchPipelineSending = "sending"
+    static let watchPipelineSaved = "saved on your watch"
+    static let watchPipelineHandedOff = "handed to your iphone"
+    static let watchLinkConnected = "phone link: connected"
+    static let watchLinkNotConnected = "phone link: not connected"
 
     static func trustLine(isPaired: Bool) -> String {
         isPaired ? Self.trustLineConfigured : Self.trustLineUnpaired
+    }
+
+    static func watchSavedOnWatchCount(_ n: Int) -> String {
+        "\(n) saved on your watch"
+    }
+
+    static func watchSendingCount(_ n: Int) -> String {
+        "\(n) sending"
+    }
+
+    static func watchHandedToPhoneCount(_ n: Int) -> String {
+        "\(n) handed to your iphone"
     }
 
     static let recentEmpty = "nothing recent yet"

@@ -231,6 +231,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: solstone
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"

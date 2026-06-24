@@ -292,8 +292,9 @@ final class WatchCaptureTests: XCTestCase {
         let pending = WatchCaptureOwnerPresentation(status: .off, queuedCount: 1)
         XCTAssertEqual(watchSourceState(for: pending).0, .off)
         XCTAssertNil(watchSourceState(for: pending).1)
-        XCTAssertEqual(pending.pendingText, "saved on your watch")
-        XCTAssertEqual(pending.pendingDetailText, "waiting for your iphone")
+        XCTAssertEqual(pending.headline, "saved on your watch")
+        XCTAssertEqual(pending.countsLine, "1 saved on your watch")
+        XCTAssertNil(pending.attentionLine)
 
         let attention = watchSourceState(for: WatchCaptureOwnerPresentation(status: .needsAttention(.diskFull), queuedCount: 0))
         XCTAssertEqual(attention.0, .needsAttention)
@@ -301,9 +302,58 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(watchTrustLine(), SourceVocabulary.trustLineConfigured)
 
         let attentionWithQueue = WatchCaptureOwnerPresentation(status: .needsAttention(.diskFull), queuedCount: 1)
-        XCTAssertNil(attentionWithQueue.pendingText)
-        XCTAssertNil(attentionWithQueue.pendingDetailText)
+        XCTAssertEqual(attentionWithQueue.headline, "storage is full")
+        XCTAssertEqual(attentionWithQueue.countsLine, "1 saved on your watch")
+        XCTAssertEqual(attentionWithQueue.attentionLine, "storage is full")
         XCTAssertEqual(watchSourceState(for: attentionWithQueue).0, .needsAttention)
+    }
+
+    func testOwnerPresentationHeadlineCountsAndLink() {
+        let active = WatchCaptureOwnerPresentation(status: .active, queuedCount: 0, isSessionRunning: true)
+        XCTAssertEqual(active.headline, "listening")
+        XCTAssertNil(active.countsLine)
+        XCTAssertNil(active.attentionLine)
+
+        let queued = WatchCaptureOwnerPresentation(status: .off, queuedCount: 2)
+        XCTAssertEqual(queued.headline, "saved on your watch")
+        XCTAssertEqual(queued.countsLine, "2 saved on your watch")
+
+        let transferring = WatchCaptureOwnerPresentation(status: .off, queuedCount: 2, transferringCount: 1)
+        XCTAssertEqual(transferring.headline, "sending")
+        XCTAssertEqual(transferring.countsLine, "1 sending · 2 saved on your watch")
+
+        let handedOff = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, handedOffCount: 1)
+        XCTAssertEqual(handedOff.headline, "handed to your iphone")
+        XCTAssertEqual(handedOff.countsLine, "1 handed to your iphone")
+
+        let attention = WatchCaptureOwnerPresentation(
+            status: .needsAttention(.diskFull),
+            queuedCount: 1,
+            transferringCount: 1,
+            handedOffCount: 1
+        )
+        XCTAssertEqual(attention.headline, "storage is full")
+        XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 handed to your iphone")
+        XCTAssertEqual(attention.attentionLine, "storage is full")
+
+        let off = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, isSessionRunning: false)
+        XCTAssertEqual(off.headline, "off")
+
+        XCTAssertEqual(watchLinkLine(isReachable: true), "phone link: connected")
+        XCTAssertEqual(watchLinkLine(isReachable: false), "phone link: not connected")
+
+        let renderedStrings = [
+            active.headline, active.countsLine, active.attentionLine,
+            queued.headline, queued.countsLine, queued.attentionLine,
+            transferring.headline, transferring.countsLine, transferring.attentionLine,
+            handedOff.headline, handedOff.countsLine, handedOff.attentionLine,
+            attention.headline, attention.countsLine, attention.attentionLine,
+            off.headline, off.countsLine, off.attentionLine,
+        ].compactMap(\.self)
+        for rendered in renderedStrings {
+            XCTAssertFalse(rendered.contains("waiting"))
+            XCTAssertFalse(rendered.contains("in your journal"))
+        }
     }
 
     func testManifestAndLocationSchemas() async throws {

@@ -117,22 +117,53 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         self.isSessionRunning = isSessionRunning
     }
 
-    var pendingText: String? {
-        guard !self.status.needsAttention else { return nil }
-        if self.transferringCount > 0 {
-            return "sending to your iphone"
+    var headline: String {
+        switch self.status {
+        case .needsAttention(let error):
+            return error.message
+        case .enrolling:
+            return SourceVocabulary.watchHeadlineEnrolling
+        case .paused:
+            return SourceVocabulary.watchHeadlinePaused
+        case .active:
+            return SourceVocabulary.watchHeadlineListening
+        case .off:
+            if self.isSessionRunning {
+                return SourceVocabulary.watchHeadlineListening
+            }
+            if self.transferringCount > 0 {
+                return SourceVocabulary.watchPipelineSending
+            }
+            if self.queuedCount > 0 {
+                return SourceVocabulary.watchPipelineSaved
+            }
+            if self.handedOffCount > 0 {
+                return SourceVocabulary.watchPipelineHandedOff
+            }
+            return SourceVocabulary.watchHeadlineOff
         }
-        if self.handedOffCount > 0 {
-            return "handed to your iphone"
-        }
-        guard self.queuedCount > 0 else { return nil }
-        return "saved on your watch"
     }
 
-    var pendingDetailText: String? {
-        guard !self.status.needsAttention else { return nil }
-        guard self.queuedCount > 0 || self.transferringCount > 0 else { return nil }
-        return "waiting for your iphone"
+    var countsLine: String? {
+        var parts: [String] = []
+        if self.transferringCount > 0 {
+            parts.append(SourceVocabulary.watchSendingCount(self.transferringCount))
+        }
+        if self.queuedCount > 0 {
+            parts.append(SourceVocabulary.watchSavedOnWatchCount(self.queuedCount))
+        }
+        if self.handedOffCount > 0 {
+            parts.append(SourceVocabulary.watchHandedToPhoneCount(self.handedOffCount))
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
+
+    var attentionLine: String? {
+        if case .needsAttention(let error) = self.status {
+            return error.message
+        }
+        return nil
     }
 }
 

@@ -17,7 +17,7 @@ struct WatchHomeView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(self.model.isReachable ? "iphone: reachable" : "iphone: not reachable")
+            Text(watchLinkLine(isReachable: self.model.isReachable))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Button(self.captureModel.actionText) {

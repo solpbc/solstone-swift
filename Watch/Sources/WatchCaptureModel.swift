@@ -57,22 +57,11 @@ final class WatchCaptureModel {
     }
 
     var primaryText: String {
-        if let pendingText = self.presentation.pendingText {
-            return pendingText
-        }
-        let (state, _) = watchSourceState(for: self.presentation)
-        return state.label
+        self.presentation.headline
     }
 
     var detailText: String {
-        if let pendingDetailText = self.presentation.pendingDetailText {
-            return pendingDetailText
-        }
-        let (_, attention) = watchSourceState(for: self.presentation)
-        if let attention {
-            return attention.message
-        }
-        return watchTrustLine()
+        self.presentation.countsLine ?? watchTrustLine()
     }
 
     var actionText: String {

@@ -23,3 +23,7 @@ nonisolated func watchSourceState(
 nonisolated func watchTrustLine() -> String {
     SourceVocabulary.trustLineConfigured
 }
+
+nonisolated func watchLinkLine(isReachable: Bool) -> String {
+    isReachable ? SourceVocabulary.watchLinkConnected : SourceVocabulary.watchLinkNotConnected
+}

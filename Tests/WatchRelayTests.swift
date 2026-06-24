@@ -220,16 +220,19 @@ final class WatchRelayTests: XCTestCase {
 
     func testOwnerPresentationRelayStrings() {
         let queued = WatchCaptureOwnerPresentation(status: .off, queuedCount: 1)
-        XCTAssertEqual(queued.pendingText, "saved on your watch")
-        XCTAssertEqual(queued.pendingDetailText, "waiting for your iphone")
+        XCTAssertEqual(queued.headline, "saved on your watch")
+        XCTAssertEqual(queued.countsLine, "1 saved on your watch")
+        XCTAssertNil(queued.attentionLine)
 
         let transferring = WatchCaptureOwnerPresentation(status: .off, queuedCount: 1, transferringCount: 1)
-        XCTAssertEqual(transferring.pendingText, "sending to your iphone")
-        XCTAssertEqual(transferring.pendingDetailText, "waiting for your iphone")
+        XCTAssertEqual(transferring.headline, "sending")
+        XCTAssertEqual(transferring.countsLine, "1 sending · 1 saved on your watch")
+        XCTAssertNil(transferring.attentionLine)
 
         let handedOff = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, handedOffCount: 1)
-        XCTAssertEqual(handedOff.pendingText, "handed to your iphone")
-        XCTAssertNil(handedOff.pendingDetailText)
+        XCTAssertEqual(handedOff.headline, "handed to your iphone")
+        XCTAssertEqual(handedOff.countsLine, "1 handed to your iphone")
+        XCTAssertNil(handedOff.attentionLine)
 
         let attention = WatchCaptureOwnerPresentation(
             status: .needsAttention(.diskFull),
@@ -237,8 +240,9 @@ final class WatchRelayTests: XCTestCase {
             transferringCount: 1,
             handedOffCount: 1
         )
-        XCTAssertNil(attention.pendingText)
-        XCTAssertNil(attention.pendingDetailText)
+        XCTAssertEqual(attention.headline, "storage is full")
+        XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 handed to your iphone")
+        XCTAssertEqual(attention.attentionLine, "storage is full")
     }
 }
 
