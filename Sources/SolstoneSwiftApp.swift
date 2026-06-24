@@ -20,6 +20,10 @@ struct SolstoneSwiftApp: App {
     @State private var omiRegistration: ObserverRegistration
     @State private var omiUploader: ObserverUploader
     @State private var omiUploaderHolder: OmiUploaderHolder
+    @State private var watchRegistration: ObserverRegistration
+    @State private var watchUploader: ObserverUploader
+    @State private var watchUploaderHolder: WatchUploaderHolder
+    @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var importQueue: ImportQueue
     @State private var locationUploader: LocationUploader
     @State private var locationManager: LocationManager
@@ -206,6 +210,73 @@ struct SolstoneSwiftApp: App {
             sourceType: "omi-audio"
         )
         let omiUploaderHolder = OmiUploaderHolder(omiUploader)
+        let watchRegistration = ObserverRegistration(
+            hostname: UIDevice.current.name,
+            version: AppVersion.shortVersion,
+            streamType: "watch",
+            label: "watch",
+            loadKey: {
+                try ObserverKeychain.loadWatchIngestKey()
+            },
+            saveKey: {
+                try ObserverKeychain.saveWatchIngestKey($0)
+            },
+            deleteKey: {
+                try ObserverKeychain.deleteWatchIngestKey()
+            },
+            loadPrefix: {
+                try ObserverKeychain.loadWatchIngestPrefix()
+            },
+            savePrefix: {
+                try ObserverKeychain.saveWatchIngestPrefix($0)
+            },
+            deletePrefix: {
+                try ObserverKeychain.deleteWatchIngestPrefix()
+            }
+        )
+        let watchUploadConfiguration = URLSessionConfiguration.background(
+            withIdentifier: WatchSegmentDrain.backgroundSessionIdentifier
+        )
+        watchUploadConfiguration.waitsForConnectivity = true
+        let watchCacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(WatchSegmentDrain.cacheDirectoryName, isDirectory: true)
+        let watchUploader = ObserverUploader(
+            cacheRootURL: watchCacheRoot,
+            sessionConfiguration: watchUploadConfiguration,
+            ensureRegistered: {
+                try await watchRegistration.ensureRegistered()
+            },
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
+            localPortProvider: {
+                watchRegistration.activeLocalPort
+            },
+            registrationPrefixProvider: {
+                watchRegistration.registrationPrefix
+            },
+            diagnosticLog: log,
+            sourceType: "watch-audio",
+            platform: "watchos"
+        )
+        let watchUploaderHolder = WatchUploaderHolder(watchUploader)
+        let watchSegmentDrain: WatchSegmentDrain?
+        do {
+            watchSegmentDrain = try WatchSegmentDrain(
+                watchUploader: watchUploader,
+                watchRegistration: watchRegistration,
+                localPortProvider: {
+                    watchRegistration.activeLocalPort
+                }
+            )
+        } catch {
+            Logger(subsystem: "app.solstone.swift", category: "watch-drain")
+                .error("watch segment drain unavailable: \(String(describing: error), privacy: .public)")
+            watchSegmentDrain = nil
+        }
+        watchUploaderHolder.removeStaging = { [weak watchSegmentDrain] id in
+            watchSegmentDrain?.removeStaged(id)
+        }
         let importQueue = ImportQueue(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
@@ -289,6 +360,10 @@ struct SolstoneSwiftApp: App {
         self._omiRegistration = State(initialValue: omiRegistration)
         self._omiUploader = State(initialValue: omiUploader)
         self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
+        self._watchRegistration = State(initialValue: watchRegistration)
+        self._watchUploader = State(initialValue: watchUploader)
+        self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
+        self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._importQueue = State(initialValue: importQueue)
         self._locationUploader = State(initialValue: locationUploader)
         self._locationManager = State(initialValue: locationManager)
@@ -299,6 +374,7 @@ struct SolstoneSwiftApp: App {
         self._omiSourceManager = State(initialValue: omiSource)
         self.appDelegate.observerUploader = observerUploader
         self.appDelegate.omiUploader = omiUploader
+        self.appDelegate.watchUploader = watchUploader
         self.appDelegate.importQueue = importQueue
         self.appDelegate.locationUploader = locationUploader
     }
@@ -315,6 +391,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.observerRegistration)
                 .environment(self.observerUploader)
                 .environment(self.omiUploaderHolder)
+                .environment(self.watchUploaderHolder)
                 .environment(self.importQueue)
                 .environment(self.locationManager)
                 .environment(self.locationUploader)
@@ -358,6 +435,9 @@ struct SolstoneSwiftApp: App {
                 }
                 .task {
                     await self.omiSourceManager.resumeIfEnabled()
+                }
+                .task {
+                    await self.watchSegmentDrain?.drain()
                 }
                 .task {
                     if case .idle = self.observerManager.state {
@@ -430,12 +510,16 @@ struct SolstoneSwiftApp: App {
             case .connected(let port, _):
                 self.observerRegistration.activeLocalPort = port
                 self.omiRegistration.activeLocalPort = port
+                self.watchRegistration.activeLocalPort = port
                 self.brainStatusMonitor.startPolling(localPort: port)
                 Task {
                     await self.observerUploader.reconcilePortAndResume()
                 }
                 Task {
                     await self.omiUploader.reconcilePortAndResume()
+                }
+                Task {
+                    await self.watchUploader.reconcilePortAndResume()
                 }
                 // follow-up: ImportQueue and LocationUploader share the same stale-port background-task shape.
                 Task {
@@ -451,10 +535,16 @@ struct SolstoneSwiftApp: App {
                     await self.omiUploader.retryFailed()
                 }
                 Task {
+                    await self.watchUploader.retryFailed()
+                }
+                Task {
                     await self.importQueue.retryFailed()
                 }
                 Task {
                     await self.locationUploader.retryFailed()
+                }
+                Task {
+                    await self.watchSegmentDrain?.drain()
                 }
 
                 if Self.isIntegrationMode,
@@ -486,6 +576,7 @@ struct SolstoneSwiftApp: App {
             case .connecting, .disconnected, .error:
                 self.observerRegistration.activeLocalPort = nil
                 self.omiRegistration.activeLocalPort = nil
+                self.watchRegistration.activeLocalPort = nil
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
                 self.integrationObserverStartTask?.cancel()

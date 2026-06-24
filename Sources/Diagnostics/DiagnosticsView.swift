@@ -8,6 +8,7 @@ struct DiagnosticsView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
+    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(VoiceManager.self) private var voiceManager
@@ -25,6 +26,7 @@ struct DiagnosticsView: View {
         uploadFailedTotal(
             observer: self.observerUploader,
             omi: self.omiUploaderHolder,
+            watch: self.watchUploaderHolder,
             importQueue: self.importQueue,
             location: self.locationUploader
         )
@@ -52,6 +54,7 @@ struct DiagnosticsView: View {
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
             omiUploader: self.omiUploaderHolder.uploader,
+            watchUploader: self.watchUploaderHolder.uploader,
             locationUploader: self.locationUploader
         )
         let migration = onThisPhoneMigration(snapshot: aggregate)

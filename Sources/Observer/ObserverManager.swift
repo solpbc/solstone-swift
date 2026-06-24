@@ -282,7 +282,8 @@ private extension ObserverManager {
             startedAt: startedAt,
             durationS: finalized.duration,
             sessionID: sessionID,
-            mode: mode
+            mode: mode,
+            locationJSONL: nil
         )
         await self.uploader.enqueue(chunkURL: finalized.url, sidecar: sidecar)
     }

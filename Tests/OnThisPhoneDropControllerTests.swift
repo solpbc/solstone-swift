@@ -178,6 +178,11 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             sourceType: "omi-audio",
             startPathMonitor: false
         )
+        let watchUploader = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("WatchObserver", isDirectory: true),
+            sourceType: "watch-audio",
+            startPathMonitor: false
+        )
         let locationUploader = LocationUploader(
             cacheRootURL: root.appendingPathComponent("Location", isDirectory: true),
             startPathMonitor: false
@@ -190,6 +195,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
         XCTAssertNotNil(makeDropCommit(
@@ -197,6 +203,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
         XCTAssertNotNil(makeDropCommit(
@@ -204,6 +211,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
         XCTAssertNotNil(makeDropCommit(
@@ -211,6 +219,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
         XCTAssertNil(makeDropCommit(
@@ -218,6 +227,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
     }
@@ -232,10 +242,16 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         )
         let observerRoot = root.appendingPathComponent("Observer", isDirectory: true)
         let omiRoot = root.appendingPathComponent("OmiObserver", isDirectory: true)
+        let watchRoot = root.appendingPathComponent("WatchObserver", isDirectory: true)
         let observerUploader = ObserverUploader(cacheRootURL: observerRoot, startPathMonitor: false)
         let omiUploader = ObserverUploader(
             cacheRootURL: omiRoot,
             sourceType: "omi-audio",
+            startPathMonitor: false
+        )
+        let watchUploader = ObserverUploader(
+            cacheRootURL: watchRoot,
+            sourceType: "watch-audio",
             startPathMonitor: false
         )
         let locationUploader = LocationUploader(
@@ -252,6 +268,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
         omiCommit()
@@ -264,11 +281,67 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
+            watchUploader: watchUploader,
             locationUploader: locationUploader
         ))
         observerCommit()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: observerFailedAudio.path))
+    }
+
+    func testWatchAudioDropAlsoRemovesStagingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OnThisPhoneWatchDropTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let importQueue = ImportQueue(
+            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
+            startPathMonitor: false
+        )
+        let observerUploader = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("Observer", isDirectory: true),
+            startPathMonitor: false
+        )
+        let omiUploader = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("OmiObserver", isDirectory: true),
+            sourceType: "omi-audio",
+            startPathMonitor: false
+        )
+        let watchRoot = root.appendingPathComponent("WatchObserver", isDirectory: true)
+        let watchUploader = ObserverUploader(
+            cacheRootURL: watchRoot,
+            sourceType: "watch-audio",
+            startPathMonitor: false
+        )
+        let locationUploader = LocationUploader(
+            cacheRootURL: root.appendingPathComponent("Location", isDirectory: true),
+            startPathMonitor: false
+        )
+        let sessionID = UUID()
+        let chunkID = sessionID.uuidString
+        let watchFailedAudio = try Self.writeFailedPair(root: watchRoot, sessionID: sessionID, chunkID: chunkID)
+        let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
+        let stagedDirectory = try Self.writeStagedWatchSegment(stagingRoot: stagingRoot, id: sessionID)
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            watchUploader: watchUploader,
+            watchRegistration: Self.watchRegistration(),
+            localPortProvider: { 7071 },
+            tempDirectoryURL: root.appendingPathComponent("watch-drain-temp", isDirectory: true)
+        )
+
+        let commit = try XCTUnwrap(makeDropCommit(
+            for: Self.item(id: "watch:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            locationUploader: locationUploader,
+            removeWatchStaging: drain.removeStaged
+        ))
+        commit()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: watchFailedAudio.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedDirectory.path))
     }
 
     private static func item(id: String, sourceKind: OnThisPhoneSourceKind) -> OnThisPhoneItem {
@@ -300,6 +373,54 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         try Data("audio".utf8).write(to: audioURL)
         try Data("{}".utf8).write(to: failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
         return audioURL
+    }
+
+    @MainActor
+    private static func writeStagedWatchSegment(stagingRoot: URL, id: UUID) throws -> URL {
+        let directory = stagingRoot.appendingPathComponent(id.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let manifest = WatchSegmentManifest(
+            id: id,
+            day: "20260603",
+            segment: "120000_300",
+            startedAt: Date(timeIntervalSince1970: 1_780_444_800),
+            duration: 300,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .finalized,
+            failureReason: nil
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(manifest).write(
+            to: directory.appendingPathComponent(WatchSegmentBundleCodec.manifestFilename, isDirectory: false),
+            options: .atomic
+        )
+        try Data("audio".utf8).write(
+            to: directory.appendingPathComponent(WatchSegmentBundleCodec.audioFilename, isDirectory: false),
+            options: .atomic
+        )
+        return directory
+    }
+
+    @MainActor
+    private static func watchRegistration() -> ObserverRegistration {
+        ObserverRegistration(
+            hostname: "test-phone",
+            version: "0.1.0",
+            streamType: "watch",
+            label: "watch",
+            loadKey: { "watch-handle-xyz" },
+            saveKey: { _ in },
+            deleteKey: {},
+            loadPrefix: { nil },
+            savePrefix: { _ in },
+            deletePrefix: {}
+        )
     }
 }
 

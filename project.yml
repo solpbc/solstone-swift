@@ -211,7 +211,9 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - Watch/Sources
-      - Sources/WatchCapture
+      - path: Sources/WatchCapture
+        excludes:
+          - WatchSegmentDrain.swift
       - Sources/WatchConnectivity
       - Sources/Observer/ObserverClock.swift
       - Sources/Observer/ObserverError.swift

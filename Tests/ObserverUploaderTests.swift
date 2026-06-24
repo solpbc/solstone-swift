@@ -986,7 +986,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             startedAt: Date(timeIntervalSince1970: 1_713_624_000),
             durationS: 3,
             sessionID: sessionID,
-            mode: .meeting
+            mode: .meeting,
+            locationJSONL: nil
         )
     }
 
@@ -1045,7 +1046,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             startedAt: startedAt,
             durationS: durationS,
             sessionID: sessionID,
-            mode: .meeting
+            mode: .meeting,
+            locationJSONL: nil
         )
         try self.makeEncoder().encode(sidecar).write(to: dir.appendingPathComponent("\(chunkID).json", isDirectory: false))
     }

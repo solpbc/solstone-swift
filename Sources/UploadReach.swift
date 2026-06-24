@@ -23,12 +23,13 @@ nonisolated func uploadReach(failedTotal: Int, pendingTotal: Int) -> UploadReach
 func uploadTotals(
     observer: ObserverUploader,
     omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder,
     importQueue: ImportQueue,
     location: LocationUploader
 ) -> (failed: Int, pending: Int) {
     (
-        failed: observer.failedCount + omi.failedCount + importQueue.failedCount + location.failedCount,
-        pending: observer.pendingCount + omi.pendingCount + importQueue.pendingCount + location.pendingCount
+        failed: observer.failedCount + omi.failedCount + watch.failedCount + importQueue.failedCount + location.failedCount,
+        pending: observer.pendingCount + omi.pendingCount + watch.pendingCount + importQueue.pendingCount + location.pendingCount
     )
 }
 
@@ -36,12 +37,14 @@ func uploadTotals(
 func uploadFailedTotal(
     observer: ObserverUploader,
     omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder,
     importQueue: ImportQueue,
     location: LocationUploader
 ) -> Int {
     uploadTotals(
         observer: observer,
         omi: omi,
+        watch: watch,
         importQueue: importQueue,
         location: location
     ).failed
@@ -51,12 +54,14 @@ func uploadFailedTotal(
 func uploadReach(
     observer: ObserverUploader,
     omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder,
     importQueue: ImportQueue,
     location: LocationUploader
 ) -> UploadReach {
     let totals = uploadTotals(
         observer: observer,
         omi: omi,
+        watch: watch,
         importQueue: importQueue,
         location: location
     )

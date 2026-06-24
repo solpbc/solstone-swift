@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     let pendingRoute = PendingNotificationRouteState()
     weak var observerUploader: ObserverUploader?
     weak var omiUploader: ObserverUploader?
+    weak var watchUploader: ObserverUploader?
     weak var importQueue: ImportQueue?
     weak var locationUploader: LocationUploader?
     lazy var tapRouter = NotificationTapRouter { [weak self] route in
@@ -92,6 +93,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         if identifier == OmiSegmentWriter.backgroundSessionIdentifier {
             Task { @MainActor [weak self] in
                 self?.omiUploader?.handleBackgroundURLSessionEvents(completionHandler: completion)
+            }
+            return
+        }
+
+        if identifier == WatchSegmentDrain.backgroundSessionIdentifier {
+            Task { @MainActor [weak self] in
+                self?.watchUploader?.handleBackgroundURLSessionEvents(completionHandler: completion)
             }
             return
         }

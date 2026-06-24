@@ -201,7 +201,8 @@ private extension OmiSegmentWriter {
             startedAt: startedAt,
             durationS: duration,
             sessionID: sessionID,
-            mode: .meeting
+            mode: .meeting,
+            locationJSONL: nil
         )
         let uploader = self.uploader
         Task { @MainActor [uploader, url, sidecar] in

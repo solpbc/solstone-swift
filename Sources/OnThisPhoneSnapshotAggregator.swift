@@ -9,6 +9,7 @@ enum OnThisPhoneSnapshotAggregator {
         importQueue: ImportQueue,
         observerUploader: ObserverUploader,
         omiUploader: ObserverUploader,
+        watchUploader: ObserverUploader,
         locationUploader: LocationUploader
     ) -> OnThisPhoneAggregateSnapshot {
         // Share includes delivered ledger entries; audio and location only have local pending/failed files.
@@ -17,7 +18,8 @@ enum OnThisPhoneSnapshotAggregator {
                 sourceKind: .audio,
                 result: self.combinedAudioResult(
                     observerUploader.onThisPhoneSnapshot(),
-                    omiUploader.onThisPhoneSnapshot()
+                    omiUploader.onThisPhoneSnapshot(),
+                    watchUploader.onThisPhoneSnapshot()
                 )
             ),
             OnThisPhoneSourceSnapshot(sourceKind: .location, result: locationUploader.onThisPhoneSnapshot()),
@@ -37,13 +39,16 @@ enum OnThisPhoneSnapshotAggregator {
 
     static func combinedAudioResult(
         _ observerResult: OnThisPhoneSourceResult,
-        _ omiResult: OnThisPhoneSourceResult
+        _ omiResult: OnThisPhoneSourceResult,
+        _ watchResult: OnThisPhoneSourceResult
     ) -> OnThisPhoneSourceResult {
-        switch (observerResult, omiResult) {
-        case (.failed, .failed):
+        switch (observerResult, omiResult, watchResult) {
+        case (.failed, .failed, .failed):
             return .failed
         default:
-            return .loaded(items: OnThisPhoneItemSort.newestFirst(observerResult.items + omiResult.items))
+            return .loaded(items: OnThisPhoneItemSort.newestFirst(
+                observerResult.items + omiResult.items + watchResult.items
+            ))
         }
     }
 }

@@ -55,6 +55,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             importQueue: queues.importQueue,
             observerUploader: queues.observerUploader,
             omiUploader: queues.omiUploader,
+            watchUploader: queues.watchUploader,
             locationUploader: queues.locationUploader
         )
 
@@ -74,6 +75,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             importQueue: emptyQueues.importQueue,
             observerUploader: emptyQueues.observerUploader,
             omiUploader: emptyQueues.omiUploader,
+            watchUploader: emptyQueues.watchUploader,
             locationUploader: emptyQueues.locationUploader
         )
         XCTAssertEqual(empty.items, [])
@@ -109,6 +111,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             importQueue: queues.importQueue,
             observerUploader: queues.observerUploader,
             omiUploader: queues.omiUploader,
+            watchUploader: queues.watchUploader,
             locationUploader: queues.locationUploader
         )
 
@@ -149,6 +152,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             importQueue: queues.importQueue,
             observerUploader: queues.observerUploader,
             omiUploader: queues.omiUploader,
+            watchUploader: queues.watchUploader,
             locationUploader: queues.locationUploader
         )
 
@@ -506,10 +510,12 @@ private extension OnThisPhoneAggregatorTests {
         let importRoot: URL
         let observerRoot: URL
         let omiRoot: URL
+        let watchRoot: URL
         let locationRoot: URL
         let importQueue: ImportQueue
         let observerUploader: ObserverUploader
         let omiUploader: ObserverUploader
+        let watchUploader: ObserverUploader
         let locationUploader: LocationUploader
     }
 
@@ -518,11 +524,13 @@ private extension OnThisPhoneAggregatorTests {
         let importRoot = self.tempDirectory.appendingPathComponent("\(suffix)-import", isDirectory: true)
         let observerRoot = self.tempDirectory.appendingPathComponent("\(suffix)-observer", isDirectory: true)
         let omiRoot = self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true)
+        let watchRoot = self.tempDirectory.appendingPathComponent("\(suffix)-watch", isDirectory: true)
         let locationRoot = self.tempDirectory.appendingPathComponent("\(suffix)-location", isDirectory: true)
         return Queues(
             importRoot: importRoot,
             observerRoot: observerRoot,
             omiRoot: omiRoot,
+            watchRoot: watchRoot,
             locationRoot: locationRoot,
             importQueue: ImportQueue(
                 cacheRootURL: importRoot,
@@ -538,6 +546,12 @@ private extension OnThisPhoneAggregatorTests {
                 cacheRootURL: omiRoot,
                 sessionConfiguration: .ephemeral,
                 sourceType: "omi-audio",
+                startPathMonitor: false
+            ),
+            watchUploader: ObserverUploader(
+                cacheRootURL: watchRoot,
+                sessionConfiguration: .ephemeral,
+                sourceType: "watch-audio",
                 startPathMonitor: false
             ),
             locationUploader: LocationUploader(
@@ -570,7 +584,8 @@ private extension OnThisPhoneAggregatorTests {
             startedAt: startedAt,
             durationS: durationS,
             sessionID: sessionID,
-            mode: .meeting
+            mode: .meeting,
+            locationJSONL: nil
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

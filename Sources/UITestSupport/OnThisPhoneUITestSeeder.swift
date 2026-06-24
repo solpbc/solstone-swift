@@ -202,7 +202,8 @@ private extension OnThisPhoneUITestSeeder {
             startedAt: startedAt,
             durationS: durationS,
             sessionID: sessionID,
-            mode: .meeting
+            mode: .meeting,
+            locationJSONL: nil
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

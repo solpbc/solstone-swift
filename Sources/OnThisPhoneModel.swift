@@ -23,6 +23,7 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
 nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
     case observer
     case omi
+    case watch
 
     init?(sourceType: String) {
         switch sourceType {
@@ -30,6 +31,8 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
             self = .observer
         case "omi-audio":
             self = .omi
+        case "watch-audio":
+            self = .watch
         default:
             return nil
         }
@@ -41,6 +44,8 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
             self = .observer
         case "omi":
             self = .omi
+        case "watch":
+            self = .watch
         default:
             return nil
         }
@@ -52,6 +57,8 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
             "audio"
         case .omi:
             "omi"
+        case .watch:
+            "watch"
         }
     }
 
@@ -61,6 +68,8 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel
         case .omi:
             SourceVocabulary.onThisPhoneOmiAudioSourceLabel
+        case .watch:
+            SourceVocabulary.onThisPhoneWatchAudioSourceLabel
         }
     }
 }
@@ -246,9 +255,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     }
 
     var voiceOverText: String {
-        let sourceLabel = self.isOmiAudio
-            ? SourceVocabulary.onThisPhoneOmiAudioSourceLabel
-            : SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind)
+        let sourceLabel = self.audioSource?.sourceLabel
+            ?? SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind)
         return [
             sourceLabel,
             self.rowPayloadText,
@@ -256,14 +264,29 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         ].joined(separator: ". ")
     }
 
-    var isOmiAudio: Bool {
-        guard case .audio(sessionID: _, chunkID: _, source: .omi) = OnThisPhoneItemID(
+    var audioSource: OnThisPhoneAudioSource? {
+        guard case .audio(sessionID: _, chunkID: _, source: let source) = OnThisPhoneItemID(
             sourceKind: self.sourceKind,
             id: self.id
         ) else {
-            return false
+            return nil
         }
-        return true
+        return source
+    }
+
+    var isOmiAudio: Bool {
+        self.audioSource == .omi
+    }
+
+    var audioSourceBadgeLabel: String? {
+        switch self.audioSource {
+        case .some(.omi):
+            "omi"
+        case .some(.watch):
+            SourceVocabulary.onThisPhoneWatchAudioSourceLabel
+        case .some(.observer), .none:
+            nil
+        }
     }
 
     var rowPayloadText: String {

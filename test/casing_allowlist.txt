@@ -77,6 +77,9 @@ ObserverUploader.swift|Content-Disposition
 LocationUploader.swift|Location
 LocationUploader.swift|Boundary-
 LocationUploader.swift|Content-Disposition
+WatchSegmentDrain.swift|WatchObserver
+WatchSegmentDrain.swift|Boundary-
+WatchSegmentDrain.swift|Content-Disposition
 LocationVocabulary.swift|\"Always
 ImportQueue.swift|Boundary-
 ImportQueue.swift|Content-Disposition

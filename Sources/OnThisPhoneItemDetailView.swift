@@ -81,8 +81,8 @@ private extension OnThisPhoneItemDetailView {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(summary.big)
                     .font(.headline)
-                if self.item.isOmiAudio {
-                    onThisPhoneOmiBadge()
+                if let badgeLabel = self.item.audioSourceBadgeLabel {
+                    onThisPhoneAudioSourceBadge(badgeLabel)
                 }
             }
             Text(summary.small)
@@ -193,8 +193,8 @@ private extension OnThisPhoneItemDetailView {
 }
 
 @MainActor
-func onThisPhoneOmiBadge() -> some View {
-    Text("omi")
+func onThisPhoneAudioSourceBadge(_ label: String) -> some View {
+    Text(label)
         .font(.caption2)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6)

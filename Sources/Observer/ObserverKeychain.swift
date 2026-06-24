@@ -14,6 +14,8 @@ nonisolated enum ObserverKeychain {
     static let observerIngestPrefixAccount = "solstone-swift-observer-ingest-prefix"
     static let omiIngestKeyAccount = "solstone-swift-omi-ingest-key"
     static let omiIngestPrefixAccount = "solstone-swift-omi-ingest-prefix"
+    static let watchIngestKeyAccount = "solstone-swift-watch-ingest-key"
+    static let watchIngestPrefixAccount = "solstone-swift-watch-ingest-prefix"
 
     static func saveObserverIngestKey(_ key: String) throws {
         try save(data: Data(key.utf8), account: observerIngestKeyAccount)
@@ -73,6 +75,36 @@ nonisolated enum ObserverKeychain {
 
     static func deleteOmiIngestPrefix() throws {
         try delete(account: omiIngestPrefixAccount)
+    }
+
+    static func saveWatchIngestKey(_ key: String) throws {
+        try save(data: Data(key.utf8), account: watchIngestKeyAccount)
+    }
+
+    static func loadWatchIngestKey() throws -> String? {
+        guard let data = try load(account: watchIngestKeyAccount) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func deleteWatchIngestKey() throws {
+        try delete(account: watchIngestKeyAccount)
+    }
+
+    static func saveWatchIngestPrefix(_ prefix: String) throws {
+        try save(data: Data(prefix.utf8), account: watchIngestPrefixAccount)
+    }
+
+    static func loadWatchIngestPrefix() throws -> String? {
+        guard let data = try load(account: watchIngestPrefixAccount) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func deleteWatchIngestPrefix() throws {
+        try delete(account: watchIngestPrefixAccount)
     }
 
     private static func save(data: Data, account: String) throws {

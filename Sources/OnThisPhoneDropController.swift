@@ -112,7 +112,9 @@ func makeDropCommit(
     importQueue: ImportQueue,
     observerUploader: ObserverUploader,
     omiUploader: ObserverUploader,
-    locationUploader: LocationUploader
+    watchUploader: ObserverUploader,
+    locationUploader: LocationUploader,
+    removeWatchStaging: (@MainActor @Sendable (UUID) -> Void)? = nil
 ) -> (@MainActor () -> Void)? {
     guard let itemID = OnThisPhoneItemID(sourceKind: item.sourceKind, id: item.id) else {
         return nil
@@ -130,6 +132,9 @@ func makeDropCommit(
                 observerUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
             case .omi:
                 omiUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+            case .watch:
+                watchUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+                removeWatchStaging?(sessionID)
             }
         }
     case .location(let fileID):

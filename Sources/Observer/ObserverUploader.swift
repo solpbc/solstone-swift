@@ -16,6 +16,7 @@ nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
     let durationS: TimeInterval
     let sessionID: UUID
     let mode: ObserverMode
+    let locationJSONL: Data?
 
     enum CodingKeys: String, CodingKey {
         case segment
@@ -25,6 +26,7 @@ nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
         case durationS = "duration_s"
         case sessionID = "session_id"
         case mode
+        case locationJSONL = "location_jsonl"
     }
 
     nonisolated static func segmentString(for date: Date, durationSeconds: Double) -> String {
@@ -100,11 +102,13 @@ final class ObserverUploader {
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private let sourceType: String
+    @ObservationIgnored private let platform: String
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let encoder: JSONEncoder
     @ObservationIgnored private let decoder: JSONDecoder
+    @ObservationIgnored var onSegmentDelivered: (@MainActor @Sendable (UUID) -> Void)?
     @ObservationIgnored private var backgroundCompletionHandler: (@MainActor @Sendable () -> Void)?
     @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
@@ -130,6 +134,8 @@ final class ObserverUploader {
         },
         diagnosticLog: DiagnosticLog? = nil,
         sourceType: String = "observer-audio",
+        platform: String = "ios",
+        onSegmentDelivered: (@MainActor @Sendable (UUID) -> Void)? = nil,
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in
@@ -148,6 +154,8 @@ final class ObserverUploader {
         self.urlBuilder = urlBuilder
         self.diagnosticLog = diagnosticLog
         self.sourceType = sourceType
+        self.platform = platform
+        self.onSegmentDelivered = onSegmentDelivered
         self.retryDelays = retryDelays
         self.maxAttempts = maxAttempts
         self.sleep = sleep
@@ -370,7 +378,8 @@ final class ObserverUploader {
                             startedAt: sidecar.startedAt,
                             durationS: sidecar.durationS,
                             sessionID: sidecar.sessionID,
-                            mode: sidecar.mode
+                            mode: sidecar.mode,
+                            locationJSONL: sidecar.locationJSONL
                         )
                         let encoded = try self.encoder.encode(migrated)
                         try encoded.write(to: url, options: .atomic)
@@ -877,6 +886,7 @@ private extension ObserverUploader {
             try? self.fileManager.removeItem(at: info.audioURL)
             try? self.fileManager.removeItem(at: info.sidecarURL)
             try? self.fileManager.removeItem(at: info.requestBodyURL)
+            self.onSegmentDelivered?(info.sessionID)
             self.attemptCountByChunkID.removeValue(forKey: info.chunkID)
             self.lastUploadAt = Date()
             self.lastError = nil
@@ -1117,7 +1127,7 @@ private extension ObserverUploader {
         var body = Data()
         body.append(self.multipartField(named: "segment", value: sidecar.segment, boundary: boundary))
         body.append(self.multipartField(named: "day", value: sidecar.day, boundary: boundary))
-        body.append(self.multipartField(named: "platform", value: "ios", boundary: boundary))
+        body.append(self.multipartField(named: "platform", value: self.platform, boundary: boundary))
 
         let meta = try JSONSerialization.data(withJSONObject: [
             "segment": sidecar.segment,
@@ -1140,7 +1150,15 @@ private extension ObserverUploader {
         body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
         body.append(audioData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("\r\n".data(using: .utf8)!)
+        if let locationJSONL = sidecar.locationJSONL {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"files[]\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
+            body.append(locationJSONL)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         try body.write(to: requestBodyURL, options: .atomic)
         return requestBodyURL
     }

@@ -35,6 +35,17 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             startPathMonitor: false
         )
         let omiUploaderHolder = OmiUploaderHolder(omiUploader)
+        let watchUploaderRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-WatchUploader-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: watchUploaderRoot) }
+        let watchUploader = ObserverUploader(
+            cacheRootURL: watchUploaderRoot,
+            sessionConfiguration: .ephemeral,
+            sourceType: "watch-audio",
+            platform: "watchos",
+            startPathMonitor: false
+        )
+        let watchUploaderHolder = WatchUploaderHolder(watchUploader)
         let locationUploaderRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-LocationUploader-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: locationUploaderRoot) }
@@ -127,6 +138,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(observerRegistration)
             .environment(observerUploader)
             .environment(omiUploaderHolder)
+            .environment(watchUploaderHolder)
             .environment(importQueue)
             .environment(locationUploader)
             .environment(observerManager)
@@ -170,6 +182,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(importQueue)
                 .environment(observerManager)
                 .environment(observerUploader)
+                .environment(omiUploaderHolder)
+                .environment(watchUploaderHolder)
                 .environment(locationUploader)
                 .environment(observerRegistration)
                 .environment(observerManager)
@@ -181,6 +195,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerManager)
                 .environment(observerUploader)
                 .environment(omiUploaderHolder)
+                .environment(watchUploaderHolder)
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }
@@ -190,6 +205,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerManager)
                 .environment(observerUploader)
                 .environment(omiUploaderHolder)
+                .environment(watchUploaderHolder)
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }

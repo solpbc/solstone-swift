@@ -26,6 +26,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
+    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -149,6 +150,12 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .onChange(of: self.omiUploaderHolder.failedCount) { _, _ in
                 self.loadSnapshot()
             }
+            .onChange(of: self.watchUploaderHolder.pendingCount) { _, _ in
+                self.loadSnapshot()
+            }
+            .onChange(of: self.watchUploaderHolder.failedCount) { _, _ in
+                self.loadSnapshot()
+            }
             .onChange(of: self.importQueue.pendingCount) { _, _ in
                 self.loadSnapshot()
             }
@@ -269,6 +276,7 @@ private extension OnThisPhoneMomentsView {
         let reach = uploadReach(
             observer: self.observerUploader,
             omi: self.omiUploaderHolder,
+            watch: self.watchUploaderHolder,
             importQueue: self.importQueue,
             location: self.locationUploader
         )
@@ -604,7 +612,9 @@ private extension OnThisPhoneMomentsView {
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
             omiUploader: self.omiUploaderHolder.uploader,
-            locationUploader: self.locationUploader
+            watchUploader: self.watchUploaderHolder.uploader,
+            locationUploader: self.locationUploader,
+            removeWatchStaging: self.watchUploaderHolder.removeStaging
         ) else {
             return
         }
@@ -620,6 +630,7 @@ private extension OnThisPhoneMomentsView {
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
             omiUploader: self.omiUploaderHolder.uploader,
+            watchUploader: self.watchUploaderHolder.uploader,
             locationUploader: self.locationUploader
         )
         self.aggregate = aggregate
@@ -794,8 +805,8 @@ private struct OnThisPhoneRow: View {
                 Text(SourceVocabulary.onThisPhoneSourceName(for: self.item.sourceKind))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                if self.item.isOmiAudio {
-                    onThisPhoneOmiBadge()
+                if let badgeLabel = self.item.audioSourceBadgeLabel {
+                    onThisPhoneAudioSourceBadge(badgeLabel)
                 }
                 Spacer(minLength: 8)
                 Text(self.item.rowTimestampText)

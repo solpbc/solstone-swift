@@ -23,6 +23,7 @@ struct MoreView: View {
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
+    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverManager.self) private var observerManager
@@ -50,6 +51,7 @@ struct MoreView: View {
         uploadReach(
             observer: self.observerUploader,
             omi: self.omiUploaderHolder,
+            watch: self.watchUploaderHolder,
             importQueue: self.importQueue,
             location: self.locationUploader
         )
