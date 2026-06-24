@@ -83,7 +83,7 @@ nonisolated enum SourceVocabulary {
     static let offSubtext = "not sending to your journal. turn it on any time."
     static let enrollingSubtext = "getting ready — connecting to your journal."
     static let pausedSubtext = "you paused this. resume to start sending again."
-    static let needsAttentionSubtext = "something's not getting through — tap to see what."
+    static let needsAttentionSubtext = "something's not getting through."
     static let needsAttention = "needs attention"
 
     static let observerActiveSubtext = "listening"

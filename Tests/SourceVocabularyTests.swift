@@ -337,7 +337,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.offSubtext, "not sending to your journal. turn it on any time.")
         XCTAssertEqual(SourceVocabulary.enrollingSubtext, "getting ready — connecting to your journal.")
         XCTAssertEqual(SourceVocabulary.pausedSubtext, "you paused this. resume to start sending again.")
-        XCTAssertEqual(SourceVocabulary.needsAttentionSubtext, "something's not getting through — tap to see what.")
+        XCTAssertEqual(SourceVocabulary.needsAttentionSubtext, "something's not getting through.")
         XCTAssertEqual(SourceVocabulary.importerActiveSubtext, "sending to your journal as you share.")
     }
 

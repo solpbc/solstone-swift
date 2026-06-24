@@ -632,6 +632,12 @@ private extension OmiSourceManager {
             self.resetAudioLiveState()
             self.buildOpusDecoder()
             self.log.info("omi audio stream enabled")
+            if let recovered = OmiSourceLogic.recoveredConnectionState(
+                current: self.connectionState,
+                audioIsLive: characteristic.isNotifying
+            ) {
+                self.connectionState = recovered
+            }
         } else {
             self.isAudioSubscribed = false
             self.opusDecoder = nil
@@ -711,6 +717,13 @@ private extension OmiSourceManager {
             self.diagnostics.noteDecodedSamples(at: now)
             self.lastSilentAttributionAt = nil
             self.evaluateAudioRecovery(now: now)
+            // this branch guarantees this-connection decode success (per-batch delta, not lifetime)
+            if let recovered = OmiSourceLogic.recoveredConnectionState(
+                current: self.connectionState,
+                audioIsLive: true
+            ) {
+                self.connectionState = recovered
+            }
         }
     }
 

@@ -595,6 +595,91 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
         XCTAssertTrue(report.contains("supporting readings: mtu connect 182, mtu subscribe-confirm 182, connect-to-first-audio 1.50s"), report)
     }
 
+    func testExportSummaryAnnotatesReconnectCountWhenRingIsFull() {
+        let start = Date(timeIntervalSince1970: 1_750)
+        let fullEvents = (0..<OmiEventRing.capacity).map { index in
+            OmiDiagnosticsPayload.ReconnectEvent(
+                timestamp: start.addingTimeInterval(TimeInterval(index)),
+                reason: "link lost",
+                appStateAtDrop: "foreground",
+                timeToReconnect: 1
+            )
+        }
+        let fullReport = OmiDiagnosticsLogic.exportSummary(
+            payload: OmiDiagnosticsPayload(reconnectEvents: fullEvents),
+            asOf: start.addingTimeInterval(100)
+        )
+
+        XCTAssertTrue(
+            fullReport.contains("reconnects: 50 (showing most recent 50 retained — see disconnect gaps for full count)\n"),
+            fullReport
+        )
+
+        let belowCapacityReport = OmiDiagnosticsLogic.exportSummary(
+            payload: OmiDiagnosticsPayload(reconnectEvents: Array(fullEvents.dropLast())),
+            asOf: start.addingTimeInterval(100)
+        )
+        XCTAssertTrue(belowCapacityReport.contains("reconnects: 49\n"), belowCapacityReport)
+        XCTAssertFalse(belowCapacityReport.contains("showing most recent"), belowCapacityReport)
+    }
+
+    func testExportSummaryAnnotatesSubscribeLatencySampleDenominator() {
+        let start = Date(timeIntervalSince1970: 1_760)
+        let payload = OmiDiagnosticsPayload(
+            reconnectEvents: [
+                OmiDiagnosticsPayload.ReconnectEvent(
+                    timestamp: start,
+                    reason: "link lost",
+                    appStateAtDrop: "foreground",
+                    timeToReconnect: 1
+                ),
+                OmiDiagnosticsPayload.ReconnectEvent(
+                    timestamp: start.addingTimeInterval(10),
+                    reason: "link lost",
+                    appStateAtDrop: "locked",
+                    timeToReconnect: 2
+                )
+            ],
+            subscribeLatencySamples: [
+                OmiDiagnosticsPayload.SubscribeLatencySample(
+                    timestamp: start,
+                    latencySeconds: 1.25,
+                    appState: "foreground"
+                ),
+                OmiDiagnosticsPayload.SubscribeLatencySample(
+                    timestamp: start.addingTimeInterval(10),
+                    latencySeconds: 2.5,
+                    appState: "locked"
+                )
+            ]
+        )
+
+        let report = OmiDiagnosticsLogic.exportSummary(payload: payload, asOf: start.addingTimeInterval(20))
+
+        XCTAssertTrue(
+            report.contains("unrecoverable connect-to-subscribe: 3.75s total not on SD / unrecoverable (foreground 1.25s, background 0.00s, locked 2.50s, 2 samples across 2 reconnects — unconfirmed reconnects not measured (foreground floor))\n"),
+            report
+        )
+    }
+
+    func testExportSummaryAnnotatesConnectedSilentBucketsQualifier() {
+        let start = Date(timeIntervalSince1970: 1_770)
+        let payload = OmiDiagnosticsPayload(
+            gapTallies: OmiDiagnosticsPayload.GapTallies(
+                connectedSilentForegroundSeconds: 5,
+                connectedSilentBackgroundSeconds: 6,
+                connectedSilentLockedSeconds: 7
+            )
+        )
+
+        let report = OmiDiagnosticsLogic.exportSummary(payload: payload, asOf: start)
+
+        XCTAssertTrue(
+            report.contains("connected-without-audio buckets: foreground 5s, background 6s, locked 7s (foreground-sampled; background under-counted)\n"),
+            report
+        )
+    }
+
     func testExportSummaryReportsStorageUnavailableWhenNeverRead() {
         let report = OmiDiagnosticsLogic.exportSummary(payload: OmiDiagnosticsPayload(), asOf: Date(timeIntervalSince1970: 1_800))
 

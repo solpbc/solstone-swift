@@ -190,6 +190,69 @@ nonisolated final class OmiSourceLogicTests: XCTestCase {
         XCTAssertEqual(snapshot.decodeErrors, 2)
     }
 
+    func testRecoveredConnectionStateOnlyRecoversLiveAudioUnavailable() {
+        XCTAssertEqual(
+            OmiSourceLogic.recoveredConnectionState(
+                current: .needsAttention(.audioUnavailable),
+                audioIsLive: true
+            ),
+            .connected
+        )
+        XCTAssertNil(OmiSourceLogic.recoveredConnectionState(
+            current: .needsAttention(.audioUnavailable),
+            audioIsLive: false
+        ))
+    }
+
+    func testRecoveredConnectionStateDoesNotRecoverOtherAttentionReasons() {
+        let attentionReasons: [OmiAttention] = [
+            .pendantNotFound,
+            .bluetoothOff,
+            .unauthorized,
+            .unsupported,
+            .connectFailed("x"),
+            .codecNotOpus
+        ]
+
+        for reason in attentionReasons {
+            XCTAssertNil(
+                OmiSourceLogic.recoveredConnectionState(
+                    current: .needsAttention(reason),
+                    audioIsLive: true
+                ),
+                "\(reason)"
+            )
+        }
+    }
+
+    func testRecoveredConnectionStateDoesNotRecoverNonAttentionStates() {
+        let states: [OmiSourceState] = [
+            .connected,
+            .connecting,
+            .reconnecting,
+            .disconnected
+        ]
+
+        for state in states {
+            XCTAssertNil(OmiSourceLogic.recoveredConnectionState(current: state, audioIsLive: true), "\(state)")
+            XCTAssertNil(OmiSourceLogic.recoveredConnectionState(current: state, audioIsLive: false), "\(state)")
+        }
+    }
+
+    func testRecoveredConnectionFreshAudioHealthIsReceiving() {
+        let now = Date(timeIntervalSince1970: 1_200)
+
+        XCTAssertEqual(
+            OmiSourceLogic.audioHealth(
+                connectionState: .connected,
+                lastAudioAt: now,
+                connectedSince: now.addingTimeInterval(-5),
+                now: now
+            ),
+            .receiving
+        )
+    }
+
     func testPersistedPeripheralIDRoundTrip() throws {
         let id = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000123"))
         let storedValue = OmiSourceLogic.storedPeripheralIDValue(for: id)

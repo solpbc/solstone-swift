@@ -557,7 +557,11 @@ nonisolated enum OmiDiagnosticsLogic {
         lines.append("generated: \(Self.dateText(date))")
         lines.append("uptime: \(uptimePercent)")
         lines.append("connected time: \(Self.durationText(connectedSeconds))")
-        lines.append("reconnects: \(reconnects.count)")
+        if payload.reconnectEvents.count == OmiEventRing.capacity {
+            lines.append("reconnects: \(reconnects.count) (showing most recent \(OmiEventRing.capacity) retained — see disconnect gaps for full count)")
+        } else {
+            lines.append("reconnects: \(reconnects.count)")
+        }
         lines.append("last reconnect: \(Self.lastReconnectText(reconnects))")
         lines.append("disconnect profile: \(Self.disconnectProfileText(payload.reconnectEvents))")
         lines.append("disconnect gaps: \(payload.gapTallies.disconnectGapCount), \(Self.durationText(disconnectGapSeconds))")
@@ -570,7 +574,10 @@ nonisolated enum OmiDiagnosticsLogic {
         lines.append("pendant signal: \(Self.pendantSignalText(payload.pendantSignalTrend))")
         lines.append("phone battery: \(Self.phoneBatteryText(payload.phoneSamples))")
         lines.append("phone thermal state: \(payload.phoneSamples.last?.thermalState ?? "unknown")")
-        lines.append(Self.subscribeLatencyText(payload.subscribeLatencySamples ?? []))
+        lines.append(Self.subscribeLatencyText(
+            payload.subscribeLatencySamples ?? [],
+            reconnectCount: reconnects.count
+        ))
         lines.append(Self.connectedSilentBucketsText(payload.gapTallies))
         lines.append(contentsOf: Self.disconnectWindowLines(
             events: payload.reconnectEvents,
@@ -700,17 +707,20 @@ nonisolated enum OmiDiagnosticsLogic {
         return "\(startPercent)%→\(endPercent)%, drain \(String(format: "%.1f", totalDrop / totalHours))%/hr (\(samples.count) samples)"
     }
 
-    private static func subscribeLatencyText(_ samples: [OmiDiagnosticsPayload.SubscribeLatencySample]) -> String {
+    private static func subscribeLatencyText(
+        _ samples: [OmiDiagnosticsPayload.SubscribeLatencySample],
+        reconnectCount: Int
+    ) -> String {
         guard !samples.isEmpty else {
             return "unrecoverable connect-to-subscribe: unavailable (no subscribe-confirm samples)"
         }
 
         let breakdown = Self.subscribeLatencyBreakdown(samples)
-        return "unrecoverable connect-to-subscribe: \(Self.secondsText(breakdown.totalSeconds)) total not on SD / unrecoverable (foreground \(Self.secondsText(breakdown.foregroundSeconds)), background \(Self.secondsText(breakdown.backgroundSeconds)), locked \(Self.secondsText(breakdown.lockedSeconds)), \(breakdown.sampleCount) samples)"
+        return "unrecoverable connect-to-subscribe: \(Self.secondsText(breakdown.totalSeconds)) total not on SD / unrecoverable (foreground \(Self.secondsText(breakdown.foregroundSeconds)), background \(Self.secondsText(breakdown.backgroundSeconds)), locked \(Self.secondsText(breakdown.lockedSeconds)), \(breakdown.sampleCount) samples across \(reconnectCount) reconnects — unconfirmed reconnects not measured (foreground floor))"
     }
 
     private static func connectedSilentBucketsText(_ tallies: OmiDiagnosticsPayload.GapTallies) -> String {
-        "connected-without-audio buckets: foreground \(Self.durationText(tallies.connectedSilentForegroundSeconds ?? 0)), background \(Self.durationText(tallies.connectedSilentBackgroundSeconds ?? 0)), locked \(Self.durationText(tallies.connectedSilentLockedSeconds ?? 0))"
+        "connected-without-audio buckets: foreground \(Self.durationText(tallies.connectedSilentForegroundSeconds ?? 0)), background \(Self.durationText(tallies.connectedSilentBackgroundSeconds ?? 0)), locked \(Self.durationText(tallies.connectedSilentLockedSeconds ?? 0)) (foreground-sampled; background under-counted)"
     }
 
     private static func storageBacklogText(_ samples: [OmiDiagnosticsPayload.StorageBacklogSample]) -> String {

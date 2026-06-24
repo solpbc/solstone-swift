@@ -233,6 +233,21 @@ nonisolated enum OmiSourceLogic {
         return .alreadyLive
     }
 
+    /// Single decision point + sole producer of the `.audioUnavailable → .connected`
+    /// recovery transition. Returns `.connected` ONLY when currently latched at
+    /// `.needsAttention(.audioUnavailable)` and audio is demonstrably live on the
+    /// existing connection; otherwise `nil` (no transition). The codec guard is
+    /// implicit: we only override `.audioUnavailable`, never `.codecNotOpus`.
+    nonisolated static func recoveredConnectionState(
+        current: OmiSourceState,
+        audioIsLive: Bool
+    ) -> OmiSourceState? {
+        guard case .needsAttention(.audioUnavailable) = current, audioIsLive else {
+            return nil
+        }
+        return .connected
+    }
+
     static func persistedPeripheralID(from storedValue: String?) -> UUID? {
         guard let storedValue else {
             return nil
