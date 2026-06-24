@@ -385,6 +385,10 @@ struct BLEDiagnosticView: View {
                             Label("share wav", systemImage: "square.and.arrow.up")
                         }
                     }
+                    ShareLink(item: self.manager.sdReconciliationSummary()) {
+                        Label("share reconcile", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(self.manager.sdReconciliationRecords.isEmpty)
                 }
 
                 Toggle("enable delete controls", isOn: Binding(

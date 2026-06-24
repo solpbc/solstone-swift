@@ -54,6 +54,8 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     var sdLastFrameTimestamp: UInt32?
     var sdRawShareURL: URL?
     var sdWavShareURL: URL?
+    // A drain session is one connection. Records are cleared on disconnect via clearSDDrainState() -> clearConnectionArtifacts(), so a drain that spans a reconnect intentionally starts fresh.
+    private(set) var sdReconciliationRecords: [BLEDrainedFileRecord] = []
     var sdDangerEnabled = false
     let log = BLEDiagnosticLog()
 
@@ -82,6 +84,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
     @ObservationIgnored private var sdThroughputWindow: [(timestamp: Date, bytes: Int)] = []
     @ObservationIgnored private var didLogNonOpusSkip = false
     @ObservationIgnored private var sdReadOffset = 0
+    @ObservationIgnored private var sdReadingFileNumber: UInt8?
     @ObservationIgnored private var didFinishSDArtifacts = false
 
     private let pcmRingSampleLimit = 160_000
@@ -333,6 +336,7 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
 
         let clampedOffset = max(0, min(offset, file.sizeBytes))
         self.resetSDDrainState()
+        self.sdReadingFileNumber = file.fileNumber
         self.sdDrainState = .reading
         self.startSDReadTimeoutTask()
         self.sdTotalBytes = file.sizeBytes > 0 ? file.sizeBytes : nil
@@ -492,6 +496,10 @@ final class BLEDiagnosticManager: NSObject, CBCentralManagerDelegate, CBPeripher
             connectedPeripheralID: self.connectedPeripheralID,
             firmware: firmwareValue
         )
+    }
+
+    func sdReconciliationSummary() -> String {
+        BLEDrainReconcileLogic.renderSummary(records: self.sdReconciliationRecords)
     }
 
     // L1 scaffolding only: constructed with the restore identifier and a willRestoreState handler. True state restoration also requires re-instantiating this manager at app launch (didFinishLaunching) with the same identifier; that is intentionally NOT wired in L1.
@@ -1399,6 +1407,7 @@ private extension BLEDiagnosticManager {
         self.sdPCMSamples.removeAll(keepingCapacity: true)
         self.sdThroughputWindow.removeAll(keepingCapacity: true)
         self.sdReadOffset = 0
+        self.sdReadingFileNumber = nil
         self.didFinishSDArtifacts = false
         self.sdBytesReceived = 0
         self.sdTotalBytes = nil
@@ -1420,6 +1429,7 @@ private extension BLEDiagnosticManager {
         self.isStorageSubscribed = false
         self.sdFiles = []
         self.sdDangerEnabled = false
+        self.sdReconciliationRecords.removeAll(keepingCapacity: true)
         self.resetSDDrainState()
     }
 
@@ -1505,6 +1515,16 @@ private extension BLEDiagnosticManager {
             return
         }
         self.didFinishSDArtifacts = true
+        let record = BLEDrainReconcileLogic.makeRecord(
+            fileNumber: self.sdReadingFileNumber,
+            epoch: self.sdLastFrameTimestamp,
+            bytes: self.sdBytesReceived,
+            sampleCount: self.sdPCMSamples.count,
+            decodeOK: self.sdDecodeOK,
+            decodeErrors: self.sdDecodeErrors,
+            status: self.sdDrainState.displayString
+        )
+        self.sdReconciliationRecords.append(record)
         self.cancelSDStatsTask(appendFinal: true)
         self.sdOpusDecoder = nil
 
