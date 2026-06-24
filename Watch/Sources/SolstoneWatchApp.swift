@@ -5,8 +5,30 @@ import SwiftUI
 
 @main
 struct SolstoneWatchApp: App {
-    @State private var sessionModel = WatchSessionModel()
-    @State private var captureModel = WatchCaptureModel()
+    @State private var sessionModel: WatchSessionModel
+    @State private var captureModel: WatchCaptureModel
+
+    init() {
+        let session = LiveWatchConnectivitySession()
+        do {
+            let storage = try WatchCaptureStorage()
+            let relaySender = WatchRelaySender(storage: storage, session: session)
+            self._sessionModel = State(initialValue: WatchSessionModel(
+                session: session,
+                relaySender: relaySender
+            ))
+            self._captureModel = State(initialValue: WatchCaptureModel(
+                storage: storage,
+                relaySender: relaySender
+            ))
+        } catch {
+            self._sessionModel = State(initialValue: WatchSessionModel(
+                session: session,
+                relaySender: nil
+            ))
+            self._captureModel = State(initialValue: WatchCaptureModel(initializationError: error))
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

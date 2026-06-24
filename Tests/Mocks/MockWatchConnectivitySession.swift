@@ -10,16 +10,36 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var isReachable = false
     var onActivationChanged: (@Sendable (Bool) -> Void)?
     var onReachabilityChanged: (@Sendable (Bool) -> Void)?
+    var onReceiveFile: ((URL, [String: Any]) -> Void)?
+    var onReceiveUserInfo: (([String: Any]) -> Void)?
 
     var activateCallCount = 0
+    var transferredFiles: [(URL, [String: Any])] = []
+    var transferredUserInfos: [[String: Any]] = []
 
     func activate() {
         self.activateCallCount += 1
         self.onActivationChanged?(true)
     }
 
+    func transferFile(_ url: URL, metadata: [String: Any]) {
+        self.transferredFiles.append((url, metadata))
+    }
+
+    func transferUserInfo(_ userInfo: [String: Any]) {
+        self.transferredUserInfos.append(userInfo)
+    }
+
     func emitReachability(_ isReachable: Bool) {
         self.isReachable = isReachable
         self.onReachabilityChanged?(isReachable)
+    }
+
+    func deliverFile(_ url: URL, metadata: [String: Any]) {
+        self.onReceiveFile?(url, metadata)
+    }
+
+    func deliverUserInfo(_ userInfo: [String: Any]) {
+        self.onReceiveUserInfo?(userInfo)
     }
 }

@@ -10,6 +10,7 @@ private let watchCaptureLog = Logger(subsystem: "app.solstone.swift", category: 
 @MainActor
 final class WatchCaptureEngine {
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
+    var onRelayDrainRequested: (@MainActor () -> Void)?
 
     private let audioRecorder: any WatchAudioRecording
     private let audioSession: any WatchAudioSessionControlling
@@ -29,6 +30,8 @@ final class WatchCaptureEngine {
     private var status: WatchCaptureRuntimeStatus = .off
     private var runtimeAttention: ObserverError?
     private var queuedCount = 0
+    private var transferringCount = 0
+    private var handedOffCount = 0
 
     init(
         audioRecorder: any WatchAudioRecording,
@@ -59,14 +62,24 @@ final class WatchCaptureEngine {
         WatchCaptureOwnerPresentation(
             status: self.status,
             queuedCount: self.queuedCount,
+            transferringCount: self.transferringCount,
+            handedOffCount: self.handedOffCount,
             isSessionRunning: self.activeSegment != nil
         )
+    }
+
+    func refreshRelayCountsFromDisk() {
+        do {
+            try self.refreshRelayCountsFromDiskThrowing()
+        } catch {
+            self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+        }
+        self.notifyPresentationChanged()
     }
 
     func reconcileOnLaunch() async {
         do {
             let entries = try self.storage.scanManifests()
-            self.queuedCount = entries.filter { $0.manifest.state == .queued }.count
             for entry in entries {
                 switch entry.manifest.state {
                 case .captured, .persisted:
@@ -80,10 +93,12 @@ final class WatchCaptureEngine {
                     break
                 }
             }
+            try self.refreshRelayCountsFromDiskThrowing()
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
         self.notifyPresentationChanged()
+        self.requestRelayDrain()
     }
 
     func start() async {
@@ -425,6 +440,7 @@ private extension WatchCaptureEngine {
                 )
             }
             self.queuedCount += 1
+            self.requestRelayDrain()
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
@@ -482,6 +498,7 @@ private extension WatchCaptureEngine {
             )
         }
         self.queuedCount += 1
+        self.requestRelayDrain()
     }
 
     func handleFix(_ fix: WatchLocationFix) {
@@ -585,5 +602,18 @@ private extension WatchCaptureEngine {
 
     func notifyPresentationChanged() {
         self.onPresentationChanged?(self.ownerPresentation)
+    }
+
+    func requestRelayDrain() {
+        self.onRelayDrainRequested?()
+    }
+
+    func refreshRelayCountsFromDiskThrowing() throws {
+        let entries = try self.storage.scanManifests()
+        self.queuedCount = entries.filter { $0.manifest.state == .queued }.count
+        self.transferringCount = entries.filter { $0.manifest.state == .transferring }.count
+        self.handedOffCount = entries.filter {
+            $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
+        }.count
     }
 }

@@ -9,7 +9,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testActivateInvokesSessionActivation() async {
-        let watchLink = WatchLink(session: self.session)
+        let watchLink = WatchLink(session: self.session, receiver: nil)
 
         watchLink.activate()
         await self.yieldToMainActor()
@@ -19,7 +19,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testReachabilityTransitionIsSurfaced() async {
-        let watchLink = WatchLink(session: self.session)
+        let watchLink = WatchLink(session: self.session, receiver: nil)
         XCTAssertEqual(watchLink.isReachable, false)
 
         self.session.emitReachability(true)

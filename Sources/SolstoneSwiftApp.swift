@@ -231,7 +231,16 @@ struct SolstoneSwiftApp: App {
         let locationManager = LocationManager(uploader: locationUploader)
         let observerRecorder = Self.makeObserverRecorder()
         let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
-        let watchLink = WatchLink()
+        let watchConnectivitySession = LiveWatchConnectivitySession()
+        let watchRelayReceiver: WatchRelayReceiver?
+        do {
+            watchRelayReceiver = try WatchRelayReceiver(session: watchConnectivitySession)
+        } catch {
+            Logger(subsystem: "app.solstone.swift", category: "watch-relay")
+                .error("watch relay receiver unavailable: \(String(describing: error), privacy: .public)")
+            watchRelayReceiver = nil
+        }
+        let watchLink = WatchLink(session: watchConnectivitySession, receiver: watchRelayReceiver)
         watchLink.activate()
         let voice = VoiceManager(
             webrtc: Self.makeWebRTCConnector(),

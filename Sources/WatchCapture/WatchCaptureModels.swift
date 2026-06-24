@@ -99,23 +99,39 @@ nonisolated enum WatchCaptureRuntimeStatus: Equatable, Sendable {
 nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let status: WatchCaptureRuntimeStatus
     let queuedCount: Int
+    let transferringCount: Int
+    let handedOffCount: Int
     let isSessionRunning: Bool
 
-    init(status: WatchCaptureRuntimeStatus, queuedCount: Int, isSessionRunning: Bool = false) {
+    init(
+        status: WatchCaptureRuntimeStatus,
+        queuedCount: Int,
+        transferringCount: Int = 0,
+        handedOffCount: Int = 0,
+        isSessionRunning: Bool = false
+    ) {
         self.status = status
         self.queuedCount = queuedCount
+        self.transferringCount = transferringCount
+        self.handedOffCount = handedOffCount
         self.isSessionRunning = isSessionRunning
     }
 
     var pendingText: String? {
-        guard self.queuedCount > 0 else { return nil }
         guard !self.status.needsAttention else { return nil }
+        if self.transferringCount > 0 {
+            return "sending to your iphone"
+        }
+        if self.handedOffCount > 0 {
+            return "handed to your iphone"
+        }
+        guard self.queuedCount > 0 else { return nil }
         return "saved on your watch"
     }
 
     var pendingDetailText: String? {
-        guard self.queuedCount > 0 else { return nil }
         guard !self.status.needsAttention else { return nil }
+        guard self.queuedCount > 0 || self.transferringCount > 0 else { return nil }
         return "waiting for your iphone"
     }
 }

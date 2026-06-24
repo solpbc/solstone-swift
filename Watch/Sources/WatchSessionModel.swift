@@ -3,7 +3,6 @@
 
 import Foundation
 import Observation
-import WatchConnectivity
 import os
 
 private let watchAppLog = Logger(subsystem: "app.solstone.swift", category: "watch-app")
@@ -13,27 +12,19 @@ private let watchAppLog = Logger(subsystem: "app.solstone.swift", category: "wat
 final class WatchSessionModel {
     var isReachable = false
 
-    @ObservationIgnored private let session: WCSession?
-    @ObservationIgnored private let delegate: WatchSessionDelegate?
+    @ObservationIgnored private let session: any WatchConnectivitySession
+    @ObservationIgnored private let relaySender: WatchRelaySender?
 
-    init() {
-        guard WCSession.isSupported() else {
-            self.session = nil
-            self.delegate = nil
-            watchAppLog.info("watch app: connectivity unavailable")
-            return
-        }
-
-        let session = WCSession.default
-        let delegate = WatchSessionDelegate()
+    init(session: any WatchConnectivitySession, relaySender: WatchRelaySender?) {
         self.session = session
-        self.delegate = delegate
-        delegate.onActivationChanged = { [weak self] didActivate in
+        self.relaySender = relaySender
+        self.isReachable = session.isReachable
+        self.session.onActivationChanged = { [weak self] didActivate in
             Task { @MainActor [weak self] in
                 self?.handleActivationChanged(didActivate)
             }
         }
-        delegate.onReachabilityChanged = { [weak self] isReachable in
+        self.session.onReachabilityChanged = { [weak self] isReachable in
             Task { @MainActor [weak self] in
                 self?.handleReachabilityChanged(isReachable)
             }
@@ -41,20 +32,20 @@ final class WatchSessionModel {
     }
 
     func activate() {
-        guard let session, let delegate else {
+        guard self.session.isSupported else {
             self.isReachable = false
+            watchAppLog.info("watch app: connectivity unavailable")
             return
         }
-        session.delegate = delegate
-        self.isReachable = session.isReachable
+        self.isReachable = self.session.isReachable
         watchAppLog.info("watch app: activating")
-        session.activate()
+        self.session.activate()
     }
 }
 
 private extension WatchSessionModel {
     func handleActivationChanged(_ didActivate: Bool) {
-        self.isReachable = self.session?.isReachable ?? false
+        self.isReachable = self.session.isReachable
         let detail = didActivate ? "completed" : "failed"
         watchAppLog.info("watch app: activation \(detail, privacy: .public)")
     }
@@ -63,5 +54,8 @@ private extension WatchSessionModel {
         self.isReachable = isReachable
         let detail = isReachable ? "reachable" : "not reachable"
         watchAppLog.info("watch app: reachability \(detail, privacy: .public)")
+        if isReachable {
+            self.relaySender?.drain()
+        }
     }
 }

@@ -212,6 +212,7 @@ targets:
     sources:
       - Watch/Sources
       - Sources/WatchCapture
+      - Sources/WatchConnectivity
       - Sources/Observer/ObserverClock.swift
       - Sources/Observer/ObserverError.swift
       - Sources/Services/AppGroupContainer.swift

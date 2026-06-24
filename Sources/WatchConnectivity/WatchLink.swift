@@ -13,9 +13,11 @@ final class WatchLink {
     private(set) var isReachable: Bool
 
     @ObservationIgnored private let session: any WatchConnectivitySession
+    @ObservationIgnored private let receiver: WatchRelayReceiver?
 
-    init(session: any WatchConnectivitySession = LiveWatchConnectivitySession()) {
+    init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?) {
         self.session = session
+        self.receiver = receiver
         self.isReachable = session.isReachable
         self.session.onActivationChanged = { [weak self] didActivate in
             Task { @MainActor [weak self] in

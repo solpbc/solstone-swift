@@ -11,30 +11,38 @@ final class WatchCaptureModel {
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
 
-    init() {
-        do {
-            let storage = try WatchCaptureStorage()
-            let engine = WatchCaptureEngine(
-                audioRecorder: LiveWatchAudioRecorder(),
-                audioSession: LiveWatchAudioSessionController(),
-                locationProvider: LiveWatchLocationProvider(),
-                storage: storage,
-                audioProbe: LiveWatchAudioProbe()
-            )
-            engine.onPresentationChanged = { [weak self] presentation in
-                self?.presentation = presentation
-            }
-            self.engine = engine
-            Task { @MainActor [weak self, engine] in
-                await engine.reconcileOnLaunch()
+    init(storage: WatchCaptureStorage, relaySender: WatchRelaySender) {
+        let engine = WatchCaptureEngine(
+            audioRecorder: LiveWatchAudioRecorder(),
+            audioSession: LiveWatchAudioSessionController(),
+            locationProvider: LiveWatchLocationProvider(),
+            storage: storage,
+            audioProbe: LiveWatchAudioProbe()
+        )
+        engine.onPresentationChanged = { [weak self] presentation in
+            self?.presentation = presentation
+        }
+        engine.onRelayDrainRequested = { [weak relaySender] in
+            relaySender?.drain()
+        }
+        relaySender.onStateChanged = { [weak self, weak engine] in
+            engine?.refreshRelayCountsFromDisk()
+            if let engine {
                 self?.presentation = engine.ownerPresentation
             }
-        } catch {
-            self.presentation = WatchCaptureOwnerPresentation(
-                status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
-                queuedCount: 0
-            )
         }
+        self.engine = engine
+        Task { @MainActor [weak self, engine] in
+            await engine.reconcileOnLaunch()
+            self?.presentation = engine.ownerPresentation
+        }
+    }
+
+    init(initializationError error: any Error) {
+        self.presentation = WatchCaptureOwnerPresentation(
+            status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
+            queuedCount: 0
+        )
     }
 
     var isRunning: Bool {
