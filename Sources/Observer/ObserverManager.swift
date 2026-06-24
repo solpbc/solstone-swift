@@ -407,10 +407,6 @@ private extension ObserverManager {
 
 extension ObserverManager {
     static func segmentString(for date: Date, durationSeconds: Double) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.dateFormat = String(repeating: "h".uppercased(), count: 2) + "mmss"
-        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
+        ChunkSidecar.segmentString(for: date, durationSeconds: durationSeconds)
     }
 }

@@ -26,6 +26,14 @@ nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
         case sessionID = "session_id"
         case mode
     }
+
+    nonisolated static func segmentString(for date: Date, durationSeconds: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "HHmmss"
+        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
+    }
 }
 
 nonisolated struct ObserverUploadFailureSidecar: Codable, Equatable, Sendable {
@@ -325,6 +333,62 @@ final class ObserverUploader {
         }
 
         self.refreshCounts()
+    }
+
+    func migrateLegacySegmentKeys() async -> Int {
+        var count = 0
+
+        do {
+            try self.fileManager.createDirectory(at: self.cacheRootURL, withIntermediateDirectories: true)
+            let sessionDirectories = try self.fileManager.contentsOfDirectory(
+                at: self.cacheRootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+
+            for sessionDirectory in sessionDirectories where self.isDirectory(sessionDirectory) {
+                guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
+                let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
+                guard self.fileManager.fileExists(atPath: failedDirectory.path) else { continue }
+                let entries = try self.fileManager.contentsOfDirectory(
+                    at: failedDirectory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+                for url in entries where url.pathExtension == "json" {
+                    do {
+                        let data = try Data(contentsOf: url)
+                        let sidecar = try self.decoder.decode(ChunkSidecar.self, from: data)
+                        if sidecar.segment.wholeMatch(of: /^\d{6}_\d+$/) != nil {
+                            continue
+                        }
+
+                        let migrated = ChunkSidecar(
+                            segment: ChunkSidecar.segmentString(for: sidecar.startedAt, durationSeconds: sidecar.durationS),
+                            day: sidecar.day,
+                            chunkIndex: sidecar.chunkIndex,
+                            startedAt: sidecar.startedAt,
+                            durationS: sidecar.durationS,
+                            sessionID: sidecar.sessionID,
+                            mode: sidecar.mode
+                        )
+                        let encoded = try self.encoder.encode(migrated)
+                        try encoded.write(to: url, options: .atomic)
+                        count += 1
+                    } catch {
+                        uploaderLog.error("legacy segment migration skipped \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
+                }
+            }
+        } catch {
+            uploaderLog.error("legacy segment migration failed for source \(self.sourceType, privacy: .public): \(String(describing: error), privacy: .public)")
+            return count
+        }
+
+        if count > 0 {
+            uploaderLog.info("legacy segment migration: rewrote \(count, privacy: .public) sidecar(s) for source \(self.sourceType, privacy: .public)")
+        }
+        return count
     }
 
     func dropItem(sessionID: UUID, chunkID: String) {

@@ -517,6 +517,119 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testMigrateLegacySegmentKeysRewritesLegacyFailedSidecar() async throws {
+        let uploader = self.makeUploader()
+        let sessionID = UUID()
+        let chunkID = "chunk-legacy"
+        let startedAt = self.localStartedAt104355()
+        try self.writeLegacyFailedChunk(
+            sessionID: sessionID,
+            chunkID: chunkID,
+            segment: "20260623-104355",
+            startedAt: startedAt,
+            durationS: 300.0
+        )
+
+        let migratedCount = await uploader.migrateLegacySegmentKeys()
+
+        XCTAssertEqual(migratedCount, 1)
+        let migrated = try self.decodeSidecar(at: self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).json"))
+        XCTAssertEqual(migrated.segment, "104355_300")
+        XCTAssertNotNil(migrated.segment.wholeMatch(of: /^\d{6}_\d+$/))
+        XCTAssertEqual(migrated.day, "20260623")
+        XCTAssertEqual(migrated.chunkIndex, 0)
+        XCTAssertEqual(migrated.startedAt, startedAt)
+        XCTAssertEqual(migrated.durationS, 300.0)
+        XCTAssertEqual(migrated.sessionID, sessionID)
+        XCTAssertEqual(migrated.mode, .meeting)
+    }
+
+    @MainActor
+    func testSegmentStringHelpersShareCanonicalImplementation() {
+        let dates = [
+            Date(timeIntervalSince1970: 1_782_216_235),
+            self.localStartedAt104355(),
+            Date(timeIntervalSince1970: 1_713_624_000),
+        ]
+        let durations = [300.0, 0.4, 47.6]
+
+        for date in dates {
+            for duration in durations {
+                let canonical = ChunkSidecar.segmentString(for: date, durationSeconds: duration)
+                XCTAssertEqual(ObserverManager.segmentString(for: date, durationSeconds: duration), canonical)
+                XCTAssertEqual(OmiSegmentWriter.segmentString(for: date, durationSeconds: duration), canonical)
+            }
+        }
+    }
+
+    func testSegmentStringRoundsDurationWithMinimumOneSecond() {
+        let date = Date(timeIntervalSince1970: 1_782_216_235)
+
+        XCTAssertTrue(ChunkSidecar.segmentString(for: date, durationSeconds: 0.4).hasSuffix("_1"))
+        XCTAssertTrue(ChunkSidecar.segmentString(for: date, durationSeconds: 47.6).hasSuffix("_48"))
+    }
+
+    @MainActor
+    func testMigrateLegacySegmentKeysSkipsCanonicalSidecarIdempotently() async throws {
+        let uploader = self.makeUploader()
+        let sessionID = UUID()
+        let chunkID = "chunk-canonical"
+        try self.writeLegacyFailedChunk(
+            sessionID: sessionID,
+            chunkID: chunkID,
+            segment: "104355_300",
+            startedAt: self.localStartedAt104355(),
+            durationS: 300.0
+        )
+        let sidecarURL = self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).json")
+        let originalBytes = try Data(contentsOf: sidecarURL)
+
+        let firstCount = await uploader.migrateLegacySegmentKeys()
+        let firstBytes = try Data(contentsOf: sidecarURL)
+        let secondCount = await uploader.migrateLegacySegmentKeys()
+        let secondBytes = try Data(contentsOf: sidecarURL)
+
+        XCTAssertEqual(firstCount, 0)
+        XCTAssertEqual(secondCount, 0)
+        XCTAssertEqual(firstBytes, originalBytes)
+        XCTAssertEqual(secondBytes, originalBytes)
+    }
+
+    @MainActor
+    func testMigrateLegacySegmentKeysReturnsZeroWithoutFailedDirectory() async {
+        let uploader = self.makeUploader()
+
+        let migratedCount = await uploader.migrateLegacySegmentKeys()
+
+        XCTAssertEqual(migratedCount, 0)
+    }
+
+    @MainActor
+    func testRetryFailedRequeuesMigratedLegacySidecar() async throws {
+        let uploader = self.makeUploader(localPortProvider: { nil })
+        let sessionID = UUID()
+        let chunkID = "chunk-migrated-retry"
+        try self.writeLegacyFailedChunk(
+            sessionID: sessionID,
+            chunkID: chunkID,
+            segment: "20260623-104355",
+            startedAt: self.localStartedAt104355(),
+            durationS: 300.0
+        )
+
+        let migratedCount = await uploader.migrateLegacySegmentKeys()
+        XCTAssertEqual(migratedCount, 1)
+        await uploader.retryFailed()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).m4a").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("\(chunkID).json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+        let pendingSidecar = try self.decodeSidecar(at: self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID))
+        XCTAssertEqual(pendingSidecar.segment, "104355_300")
+    }
+
+    @MainActor
     func testMultipartShapeInvariant() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -915,6 +1028,28 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         }
     }
 
+    @MainActor private func writeLegacyFailedChunk(
+        sessionID: UUID,
+        chunkID: String,
+        segment: String,
+        startedAt: Date,
+        durationS: TimeInterval
+    ) throws {
+        let dir = self.failedDirectoryURL(sessionID: sessionID)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: dir.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
+        let sidecar = ChunkSidecar(
+            segment: segment,
+            day: "20260623",
+            chunkIndex: 0,
+            startedAt: startedAt,
+            durationS: durationS,
+            sessionID: sessionID,
+            mode: .meeting
+        )
+        try self.makeEncoder().encode(sidecar).write(to: dir.appendingPathComponent("\(chunkID).json", isDirectory: false))
+    }
+
     private func failedDirectoryURL(sessionID: UUID) -> URL {
         self.sessionDirectoryURL(sessionID: sessionID)
             .appendingPathComponent("failed", isDirectory: true)
@@ -929,6 +1064,25 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(ObserverUploadFailureSidecar.self, from: Data(contentsOf: url))
+    }
+
+    private func decodeSidecar(at url: URL) throws -> ChunkSidecar {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ChunkSidecar.self, from: Data(contentsOf: url))
+    }
+
+    private func localStartedAt104355() -> Date {
+        var comps = DateComponents()
+        comps.year = 2026
+        comps.month = 6
+        comps.day = 23
+        comps.hour = 10
+        comps.minute = 43
+        comps.second = 55
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        return cal.date(from: comps)!
     }
 
     private func loadedItems(from result: OnThisPhoneSourceResult) throws -> [OnThisPhoneItem] {

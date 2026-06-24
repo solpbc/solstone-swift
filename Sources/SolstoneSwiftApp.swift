@@ -335,6 +335,12 @@ struct SolstoneSwiftApp: App {
                     await self.importQueue.resumeFromDisk()
                 }
                 .task {
+                    guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyAudioSegmentKeysV1") else { return }
+                    _ = await self.observerUploader.migrateLegacySegmentKeys()
+                    _ = await self.omiUploader.migrateLegacySegmentKeys()
+                    UserDefaults.standard.set(true, forKey: "didMigrateLegacyAudioSegmentKeysV1")
+                }
+                .task {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {
