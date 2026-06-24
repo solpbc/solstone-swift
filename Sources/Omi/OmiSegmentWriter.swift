@@ -19,6 +19,8 @@ final class OmiSegmentWriter {
     private let clock: any ObserverClock
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-writer")
 
+    var onChunkFinalized: ((_ day: String, _ durationS: TimeInterval, _ identity: String) -> Void)?
+
     private var sessionID: UUID?
     private var chunkIndex = 0
     private var currentChunkStart: Date?
@@ -205,6 +207,11 @@ private extension OmiSegmentWriter {
         Task { @MainActor [uploader, url, sidecar] in
             await uploader.enqueue(chunkURL: url, sidecar: sidecar)
         }
+        self.onChunkFinalized?(
+            Self.dayString(for: startedAt),
+            duration,
+            Self.chunkID(sessionID: sessionID, index: chunkIndex)
+        )
     }
 
     func clearCurrentChunk() {

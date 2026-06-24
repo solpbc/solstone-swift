@@ -54,12 +54,25 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
         let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        var finalizedEvents: [FinalizedChunkEvent] = []
+        writer.onChunkFinalized = { day, durationS, identity in
+            finalizedEvents.append(FinalizedChunkEvent(day: day, durationS: durationS, identity: identity))
+        }
 
         writer.start()
         writer.stop()
 
         XCTAssertEqual(uploader.pendingCount, 0)
         XCTAssertTrue(try self.files(withExtension: "m4a").isEmpty)
+        XCTAssertTrue(finalizedEvents.isEmpty)
+
+        writer.start()
+        writer.append(self.samples(count: 1))
+        writer.stop()
+
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertTrue(try self.files(withExtension: "m4a").isEmpty)
+        XCTAssertTrue(finalizedEvents.isEmpty)
 
         writer.start()
         clock.advance(by: 300)
@@ -70,6 +83,35 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         let chunks = try self.pendingChunks()
         XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [1])
         XCTAssertFalse(chunks.contains { $0.chunkID.hasSuffix("-0") })
+        XCTAssertEqual(finalizedEvents.count, 1)
+    }
+
+    @MainActor
+    func testChunkFinalizedHookFiresBeforeUploadDelivery() async throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_000)
+        let clock = MockObserverClock(now: start)
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        var finalizedEvents: [FinalizedChunkEvent] = []
+        writer.onChunkFinalized = { day, durationS, identity in
+            finalizedEvents.append(FinalizedChunkEvent(day: day, durationS: durationS, identity: identity))
+        }
+
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        clock.advance(by: 300)
+        writer.append(self.samples(count: 1600))
+
+        try await self.waitForPendingCount(1, uploader: uploader)
+        let chunk = try XCTUnwrap(self.pendingChunks().first)
+        XCTAssertEqual(finalizedEvents.count, 1)
+        let event = try XCTUnwrap(finalizedEvents.first)
+        XCTAssertEqual(event.day, self.dayString(for: start))
+        XCTAssertEqual(event.durationS, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(event.identity, chunk.chunkID)
+        XCTAssertEqual(chunk.sidecar.durationS, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(chunk.chunkID, "\(chunk.sidecar.sessionID.uuidString.lowercased())-0")
+        XCTAssertEqual(event.durationS, chunk.sidecar.durationS, accuracy: 0.0001)
     }
 
     @MainActor
@@ -222,6 +264,12 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
         XCTAssertEqual(Set(chunks.map(\.sidecar.chunkIndex)).count, chunks.count)
     }
+}
+
+private struct FinalizedChunkEvent: Sendable {
+    let day: String
+    let durationS: TimeInterval
+    let identity: String
 }
 
 @MainActor

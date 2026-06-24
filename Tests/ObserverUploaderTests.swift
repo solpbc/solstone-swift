@@ -66,87 +66,6 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
-    func testSegmentDeliveredHookFiresOnSuccessWithSidecarMetadata() async throws {
-        ObserverUploaderURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
-            )
-        }
-
-        let events = OSAllocatedUnfairLock<[DeliveryHookEvent]>(initialState: [])
-        let uploader = self.makeUploader()
-        uploader.onSegmentDelivered = { day, durationS, identity in
-            events.withLock {
-                $0.append(DeliveryHookEvent(day: day, durationS: durationS, identity: identity))
-            }
-        }
-        let sessionID = UUID()
-        let sourceURL = try self.makeChunkFile(named: "chunk-delivered")
-        let sidecar = self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
-
-        await uploader.enqueue(chunkURL: sourceURL, sidecar: sidecar)
-
-        try await self.waitFor("delivery hook") {
-            events.withLock { $0.count } == 1 && uploader.pendingCount == 0
-        }
-        let event = try XCTUnwrap(events.withLock { $0.first })
-        XCTAssertEqual(event.day, sidecar.day)
-        XCTAssertEqual(event.durationS, sidecar.durationS, accuracy: 0.0001)
-        XCTAssertEqual(event.identity, "\(sessionID.uuidString):chunk-delivered")
-        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
-    }
-
-    @MainActor
-    func testSegmentDeliveredHookDoesNotFireForNoJournalOrHTTPFailure() async throws {
-        let deliveryCount = OSAllocatedUnfairLock<Int>(initialState: 0)
-        let noJournalRoot = self.tempDirectory.appendingPathComponent("no-journal", isDirectory: true)
-        let noJournalUploader = self.makeUploader(
-            cacheRootURL: noJournalRoot,
-            isJournalConfigured: { false }
-        )
-        noJournalUploader.onSegmentDelivered = { _, _, _ in
-            deliveryCount.withLock { $0 += 1 }
-        }
-        let noJournalSessionID = UUID()
-        let noJournalSourceURL = try self.makeChunkFile(named: "chunk-no-journal-delivery")
-
-        await noJournalUploader.enqueue(
-            chunkURL: noJournalSourceURL,
-            sidecar: self.makeSidecar(sessionID: noJournalSessionID, chunkIndex: 0)
-        )
-
-        XCTAssertEqual(noJournalUploader.pendingCount, 1)
-        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
-        XCTAssertEqual(deliveryCount.withLock { $0 }, 0)
-
-        ObserverUploaderURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
-                Data("no".utf8)
-            )
-        }
-        let httpRoot = self.tempDirectory.appendingPathComponent("http-failure", isDirectory: true)
-        let httpUploader = self.makeUploader(cacheRootURL: httpRoot, maxAttempts: 1)
-        httpUploader.onSegmentDelivered = { _, _, _ in
-            deliveryCount.withLock { $0 += 1 }
-        }
-        let httpSessionID = UUID()
-        let httpSourceURL = try self.makeChunkFile(named: "chunk-http-no-delivery")
-
-        await httpUploader.enqueue(
-            chunkURL: httpSourceURL,
-            sidecar: self.makeSidecar(sessionID: httpSessionID, chunkIndex: 0)
-        )
-
-        try await self.waitFor("http failure no delivery hook") {
-            httpUploader.failedCount == 1
-        }
-        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
-        XCTAssertEqual(deliveryCount.withLock { $0 }, 0)
-    }
-
-    @MainActor
     func testRepeatedFailuresMoveChunkToFailedDirectory() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -1043,12 +962,6 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         }
         XCTFail("Timed out waiting for \(label)")
     }
-}
-
-private struct DeliveryHookEvent: Equatable, Sendable {
-    let day: String
-    let durationS: TimeInterval
-    let identity: String
 }
 
 private final class ObserverUploaderURLProtocol: URLProtocol, @unchecked Sendable {

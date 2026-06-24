@@ -3,8 +3,8 @@
 
 import Foundation
 
-nonisolated enum OmiJournalRollupLogic {
-    static let rowLabel = "your journal"
+nonisolated enum OmiHeardRollupLogic {
+    static let rowLabel = "heard today"
 
     static func todayKey(now: Date) -> String {
         OmiSegmentWriter.dayString(for: now)
@@ -30,16 +30,12 @@ nonisolated enum OmiJournalRollupLogic {
         return "\(totalMinutes)m"
     }
 
-    static func segmentPhrase(count: Int) -> String {
-        count == 1 ? "1 segment" : "\(count) segments"
-    }
-
-    static func rollupText(tally: OmiJournalTallyPayload, now: Date) -> String {
+    static func heardText(tally: OmiHeardTallyPayload, now: Date) -> String {
         let day = self.todayKey(now: now)
-        guard let dayTally = tally[day], dayTally.segmentCount > 0 else {
-            return "nothing yet today"
+        guard let dayTally = tally[day], dayTally.totalSeconds > 0 else {
+            return "nothing yet"
         }
 
-        return "\(self.segmentPhrase(count: dayTally.segmentCount)) · \(self.durationText(seconds: dayTally.totalSeconds)) today"
+        return self.durationText(seconds: dayTally.totalSeconds)
     }
 }

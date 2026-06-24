@@ -250,9 +250,9 @@ struct SolstoneSwiftApp: App {
         )
         let omiSegmentWriter = OmiSegmentWriter(uploader: omiUploader)
         let omiSource = OmiSourceManager()
-        let omiJournalTally = omiSource.journalTally
-        omiUploader.onSegmentDelivered = { day, durationS, identity in
-            omiJournalTally.record(day: day, durationS: durationS, identity: identity)
+        let omiHeardTally = omiSource.heardTally
+        omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
+            omiHeardTally.record(day: day, durationS: durationS, identity: identity)
         }
         omiSource.omiSegmentWriter = omiSegmentWriter
         omiSource.onDecodedSamples = { [weak omiSegmentWriter] samples in

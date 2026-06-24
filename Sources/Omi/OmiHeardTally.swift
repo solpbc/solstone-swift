@@ -5,42 +5,31 @@ import Foundation
 import Observation
 import os
 
-typealias OmiJournalTallyPayload = [String: OmiJournalDayTally]
+typealias OmiHeardTallyPayload = [String: OmiHeardDayTally]
 
-nonisolated struct OmiJournalDayTally: Codable, Equatable, Sendable {
-    var segmentCount: Int
+nonisolated struct OmiHeardDayTally: Codable, Equatable, Sendable {
     var totalSeconds: TimeInterval
     var seenIdentities: Set<String>
-
-    init(
-        segmentCount: Int = 0,
-        totalSeconds: TimeInterval = 0,
-        seenIdentities: Set<String> = []
-    ) {
-        self.segmentCount = segmentCount
-        self.totalSeconds = totalSeconds
-        self.seenIdentities = seenIdentities
-    }
 }
 
 @MainActor
 @Observable
-final class OmiJournalTally {
+final class OmiHeardTally {
     nonisolated static let retainedDayCount = 7
 
     nonisolated static var defaultFileURL: URL {
         FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("solstone", isDirectory: true)
-            .appendingPathComponent("omi-journal-tally.json")
+            .appendingPathComponent("omi-heard-tally.json")
     }
 
-    private(set) var payload: OmiJournalTallyPayload
+    private(set) var payload: OmiHeardTallyPayload
 
     @ObservationIgnored private let fileURL: URL
-    @ObservationIgnored private let log = Logger(subsystem: "app.solstone.swift", category: "omi-journal-tally")
+    @ObservationIgnored private let log = Logger(subsystem: "app.solstone.swift", category: "omi-heard-tally")
 
-    init(fileURL: URL = OmiJournalTally.defaultFileURL) {
+    init(fileURL: URL = OmiHeardTally.defaultFileURL) {
         self.fileURL = fileURL
         let loaded = (try? Self.loadPayload(from: fileURL)) ?? [:]
         var pruned = loaded
@@ -52,10 +41,9 @@ final class OmiJournalTally {
     }
 
     func record(day: String, durationS: TimeInterval, identity: String) {
-        var dayTally = self.payload[day] ?? OmiJournalDayTally()
+        var dayTally = self.payload[day] ?? OmiHeardDayTally(totalSeconds: 0, seenIdentities: [])
         guard !dayTally.seenIdentities.contains(identity) else { return }
 
-        dayTally.segmentCount += 1
         dayTally.totalSeconds += durationS
         dayTally.seenIdentities.insert(identity)
         self.payload[day] = dayTally
@@ -63,7 +51,7 @@ final class OmiJournalTally {
         self.persist()
     }
 
-    func tally(for day: String) -> OmiJournalDayTally? {
+    func tally(for day: String) -> OmiHeardDayTally? {
         self.payload[day]
     }
 
@@ -78,17 +66,17 @@ final class OmiJournalTally {
             let data = try encoder.encode(self.payload)
             try data.write(to: self.fileURL, options: [.atomic])
         } catch {
-            self.log.error("omi journal tally write failed: \(String(describing: error), privacy: .public)")
+            self.log.error("omi heard tally write failed: \(String(describing: error), privacy: .public)")
         }
     }
 }
 
-private extension OmiJournalTally {
-    static func loadPayload(from fileURL: URL) throws -> OmiJournalTallyPayload {
-        try JSONDecoder().decode(OmiJournalTallyPayload.self, from: Data(contentsOf: fileURL))
+private extension OmiHeardTally {
+    static func loadPayload(from fileURL: URL) throws -> OmiHeardTallyPayload {
+        try JSONDecoder().decode(OmiHeardTallyPayload.self, from: Data(contentsOf: fileURL))
     }
 
-    static func prune(_ payload: inout OmiJournalTallyPayload) {
+    static func prune(_ payload: inout OmiHeardTallyPayload) {
         let keysToDrop = payload.keys.sorted().dropLast(Self.retainedDayCount)
         for key in keysToDrop {
             payload.removeValue(forKey: key)
