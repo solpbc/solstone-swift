@@ -19,6 +19,7 @@ protocol WatchConnectivitySession: AnyObject {
     func activate()
     func transferFile(_ url: URL, metadata: [String: Any])
     func transferUserInfo(_ userInfo: [String: Any])
+    func sendMessage(_ message: [String: Any])
 }
 
 @MainActor
@@ -67,6 +68,16 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
             return
         }
         _ = session.transferUserInfo(userInfo)
+    }
+
+    func sendMessage(_ message: [String: Any]) {
+        guard let session else {
+            watchConnectivityLog.error("watch connectivity message send unavailable")
+            return
+        }
+        session.sendMessage(message, replyHandler: nil, errorHandler: { error in
+            watchConnectivityLog.error("watch connectivity message send failed: \(String(describing: error), privacy: .public)")
+        })
     }
 
     nonisolated func session(
@@ -119,6 +130,19 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         Task { @MainActor [weak self] in
             let metadata = Self.propertyListDictionary(from: metadataData)
             self?.onReceiveFile?(scratchURL, metadata)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        let messageData: Data
+        do {
+            messageData = try Self.propertyListData(from: message)
+        } catch {
+            watchConnectivityLog.error("watch connectivity incoming message snapshot failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        Task { @MainActor [weak self] in
+            self?.onReceiveUserInfo?(Self.propertyListDictionary(from: messageData))
         }
     }
 

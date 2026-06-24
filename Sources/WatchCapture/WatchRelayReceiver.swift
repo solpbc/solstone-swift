@@ -13,6 +13,7 @@ final class WatchRelayReceiver {
     static let incomingDirectoryName = ".incoming"
 
     let stagingRootURL: URL
+    var onSegmentStaged: ((UUID) -> Void)?
 
     private let session: any WatchConnectivitySession
     private let fileWriter: any WatchFileWriting
@@ -51,6 +52,7 @@ final class WatchRelayReceiver {
         if self.fileWriter.fileExists(at: committedURL) {
             watchRelayReceiverLog.info("watch relay duplicate staged id=\(id.uuidString, privacy: .public)")
             self.sendACK(id: id)
+            self.onSegmentStaged?(id)
             return
         }
 
@@ -65,6 +67,7 @@ final class WatchRelayReceiver {
             )
             try self.fileWriter.moveItem(at: incomingURL, to: committedURL)
             self.sendACK(id: id)
+            self.onSegmentStaged?(id)
             watchRelayReceiverLog.info("watch relay staged id=\(id.uuidString, privacy: .public)")
         } catch {
             try? self.fileWriter.removeItem(at: incomingURL)
@@ -85,6 +88,10 @@ private extension WatchRelayReceiver {
     }
 
     func sendACK(id: UUID) {
-        self.session.transferUserInfo(WatchRelayACK.userInfo(id: id))
+        let ack = WatchRelayACK.userInfo(id: id)
+        self.session.transferUserInfo(ack)
+        if self.session.isReachable {
+            self.session.sendMessage(ack)
+        }
     }
 }

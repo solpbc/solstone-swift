@@ -311,6 +311,11 @@ struct SolstoneSwiftApp: App {
                 .error("watch relay receiver unavailable: \(String(describing: error), privacy: .public)")
             watchRelayReceiver = nil
         }
+        watchRelayReceiver?.onSegmentStaged = { _ in
+            Task {
+                await watchSegmentDrain?.drain()
+            }
+        }
         let watchLink = WatchLink(session: watchConnectivitySession, receiver: watchRelayReceiver)
         watchLink.activate()
         let voice = VoiceManager(

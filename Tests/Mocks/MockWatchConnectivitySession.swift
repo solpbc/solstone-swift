@@ -16,6 +16,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var activateCallCount = 0
     var transferredFiles: [(URL, [String: Any])] = []
     var transferredUserInfos: [[String: Any]] = []
+    var sentMessages: [[String: Any]] = []
 
     func activate() {
         self.activateCallCount += 1
@@ -28,6 +29,10 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func transferUserInfo(_ userInfo: [String: Any]) {
         self.transferredUserInfos.append(userInfo)
+    }
+
+    func sendMessage(_ message: [String: Any]) {
+        self.sentMessages.append(message)
     }
 
     func emitReachability(_ isReachable: Bool) {
