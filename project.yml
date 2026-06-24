@@ -212,6 +212,7 @@ targets:
     sources:
       - Watch/Sources
       - Watch/PrivacyInfo.xcprivacy
+      - Watch/Assets.xcassets
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift
@@ -230,6 +231,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch
         GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
     info:
