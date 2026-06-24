@@ -13,6 +13,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceState.needsAttention.label, "needs attention")
     }
 
+    func testJournalLivesActionReflectsPairingState() {
+        XCTAssertEqual(SourceVocabulary.journalLivesAction(isPaired: false), "connect")
+        XCTAssertEqual(SourceVocabulary.journalLivesAction(isPaired: true), "re-pair")
+    }
+
     func testLockedOwnerSourceCopy() {
         XCTAssertEqual(
             SourceVocabulary.trustLineUnpaired,

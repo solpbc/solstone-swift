@@ -239,6 +239,12 @@ nonisolated enum SourceVocabulary {
     static let journalLivesHostedBody = "a journal sol pbc keeps for you. operated by sol pbc."
     static let journalLivesComingLater = "coming later"
     static let journalLivesConnectAction = "connect"
+    static let journalLivesRepairAction = "re-pair"
+
+    static func journalLivesAction(isPaired: Bool) -> String {
+        isPaired ? journalLivesRepairAction : journalLivesConnectAction
+    }
+
     static let retry = "retry"
     static let drop = "drop"
     static let cancel = "cancel"

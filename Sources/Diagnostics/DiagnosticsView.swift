@@ -351,6 +351,7 @@ private struct EventRow: View {
                         Text(detail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                     }
                 }
                 .padding(.leading, 28)

@@ -39,7 +39,7 @@ struct JournalLivesSheet: View {
                             body: SourceVocabulary.journalLivesOwnBody,
                             current: self.appConfig.isPaired
                         ) {
-                            Text(SourceVocabulary.journalLivesConnectAction)
+                            Text(SourceVocabulary.journalLivesAction(isPaired: self.appConfig.isPaired))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(Color.solOrangeAccessible)
                         }
