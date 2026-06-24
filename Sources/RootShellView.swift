@@ -37,19 +37,6 @@ struct RootShellView: View {
         self.presentSourcesOnFirstAppear = presentSourcesOnFirstAppear
     }
 
-    @ViewBuilder
-    private var healthDot: some View {
-        let health = self.tunnelManager.connectionHealth
-        if health == .healthy || health == .degraded {
-            Circle()
-                .fill(health == .healthy ? Color.green : Color.yellow)
-                .frame(width: 8, height: 8)
-                .padding(.leading, 32)
-                .padding(.bottom, 18)
-                .accessibilityLabel("connection \(health == .healthy ? "healthy" : "degraded")")
-        }
-    }
-
     var body: some View {
         NavigationStack {
             DayHomeView(
@@ -73,10 +60,6 @@ struct RootShellView: View {
                 sourcesBadgeVisible: self.sourcesBadgeVisible,
                 foldBadgeVisible: self.foldBadgeVisible
             )
-        }
-        .overlay(alignment: .bottomLeading) {
-            self.healthDot
-                .allowsHitTesting(false)
         }
         .overlay(alignment: .top) {
             VoiceHUDOverlay(voiceManager: self.voiceManager)

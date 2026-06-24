@@ -46,6 +46,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your solstone")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
         XCTAssertEqual(SourceVocabulary.askBarOffline, "journal offline")
+        XCTAssertEqual(SourceVocabulary.askBarOfflineExplanationTitle, "sol needs your journal")
+        XCTAssertEqual(
+            SourceVocabulary.askBarOfflineExplanationBody,
+            "you're offline right now. sol answers from your journal — reconnect to your journal (on the same network, or wait for your connection to come back) and ask again. anything you gather stays safe on this phone until then."
+        )
         XCTAssertEqual(SourceVocabulary.chatNavTitle, "ask sol")
         XCTAssertEqual(SourceVocabulary.chatComposerPlaceholder, "ask sol…")
         XCTAssertEqual(SourceVocabulary.chatEmptyHeading, "ask sol about your day")

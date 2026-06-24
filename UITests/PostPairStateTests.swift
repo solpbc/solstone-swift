@@ -42,8 +42,8 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertFalse(app.buttons["dayHome.openInJournal"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 3))
         askBar.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["your journal isn't reachable right now — i'll send your question the moment it's back."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["sol needs your journal"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 3))
     }
 
     @MainActor

@@ -35,6 +35,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var aggregate: OnThisPhoneAggregateSnapshot?
     @State private var dropController = OnThisPhoneDropController()
     @State private var showingConnectJournal = false
+    @State private var showingOfflineExplanation = false
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
     @State private var magicMomentDismissed = false
@@ -179,6 +180,11 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
             }
+        }
+        .alert(SourceVocabulary.askBarOfflineExplanationTitle, isPresented: self.$showingOfflineExplanation) {
+            Button("ok") {}
+        } message: {
+            Text(SourceVocabulary.askBarOfflineExplanationBody)
         }
     }
 }
@@ -416,7 +422,7 @@ private extension OnThisPhoneMomentsView {
             return (
                 title: SourceVocabulary.askBarOffline,
                 isEnabled: true,
-                action: self.onAskBarChat
+                action: { self.showingOfflineExplanation = true }
             )
         case .linkedOnline:
             return (

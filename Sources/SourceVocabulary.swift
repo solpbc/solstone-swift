@@ -134,6 +134,8 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneScopeOfflinePaired = "everything your observers have gathered, ready for your journal when it reconnects."
     static let dayHomeAskBarHint = "connect a journal to ask sol"
     static let askBarOffline = "journal offline"
+    static let askBarOfflineExplanationTitle = "sol needs your journal"
+    static let askBarOfflineExplanationBody = "you're offline right now. sol answers from your journal — reconnect to your journal (on the same network, or wait for your connection to come back) and ask again. anything you gather stays safe on this phone until then."
     static let chatNavTitle = "ask sol"
     static let chatComposerPlaceholder = "ask sol…"
     static let chatEmptyHeading = "ask sol about your day"
