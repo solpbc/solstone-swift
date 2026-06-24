@@ -211,6 +211,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - Watch/Sources
+      - Watch/PrivacyInfo.xcprivacy
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift

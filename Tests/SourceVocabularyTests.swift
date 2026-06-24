@@ -296,6 +296,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
     }
 
+    func testWatchTrustLineUsesConfiguredPrivacyCopy() {
+        XCTAssertEqual(watchTrustLine(), SourceVocabulary.trustLineConfigured)
+        XCTAssertEqual(watchTrustLine(), "feeds only your journal — nowhere else")
+    }
+
     func testConnectionStandingAndProbeCopyDerivations() {
         XCTAssertEqual(
             SourceVocabulary.standingSyncLine(health: .healthy, syncing: false),
