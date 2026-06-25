@@ -21,7 +21,8 @@ struct ChatView: View {
                 }
 
                 if self.chatManager.messages.isEmpty
-                    && !self.chatManager.isSending
+                    && !self.chatManager.showsTypingIndicator
+                    && self.chatManager.statusLine == nil
                     && self.chatManager.activeTrace == nil
                     && self.chatManager.pendingOffer == nil
                     && self.chatManager.pendingDraft == nil
@@ -45,7 +46,14 @@ struct ChatView: View {
                                 WorkingTraceView(trace: trace)
                             }
 
-                            if self.chatManager.isSending {
+                            if let statusLine = self.chatManager.statusLine {
+                                ChatStatusLine(
+                                    text: statusLine,
+                                    isProgress: self.chatManager.statusLineIsProgress
+                                )
+                            }
+
+                            if self.chatManager.showsTypingIndicator {
                                 TypingIndicator()
                             }
                         }
@@ -81,7 +89,10 @@ struct ChatView: View {
                         self.handleMessagesChange(old: oldValue, new: newValue)
                         self.reconcilePendingFoldJump(animated: !self.reduceMotion)
                     }
-                    .onChange(of: self.chatManager.isSending) { _, _ in
+                    .onChange(of: self.chatManager.showsTypingIndicator) { _, _ in
+                        self.reapplyPinIfNeeded()
+                    }
+                    .onChange(of: self.chatManager.statusLine) { _, _ in
                         self.reapplyPinIfNeeded()
                     }
                 }
@@ -390,6 +401,32 @@ private struct WorkingTraceView: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("chat.workingTrace")
+    }
+}
+
+private struct ChatStatusLine: View {
+    let text: String
+    let isProgress: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if self.isProgress {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            Text(self.text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("chat.statusLine")
     }
 }
 

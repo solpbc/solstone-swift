@@ -24,6 +24,10 @@ nonisolated final class ChatManagerTests: XCTestCase {
         XCTAssertEqual(manager.messages[1].text, SourceVocabulary.chatAckBubble)
         XCTAssertEqual(manager.messages[1].useID, "use-1")
         XCTAssertFalse(manager.isSending)
+        XCTAssertEqual(manager.deliveryState, .accepted(useID: "use-1"))
+        XCTAssertEqual(manager.answerState, .waitingForEvents)
+        XCTAssertTrue(manager.showsTypingIndicator)
+        XCTAssertEqual(manager.statusLine, SourceVocabulary.chatAnswerWaiting)
         XCTAssertNil(manager.lastError)
     }
 
@@ -106,11 +110,14 @@ nonisolated final class ChatManagerTests: XCTestCase {
 
         XCTAssertEqual(transport.postedMessages, [])
         XCTAssertEqual(manager.messages[0].status, .pending)
+        XCTAssertEqual(manager.deliveryState, .waitingForConnection)
+        XCTAssertEqual(manager.statusLine, SourceVocabulary.chatDeliveryWaitingConnection)
 
         gate.withLock { $0.reachable = true }
         manager._testDrainStep()
         await self.yieldForEvents()
         XCTAssertEqual(transport.postedMessages, [])
+        XCTAssertEqual(manager.deliveryState, .waitingForConnection)
 
         gate.withLock { $0.port = 7071 }
         manager._testDrainStep()
@@ -118,6 +125,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
 
         XCTAssertEqual(transport.postedMessages, ["hello"])
         XCTAssertEqual(manager.messages[0].status, .sent)
+        XCTAssertEqual(manager.deliveryState, .accepted(useID: "use-1"))
     }
 
     @MainActor
@@ -130,6 +138,8 @@ nonisolated final class ChatManagerTests: XCTestCase {
         XCTAssertEqual(queueFull.postedMessages, ["full"])
         XCTAssertEqual(queueFullManager.messages[0].status, .pending)
         XCTAssertEqual(queueFullManager.queueDepth, 3)
+        XCTAssertEqual(queueFullManager.deliveryState, .retryingBackpressure(queueDepth: 3))
+        XCTAssertEqual(queueFullManager.statusLine, SourceVocabulary.chatDeliveryBackpressure(queueDepth: 3))
         XCTAssertNil(queueFullManager.lastError)
 
         let unavailable = ScriptedChatTransport(postResults: [.unavailable(reason: nil)])
@@ -138,6 +148,8 @@ nonisolated final class ChatManagerTests: XCTestCase {
         await unavailableManager.send("unavailable")
 
         XCTAssertEqual(unavailableManager.messages[0].status, .pending)
+        XCTAssertEqual(unavailableManager.deliveryState, .retryingUnavailable(reason: nil))
+        XCTAssertEqual(unavailableManager.statusLine, SourceVocabulary.chatDeliveryRetryingUnavailable)
         XCTAssertNil(unavailableManager.lastError)
 
         let transportFailure = ScriptedChatTransport(postResults: [.transport])
@@ -146,6 +158,8 @@ nonisolated final class ChatManagerTests: XCTestCase {
         await transportManager.send("transport")
 
         XCTAssertEqual(transportManager.messages[0].status, .pending)
+        XCTAssertEqual(transportManager.deliveryState, .retryingTransport)
+        XCTAssertEqual(transportManager.statusLine, SourceVocabulary.chatDeliveryRetryingTransport)
         XCTAssertNil(transportManager.lastError)
     }
 
@@ -164,6 +178,7 @@ nonisolated final class ChatManagerTests: XCTestCase {
         XCTAssertEqual(transport.postedMessages, ["hello", "hello"])
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.messages[0].useID, "use-1")
+        XCTAssertEqual(manager.deliveryState, .accepted(useID: "use-1"))
     }
 
     @MainActor
@@ -196,6 +211,9 @@ nonisolated final class ChatManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.messages[0].status, .failed)
         XCTAssertEqual(manager.lastError, "custom reason")
+        XCTAssertEqual(manager.deliveryState, .failed(reason: "custom reason"))
+        XCTAssertEqual(manager.statusLine, "custom reason")
+        XCTAssertFalse(manager.statusLineIsProgress)
     }
 
     @MainActor
@@ -211,6 +229,8 @@ nonisolated final class ChatManagerTests: XCTestCase {
         XCTAssertEqual(manager.messages[0].status, .sent)
         XCTAssertEqual(manager.lastError, SourceVocabulary.chatErrorEmptyReply)
         XCTAssertEqual(manager.answerRetryText, "hello")
+        XCTAssertEqual(manager.answerState, .failed(reason: SourceVocabulary.chatErrorEmptyReply))
+        XCTAssertFalse(manager.showsTypingIndicator)
         XCTAssertFalse(manager.isSending)
     }
 
@@ -228,7 +248,53 @@ nonisolated final class ChatManagerTests: XCTestCase {
         XCTAssertEqual(manager.messages[1].provenance?.state, .failed)
         XCTAssertEqual(manager.messages[1].text, "could not answer")
         XCTAssertEqual(manager.answerRetryText, "hello")
+        XCTAssertEqual(manager.answerState, .failed(reason: "could not answer"))
+        XCTAssertFalse(manager.showsTypingIndicator)
         XCTAssertFalse(manager.isSending)
+    }
+
+    @MainActor
+    func testHydratedChatErrorSurfacesLikeLiveChatError() async {
+        let transport = ScriptedChatTransport(postResults: [.ack(useID: "use-1", queued: false, queueDepth: nil)])
+        let manager = self.makeManager(transport: transport)
+
+        await manager.send("hello")
+        transport.push(.snapshot(ChatSessionSnapshot(
+            chatError: ChatErrorEvent(id: "err-hydrated", useID: "use-1", reason: "chat_timeout")
+        )))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.messages.map(\.role), [.user, .assistant])
+        XCTAssertEqual(manager.messages[1].text, "chat_timeout")
+        XCTAssertEqual(manager.messages[1].provenance?.state, .failed)
+        XCTAssertEqual(manager.answerRetryText, "hello")
+        XCTAssertEqual(manager.answerState, .failed(reason: "chat_timeout"))
+        XCTAssertFalse(manager.showsTypingIndicator)
+    }
+
+    @MainActor
+    func testEventStreamReconnectSuppressesTypingUntilConnectedAgain() async {
+        let transport = ScriptedChatTransport(postResults: [.ack(useID: "use-1", queued: false, queueDepth: nil)])
+        let manager = self.makeManager(transport: transport)
+
+        await manager.send("hello")
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.answerState, .waitingForEvents)
+        XCTAssertTrue(manager.showsTypingIndicator)
+
+        transport.push(.eventStream(.reconnecting))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.answerState, .stale)
+        XCTAssertFalse(manager.showsTypingIndicator)
+        XCTAssertEqual(manager.statusLine, SourceVocabulary.chatAnswerStreamReconnecting)
+
+        transport.push(.eventStream(.connected))
+        await self.yieldForEvents()
+
+        XCTAssertEqual(manager.answerState, .waitingForEvents)
+        XCTAssertTrue(manager.showsTypingIndicator)
     }
 
     @MainActor
@@ -498,6 +564,8 @@ nonisolated final class ChatManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.messages.isEmpty)
         XCTAssertFalse(manager.isSending)
+        XCTAssertEqual(manager.deliveryState, .idle)
+        XCTAssertEqual(manager.answerState, .idle)
         XCTAssertNil(manager.lastError)
         XCTAssertNil(manager.queueDepth)
         XCTAssertNil(manager.pendingOffer)

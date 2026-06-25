@@ -9,6 +9,32 @@ nonisolated enum ChatPostResult: Sendable, Equatable {
     case transport
 }
 
+nonisolated enum ChatDeliveryState: Sendable, Equatable {
+    case idle
+    case waitingForConnection
+    case posting
+    case retryingTransport
+    case retryingUnavailable(reason: String?)
+    case retryingBackpressure(queueDepth: Int?)
+    case serverQueued(queueDepth: Int?)
+    case accepted(useID: String)
+    case failed(reason: String)
+}
+
+nonisolated enum ChatAnswerState: Sendable, Equatable {
+    case idle
+    case waitingForEvents
+    case working
+    case stale
+    case answered
+    case failed(reason: String)
+}
+
+nonisolated enum ChatEventStreamState: Sendable, Equatable {
+    case connected
+    case reconnecting
+}
+
 nonisolated enum ChatEvent: Sendable, Equatable {
     case snapshot(ChatSessionSnapshot)
     case ownerMessage(ChatOwnerMessage)
@@ -20,6 +46,7 @@ nonisolated enum ChatEvent: Sendable, Equatable {
     case chatError(ChatErrorEvent)
     case queueDepth(Int)
     case result(ChatResultEvent)
+    case eventStream(ChatEventStreamState)
 }
 
 nonisolated struct ChatSessionSnapshot: Sendable, Equatable {
@@ -27,6 +54,7 @@ nonisolated struct ChatSessionSnapshot: Sendable, Equatable {
     let activeTalents: [ChatTalentActivity]
     let completedTalents: [ChatTalentActivity]
     let queuedTalents: [ChatTalentActivity]
+    let chatError: ChatErrorEvent?
     let queueDepth: Int?
 
     init(
@@ -34,12 +62,14 @@ nonisolated struct ChatSessionSnapshot: Sendable, Equatable {
         activeTalents: [ChatTalentActivity] = [],
         completedTalents: [ChatTalentActivity] = [],
         queuedTalents: [ChatTalentActivity] = [],
+        chatError: ChatErrorEvent? = nil,
         queueDepth: Int? = nil
     ) {
         self.latestSolMessage = latestSolMessage
         self.activeTalents = activeTalents
         self.completedTalents = completedTalents
         self.queuedTalents = queuedTalents
+        self.chatError = chatError
         self.queueDepth = queueDepth
     }
 }

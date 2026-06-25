@@ -49,6 +49,44 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
 
         let unavailable = await self.transport.postMessage("hello")
         XCTAssertEqual(unavailable, .unavailable(reason: "agent_unavailable"))
+
+        ChatTransportURLProtocol.handler = { request in
+            Self.response(status: 503, request: request, body: #"{"reason_code":"agent_unavailable","error":"different"}"#)
+        }
+
+        let unavailableReasonCode = await self.transport.postMessage("hello")
+        XCTAssertEqual(unavailableReasonCode, .unavailable(reason: "agent_unavailable"))
+    }
+
+    @MainActor
+    func testEventsHydratesChatErrorFromSessionSnapshot() async throws {
+        ChatTransportURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/chat/session":
+                return Self.response(
+                    status: 200,
+                    request: request,
+                    body: #"{"chat_error":{"reason":"chat_timeout","use_id":"use-1","detail":"took too long"},"queue_depth":0}"#
+                )
+            case "/sse/events":
+                return Self.response(status: 204, request: request)
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "")")
+                return Self.response(status: 404, request: request)
+            }
+        }
+
+        let stream = self.transport.events()
+        var iterator = stream.makeAsyncIterator()
+        let event = await iterator.next()
+
+        XCTAssertEqual(
+            event,
+            .snapshot(ChatSessionSnapshot(
+                chatError: ChatErrorEvent(id: "use-1", useID: "use-1", reason: "chat_timeout", detail: "took too long"),
+                queueDepth: 0
+            ))
+        )
     }
 
     @MainActor
@@ -297,7 +335,13 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
 
         let stream = transport.events()
         var iterator = stream.makeAsyncIterator()
-        return await iterator.next()
+        while let event = await iterator.next() {
+            if case .eventStream = event {
+                continue
+            }
+            return event
+        }
+        return nil
     }
 
     private static func response(status: Int, request: URLRequest, body: String = "") -> (HTTPURLResponse, Data) {

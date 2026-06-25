@@ -16,12 +16,13 @@ private nonisolated struct ChatPostAckResponse: Decodable {
 
 private nonisolated struct ChatServerErrorResponse: Decodable {
     let error: String?
+    let reasonCode: String?
     let reason: String?
     let message: String?
     let queueDepth: Int?
 
     var displayReason: String? {
-        self.reason ?? self.error ?? self.message
+        self.reasonCode ?? self.reason ?? self.error ?? self.message
     }
 }
 
@@ -93,7 +94,9 @@ nonisolated struct ConveyChatTransport: ChatTransporting, Sendable {
                     do {
                         try await self.streamEvents(localPort: port, continuation: continuation)
                         backoffSeconds = 1
+                        continuation.yield(.eventStream(.reconnecting))
                     } catch {
+                        continuation.yield(.eventStream(.reconnecting))
                         self.logger.debug("chat events dropped: \(String(describing: error), privacy: .public)")
                         try? await Task.sleep(for: .seconds(backoffSeconds))
                         backoffSeconds = min(backoffSeconds * 2, 8)
@@ -197,6 +200,7 @@ private extension ConveyChatTransport {
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             throw URLError(.badServerResponse)
         }
+        continuation.yield(.eventStream(.connected))
 
         var parser = ServerSentEventParser()
         for try await byte in bytes {
@@ -274,6 +278,7 @@ private nonisolated struct WireSessionSnapshot: Decodable {
     let activeTalents: [WireTalent]?
     let completedTalents: [WireTalent]?
     let queuedTalents: [WireTalent]?
+    let chatError: WireChatError?
     let queueDepth: Int?
     let chat: WireSessionPayload?
 
@@ -283,6 +288,7 @@ private nonisolated struct WireSessionSnapshot: Decodable {
             activeTalents: self.activeTalents,
             completedTalents: self.completedTalents,
             queuedTalents: self.queuedTalents,
+            chatError: self.chatError,
             queueDepth: self.queueDepth
         )
         return payload.normalized
@@ -294,6 +300,7 @@ private nonisolated struct WireSessionPayload: Decodable {
     let activeTalents: [WireTalent]?
     let completedTalents: [WireTalent]?
     let queuedTalents: [WireTalent]?
+    let chatError: WireChatError?
     let queueDepth: Int?
 
     var normalized: ChatSessionSnapshot {
@@ -302,6 +309,7 @@ private nonisolated struct WireSessionPayload: Decodable {
             activeTalents: self.activeTalents?.compactMap (\.normalized) ?? [],
             completedTalents: self.completedTalents?.compactMap (\.normalized) ?? [],
             queuedTalents: self.queuedTalents?.compactMap (\.normalized) ?? [],
+            chatError: self.chatError?.normalized,
             queueDepth: self.queueDepth
         )
     }
@@ -396,6 +404,7 @@ private nonisolated struct WireChatEnvelope: Decodable {
             activeTalents: self.activeTalents?.compactMap (\.normalized) ?? [],
             completedTalents: self.completedTalents?.compactMap (\.normalized) ?? [],
             queuedTalents: self.queuedTalents?.compactMap (\.normalized) ?? [],
+            chatError: nil,
             queueDepth: self.queueDepth
         )
     }

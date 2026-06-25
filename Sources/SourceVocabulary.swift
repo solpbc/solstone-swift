@@ -204,6 +204,24 @@ nonisolated enum SourceVocabulary {
     static let chatPendingStatusA11y = "waiting — will send automatically"
     static let chatFailedStatusA11y = "tap to retry"
     static let chatTypingA11y = "sol is thinking"
+    static let chatDeliveryWaitingConnection = "waiting for your journal…"
+    static let chatDeliveryPosting = "sending to your journal…"
+    static let chatDeliveryRetryingTransport = "couldn't reach your journal — retrying…"
+    static let chatDeliveryRetryingUnavailable = "sol isn't available in your journal — retrying…"
+    static func chatDeliveryBackpressure(queueDepth: Int?) -> String {
+        if let queueDepth, queueDepth > 0 {
+            return "your journal is busy — \(queueDepth) waiting, retrying…"
+        }
+        return "your journal is busy — retrying…"
+    }
+    static func chatDeliveryServerQueued(queueDepth: Int?) -> String {
+        if let queueDepth, queueDepth > 0 {
+            return "queued in your journal — \(queueDepth) waiting"
+        }
+        return "queued in your journal"
+    }
+    static let chatAnswerWaiting = "waiting for your journal's answer…"
+    static let chatAnswerStreamReconnecting = "reconnecting to your journal's answer…"
     static let chatSendA11y = "send"
     static let chatAckBubble = "i'm on it."
     static let chatFoldNotificationBody = "i have an answer for you."

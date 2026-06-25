@@ -6,6 +6,8 @@ import os
 final class ChatManager {
     var messages: [ChatMessage] = []
     var isSending = false
+    var deliveryState: ChatDeliveryState = .idle
+    var answerState: ChatAnswerState = .idle
     var lastError: String?
     var queueDepth: Int?
     var pendingOffer: ChatOffer?
@@ -18,6 +20,49 @@ final class ChatManager {
     }
     var hasTalentWork: Bool {
         !self.runningTalents.isEmpty || !self.queuedTalents.isEmpty
+    }
+    var showsTypingIndicator: Bool {
+        switch self.answerState {
+        case .waitingForEvents, .working:
+            true
+        case .idle, .stale, .answered, .failed:
+            false
+        }
+    }
+    var statusLine: String? {
+        switch self.deliveryState {
+        case .waitingForConnection:
+            SourceVocabulary.chatDeliveryWaitingConnection
+        case .posting:
+            SourceVocabulary.chatDeliveryPosting
+        case .retryingTransport:
+            SourceVocabulary.chatDeliveryRetryingTransport
+        case .retryingUnavailable:
+            SourceVocabulary.chatDeliveryRetryingUnavailable
+        case .retryingBackpressure(let depth):
+            SourceVocabulary.chatDeliveryBackpressure(queueDepth: depth ?? self.queueDepth)
+        case .serverQueued(let depth):
+            SourceVocabulary.chatDeliveryServerQueued(queueDepth: depth ?? self.queueDepth)
+        case .failed(let reason):
+            reason
+        case .idle, .accepted:
+            switch self.answerState {
+            case .waitingForEvents:
+                SourceVocabulary.chatAnswerWaiting
+            case .stale:
+                SourceVocabulary.chatAnswerStreamReconnecting
+            case .working, .idle, .answered, .failed:
+                nil
+            }
+        }
+    }
+    var statusLineIsProgress: Bool {
+        switch self.deliveryState {
+        case .failed:
+            false
+        case .idle, .waitingForConnection, .posting, .retryingTransport, .retryingUnavailable, .retryingBackpressure, .serverQueued, .accepted:
+            self.statusLine != nil
+        }
     }
 
     private let transport: any ChatTransporting
@@ -52,6 +97,8 @@ final class ChatManager {
         self.inFlightToken = nil
         self.messages = []
         self.isSending = false
+        self.deliveryState = .idle
+        self.answerState = .idle
         self.lastError = nil
         self.queueDepth = nil
         self.pendingOffer = nil
@@ -77,6 +124,8 @@ final class ChatManager {
         self.messages.append(message)
 
         guard self.canDrainNow else {
+            self.deliveryState = .waitingForConnection
+            self.answerState = .idle
             self.logger.info("chat queued")
             self.startRetryTickIfNeeded()
             return
@@ -147,6 +196,8 @@ private extension ChatManager {
 
         self.startRetryTickIfNeeded()
         guard self.isReachable(), self.localPortProvider() != nil else {
+            self.deliveryState = .waitingForConnection
+            self.answerState = .idle
             self.logger.info("chat drain paused offline")
             return nil
         }
@@ -159,6 +210,7 @@ private extension ChatManager {
         self.inFlightTask?.cancel()
         self.logger.info("chat post start")
         self.isSending = true
+        self.deliveryState = .posting
 
         let token = InFlightToken()
         let task = Task { @MainActor [weak self, token] in
@@ -178,7 +230,7 @@ private extension ChatManager {
         var shouldContinueQueue = true
 
         switch result {
-        case .ack(let useID, _, let depth):
+        case .ack(let useID, let queued, let depth):
             self.markUserSent(headID: headID, useID: useID)
             self.outstandingTurnUseID = useID
             self.upsertAssistantMessage(
@@ -192,35 +244,47 @@ private extension ChatManager {
             self.isSending = false
             self.lastError = nil
             self.queueDepth = depth
+            self.deliveryState = queued ? .serverQueued(queueDepth: depth) : .accepted(useID: useID)
+            self.answerState = .waitingForEvents
             self.logger.info("chat post ack")
         case .queueFull(let depth):
             self.updateMessageStatus(id: headID, status: .pending)
             self.isSending = false
             self.queueDepth = depth
             self.lastError = nil
+            self.deliveryState = .retryingBackpressure(queueDepth: depth)
+            self.answerState = .idle
             shouldContinueQueue = false
             self.logger.info("chat post queue-full keep-pending")
-        case .unavailable:
+        case .unavailable(let reason):
             self.updateMessageStatus(id: headID, status: .pending)
             self.isSending = false
             self.lastError = nil
+            self.deliveryState = .retryingUnavailable(reason: reason)
+            self.answerState = .idle
             shouldContinueQueue = false
             self.logger.info("chat post unavailable keep-pending")
         case .transport:
             self.updateMessageStatus(id: headID, status: .pending)
             self.isSending = false
             self.lastError = nil
+            self.deliveryState = .retryingTransport
+            self.answerState = .idle
             shouldContinueQueue = false
             self.logger.info("chat post transport keep-pending")
         case .malformed:
             self.updateMessageStatus(id: headID, status: .failed)
             self.isSending = false
             self.lastError = SourceVocabulary.chatErrorDecode
+            self.deliveryState = .failed(reason: SourceVocabulary.chatErrorDecode)
+            self.answerState = .idle
             self.logger.error("chat post malformed")
         case .serverError(let status, let reason):
             self.updateMessageStatus(id: headID, status: .failed)
             self.isSending = false
             self.lastError = reason ?? (status == 500 ? SourceVocabulary.chatErrorServer : SourceVocabulary.chatErrorGeneric)
+            self.deliveryState = .failed(reason: self.lastError ?? SourceVocabulary.chatErrorGeneric)
+            self.answerState = .idle
             self.logger.info("chat post failed status=\(status)")
         }
 
@@ -249,18 +313,26 @@ private extension ChatManager {
             if let message = snapshot.latestSolMessage {
                 self.applySolMessage(message)
             }
+            if let error = snapshot.chatError {
+                self.applyChatError(error)
+            }
         case .ownerMessage(let message):
             self.applyOwnerMessage(message)
         case .solMessage(let message):
             self.applySolMessage(message)
         case .talentQueued(let talent):
             self.upsertQueuedTalent(talent)
+            if self.matchesOutstandingTurn(useID: talent.useID) {
+                self.answerState = .working
+            }
         case .talentSpawned(let talent):
             if self.promoteQueuedTalentIfNeeded(talent) {
+                self.answerState = .working
                 return
             }
             guard self.matchesOutstandingTurn(useID: talent.useID) else { return }
             self.activeTalents[talent.id] = talent
+            self.answerState = .working
             self.rebuildActiveTrace()
         case .talentFinished(let talent):
             if self.finishActiveTalentIfNeeded(talent, errored: false) {
@@ -283,6 +355,8 @@ private extension ChatManager {
             self.queueDepth = depth
         case .result(let result):
             self.applyResultEvent(result)
+        case .eventStream(let state):
+            self.applyEventStreamState(state)
         }
     }
 
@@ -305,10 +379,12 @@ private extension ChatManager {
         if let offer = event.offer {
             self.pendingOffer = offer
             self.isSending = false
+            self.answerState = .answered
         }
         if let draft = event.draft {
             self.pendingDraft = draft
             self.isSending = false
+            self.answerState = .answered
         }
 
         let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -317,6 +393,7 @@ private extension ChatManager {
             if event.offer == nil, event.draft == nil {
                 self.lastError = SourceVocabulary.chatErrorEmptyReply
                 self.answerRetryText = self.userText(useID: event.useID, requestID: event.requestID)
+                self.answerState = .failed(reason: SourceVocabulary.chatErrorEmptyReply)
                 self.clearOutstandingTurn(useID: event.useID)
                 self.logger.info("chat answer empty")
             }
@@ -335,6 +412,7 @@ private extension ChatManager {
         self.answerRetryText = nil
         self.pendingOffer = event.offer
         self.pendingDraft = event.draft
+        self.answerState = .answered
         self.clearOutstandingTurn(useID: event.useID)
     }
 
@@ -360,6 +438,7 @@ private extension ChatManager {
         self.answerRetryText = nil
         self.pendingOffer = event.offer
         self.pendingDraft = event.draft
+        self.answerState = .answered
     }
 
     func applyChatError(_ error: ChatErrorEvent) {
@@ -378,6 +457,7 @@ private extension ChatManager {
         self.answerRetryText = self.userText(useID: error.useID, requestID: error.requestID)
         self.pendingOffer = nil
         self.pendingDraft = nil
+        self.answerState = .failed(reason: text)
         self.clearOutstandingTurn(useID: error.useID)
         self.logger.info("chat answer error")
     }
@@ -392,6 +472,25 @@ private extension ChatManager {
         } else {
             self.lastError = SourceVocabulary.chatErrorServer
             self.logger.info("chat result failed")
+        }
+    }
+
+    func applyEventStreamState(_ state: ChatEventStreamState) {
+        guard self.outstandingTurnUseID != nil else { return }
+        switch state {
+        case .connected:
+            if self.activeTrace != nil || self.hasTalentWork {
+                self.answerState = .working
+            } else if self.answerState == .stale {
+                self.answerState = .waitingForEvents
+            }
+        case .reconnecting:
+            switch self.answerState {
+            case .waitingForEvents, .working:
+                self.answerState = .stale
+            case .idle, .stale, .answered, .failed:
+                break
+            }
         }
     }
 
@@ -421,6 +520,7 @@ private extension ChatManager {
             self.startRetryTickIfNeeded()
             self.drainIfPossible()
         } else {
+            self.deliveryState = .idle
             self.stopRetryTick()
         }
     }
