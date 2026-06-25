@@ -38,6 +38,11 @@ nonisolated final class DrainSignpostTests: XCTestCase {
         )
         XCTAssertEqual(DrainErrorCategory.classify(TestError()), .unknown)
     }
+
+    func testCountDeltaBoundaryAndStepFieldArePubliclyNamed() {
+        XCTAssertEqual(String(describing: DrainBoundary.countDelta.name), "drain.count_delta")
+        XCTAssertEqual(DrainFields(step: "completion").publicDescription, "step=completion")
+    }
 }
 
 private struct TestError: Error {}

@@ -57,6 +57,7 @@ nonisolated enum DrainBoundary: Sendable {
     case sourceSnapshotScan
     case aggregatePublication
     case countRefresh
+    case countDelta
     case uploadCompletion
     case multipartBodyBuild
     case taskCreateResume
@@ -71,6 +72,8 @@ nonisolated enum DrainBoundary: Sendable {
             "drain.aggregate_publication"
         case .countRefresh:
             "drain.count_refresh"
+        case .countDelta:
+            "drain.count_delta"
         case .uploadCompletion:
             "drain.upload_completion"
         case .multipartBodyBuild:

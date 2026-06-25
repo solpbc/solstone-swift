@@ -65,6 +65,36 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: "chunk-1").path))
     }
 
+    // ImportQueue and LocationUploader intentionally stay off the audio .m4a delta seam: they count directories and .jsonl files with batch clears/origin-less drops.
+    @MainActor
+    func testSuccessfulCompletionsUseDeltasWithoutFullRecountsScalingWithCompletions() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        let uploader = self.makeUploader()
+        let baselineRecounts = uploader.fullRecountCount
+        let sessionID = UUID()
+
+        for index in 0..<5 {
+            let sourceURL = try self.makeChunkFile(named: "chunk-delta-\(index)")
+            await uploader.enqueue(
+                chunkURL: sourceURL,
+                sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: index)
+            )
+        }
+
+        try await self.waitFor("delta upload cleanup") {
+            ObserverUploaderURLProtocol.callCount == 5 && uploader.pendingCount == 0 && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts)
+    }
+
     @MainActor
     func testRepeatedFailuresMoveChunkToFailedDirectory() async throws {
         ObserverUploaderURLProtocol.handler = { request in
@@ -110,6 +140,62 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testExhaustionAppliesDeltaWithoutFullRecount() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("service unavailable".utf8)
+            )
+        }
+
+        let uploader = self.makeUploader(maxAttempts: 1)
+        let baselineRecounts = uploader.fullRecountCount
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-exhaustion-delta")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("exhaustion delta") {
+            uploader.pendingCount == 0 && uploader.failedCount == 1
+        }
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts)
+    }
+
+    @MainActor
+    func testRetryScheduledDoesNotRefreshCounts() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("service unavailable".utf8)
+            )
+        }
+
+        let uploader = self.makeUploader(
+            maxAttempts: 2,
+            sleep: { _ in try? await Task.sleep(for: .seconds(5)) }
+        )
+        let baselineRecounts = uploader.fullRecountCount
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-retry-scheduled")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("retry scheduled") {
+            ObserverUploaderURLProtocol.callCount == 1 && uploader.pendingCount == 1
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts)
+        uploader.dropItem(sessionID: sessionID, chunkID: "chunk-retry-scheduled")
+    }
+
+    @MainActor
     func testJournalUnconfiguredLeavesPendingChunkWithoutAttemptsOrRetry() async throws {
         let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
         let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
@@ -140,6 +226,37 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
         XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
         XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+    }
+
+    @MainActor
+    func testHeldUploadsDoNotRefreshCounts() async throws {
+        let journalHeldUploader = self.makeUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("held-journal", isDirectory: true),
+            isJournalConfigured: { false }
+        )
+        let journalBaseline = journalHeldUploader.fullRecountCount
+        let journalSessionID = UUID()
+        await journalHeldUploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-held-journal"),
+            sidecar: self.makeSidecar(sessionID: journalSessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(journalHeldUploader.pendingCount, 1)
+        XCTAssertEqual(journalHeldUploader.failedCount, 0)
+        XCTAssertEqual(journalHeldUploader.fullRecountCount, journalBaseline)
+
+        let noPortUploader = self.makeUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("held-port", isDirectory: true),
+            localPortProvider: { nil }
+        )
+        let noPortBaseline = noPortUploader.fullRecountCount
+        let noPortSessionID = UUID()
+        await noPortUploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-held-port"),
+            sidecar: self.makeSidecar(sessionID: noPortSessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(noPortUploader.pendingCount, 1)
+        XCTAssertEqual(noPortUploader.failedCount, 0)
+        XCTAssertEqual(noPortUploader.fullRecountCount, noPortBaseline)
     }
 
     @MainActor
@@ -276,10 +393,12 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
         XCTAssertEqual(uploader.pendingCount, 1)
         XCTAssertEqual(uploader.failedCount, 1)
+        let baselineRecounts = uploader.fullRecountCount
         uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
 
         XCTAssertEqual(uploader.pendingCount, 0)
         XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts)
         XCTAssertFalse(FileManager.default.fileExists(atPath: pendingAudio.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: pendingSidecar.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: pendingUpload.path))
@@ -463,12 +582,14 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
         let uploader = self.makeUploader()
         XCTAssertEqual(uploader.failedCount, 1)
+        let baselineRecounts = uploader.fullRecountCount
 
         try await uploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
 
         try await self.waitFor("requeue upload") {
             ObserverUploaderURLProtocol.callCount == 1 && uploader.pendingCount == 0 && uploader.failedCount == 0
         }
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
     }
 
@@ -494,6 +615,49 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testRequeueOverwriteFallsBackToFullRecount() async throws {
+        let sessionID = UUID()
+        let chunkID = "chunk-requeue-overwrite"
+        try self.writeFailedPair(sessionID: sessionID, chunkID: chunkID)
+        let pendingAudio = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
+        try FileManager.default.createDirectory(at: pendingAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("old pending audio".utf8).write(to: pendingAudio)
+        let uploader = self.makeUploader(localPortProvider: { nil })
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 1)
+        let baselineRecounts = uploader.fullRecountCount
+
+        try await uploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts + 1)
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testEnqueueOverwriteFallsBackToFullRecount() async throws {
+        let sessionID = UUID()
+        let chunkID = "chunk-overwrite"
+        let pendingAudio = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
+        try FileManager.default.createDirectory(at: pendingAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("old audio".utf8).write(to: pendingAudio)
+        let uploader = self.makeUploader(localPortProvider: { nil })
+        XCTAssertEqual(uploader.pendingCount, 1)
+        let baselineRecounts = uploader.fullRecountCount
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(uploader.fullRecountCount, baselineRecounts + 1)
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+    }
+
+    @MainActor
     func testRetryFailedRequeuesCompletePairsAndSkipsIncompletePairs() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -514,6 +678,48 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             ObserverUploaderURLProtocol.callCount == 1 && uploader.failedCount == 1
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: partialAudio.path))
+    }
+
+    @MainActor
+    func testOmiAndWatchSourceTypesUseSameDeltaDrainPath() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        let omiUploader = self.makeUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("omi-delta", isDirectory: true),
+            sourceType: "omi-audio"
+        )
+        let omiBaseline = omiUploader.fullRecountCount
+        let omiSessionID = UUID()
+        await omiUploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-omi-delta"),
+            sidecar: self.makeSidecar(sessionID: omiSessionID, chunkIndex: 0)
+        )
+
+        let watchUploader = self.makeUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("watch-delta", isDirectory: true),
+            sourceType: "watch-audio"
+        )
+        let watchBaseline = watchUploader.fullRecountCount
+        let watchSessionID = UUID()
+        await watchUploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-watch-delta"),
+            sidecar: self.makeSidecar(sessionID: watchSessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("omi/watch delta drain") {
+            ObserverUploaderURLProtocol.callCount == 2
+                && omiUploader.pendingCount == 0
+                && watchUploader.pendingCount == 0
+        }
+        XCTAssertEqual(omiUploader.failedCount, 0)
+        XCTAssertEqual(watchUploader.failedCount, 0)
+        XCTAssertEqual(omiUploader.fullRecountCount, omiBaseline)
+        XCTAssertEqual(watchUploader.fullRecountCount, watchBaseline)
     }
 
     @MainActor

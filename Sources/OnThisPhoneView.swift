@@ -55,6 +55,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var pendingDropItem: OnThisPhoneItem?
     @State private var welcomeFraming: String?
     @State private var welcomeFramingTask: Task<Void, Never>?
+    @State private var coalescer = OnThisPhoneSnapshotCoalescer()
     private let pulsePoller = HomePulsePoller()
     private let askBarState: DayHomeJournalState?
     private let onAskBarChat: () -> Void
@@ -149,38 +150,41 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 self.refreshWelcomeFraming()
             }
             .onChange(of: self.observerUploader.pendingCount) { _, _ in
-                self.loadSnapshot(trigger: .observerCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .observerCounts) }
             }
             .onChange(of: self.observerUploader.failedCount) { _, _ in
-                self.loadSnapshot(trigger: .observerCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .observerCounts) }
             }
             .onChange(of: self.omiUploaderHolder.pendingCount) { _, _ in
-                self.loadSnapshot(trigger: .omiCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .omiCounts) }
             }
             .onChange(of: self.omiUploaderHolder.failedCount) { _, _ in
-                self.loadSnapshot(trigger: .omiCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .omiCounts) }
             }
             .onChange(of: self.watchUploaderHolder.pendingCount) { _, _ in
-                self.loadSnapshot(trigger: .watchCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .watchCounts) }
             }
             .onChange(of: self.watchUploaderHolder.failedCount) { _, _ in
-                self.loadSnapshot(trigger: .watchCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .watchCounts) }
             }
             .onChange(of: self.importQueue.pendingCount) { _, _ in
-                self.loadSnapshot(trigger: .importCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .importCounts) }
             }
             .onChange(of: self.importQueue.failedCount) { _, _ in
-                self.loadSnapshot(trigger: .importCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .importCounts) }
             }
             .onChange(of: self.locationUploader.pendingCount) { _, _ in
-                self.loadSnapshot(trigger: .locationCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .locationCounts) }
             }
             .onChange(of: self.locationUploader.failedCount) { _, _ in
-                self.loadSnapshot(trigger: .locationCounts)
+                self.coalescer.schedule { self.loadSnapshot(trigger: .locationCounts) }
             }
             .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
                 self.loadSnapshot(trigger: .activePort)
                 self.refreshWelcomeFraming()
+            }
+            .onDisappear {
+                self.coalescer.cancel()
             }
             .sheet(isPresented: self.$showingConnectJournal) {
                 ConnectJournalSheet(isPresented: self.$showingConnectJournal)

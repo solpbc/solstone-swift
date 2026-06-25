@@ -91,6 +91,7 @@ final class ObserverUploader {
     var lastUploadAt: Date?
     var lastError: String?
 
+    @ObservationIgnored private(set) var fullRecountCount = 0
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: ObserverUploaderSessionDelegate
@@ -190,18 +191,25 @@ final class ObserverUploader {
         do {
             try self.ensureSessionDirectories(sessionID: sidecar.sessionID)
             let pendingAudioURL = self.pendingAudioURL(sessionID: sidecar.sessionID, chunkID: chunkID)
+            let pendingAudioExisted = self.fileManager.fileExists(atPath: pendingAudioURL.path)
+            var movedNewPendingAudio = false
             if chunkURL != pendingAudioURL {
-                if self.fileManager.fileExists(atPath: pendingAudioURL.path) {
+                if pendingAudioExisted {
                     try self.fileManager.removeItem(at: pendingAudioURL)
                 }
                 try self.fileManager.moveItem(at: chunkURL, to: pendingAudioURL)
+                movedNewPendingAudio = !pendingAudioExisted
             }
 
             let sidecarURL = self.pendingSidecarURL(sessionID: sidecar.sessionID, chunkID: chunkID)
             let sidecarData = try self.encoder.encode(sidecar)
             try sidecarData.write(to: sidecarURL, options: .atomic)
             uploaderLog.info("observer: chunk enqueued \(chunkID, privacy: .public)")
-            self.refreshCounts()
+            if movedNewPendingAudio {
+                self.applyCountDelta(pending: 1, failed: 0, step: "enqueue")
+            } else {
+                self.refreshCounts()
+            }
             await self.scheduleUpload(chunkID: chunkID, sessionID: sidecar.sessionID)
         } catch {
             let detail = String(describing: error)
@@ -304,14 +312,24 @@ final class ObserverUploader {
         let pendingSidecarURL = self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID)
         let pendingUploadURL = self.pendingDirectoryURL(sessionID: sessionID)
             .appendingPathComponent("\(chunkID).upload", isDirectory: false)
-        for staleURL in [pendingAudioURL, pendingSidecarURL, pendingUploadURL] where self.fileManager.fileExists(atPath: staleURL.path) {
-            try self.fileManager.removeItem(at: staleURL)
-        }
+        let pendingAudioExisted = self.fileManager.fileExists(atPath: pendingAudioURL.path)
 
-        try self.fileManager.moveItem(at: failedAudioURL, to: pendingAudioURL)
-        try self.fileManager.moveItem(at: failedSidecarURL, to: pendingSidecarURL)
-        try? self.fileManager.removeItem(at: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
-        self.refreshCounts()
+        do {
+            for staleURL in [pendingAudioURL, pendingSidecarURL, pendingUploadURL] where self.fileManager.fileExists(atPath: staleURL.path) {
+                try self.fileManager.removeItem(at: staleURL)
+            }
+            try self.fileManager.moveItem(at: failedAudioURL, to: pendingAudioURL)
+            try self.fileManager.moveItem(at: failedSidecarURL, to: pendingSidecarURL)
+            try? self.fileManager.removeItem(at: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
+            if pendingAudioExisted {
+                self.refreshCounts()
+            } else {
+                self.applyCountDelta(pending: 1, failed: -1, step: "requeue")
+            }
+        } catch {
+            self.refreshCounts()
+            throw error
+        }
         await self.scheduleUpload(chunkID: chunkID, sessionID: sessionID)
     }
 
@@ -417,16 +435,24 @@ final class ObserverUploader {
         self.clearUploadState(chunkID: chunkID)
 
         let pendingDirectory = self.pendingDirectoryURL(sessionID: sessionID)
-        try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
+        let pendingAudioURL = pendingDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+        let removedPendingAudio = (try? self.fileManager.removeItem(at: pendingAudioURL)) != nil
         try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
         try? self.fileManager.removeItem(at: pendingDirectory.appendingPathComponent("\(chunkID).upload", isDirectory: false))
 
         let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
-        try? self.fileManager.removeItem(at: failedDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false))
+        let failedAudioURL = failedDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+        let removedFailedAudio = (try? self.fileManager.removeItem(at: failedAudioURL)) != nil
         try? self.fileManager.removeItem(at: failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
         try? self.fileManager.removeItem(at: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
 
-        self.refreshCounts()
+        if removedPendingAudio || removedFailedAudio {
+            self.applyCountDelta(
+                pending: removedPendingAudio ? -1 : 0,
+                failed: removedFailedAudio ? -1 : 0,
+                step: "drop"
+            )
+        }
         uploaderLog.info("observer item dropped \(chunkID, privacy: .public)")
     }
 
@@ -485,6 +511,11 @@ private extension ObserverUploader {
         let sessionID: UUID
         let localPort: Int
         let prefix: String?
+    }
+
+    struct CountDelta {
+        let pending: Int
+        let failed: Int
     }
 
     var audioSource: OnThisPhoneAudioSource {
@@ -735,7 +766,6 @@ private extension ObserverUploader {
         guard self.isJournalConfigured() else {
             uploaderLog.debug("observer upload held: journal unavailable")
             self.lastError = nil
-            self.refreshCounts()
             return
         }
 
@@ -753,7 +783,6 @@ private extension ObserverUploader {
                 reason: "local port unavailable"
             )
             self.lastError = nil
-            self.refreshCounts()
             return
         }
 
@@ -916,7 +945,7 @@ private extension ObserverUploader {
                 attempt: self.attemptCountByChunkID[info.chunkID, default: 0] + 1,
                 reason: "uploaded"
             )
-            try? self.fileManager.removeItem(at: info.audioURL)
+            let removedAudio = (try? self.fileManager.removeItem(at: info.audioURL)) != nil
             try? self.fileManager.removeItem(at: info.sidecarURL)
             try? self.fileManager.removeItem(at: info.requestBodyURL)
             self.onSegmentDelivered?(info.sessionID)
@@ -924,7 +953,11 @@ private extension ObserverUploader {
             self.lastUploadAt = Date()
             self.lastError = nil
             uploaderLog.info("observer chunk uploaded \(info.chunkID, privacy: .public)")
-            self.refreshCounts()
+            if removedAudio {
+                self.applyCountDelta(pending: -1, failed: 0, step: "completion")
+            } else {
+                self.refreshCounts()
+            }
             DrainSignpost.event(
                 .uploadCompletion,
                 source: drainSource,
@@ -1045,7 +1078,7 @@ private extension ObserverUploader {
                 reason: reason
             )
             do {
-                try self.movePendingPairToFailed(
+                let delta = try self.movePendingPairToFailed(
                     sessionID: sessionID,
                     chunkID: chunkID,
                     audioURL: audioURL,
@@ -1065,13 +1098,16 @@ private extension ObserverUploader {
                         lastAttemptAt: Date()
                     )
                 )
+                if delta.pending != 0 || delta.failed != 0 {
+                    self.applyCountDelta(pending: delta.pending, failed: delta.failed, step: "exhaustion")
+                }
             } catch {
                 self.lastError = String(describing: error)
+                self.refreshCounts()
             }
             self.retryTasksByChunkID[chunkID]?.cancel()
             self.retryTasksByChunkID.removeValue(forKey: chunkID)
             self.attemptCountByChunkID.removeValue(forKey: chunkID)
-            self.refreshCounts()
             return
         }
 
@@ -1097,7 +1133,6 @@ private extension ObserverUploader {
             guard !Task.isCancelled else { return }
             await self.scheduleUpload(chunkID: chunkID, sessionID: sessionID)
         }
-        self.refreshCounts()
     }
 
     func appendUploadDiagnostic(
@@ -1133,6 +1168,7 @@ private extension ObserverUploader {
         )
     }
 
+    @discardableResult
     func movePendingPairToFailed(
         sessionID: UUID,
         chunkID: String,
@@ -1140,16 +1176,19 @@ private extension ObserverUploader {
         sidecarURL: URL?,
         reason: String,
         failureSidecar: ObserverUploadFailureSidecar? = nil
-    ) throws {
+    ) throws -> CountDelta {
         let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
         try self.fileManager.createDirectory(at: failedDirectory, withIntermediateDirectories: true)
+        var delta = CountDelta(pending: 0, failed: 0)
 
         if let audioURL, self.fileManager.fileExists(atPath: audioURL.path) {
             let target = failedDirectory.appendingPathComponent(audioURL.lastPathComponent, isDirectory: false)
-            if self.fileManager.fileExists(atPath: target.path) {
+            let targetExisted = self.fileManager.fileExists(atPath: target.path)
+            if targetExisted {
                 try self.fileManager.removeItem(at: target)
             }
             try self.fileManager.moveItem(at: audioURL, to: target)
+            delta = CountDelta(pending: -1, failed: targetExisted ? 0 : 1)
         }
 
         if let sidecarURL, self.fileManager.fileExists(atPath: sidecarURL.path) {
@@ -1168,6 +1207,7 @@ private extension ObserverUploader {
         let safeReason = self.redactedFailureDetail(reason)
         uploaderLog.error("observer chunk moved to failed \(chunkID, privacy: .public): \(safeReason, privacy: .public)")
         self.lastError = safeReason
+        return delta
     }
 
     func buildMultipartRequestBody(audioURL: URL, sidecar: ChunkSidecar) throws -> URL {
@@ -1285,6 +1325,7 @@ private extension ObserverUploader {
     }
 
     func refreshCounts() {
+        self.fullRecountCount += 1
         let start = DispatchTime.now().uptimeNanoseconds
         self.pendingCount = self.countFiles(named: "pending", withExtension: "m4a")
         self.failedCount = self.countFiles(named: "failed", withExtension: "m4a")
@@ -1296,6 +1337,24 @@ private extension ObserverUploader {
                 pending: self.pendingCount,
                 failed: self.failedCount,
                 durationMs: DrainSignpost.durationMs(since: start)
+            )
+        )
+    }
+
+    // Observer/Omi/Watch audio counts track pending/failed .m4a files;
+    // share and location keep their full-scan count paths.
+    func applyCountDelta(pending: Int, failed: Int, step: String) {
+        guard pending != 0 || failed != 0 else { return }
+        self.pendingCount = max(0, self.pendingCount + pending)
+        self.failedCount = max(0, self.failedCount + failed)
+        DrainSignpost.event(
+            .countDelta,
+            source: DrainSource.audio(self.sourceType),
+            fields: DrainFields(
+                status: "success",
+                pending: self.pendingCount,
+                failed: self.failedCount,
+                step: step
             )
         )
     }
