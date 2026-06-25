@@ -158,7 +158,8 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             ("org.webmproject.webp", "image"),
             ("public.tiff", "image"),
             ("com.compuserve.gif", "image"),
-            ("public.m4a-audio", "recording"),
+            ("public.m4a-audio", "audio"),
+            ("public.mp3", "audio"),
         ]
 
         for (contentType, expectedSource) in cases {

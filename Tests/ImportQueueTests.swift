@@ -98,14 +98,15 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ImportQueueURLProtocol.handler = { request in
             switch request.url?.path {
             case "/app/import/api/save":
+                let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"path":"/imports/item-1","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+                    Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"start","path":"/imports/item-1","timestamp":"2026-04-20T12:00:00Z","source":"audio"}"#.utf8)
                 )
             case "/app/import/api/start":
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"status":"queued","task_id":"task-1"}"#.utf8)
+                    Self.validStartResponse
                 )
             default:
                 XCTFail("unexpected path \(request.url?.path ?? "nil")")
@@ -113,7 +114,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
             }
         }
         let queue = self.makeQueue()
-        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+        let source = try self.makeSourceFile(named: "memo.m4a", data: Data("audio".utf8))
         let completionCounter = ImportQueueCompletionCounter()
         queue.handleBackgroundURLSessionEvents {
             completionCounter.increment()
@@ -121,10 +122,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
         let itemID = try await queue.enqueue(
             fileURL: source,
-            source: "document",
+            source: "audio",
             targetJournal: "home",
-            contentType: "com.adobe.pdf",
-            originalFilename: "source.pdf",
+            contentType: "public.m4a-audio",
+            originalFilename: "memo.m4a",
             originApp: "com.example.files"
         ).uuidString.lowercased()
 
@@ -138,7 +139,11 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertTrue(saveBody.contains("mobile_share"))
         XCTAssertTrue(saveBody.contains(#"name="observer_handle""#))
         XCTAssertTrue(saveBody.contains("test-observer-key-abc"))
-        XCTAssertTrue(saveBody.contains(#"name="file"; filename="document.pdf""#))
+        XCTAssertTrue(saveBody.contains(#"name="client_item_id""#))
+        XCTAssertTrue(saveBody.contains(itemID))
+        XCTAssertTrue(saveBody.contains(#"name="file"; filename="audio.m4a""#))
+        XCTAssertTrue(saveBody.contains("Content-Type: audio/mp4"))
+        XCTAssertFalse(saveBody.contains(#"name="source""#))
         XCTAssertFalse(saveBody.contains(#"name="day""#))
         XCTAssertFalse(saveBody.contains(#"name="segment""#))
         XCTAssertFalse(saveBody.contains(#"name="platform""#))
@@ -147,12 +152,13 @@ nonisolated final class ImportQueueTests: XCTestCase {
         let startBody = try XCTUnwrap(JSONSerialization.jsonObject(with: ImportQueueURLProtocol.capturedBodies[1]) as? [String: Any])
         XCTAssertEqual(startBody["path"] as? String, "/imports/item-1")
         XCTAssertEqual(startBody["timestamp"] as? String, "2026-04-20T12:00:00Z")
-        XCTAssertEqual(startBody["source"] as? String, "document")
+        XCTAssertNil(startBody["source"])
+        XCTAssertEqual(Set(startBody.keys), Set(["path", "timestamp"]))
 
         let ledger = try self.readLedger()
         XCTAssertEqual(ledger[itemID]?.serverPath, "/imports/item-1")
         XCTAssertEqual(ledger[itemID]?.serverTimestamp, "2026-04-20T12:00:00Z")
-        XCTAssertEqual(ledger[itemID]?.filename, "source.pdf")
+        XCTAssertEqual(ledger[itemID]?.filename, "memo.m4a")
         XCTAssertEqual(ledger[itemID]?.originApp, "com.example.files")
         XCTAssertNotNil(ledger[itemID]?.itemTime)
 
@@ -164,9 +170,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
     func testQuickTextSaveUsesTextFieldWithoutFilePart() async throws {
         ImportQueueURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
             return (
                 Self.response(for: request, statusCode: 200),
-                Data(#"{"path":"/imports/text","timestamp":"2026-04-20T12:00:00Z","dedup":true}"#.utf8)
+                Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start","path":"/imports/text","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
             )
         }
         let queue = self.makeQueue()
@@ -180,7 +187,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
             originalFilename: "note.txt"
         )
 
-        try await self.waitFor("text dedup delivery") {
+        try await self.waitFor("text delivery") {
             queue.pendingCount == 0 && queue.lastDeliveredAt != nil
         }
         XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
@@ -188,35 +195,21 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertTrue(body.contains(#"name="text""#))
         XCTAssertTrue(body.contains("  hello text  "))
         XCTAssertFalse(body.contains(#"name="file""#))
+        XCTAssertTrue(body.contains(#"name="client_item_id""#))
+        let ledger = try self.readLedger()
+        XCTAssertEqual(ledger.count, 1)
+        XCTAssertEqual(ledger.values.first?.serverPath, "/imports/text")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: try XCTUnwrap(ledger.keys.first)).path))
     }
 
     @MainActor
-    func testPersistedSaveResultResumesAtStartWithoutRegistrationOrResave() async throws {
-        let itemID = try self.writeLocalItem(status: "pending")
-        try Data(#"{"path":"/imports/saved","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
-            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
-        ImportQueueURLProtocol.handler = { request in
-            XCTAssertEqual(request.url?.path, "/app/import/api/start")
-            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
-        }
-        let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
-
-        await queue.resumeFromDisk()
-
-        try await self.waitFor("saved item start") {
-            queue.pendingCount == 0 && ImportQueueURLProtocol.callCount == 1
-        }
-        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/start"])
-        XCTAssertEqual(try self.readLedger()[itemID]?.serverPath, "/imports/saved")
-    }
-
-    @MainActor
-    func testDedupSaveFinalizesWithoutStart() async throws {
+    func testDoNotStartWithoutPathTimestampFinalizesLedgerWithNilServerFields() async throws {
         ImportQueueURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
             return (
                 Self.response(for: request, statusCode: 200),
-                Data(#"{"path":"/imports/dedup","timestamp":"2026-04-20T12:00:00Z","dedup":true}"#.utf8)
+                Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
             )
         }
         let queue = self.makeQueue()
@@ -229,12 +222,274 @@ nonisolated final class ImportQueueTests: XCTestCase {
             contentType: "com.adobe.pdf"
         ).uuidString.lowercased()
 
-        try await self.waitFor("dedup delivery") {
+        try await self.waitFor("do not start delivery") {
             queue.pendingCount == 0 && queue.lastDeliveredAt != nil
         }
         XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
-        XCTAssertEqual(try self.readLedger()[itemID]?.serverPath, "/imports/dedup")
+        let ledgerEntry = try XCTUnwrap(self.readLedger()[itemID])
+        XCTAssertNil(ledgerEntry.serverPath)
+        XCTAssertNil(ledgerEntry.serverTimestamp)
+    }
+
+    @MainActor
+    func testSaveResponseMissingClientItemIDFailsWithoutStartOrLedger() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"start","path":"/imports/missing-client","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "missing-client.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("missing client id failure") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+        XCTAssertFalse(self.ledgerExists())
+    }
+
+    @MainActor
+    func testSaveResponseClientItemIDMismatchFailsWithoutStartOrLedger() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"client_item_id":"wrong-client","recommended_action":"start","path":"/imports/mismatch","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "mismatch.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("client id mismatch failure") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+        XCTAssertFalse(self.ledgerExists())
+        XCTAssertNotNil(queue.lastError)
+    }
+
+    @MainActor
+    func testSaveResponseUnknownRecommendedActionFailsWithoutStartOrLedger() async throws {
+        let cases: [(String, String)] = [
+            ("missing", #"{"client_item_id":"CLIENT","path":"/imports/missing-action","timestamp":"2026-04-20T12:00:00Z"}"#),
+            ("unknown", #"{"client_item_id":"CLIENT","recommended_action":"later","path":"/imports/unknown-action","timestamp":"2026-04-20T12:00:00Z"}"#),
+        ]
+
+        for (name, template) in cases {
+            ImportQueueURLProtocol.reset()
+            let root = self.tempDirectory.appendingPathComponent("recommended-action-\(name)", isDirectory: true)
+            ImportQueueURLProtocol.handler = { request in
+                XCTAssertEqual(request.url?.path, "/app/import/api/save")
+                let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(template.replacingOccurrences(of: "CLIENT", with: clientItemID).utf8)
+                )
+            }
+            let queue = self.makeQueue(cacheRootURL: root, maxAttempts: 1)
+            let source = try self.makeSourceFile(named: "\(name).pdf", data: Data("pdf".utf8))
+
+            _ = try await queue.enqueue(
+                fileURL: source,
+                source: "document",
+                targetJournal: "home",
+                contentType: "com.adobe.pdf"
+            )
+
+            try await self.waitFor("\(name) recommended action failure") {
+                queue.failedCount == 1
+            }
+            XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("ledger.json").path))
+        }
+    }
+
+    @MainActor
+    func testStartActionRequiresPathAndTimestampBeforePersistingSaveResult() async throws {
+        let cases: [(String, String)] = [
+            ("missing-path", #"{"client_item_id":"CLIENT","recommended_action":"start","timestamp":"2026-04-20T12:00:00Z"}"#),
+            ("missing-timestamp", #"{"client_item_id":"CLIENT","recommended_action":"start","path":"/imports/missing-timestamp"}"#),
+        ]
+
+        for (name, template) in cases {
+            ImportQueueURLProtocol.reset()
+            let root = self.tempDirectory.appendingPathComponent(name, isDirectory: true)
+            ImportQueueURLProtocol.handler = { request in
+                XCTAssertEqual(request.url?.path, "/app/import/api/save")
+                let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(template.replacingOccurrences(of: "CLIENT", with: clientItemID).utf8)
+                )
+            }
+            let queue = self.makeQueue(cacheRootURL: root, maxAttempts: 1)
+            let source = try self.makeSourceFile(named: "\(name).pdf", data: Data("pdf".utf8))
+
+            let itemID = try await queue.enqueue(
+                fileURL: source,
+                source: "document",
+                targetJournal: "home",
+                contentType: "com.adobe.pdf"
+            ).uuidString.lowercased()
+
+            try await self.waitFor("\(name) missing start field failure") {
+                queue.failedCount == 1
+            }
+            XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+            let saveResultURL = root
+                .appendingPathComponent("pending", isDirectory: true)
+                .appendingPathComponent(itemID, isDirectory: true)
+                .appendingPathComponent("save.json")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: saveResultURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("ledger.json").path))
+        }
+    }
+
+    @MainActor
+    func testPersistedSaveResultResumesAtStartWithoutRegistrationOrResave() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        try Data(#"{"path":"/imports/saved","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        ImportQueueURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/import/api/start")
+            return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
+        }
+        let queue = self.makeQueue(ensureRegistered: {
+            registrationCalls.withLock { $0 += 1 }
+            throw ImportQueueError.registrationUnavailable
+        })
+
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("saved item start") {
+            queue.pendingCount == 0 && ImportQueueURLProtocol.callCount == 1
+        }
+        XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/start"])
+        let startBody = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(ImportQueueURLProtocol.capturedBodies.first)) as? [String: Any])
+        XCTAssertEqual(startBody["path"] as? String, "/imports/saved")
+        XCTAssertEqual(startBody["timestamp"] as? String, "2026-04-20T12:00:00Z")
+        XCTAssertNil(startBody["source"])
+        XCTAssertEqual(try self.readLedger()[itemID]?.serverPath, "/imports/saved")
+    }
+
+    @MainActor
+    func testPersistedNonStartableSaveResultFailsWithoutResaveOrStart() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        try Data(#"{"path":"/imports/not-startable","timestamp":"2026-04-20T12:00:00Z","recommended_action":"do_not_start"}"#.utf8)
+            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
+        let queue = self.makeQueue(maxAttempts: 1)
+
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("non-startable save result failure") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+        XCTAssertFalse(self.ledgerExists())
+    }
+
+    @MainActor
+    func testStartResponseMustBeOkWithNonEmptyTaskIDBeforeFinalizing() async throws {
+        let cases: [(String, Data)] = [
+            ("non-ok", Data(#"{"status":"queued","task_id":"task-1"}"#.utf8)),
+            ("missing-task", Data(#"{"status":"ok"}"#.utf8)),
+            ("empty-task", Data(#"{"status":"ok","task_id":""}"#.utf8)),
+            ("malformed", Data("not json".utf8)),
+        ]
+
+        for (name, responseData) in cases {
+            ImportQueueURLProtocol.reset()
+            let root = self.tempDirectory.appendingPathComponent("start-response-\(name)", isDirectory: true)
+            let itemID = try self.writeLocalItem(root: root, status: "pending")
+            try Data(#"{"path":"/imports/\#(name)","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+                .write(to: root
+                    .appendingPathComponent("pending", isDirectory: true)
+                    .appendingPathComponent(itemID, isDirectory: true)
+                    .appendingPathComponent("save.json"), options: .atomic)
+            ImportQueueURLProtocol.handler = { request in
+                XCTAssertEqual(request.url?.path, "/app/import/api/start")
+                return (Self.response(for: request, statusCode: 200), responseData)
+            }
+            let queue = self.makeQueue(cacheRootURL: root, maxAttempts: 1)
+
+            await queue.resumeFromDisk()
+
+            try await self.waitFor("\(name) start response failure") {
+                queue.failedCount == 1
+            }
+            XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/start"])
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("ledger.json").path))
+        }
+    }
+
+    @MainActor
+    func testHTTP409ImportClientIDConflictMovesToFailedWithoutLedgerAndPreservesBody() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (
+                Self.response(for: request, statusCode: 409),
+                Data(#"{"error":"import_client_id_conflict","detail":"client id belongs to another import"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "conflict.pdf", data: Data("pdf".utf8))
+
+        _ = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+
+        try await self.waitFor("409 conflict failure") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+        XCTAssertFalse(self.ledgerExists())
+        XCTAssertTrue((queue.lastError ?? "").contains("HTTP 409"))
+        XCTAssertTrue((queue.lastError ?? "").contains("import_client_id_conflict"))
+    }
+
+    @MainActor
+    func testAudioContentTypesInferAudioFilenameAndMIMEViaEnqueue() async throws {
+        let queue = self.makeQueue(isJournalConfigured: { false })
+        let cases: [(String, String, String, String)] = [
+            ("public.mp3", "audio", "audio.mp3", "audio/mpeg"),
+            ("public.m4a-audio", "audio", "audio.m4a", "audio/mp4"),
+            ("com.unknown.bogus", "document", "item.bin", "application/octet-stream"),
+        ]
+
+        for (contentType, importSource, expectedFilename, expectedContentType) in cases {
+            let source = try self.makeSourceFile(named: "\(UUID().uuidString).bin", data: Data("data".utf8))
+            let itemID = try await queue.enqueue(
+                fileURL: source,
+                source: importSource,
+                targetJournal: "home",
+                contentType: contentType
+            ).uuidString.lowercased()
+            let descriptor = try self.readDescriptor(itemID: itemID)
+            XCTAssertEqual(descriptor.filename, expectedFilename)
+            XCTAssertEqual(descriptor.contentType, expectedContentType)
+        }
     }
 
     @MainActor
@@ -252,7 +507,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
                 }
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"path":"/imports/retry","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+                    Self.saveStartResponse(path: "/imports/retry")
                 )
             case "/app/import/api/start":
                 if startFailures.withLock({ count in
@@ -261,7 +516,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
                 }) <= 4 {
                     return (Self.response(for: request, statusCode: 503), Data("start unavailable".utf8))
                 }
-                return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+                return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
             default:
                 return (Self.response(for: request, statusCode: 404), Data())
             }
@@ -334,10 +589,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
             case "/app/import/api/save":
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"path":"/imports/item","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+                    Self.saveStartResponse(path: "/imports/item")
                 )
             case "/app/import/api/start":
-                return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+                return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
             default:
                 return (Self.response(for: request, statusCode: 404), Data())
             }
@@ -460,6 +715,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     private func makeQueue(
+        cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
         retryDelays: [UInt64] = [0],
         maxAttempts: Int = 5,
@@ -472,7 +728,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ImportQueueURLProtocol.self]
         return ImportQueue(
-            cacheRootURL: self.tempDirectory,
+            cacheRootURL: cacheRootURL ?? self.tempDirectory,
             fileManager: fileManager,
             sessionConfiguration: configuration,
             ensureRegistered: ensureRegistered,
@@ -492,10 +748,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
             case "/app/import/api/save":
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"path":"/imports/retry","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+                    Self.saveStartResponse(path: "/imports/retry")
                 )
             case "/app/import/api/start":
-                return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+                return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
             default:
                 XCTFail("unexpected path \(request.url?.path ?? "nil")")
                 return (Self.response(for: request, statusCode: 404), Data())
@@ -509,16 +765,21 @@ nonisolated final class ImportQueueTests: XCTestCase {
         return url
     }
 
-    private func writeLocalItem(status: String, itemID: String = UUID().uuidString.lowercased()) throws -> String {
-        let directory = self.tempDirectory
+    private func writeLocalItem(
+        root: URL? = nil,
+        status: String,
+        itemID: String = UUID().uuidString.lowercased()
+    ) throws -> String {
+        let root = root ?? self.tempDirectory!
+        let directory = root
             .appendingPathComponent(status, isDirectory: true)
             .appendingPathComponent(itemID, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data("raw".utf8).write(to: self.rawURL(itemID: itemID, status: status))
+        try Data("raw".utf8).write(to: directory.appendingPathComponent("raw.bin"))
         let note = #"{"schema":"solstone.source.item/1","source":"document","origin_app":null,"content_type":"com.adobe.pdf","filename":"source.pdf","bytes":3,"basis":"sent","item_time":"2026-06-02T00:00:00.000Z","target_journal":"home","kind":"raw","item_id":"\#(itemID)"}"#
-        try Data(note.utf8).write(to: self.noteURL(itemID: itemID, status: status))
+        try Data(note.utf8).write(to: directory.appendingPathComponent("item.json"))
         let request = #"{"source":"document","filename":"document.pdf","content_type":"application/pdf"}"#
-        try Data(request.utf8).write(to: self.descriptorURL(itemID: itemID, status: status))
+        try Data(request.utf8).write(to: directory.appendingPathComponent("request.json"))
         return itemID
     }
 
@@ -576,6 +837,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
         return try decoder.decode([String: TestLedgerEntry].self, from: Data(contentsOf: url))
     }
 
+    private func ledgerExists() -> Bool {
+        FileManager.default.fileExists(atPath: self.tempDirectory.appendingPathComponent("ledger.json").path)
+    }
+
     private func writeLedger(_ ledger: [String: TestLedgerEntry]) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -596,6 +861,25 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     private static func response(for request: URLRequest, statusCode: Int) -> HTTPURLResponse {
         HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
+    }
+
+    private static let validStartResponse = Data(#"{"status":"ok","task_id":"task-1"}"#.utf8)
+
+    private static func saveStartResponse(path: String, timestamp: String = "2026-04-20T12:00:00Z") -> Data {
+        let clientItemID = self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+        return Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"start","path":"\#(path)","timestamp":"\#(timestamp)"}"#.utf8)
+    }
+
+    private static func clientItemID(fromLatestSaveBody data: Data?) -> String {
+        guard let data,
+              let string = String(data: data, encoding: .utf8),
+              let markerRange = string.range(of: "name=\"client_item_id\"\r\n\r\n")
+        else {
+            return "MISSING"
+        }
+        let rest = string[markerRange.upperBound...]
+        guard let end = rest.range(of: "\r\n") else { return "MISSING" }
+        return String(rest[..<end.lowerBound])
     }
 }
 

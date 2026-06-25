@@ -5,6 +5,7 @@ import Foundation
 import Network
 import Observation
 import os
+import UniformTypeIdentifiers
 
 private let importQueueLog = Logger(subsystem: "app.solstone.swift", category: "import-queue")
 
@@ -478,15 +479,45 @@ private extension ImportQueue {
         }
     }
 
+    enum RecommendedAction: String, Decodable {
+        case start
+        case doNotStart = "do_not_start"
+    }
+
     struct SaveResult: Codable, Equatable, Sendable {
         let path: String
         let timestamp: String
+        let recommendedAction: String
+        let source: String?
+
+        enum CodingKeys: String, CodingKey {
+            case path
+            case timestamp
+            case source
+            case recommendedAction = "recommended_action"
+        }
     }
 
     struct SaveResponse: Decodable {
-        let path: String
-        let timestamp: String
-        let dedup: Bool?
+        let status: String?
+        let replay: Bool?
+        let path: String?
+        let timestamp: String?
+        let clientItemID: String
+        let source: String?
+        let recommendedAction: RecommendedAction
+        let duplicate: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case status
+            case replay
+            case path
+            case timestamp
+            case source
+            case duplicate
+            case clientItemID = "client_item_id"
+            case recommendedAction = "recommended_action"
+        }
     }
 
     struct StartResponse: Decodable {
@@ -502,7 +533,6 @@ private extension ImportQueue {
     struct StartRequest: Encodable {
         let path: String
         let timestamp: String
-        let source: String
     }
 
     static func defaultCacheRootURL(fileManager: FileManager) -> URL {
@@ -559,6 +589,12 @@ private extension ImportQueue {
             var request: URLRequest
 
             if let saveResult {
+                guard saveResult.recommendedAction == RecommendedAction.start.rawValue else {
+                    await self.handleUploadFailure(itemID: itemID, reason: "persisted save result is not startable")
+                    try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
+                    try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
+                    return
+                }
                 guard let url = self.startURLBuilder(localPort) else {
                     let detail = "import start unavailable: invalid url"
                     importQueueLog.error("\(detail, privacy: .public)")
@@ -569,7 +605,6 @@ private extension ImportQueue {
 
                 bodyURL = try self.buildStartRequestBody(
                     itemID: itemID,
-                    descriptor: descriptor,
                     saveResult: saveResult
                 )
                 step = .start
@@ -710,15 +745,37 @@ private extension ImportQueue {
     func handleSaveSuccess(info: TaskInfo, responseData: Data) async {
         do {
             let response = try self.decoder.decode(SaveResponse.self, from: responseData)
-            let saveResult = SaveResult(path: response.path, timestamp: response.timestamp)
-            try self.saveSaveResult(saveResult, itemID: info.itemID, status: .pending)
-            try? self.fileManager.removeItem(at: info.bodyURL)
-            self.attemptCountByItemID.removeValue(forKey: info.itemID)
+            guard response.clientItemID == info.itemID else {
+                await self.handleUploadFailure(itemID: info.itemID, reason: "client_item_id mismatch")
+                try? self.fileManager.removeItem(at: info.bodyURL)
+                return
+            }
 
-            if response.dedup == true {
-                await self.finalizeDelivery(info: info, saveResult: saveResult)
-            } else {
+            switch response.recommendedAction {
+            case .start:
+                guard let path = response.path, let timestamp = response.timestamp else {
+                    await self.handleUploadFailure(itemID: info.itemID, reason: "missing path/timestamp")
+                    try? self.fileManager.removeItem(at: info.bodyURL)
+                    return
+                }
+                let saveResult = SaveResult(
+                    path: path,
+                    timestamp: timestamp,
+                    recommendedAction: RecommendedAction.start.rawValue,
+                    source: response.source
+                )
+                try self.saveSaveResult(saveResult, itemID: info.itemID, status: .pending)
+                try? self.fileManager.removeItem(at: info.bodyURL)
+                self.attemptCountByItemID.removeValue(forKey: info.itemID)
                 await self.scheduleUpload(itemID: info.itemID)
+            case .doNotStart:
+                try? self.fileManager.removeItem(at: info.bodyURL)
+                self.attemptCountByItemID.removeValue(forKey: info.itemID)
+                await self.finalizeDelivery(
+                    info: info,
+                    serverPath: response.path,
+                    serverTimestamp: response.timestamp
+                )
             }
         } catch {
             await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))
@@ -727,16 +784,28 @@ private extension ImportQueue {
     }
 
     func handleStartSuccess(info: TaskInfo, responseData: Data) async {
-        _ = try? self.decoder.decode(StartResponse.self, from: responseData)
         guard let saveResult = info.saveResult else {
             await self.handleUploadFailure(itemID: info.itemID, reason: "missing save result")
             try? self.fileManager.removeItem(at: info.bodyURL)
             return
         }
-        await self.finalizeDelivery(info: info, saveResult: saveResult)
+        guard let response = try? self.decoder.decode(StartResponse.self, from: responseData),
+              response.status == "ok",
+              let taskID = response.taskID,
+              !taskID.isEmpty
+        else {
+            await self.handleUploadFailure(itemID: info.itemID, reason: "invalid start response")
+            try? self.fileManager.removeItem(at: info.bodyURL)
+            return
+        }
+        await self.finalizeDelivery(
+            info: info,
+            serverPath: saveResult.path,
+            serverTimestamp: saveResult.timestamp
+        )
     }
 
-    func finalizeDelivery(info: TaskInfo, saveResult: SaveResult) async {
+    func finalizeDelivery(info: TaskInfo, serverPath: String?, serverTimestamp: String?) async {
         do {
             var ledger = try self.loadLedger()
             ledger[info.itemID] = LedgerEntry(
@@ -744,8 +813,8 @@ private extension ImportQueue {
                 basis: info.ledgerStub.basis,
                 contentType: info.ledgerStub.contentType,
                 targetJournal: info.ledgerStub.targetJournal,
-                serverPath: saveResult.path,
-                serverTimestamp: saveResult.timestamp,
+                serverPath: serverPath,
+                serverTimestamp: serverTimestamp,
                 deliveredAt: self.now(),
                 filename: info.ledgerStub.filename,
                 originApp: info.ledgerStub.originApp,
@@ -833,6 +902,7 @@ private extension ImportQueue {
             var body = Data()
             body.append(self.multipartField(named: "imported_via", value: "mobile_share", boundary: boundary))
             body.append(self.multipartField(named: "observer_handle", value: observerHandle, boundary: boundary))
+            body.append(self.multipartField(named: "client_item_id", value: itemID, boundary: boundary))
 
             // The importer treats "quick" as the share-extension text path; all other sources are file imports.
             if descriptor.source == "quick" {
@@ -873,7 +943,6 @@ private extension ImportQueue {
 
     func buildStartRequestBody(
         itemID: String,
-        descriptor: RequestDescriptor,
         saveResult: SaveResult
     ) throws -> URL {
         let interval = DrainSignpost.begin(
@@ -885,8 +954,7 @@ private extension ImportQueue {
             let bodyURL = self.startUploadURL(itemID: itemID, status: .pending)
             let body = StartRequest(
                 path: saveResult.path,
-                timestamp: saveResult.timestamp,
-                source: descriptor.source
+                timestamp: saveResult.timestamp
             )
             let bodyData = try self.encoder.encode(body)
             let byteCount = bodyData.count
@@ -997,25 +1065,31 @@ private extension ImportQueue {
     nonisolated static func rawFileInfo(for contentType: String) -> RawFileInfo {
         switch contentType {
         case "public.mpeg-4-audio", "com.apple.m4a-audio", "public.m4a-audio", "audio/m4a", "audio/mp4":
-            RawFileInfo(filename: "audio.m4a", mimeType: "audio/mp4")
+            return RawFileInfo(filename: "audio.m4a", mimeType: "audio/mp4")
         case "com.adobe.pdf", "application/pdf":
-            RawFileInfo(filename: "document.pdf", mimeType: "application/pdf")
+            return RawFileInfo(filename: "document.pdf", mimeType: "application/pdf")
         case "public.jpeg", "public.jpg", "image/jpeg":
-            RawFileInfo(filename: "image.jpg", mimeType: "image/jpeg")
+            return RawFileInfo(filename: "image.jpg", mimeType: "image/jpeg")
         case "public.png", "image/png":
-            RawFileInfo(filename: "image.png", mimeType: "image/png")
+            return RawFileInfo(filename: "image.png", mimeType: "image/png")
         case "public.heic", "public.heif", "image/heic", "image/heif":
-            RawFileInfo(filename: "image.heic", mimeType: "image/heic")
+            return RawFileInfo(filename: "image.heic", mimeType: "image/heic")
         case "com.compuserve.gif", "image/gif":
-            RawFileInfo(filename: "image.gif", mimeType: "image/gif")
+            return RawFileInfo(filename: "image.gif", mimeType: "image/gif")
         case "org.webmproject.webp", "public.webp", "image/webp":
-            RawFileInfo(filename: "image.webp", mimeType: "image/webp")
+            return RawFileInfo(filename: "image.webp", mimeType: "image/webp")
         case "public.tiff", "image/tiff":
-            RawFileInfo(filename: "image.tiff", mimeType: "image/tiff")
+            return RawFileInfo(filename: "image.tiff", mimeType: "image/tiff")
         case "public.plain-text", "public.utf8-plain-text", "text/plain":
-            RawFileInfo(filename: "text.txt", mimeType: "text/plain")
+            return RawFileInfo(filename: "text.txt", mimeType: "text/plain")
         default:
-            RawFileInfo(filename: "item.bin", mimeType: "application/octet-stream")
+            if let type = UTType(contentType) ?? UTType(mimeType: contentType),
+               type.conforms(to: .audio) {
+                let ext = type.preferredFilenameExtension ?? "audio"
+                let mime = type.preferredMIMEType ?? "audio/\(ext)"
+                return RawFileInfo(filename: "audio.\(ext)", mimeType: mime)
+            }
+            return RawFileInfo(filename: "item.bin", mimeType: "application/octet-stream")
         }
     }
 

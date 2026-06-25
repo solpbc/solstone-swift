@@ -106,6 +106,7 @@ final class ShareImportCoordinator {
     }
 
     func accept(provider: any ShareItemProvider) async -> ShareImportResult {
+        // TODO(import-classifier): future classifiers may route screenshots/current-segment captures to the iPhone segment stream.
         guard let contentType = provider.registeredContentType(),
               Self.isSupportedContentType(contentType),
               let importerSource = Self.importerSource(for: contentType)
@@ -213,7 +214,7 @@ extension ShareImportCoordinator {
             return "quick"
         }
         if identifier == "public.m4a-audio" || identifier == "audio/m4a" || identifier == "audio/mp4" {
-            return "recording"
+            return "audio"
         }
         if self.isSupportedImageContentType(identifier) {
             return "image"
@@ -223,7 +224,7 @@ extension ShareImportCoordinator {
             return "document"
         }
         if type.conforms(to: .audio) {
-            return "recording"
+            return "audio"
         }
         return nil
     }
