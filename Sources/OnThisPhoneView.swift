@@ -37,6 +37,8 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
+    @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -117,6 +119,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                            !self.backlogNudgeDismissed {
                             self.agedBacklogNudge(count: displayAggregate.items.count)
                         }
+                        self.finishSyncingCard
                         self.content(snapshot: displayAggregate)
                     }
                 }
@@ -521,6 +524,146 @@ private extension OnThisPhoneMomentsView {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var finishSyncingBacklog: Int {
+        let totals = uploadTotals(
+            observer: self.observerUploader,
+            omi: self.omiUploaderHolder,
+            watch: self.watchUploaderHolder,
+            importQueue: self.importQueue,
+            location: self.locationUploader
+        )
+        return totals.failed + totals.pending
+    }
+
+    private var finishSyncingCardState: FinishSyncingCoordinator.CardState {
+        FinishSyncingCoordinator.cardState(
+            isPaired: self.appConfig.isPaired,
+            isConnected: self.tunnelManager.state.isConnected,
+            backlog: self.finishSyncingBacklog,
+            isFinishing: self.finishSyncingCoordinator.isFinishing,
+            lastOutcome: self.finishSyncingCoordinator.lastOutcome,
+            threshold: FinishSyncingCoordinator.backlogThreshold
+        )
+    }
+
+    private var finishSyncingUnavailableReason: String? {
+        if case .unavailable(let reason) = self.finishSyncingCoordinator.availability {
+            return reason
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    var finishSyncingCard: some View {
+        switch self.finishSyncingCardState {
+        case .hidden:
+            EmptyView()
+        case .idle:
+            self.finishSyncingIdleCard
+        case .inProgress:
+            self.finishSyncingCardChrome(icon: "arrow.up.circle") {
+                Text(SourceVocabulary.finishSyncingInProgress)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } trailing: {
+                EmptyView()
+            }
+        case .completed:
+            self.finishSyncingCardChrome(icon: "checkmark.circle") {
+                Text(SourceVocabulary.finishSyncingCompleted)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } trailing: {
+                self.finishSyncingDismissButton
+            }
+        case .interrupted(let remaining):
+            self.finishSyncingCardChrome(icon: "info.circle") {
+                Text(
+                    remaining > 0
+                        ? SourceVocabulary.finishSyncingInterrupted(count: remaining)
+                        : SourceVocabulary.finishSyncingInterruptedFallback
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            } trailing: {
+                self.finishSyncingDismissButton
+            }
+        }
+    }
+
+    private var finishSyncingIdleCard: some View {
+        let unavailableReason = self.finishSyncingUnavailableReason
+        return self.finishSyncingCardChrome(icon: "arrow.up.circle") {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(SourceVocabulary.finishSyncingCardHeadline)
+                    .font(.subheadline.weight(.semibold))
+                Text(SourceVocabulary.finishSyncingCardBody(count: self.finishSyncingBacklog))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } trailing: {
+            VStack(alignment: .trailing, spacing: 6) {
+                Button(SourceVocabulary.finishSyncingButton) {
+                    self.finishSyncingCoordinator.submit()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .frame(minWidth: 44, minHeight: 44)
+                .disabled(unavailableReason != nil)
+                .accessibilityIdentifier("onThisPhone.finishSyncing.start")
+
+                if let unavailableReason {
+                    Text(unavailableReason)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var finishSyncingDismissButton: some View {
+        Button {
+            self.finishSyncingCoordinator.dismissOutcome()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.footnote.weight(.bold))
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .accessibilityLabel("dismiss")
+        .accessibilityIdentifier("onThisPhone.finishSyncing.dismiss")
+    }
+
+    private func finishSyncingCardChrome<Content: View, Trailing: View>(
+        icon: String,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+
+            content()
+
+            Spacer(minLength: 0)
+
+            trailing()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("onThisPhone.finishSyncing")
     }
 
     func agedBacklogNudge(count: Int) -> some View {

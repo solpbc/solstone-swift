@@ -94,6 +94,8 @@ targets:
           - location
           - remote-notification
           - bluetooth-central
+        BGTaskSchedulerPermittedIdentifiers:
+          - app.solstone.swift.finish-syncing.*
     dependencies:
       - target: SPLTunnel
       - target: SolstoneNotificationContent

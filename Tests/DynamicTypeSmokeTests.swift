@@ -120,6 +120,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             isReachable: { true },
             localPortProvider: { 7071 }
         )
+        let finishSyncingCoordinator = FinishSyncingCoordinator(
+            totals: { (0, 0) },
+            drive: {},
+            isConnected: { false },
+            disconnect: {}
+        )
         chatManager.pendingOffer = ChatOffer(text: "I can ask support to help with this.")
         chatManager.pendingDraft = ChatDraft(
             id: "draft-1",
@@ -146,6 +152,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(omiUploaderHolder)
             .environment(watchUploaderHolder)
             .environment(importQueue)
+            .environment(locationManager)
             .environment(locationUploader)
             .environment(observerManager)
         }
@@ -199,6 +206,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerUploader)
                 .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
+                .environment(tunnelManager)
+                .environment(finishSyncingCoordinator)
                 .environment(locationUploader)
                 .environment(observerRegistration)
                 .environment(observerManager)
@@ -211,6 +220,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerUploader)
                 .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
+                .environment(tunnelManager)
+                .environment(finishSyncingCoordinator)
                 .environment(locationUploader)
                 .environment(observerRegistration)
         }

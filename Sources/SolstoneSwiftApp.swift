@@ -36,6 +36,7 @@ struct SolstoneSwiftApp: App {
     @State private var voiceManager: VoiceManager
     @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
+    @State private var finishSyncingCoordinator: FinishSyncingCoordinator
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -68,6 +69,16 @@ struct SolstoneSwiftApp: App {
     private static var isUITest: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("--ui-test")
+#else
+        false
+#endif
+    }
+
+    private static var isUnitTest: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.environment.keys.contains {
+            $0.lowercased() == "xctestconfigurationfilepath"
+        }
 #else
         false
 #endif
@@ -356,6 +367,39 @@ struct SolstoneSwiftApp: App {
                 }
             }
         }
+        let finishSyncing = FinishSyncingCoordinator(
+            totals: {
+                uploadTotals(
+                    observer: observerUploader,
+                    omi: omiUploaderHolder,
+                    watch: watchUploaderHolder,
+                    importQueue: importQueue,
+                    location: locationUploader
+                )
+            },
+            drive: {
+                await driveUploadDrain(
+                    observer: observerUploader,
+                    omi: omiUploader,
+                    watch: watchUploader,
+                    importQueue: importQueue,
+                    location: locationUploader,
+                    watchDrain: watchSegmentDrain
+                )
+            },
+            isConnected: {
+                tunnel.state.isConnected
+            },
+            disconnect: {
+                tunnel.cancelConnect()
+                tunnel.cancelReconnect()
+                tunnel.stopNetworkMonitoring()
+                await tunnel.disconnect()
+            }
+        )
+        if !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest {
+            finishSyncing.registerLaunchHandler()
+        }
         self._appConfig = State(initialValue: appConfig)
         self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
@@ -379,6 +423,7 @@ struct SolstoneSwiftApp: App {
         self._voiceManager = State(initialValue: voice)
         self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)
+        self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self.appDelegate.observerUploader = observerUploader
         self.appDelegate.omiUploader = omiUploader
         self.appDelegate.watchUploader = watchUploader
@@ -392,6 +437,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.appConfig)
                 .environment(self.onboardingFlow)
                 .environment(self.tunnelManager)
+                .environment(self.finishSyncingCoordinator)
                 .environment(self.voiceManager)
                 .environment(self.chatManager)
                 .environment(self.omiSourceManager)

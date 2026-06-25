@@ -25,6 +25,7 @@ struct MoreView: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationUploader.self) private var locationUploader
+    @Environment(LocationManager.self) private var locationManager
     @Environment(ObserverManager.self) private var observerManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
@@ -183,6 +184,10 @@ struct MoreView: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("status: \(line)")
                     }
+                    Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("more.syncFootnote")
                 } header: {
                     Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
                         .onLongPressGesture {
