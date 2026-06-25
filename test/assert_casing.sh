@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 ALLOWLIST_FILE="test/casing_allowlist.txt"
-SCAN_CMD=(rg -n --pcre2 '"[A-Z]' Sources Watch --glob '*.swift' --glob '!Sources/Portal/**')
+SCAN_CMD=(rg -n --pcre2 '"[A-Z]' Sources Watch SolstoneWatchComplication --glob '*.swift' --glob '!Sources/Portal/**')
 RAW_MATCHES="$("${SCAN_CMD[@]}" || true)"
 
 STRUCTURAL_SKIP_REGEX='accessibilityHint\(|accessibilityLabel\(|accessibilityIdentifier\(|Logger\(|Image\("|Color\("|font\(\.custom\("|subsystem:|category:'

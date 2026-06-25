@@ -19,7 +19,3 @@ nonisolated func watchSourceState(
         return (.needsAttention, SourceAttention(message: error.message))
     }
 }
-
-nonisolated func watchLinkLine(isReachable: Bool) -> String {
-    isReachable ? SourceVocabulary.watchLinkConnected : SourceVocabulary.watchLinkNotConnected
-}

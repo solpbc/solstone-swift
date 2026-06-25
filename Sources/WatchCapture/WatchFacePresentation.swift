@@ -8,7 +8,7 @@ nonisolated enum WatchFaceMark: Equatable, Sendable {
     case alert
 }
 
-nonisolated enum WatchFaceColorRole: Equatable, Sendable, CaseIterable {
+nonisolated enum WatchFaceColorRole: Equatable, Sendable, CaseIterable, Codable {
     case live
     case flight
     case calm
@@ -120,4 +120,8 @@ nonisolated func watchFaceModel(
         linkLine: watchLinkLine(isReachable: isReachable),
         linkInRange: isReachable
     )
+}
+
+nonisolated func watchLinkLine(isReachable: Bool) -> String {
+    isReachable ? SourceVocabulary.watchLinkConnected : SourceVocabulary.watchLinkNotConnected
 }

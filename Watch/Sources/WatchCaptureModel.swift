@@ -4,13 +4,19 @@
 import Foundation
 import Observation
 import os
+import WidgetKit
 
 private let watchCaptureModelLog = Logger(subsystem: "app.solstone.swift", category: "watch-capture")
 
 @MainActor
 @Observable
 final class WatchCaptureModel {
-    var presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0)
+    var presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0) {
+        didSet {
+            guard oldValue != self.presentation else { return }
+            self.publishComplicationSnapshot()
+        }
+    }
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
 
@@ -50,6 +56,7 @@ final class WatchCaptureModel {
             await engine.reconcileOnLaunch()
             self?.presentation = engine.ownerPresentation
         }
+        self.publishComplicationSnapshot()
     }
 
     init(initializationError error: any Error) {
@@ -57,6 +64,7 @@ final class WatchCaptureModel {
             status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
             queuedCount: 0
         )
+        self.publishComplicationSnapshot()
     }
 
     var isRunning: Bool {
@@ -85,6 +93,20 @@ final class WatchCaptureModel {
             if let engine = self?.engine {
                 self?.presentation = engine.ownerPresentation
             }
+        }
+    }
+
+    private func publishComplicationSnapshot() {
+        do {
+            // Reachability only changes link fields, which the complication snapshot does not persist.
+            let snapshot = WatchComplicationSnapshot(presentation: self.presentation, isReachable: true)
+            let data = try JSONEncoder().encode(snapshot)
+            let url = try AppGroupContainer.rootURL()
+                .appendingPathComponent(WatchComplicationSnapshot.fileName, isDirectory: false)
+            try data.write(to: url, options: .atomic)
+            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
+        } catch {
+            watchCaptureModelLog.error("watch complication snapshot publish failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

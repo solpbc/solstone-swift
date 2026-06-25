@@ -248,6 +248,40 @@ targets:
           - location
         NSMicrophoneUsageDescription: "solstone listens to voice you start on your watch and keeps it on your watch until it can hand it to your iphone — yours alone, for your journal. nothing is shared with sol pbc."
         NSLocationWhenInUseUsageDescription: "solstone adds where your day happens, from a session you start on your watch, and keeps it on your watch until it can hand it to your iphone — yours alone, for your journal. nothing is shared with sol pbc."
+    dependencies:
+      - target: SolstoneWatchComplication
+        embed: true
+  SolstoneWatchComplication:
+    type: app-extension
+    platform: watchOS
+    deploymentTarget: "26.0"
+    sources:
+      - SolstoneWatchComplication
+      - Sources/SourceVocabulary.swift
+      - Sources/WatchCapture/WatchFacePresentation.swift
+      - Sources/WatchCapture/WatchCaptureModels.swift
+      - Sources/WatchCapture/WatchComplicationSnapshot.swift
+      - Sources/Services/AppGroupContainer.swift
+      - Sources/Observer/ObserverError.swift
+    entitlements:
+      path: SolstoneWatchComplication/SolstoneWatchComplication.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.solstone.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch.complication
+        INFOPLIST_KEY_CFBundleDisplayName: solstone
+        CODE_SIGN_ENTITLEMENTS: SolstoneWatchComplication/SolstoneWatchComplication.entitlements
+        DEVELOPMENT_TEAM: 7QCG8V4M6H
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
+    info:
+      path: SolstoneWatchComplication/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   solstone-swiftTests:
     type: bundle.unit-test
     platform: iOS
