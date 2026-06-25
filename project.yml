@@ -270,7 +270,7 @@ targets:
           - group.app.solstone.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch.complication
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch.widget
         INFOPLIST_KEY_CFBundleDisplayName: solstone
         CODE_SIGN_ENTITLEMENTS: SolstoneWatchComplication/SolstoneWatchComplication.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
