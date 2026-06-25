@@ -70,18 +70,6 @@ final class WatchCaptureModel {
         }
     }
 
-    var primaryText: String {
-        self.presentation.headline
-    }
-
-    var detailText: String {
-        self.presentation.countsLine ?? watchTrustLine()
-    }
-
-    var actionText: String {
-        self.isRunning ? "stop" : "start"
-    }
-
     func start() {
         Task { @MainActor [weak self] in
             await self?.engine?.start()

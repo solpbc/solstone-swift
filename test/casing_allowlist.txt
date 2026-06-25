@@ -51,6 +51,11 @@ BLEDiagnosticModels.swift|FILE_NOT_FOUND
 BLEDiagnosticModels.swift|FILE_INDEX_OUT_OF_RANGE
 BLEDiagnosticModels.swift|STORAGE_NOT_READY
 
+# Watch sol-mark asset catalog names (routed through imageName(for:) helper, not inline Image("…"))
+WatchHomeView.swift|SolRingActive
+WatchHomeView.swift|SolRingPaused
+WatchHomeView.swift|SolRingAlert
+
 # Internal logger/type names
 *|OnboardingRootView
 *|ContentView

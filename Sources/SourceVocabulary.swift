@@ -111,6 +111,7 @@ nonisolated enum SourceVocabulary {
     static let watchPipelineSending = "sending"
     static let watchPipelineSaved = "saved on your watch"
     static let watchPipelineHandedOff = "handed to your iphone"
+    static let watchWaitingForPhone = "waiting for your iphone"
     static let watchLinkConnected = "phone link: in range"
     static let watchLinkNotConnected = "phone link: out of range"
     static let watchNotSupported = "not available on this device"
@@ -158,15 +159,15 @@ nonisolated enum SourceVocabulary {
     }
 
     static func watchSavedOnWatchCount(_ n: Int) -> String {
-        "\(n) saved on your watch"
+        "\(n) \(Self.watchPipelineSaved)"
     }
 
     static func watchSendingCount(_ n: Int) -> String {
-        "\(n) sending"
+        "\(n) \(Self.watchPipelineSending)"
     }
 
     static func watchHandedToPhoneCount(_ n: Int) -> String {
-        "\(n) handed to your iphone"
+        "\(n) \(Self.watchPipelineHandedOff)"
     }
 
     static let recentEmpty = "nothing recent yet"

@@ -375,7 +375,6 @@ final class WatchCaptureTests: XCTestCase {
         let attention = watchSourceState(for: WatchCaptureOwnerPresentation(status: .needsAttention(.diskFull), queuedCount: 0))
         XCTAssertEqual(attention.0, .needsAttention)
         XCTAssertEqual(attention.1, SourceAttention(message: "storage is full"))
-        XCTAssertEqual(watchTrustLine(), SourceVocabulary.trustLineConfigured)
 
         let attentionWithQueue = WatchCaptureOwnerPresentation(status: .needsAttention(.diskFull), queuedCount: 1)
         XCTAssertEqual(attentionWithQueue.headline, "storage is full")

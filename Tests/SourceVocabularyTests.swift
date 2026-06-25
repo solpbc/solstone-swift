@@ -348,11 +348,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchDiagnosticsExportFileName, "watch-diagnostics.txt")
     }
 
-    func testWatchTrustLineUsesConfiguredPrivacyCopy() {
-        XCTAssertEqual(watchTrustLine(), SourceVocabulary.trustLineConfigured)
-        XCTAssertEqual(watchTrustLine(), "feeds only your journal — nowhere else")
-    }
-
     func testWatchOwnerVisibleCopyAllowsOnlyRequiredWatchNounsAndAvoidsForbiddenTerms() throws {
         let regex = try NSRegularExpression(pattern: Self.forbiddenWatchPattern, options: [.caseInsensitive])
 

@@ -102,19 +102,22 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let transferringCount: Int
     let handedOffCount: Int
     let isSessionRunning: Bool
+    let sessionStartedAt: Date?
 
     init(
         status: WatchCaptureRuntimeStatus,
         queuedCount: Int,
         transferringCount: Int = 0,
         handedOffCount: Int = 0,
-        isSessionRunning: Bool = false
+        isSessionRunning: Bool = false,
+        sessionStartedAt: Date? = nil
     ) {
         self.status = status
         self.queuedCount = queuedCount
         self.transferringCount = transferringCount
         self.handedOffCount = handedOffCount
         self.isSessionRunning = isSessionRunning
+        self.sessionStartedAt = sessionStartedAt
     }
 
     var headline: String {

@@ -69,7 +69,8 @@ final class WatchCaptureEngine {
             queuedCount: self.queuedCount,
             transferringCount: self.transferringCount,
             handedOffCount: self.handedOffCount,
-            isSessionRunning: self.activeSegment != nil
+            isSessionRunning: self.activeSegment != nil,
+            sessionStartedAt: self.sessionStartedAt
         )
     }
 
