@@ -206,6 +206,7 @@ final class LocationUploader: LocationUploading {
     }
 
     func onThisPhoneSnapshot() -> OnThisPhoneSourceResult {
+        let interval = DrainSignpost.begin(.sourceSnapshotScan, source: .location)
         do {
             var items: [OnThisPhoneItem] = []
             items.append(contentsOf: try self.onThisPhoneItems(
@@ -216,9 +217,20 @@ final class LocationUploader: LocationUploading {
                 directory: self.failedDirectoryURL(),
                 location: .failed
             ))
-            return .loaded(items: OnThisPhoneItemSort.newestFirst(items))
+            let sortedItems = OnThisPhoneItemSort.newestFirst(items)
+            DrainSignpost.end(
+                interval,
+                source: .location,
+                fields: DrainFields(status: "loaded", error: .none, items: sortedItems.count)
+            )
+            return .loaded(items: sortedItems)
         } catch {
             locationUploadLog.error("location on-this-phone snapshot failed: \(String(describing: error), privacy: .public)")
+            DrainSignpost.end(
+                interval,
+                source: .location,
+                fields: DrainFields(status: "failed", error: .filesystem, items: 0)
+            )
             return .failed
         }
     }
@@ -764,6 +776,7 @@ private extension LocationUploader {
                 fileID: fileID,
                 parsed: parsed
             )
+            let createResumeStart = DispatchTime.now().uptimeNanoseconds
             var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: fileID))", forHTTPHeaderField: "Content-Type")
 
@@ -776,6 +789,14 @@ private extension LocationUploader {
             self.activeTaskIDByFileID[fileID] = task.taskIdentifier
             self.uploadTaskByFileID[fileID] = task
             task.resume()
+            DrainSignpost.event(
+                .taskCreateResume,
+                source: .location,
+                fields: DrainFields(
+                    status: "resumed",
+                    durationMs: DrainSignpost.durationMs(since: createResumeStart)
+                )
+            )
         } catch {
             await self.handleUploadFailure(
                 fileID: fileID,
@@ -790,6 +811,7 @@ private extension LocationUploader {
     }
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
+        let start = DispatchTime.now().uptimeNanoseconds
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
         self.activeTaskIDByFileID.removeValue(forKey: info.fileID)
         self.uploadTaskByFileID.removeValue(forKey: info.fileID)
@@ -797,6 +819,15 @@ private extension LocationUploader {
 
         if self.isDeleting {
             locationUploadLog.debug("location upload completion dropped during source delete")
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .location,
+                fields: DrainFields(
+                    status: "dropped",
+                    error: .none,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
             return
         }
 
@@ -807,6 +838,15 @@ private extension LocationUploader {
                 reason: String(describing: error)
             )
             try? self.fileManager.removeItem(at: info.requestBodyURL)
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .location,
+                fields: DrainFields(
+                    status: "transportFailure",
+                    error: .transport,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
             return
         }
 
@@ -825,6 +865,15 @@ private extension LocationUploader {
             self.lastError = nil
             locationUploadLog.info("location segment uploaded \(info.fileID, privacy: .public)")
             self.refreshCounts()
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .location,
+                fields: DrainFields(
+                    status: "success",
+                    error: .none,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
             return
         }
 
@@ -835,6 +884,16 @@ private extension LocationUploader {
             reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)"
         )
         try? self.fileManager.removeItem(at: info.requestBodyURL)
+        DrainSignpost.event(
+            .uploadCompletion,
+            source: .location,
+            fields: DrainFields(
+                status: "httpFailure",
+                error: .http,
+                durationMs: DrainSignpost.durationMs(since: start),
+                httpStatusClass: DrainSignpost.httpStatusClass(statusCode)
+            )
+        )
     }
 
     func handleUploadFailure(fileID: String, segmentURL: URL, reason: String) async {
@@ -889,23 +948,39 @@ private extension LocationUploader {
     }
 
     func buildMultipartRequestBody(segmentURL: URL, fileID: String, parsed: ParsedFileName) throws -> URL {
-        let boundary = self.boundary(for: fileID)
-        let requestBodyURL = self.pendingDirectoryURL()
-            .appendingPathComponent("\(fileID).upload", isDirectory: false)
+        let interval = DrainSignpost.begin(.multipartBodyBuild, source: .location)
+        do {
+            let boundary = self.boundary(for: fileID)
+            let requestBodyURL = self.pendingDirectoryURL()
+                .appendingPathComponent("\(fileID).upload", isDirectory: false)
 
-        var body = Data()
-        body.append(self.multipartField(named: "segment", value: parsed.segment, boundary: boundary))
-        body.append(self.multipartField(named: "day", value: parsed.day, boundary: boundary))
-        body.append(self.multipartField(named: "platform", value: "ios", boundary: boundary))
+            var body = Data()
+            body.append(self.multipartField(named: "segment", value: parsed.segment, boundary: boundary))
+            body.append(self.multipartField(named: "day", value: parsed.day, boundary: boundary))
+            body.append(self.multipartField(named: "platform", value: "ios", boundary: boundary))
 
-        let segmentData = try Data(contentsOf: segmentURL)
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/jsonl\r\n\r\n".data(using: .utf8)!)
-        body.append(segmentData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        try body.write(to: requestBodyURL, options: .atomic)
-        return requestBodyURL
+            let segmentData = try Data(contentsOf: segmentURL)
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: application/jsonl\r\n\r\n".data(using: .utf8)!)
+            body.append(segmentData)
+            body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+            let byteCount = body.count
+            try body.write(to: requestBodyURL, options: .atomic)
+            DrainSignpost.end(
+                interval,
+                source: .location,
+                fields: DrainFields(status: "success", error: .none, bytes: byteCount)
+            )
+            return requestBodyURL
+        } catch {
+            DrainSignpost.end(
+                interval,
+                source: .location,
+                fields: DrainFields(status: "failure", error: DrainErrorCategory.classify(error))
+            )
+            throw error
+        }
     }
 
     func multipartField(named name: String, value: String, boundary: String) -> Data {
@@ -960,8 +1035,19 @@ private extension LocationUploader {
     }
 
     func refreshCounts() {
+        let start = DispatchTime.now().uptimeNanoseconds
         self.pendingCount = self.countFiles(in: self.pendingDirectoryURL())
         self.failedCount = self.countFiles(in: self.failedDirectoryURL())
+        DrainSignpost.event(
+            .countRefresh,
+            source: .location,
+            fields: DrainFields(
+                status: "success",
+                pending: self.pendingCount,
+                failed: self.failedCount,
+                durationMs: DrainSignpost.durationMs(since: start)
+            )
+        )
     }
 
     func countFiles(in directory: URL) -> Int {

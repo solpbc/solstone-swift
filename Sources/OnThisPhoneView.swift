@@ -20,6 +20,16 @@ struct OnThisPhoneView: View {
     }
 }
 
+nonisolated enum LoadTrigger: String, Sendable {
+    case appear
+    case observerCounts
+    case omiCounts
+    case watchCounts
+    case importCounts
+    case locationCounts
+    case activePort
+}
+
 struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ImportQueue.self) private var importQueue
@@ -135,41 +145,41 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .accessibilityIdentifier("onThisPhone.surface")
             .onAppear {
                 self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .appear)
                 self.refreshWelcomeFraming()
             }
             .onChange(of: self.observerUploader.pendingCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .observerCounts)
             }
             .onChange(of: self.observerUploader.failedCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .observerCounts)
             }
             .onChange(of: self.omiUploaderHolder.pendingCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .omiCounts)
             }
             .onChange(of: self.omiUploaderHolder.failedCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .omiCounts)
             }
             .onChange(of: self.watchUploaderHolder.pendingCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .watchCounts)
             }
             .onChange(of: self.watchUploaderHolder.failedCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .watchCounts)
             }
             .onChange(of: self.importQueue.pendingCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .importCounts)
             }
             .onChange(of: self.importQueue.failedCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .importCounts)
             }
             .onChange(of: self.locationUploader.pendingCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .locationCounts)
             }
             .onChange(of: self.locationUploader.failedCount) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .locationCounts)
             }
             .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
-                self.loadSnapshot()
+                self.loadSnapshot(trigger: .activePort)
                 self.refreshWelcomeFraming()
             }
             .sheet(isPresented: self.$showingConnectJournal) {
@@ -625,7 +635,12 @@ private extension OnThisPhoneMomentsView {
         )
     }
 
-    func loadSnapshot() {
+    func loadSnapshot(trigger: LoadTrigger) {
+        let interval = DrainSignpost.begin(
+            .aggregateRefresh,
+            source: .view,
+            fields: DrainFields(trigger: trigger.rawValue)
+        )
         let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
@@ -636,6 +651,17 @@ private extension OnThisPhoneMomentsView {
         self.aggregate = aggregate
         let displayAggregate = self.displayAggregate ?? aggregate
         self.updateMagicMoment(from: displayAggregate)
+        DrainSignpost.end(
+            interval,
+            source: .view,
+            fields: DrainFields(
+                status: "success",
+                items: aggregate.items.count,
+                published: true,
+                sources: aggregate.sources.count,
+                failedSources: aggregate.failedSourceCount
+            )
+        )
     }
 
     private func refreshWelcomeFraming() {

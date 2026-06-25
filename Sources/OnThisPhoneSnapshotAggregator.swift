@@ -28,13 +28,25 @@ enum OnThisPhoneSnapshotAggregator {
     }
 
     static func snapshot(sources: [OnThisPhoneSourceSnapshot]) -> OnThisPhoneAggregateSnapshot {
+        let interval = DrainSignpost.begin(.aggregatePublication, source: .aggregate)
         let items = sources.flatMap { source in
             source.result.items
         }
-        return OnThisPhoneAggregateSnapshot(
+        let snapshot = OnThisPhoneAggregateSnapshot(
             sources: sources,
             items: OnThisPhoneItemSort.newestFirst(items)
         )
+        DrainSignpost.end(
+            interval,
+            source: .aggregate,
+            fields: DrainFields(
+                status: "success",
+                items: snapshot.items.count,
+                sources: sources.count,
+                failedSources: snapshot.failedSourceCount
+            )
+        )
+        return snapshot
     }
 
     static func combinedAudioResult(

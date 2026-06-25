@@ -162,6 +162,35 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.items.first { $0.id == omiID }?.sourceLabel, SourceVocabulary.onThisPhoneOmiAudioSourceLabel)
     }
 
+    #if DEBUG
+    @MainActor
+    func testLargeBacklogSeedSurfacesObserverAndOmiRowsWithLabels() throws {
+        let queues = self.makeQueues(suffix: "large")
+        let summary = try OnThisPhoneUITestSeeder.seedLargeBacklog(
+            observerRoot: queues.observerRoot,
+            omiRoot: queues.omiRoot,
+            requestedCount: 7,
+            fileManager: .default
+        )
+
+        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+            importQueue: queues.importQueue,
+            observerUploader: queues.observerUploader,
+            omiUploader: queues.omiUploader,
+            watchUploader: queues.watchUploader,
+            locationUploader: queues.locationUploader
+        )
+        let observerItems = snapshot.items.filter { $0.id.hasPrefix("audio:") }
+        let omiItems = snapshot.items.filter { $0.id.hasPrefix("omi:") }
+
+        XCTAssertEqual(snapshot.items.count, summary.total)
+        XCTAssertEqual(observerItems.count, summary.observer)
+        XCTAssertEqual(omiItems.count, summary.omi)
+        XCTAssertTrue(observerItems.allSatisfy { $0.sourceLabel == SourceVocabulary.onThisPhoneObserverAudioSourceLabel })
+        XCTAssertTrue(omiItems.allSatisfy { $0.sourceLabel == SourceVocabulary.onThisPhoneOmiAudioSourceLabel })
+    }
+    #endif
+
     @MainActor
     func testPureSnapshotKeepsGapCountDistinctFromLoadedZero() throws {
         let snapshot = OnThisPhoneSnapshotAggregator.snapshot(sources: [

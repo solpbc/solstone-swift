@@ -241,6 +241,8 @@ final class ObserverUploader {
     }
 
     func onThisPhoneSnapshot() -> OnThisPhoneSourceResult {
+        let source = DrainSource.audio(self.sourceType)
+        let interval = DrainSignpost.begin(.sourceSnapshotScan, source: source)
         do {
             let sessionDirectories = try self.fileManager.contentsOfDirectory(
                 at: self.cacheRootURL,
@@ -262,9 +264,20 @@ final class ObserverUploader {
                     location: .failed
                 ))
             }
-            return .loaded(items: OnThisPhoneItemSort.newestFirst(items))
+            let sortedItems = OnThisPhoneItemSort.newestFirst(items)
+            DrainSignpost.end(
+                interval,
+                source: source,
+                fields: DrainFields(status: "loaded", error: .none, items: sortedItems.count)
+            )
+            return .loaded(items: sortedItems)
         } catch {
             uploaderLog.error("observer on-this-phone snapshot failed: \(String(describing: error), privacy: .public)")
+            DrainSignpost.end(
+                interval,
+                source: source,
+                fields: DrainFields(status: "failed", error: .filesystem, items: 0)
+            )
             return .failed
         }
     }
@@ -794,6 +807,7 @@ private extension ObserverUploader {
                 audioURL: audioURL,
                 sidecar: sidecar
             )
+            let createResumeStart = DispatchTime.now().uptimeNanoseconds
             var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: chunkID))", forHTTPHeaderField: "Content-Type")
 
@@ -818,6 +832,14 @@ private extension ObserverUploader {
             self.activeTasksByTaskID[task.taskIdentifier] = task
             self.activeTaskIDByChunkID[chunkID] = task.taskIdentifier
             task.resume()
+            DrainSignpost.event(
+                .taskCreateResume,
+                source: DrainSource.audio(self.sourceType),
+                fields: DrainFields(
+                    status: "resumed",
+                    durationMs: DrainSignpost.durationMs(since: createResumeStart)
+                )
+            )
         } catch {
             await self.handleUploadFailure(
                 chunkID: chunkID,
@@ -843,7 +865,9 @@ private extension ObserverUploader {
     }
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
+        let start = DispatchTime.now().uptimeNanoseconds
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
+        let drainSource = DrainSource.audio(info.sourceType)
         self.activeTasksByTaskID.removeValue(forKey: task.taskIdentifier)
         self.activeTaskIDByChunkID.removeValue(forKey: info.chunkID)
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
@@ -866,6 +890,15 @@ private extension ObserverUploader {
                 )
             )
             try? self.fileManager.removeItem(at: info.requestBodyURL)
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: drainSource,
+                fields: DrainFields(
+                    status: "transportFailure",
+                    error: .transport,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
             return
         }
 
@@ -892,6 +925,15 @@ private extension ObserverUploader {
             self.lastError = nil
             uploaderLog.info("observer chunk uploaded \(info.chunkID, privacy: .public)")
             self.refreshCounts()
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: drainSource,
+                fields: DrainFields(
+                    status: "success",
+                    error: .none,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
             return
         }
 
@@ -913,6 +955,16 @@ private extension ObserverUploader {
             )
         )
         try? self.fileManager.removeItem(at: info.requestBodyURL)
+        DrainSignpost.event(
+            .uploadCompletion,
+            source: drainSource,
+            fields: DrainFields(
+                status: "httpFailure",
+                error: .http,
+                durationMs: DrainSignpost.durationMs(since: start),
+                httpStatusClass: DrainSignpost.httpStatusClass(statusCode)
+            )
+        )
     }
 
     func httpFailureBodySnippet(from data: Data) -> String? {
@@ -1119,48 +1171,65 @@ private extension ObserverUploader {
     }
 
     func buildMultipartRequestBody(audioURL: URL, sidecar: ChunkSidecar) throws -> URL {
-        let chunkID = audioURL.deletingPathExtension().lastPathComponent
-        let boundary = self.boundary(for: chunkID)
-        let requestBodyURL = self.pendingDirectoryURL(sessionID: sidecar.sessionID)
-            .appendingPathComponent("\(chunkID).upload", isDirectory: false)
+        let source = DrainSource.audio(self.sourceType)
+        let interval = DrainSignpost.begin(.multipartBodyBuild, source: source)
+        do {
+            let chunkID = audioURL.deletingPathExtension().lastPathComponent
+            let boundary = self.boundary(for: chunkID)
+            let requestBodyURL = self.pendingDirectoryURL(sessionID: sidecar.sessionID)
+                .appendingPathComponent("\(chunkID).upload", isDirectory: false)
 
-        var body = Data()
-        body.append(self.multipartField(named: "segment", value: sidecar.segment, boundary: boundary))
-        body.append(self.multipartField(named: "day", value: sidecar.day, boundary: boundary))
-        body.append(self.multipartField(named: "platform", value: self.platform, boundary: boundary))
+            var body = Data()
+            body.append(self.multipartField(named: "segment", value: sidecar.segment, boundary: boundary))
+            body.append(self.multipartField(named: "day", value: sidecar.day, boundary: boundary))
+            body.append(self.multipartField(named: "platform", value: self.platform, boundary: boundary))
 
-        let meta = try JSONSerialization.data(withJSONObject: [
-            "segment": sidecar.segment,
-            "day": sidecar.day,
-            "chunk_index": sidecar.chunkIndex,
-            "started_at": ISO8601DateFormatter().string(from: sidecar.startedAt),
-            "duration_s": sidecar.durationS,
-            "session_id": sidecar.sessionID.uuidString,
-            "mode": sidecar.mode.rawValue,
-        ], options: [.sortedKeys])
-        body.append(self.multipartField(
-            named: "meta",
-            value: String(decoding: meta, as: UTF8.self),
-            boundary: boundary
-        ))
+            let meta = try JSONSerialization.data(withJSONObject: [
+                "segment": sidecar.segment,
+                "day": sidecar.day,
+                "chunk_index": sidecar.chunkIndex,
+                "started_at": ISO8601DateFormatter().string(from: sidecar.startedAt),
+                "duration_s": sidecar.durationS,
+                "session_id": sidecar.sessionID.uuidString,
+                "mode": sidecar.mode.rawValue,
+            ], options: [.sortedKeys])
+            body.append(self.multipartField(
+                named: "meta",
+                value: String(decoding: meta, as: UTF8.self),
+                boundary: boundary
+            ))
 
-        let audioData = try Data(contentsOf: audioURL)
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        // audio.m4a filename is a hard server-side invariant — pipeline globs audio.* downstream (observe/transcribe, think/cluster, transcripts, retention)
-        body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n".data(using: .utf8)!)
-        if let locationJSONL = sidecar.locationJSONL {
+            let audioData = try Data(contentsOf: audioURL)
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
-            body.append(locationJSONL)
+            // audio.m4a filename is a hard server-side invariant — pipeline globs audio.* downstream (observe/transcribe, think/cluster, transcripts, retention)
+            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
+            body.append(audioData)
             body.append("\r\n".data(using: .utf8)!)
+            if let locationJSONL = sidecar.locationJSONL {
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
+                body.append(locationJSONL)
+                body.append("\r\n".data(using: .utf8)!)
+            }
+            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            let byteCount = body.count
+            try body.write(to: requestBodyURL, options: .atomic)
+            DrainSignpost.end(
+                interval,
+                source: source,
+                fields: DrainFields(status: "success", error: .none, bytes: byteCount)
+            )
+            return requestBodyURL
+        } catch {
+            DrainSignpost.end(
+                interval,
+                source: source,
+                fields: DrainFields(status: "failure", error: .filesystem)
+            )
+            throw error
         }
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        try body.write(to: requestBodyURL, options: .atomic)
-        return requestBodyURL
     }
 
     func multipartField(named name: String, value: String, boundary: String) -> Data {
@@ -1216,8 +1285,19 @@ private extension ObserverUploader {
     }
 
     func refreshCounts() {
+        let start = DispatchTime.now().uptimeNanoseconds
         self.pendingCount = self.countFiles(named: "pending", withExtension: "m4a")
         self.failedCount = self.countFiles(named: "failed", withExtension: "m4a")
+        DrainSignpost.event(
+            .countRefresh,
+            source: DrainSource.audio(self.sourceType),
+            fields: DrainFields(
+                status: "success",
+                pending: self.pendingCount,
+                failed: self.failedCount,
+                durationMs: DrainSignpost.durationMs(since: start)
+            )
+        )
     }
 
     func countFiles(named directoryName: String, withExtension pathExtension: String) -> Int {

@@ -378,6 +378,15 @@ nonisolated struct OnThisPhoneAggregateSnapshot: Equatable, Sendable {
             return OnThisPhoneSendStateSummary(sendState: state, count: count)
         }
     }
+
+    var failedSourceCount: Int {
+        self.sources.filter { source in
+            if case .failed = source.result {
+                return true
+            }
+            return false
+        }.count
+    }
 }
 
 nonisolated struct OnThisPhoneSendStateSummary: Identifiable, Sendable, Equatable {

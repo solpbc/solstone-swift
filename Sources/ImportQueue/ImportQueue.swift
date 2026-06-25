@@ -296,10 +296,20 @@ final class ImportQueue {
     }
 
     func onThisPhoneSourceSnapshot() -> OnThisPhoneSourceResult {
+        let interval = DrainSignpost.begin(.sourceSnapshotScan, source: .share)
         let ledger: [String: LedgerEntry]
         do {
             ledger = try self.loadLedger()
         } catch {
+            DrainSignpost.end(
+                interval,
+                source: .share,
+                fields: DrainFields(
+                    status: "failed",
+                    error: DrainErrorCategory.classify(error),
+                    items: 0
+                )
+            )
             return .failed
         }
 
@@ -340,9 +350,15 @@ final class ImportQueue {
             items.append(self.deliveredOnThisPhoneItem(itemID: itemID, entry: entry))
         }
 
-        return .loaded(items: items.sorted { lhs, rhs in
+        let sortedItems = items.sorted { lhs, rhs in
             (lhs.deliveredAt ?? lhs.itemTime ?? .distantPast) > (rhs.deliveredAt ?? rhs.itemTime ?? .distantPast)
-        })
+        }
+        DrainSignpost.end(
+            interval,
+            source: .share,
+            fields: DrainFields(status: "loaded", error: .none, items: sortedItems.count)
+        )
+        return .loaded(items: sortedItems)
     }
 
     func handleBackgroundURLSessionEvents(completionHandler: @escaping @MainActor @Sendable () -> Void) {
@@ -372,6 +388,15 @@ private extension ImportQueue {
     enum TaskStep: Sendable {
         case save
         case start
+
+        var drainLabel: String {
+            switch self {
+            case .save:
+                "save"
+            case .start:
+                "start"
+            }
+        }
     }
 
     struct TaskInfo {
@@ -584,6 +609,7 @@ private extension ImportQueue {
                 request.setValue("multipart/form-data; boundary=\(self.boundary(for: itemID))", forHTTPHeaderField: "Content-Type")
             }
 
+            let createResumeStart = DispatchTime.now().uptimeNanoseconds
             let task = self.session.uploadTask(with: request, fromFile: bodyURL)
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
                 itemID: itemID,
@@ -597,6 +623,15 @@ private extension ImportQueue {
             self.activeTaskIDByItemID[itemID] = task.taskIdentifier
             task.resume()
             self.uploadTaskByItemID[itemID] = task
+            DrainSignpost.event(
+                .taskCreateResume,
+                source: .share,
+                fields: DrainFields(
+                    status: "resumed",
+                    durationMs: DrainSignpost.durationMs(since: createResumeStart),
+                    step: step.drainLabel
+                )
+            )
         } catch {
             await self.handleUploadFailure(itemID: itemID, reason: String(describing: error))
             try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
@@ -609,7 +644,9 @@ private extension ImportQueue {
     }
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
+        let start = DispatchTime.now().uptimeNanoseconds
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
+        let step = info.step.drainLabel
         self.activeTaskIDByItemID.removeValue(forKey: info.itemID)
         self.uploadTaskByItemID.removeValue(forKey: info.itemID)
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
@@ -617,6 +654,16 @@ private extension ImportQueue {
         if let error {
             await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))
             try? self.fileManager.removeItem(at: info.bodyURL)
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .share,
+                fields: DrainFields(
+                    status: "transportFailure",
+                    error: .transport,
+                    durationMs: DrainSignpost.durationMs(since: start),
+                    step: step
+                )
+            )
             return
         }
 
@@ -628,6 +675,16 @@ private extension ImportQueue {
             case .start:
                 await self.handleStartSuccess(info: info, responseData: responseData)
             }
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .share,
+                fields: DrainFields(
+                    status: "success",
+                    error: .none,
+                    durationMs: DrainSignpost.durationMs(since: start),
+                    step: step
+                )
+            )
             return
         }
 
@@ -637,6 +694,17 @@ private extension ImportQueue {
             reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)"
         )
         try? self.fileManager.removeItem(at: info.bodyURL)
+        DrainSignpost.event(
+            .uploadCompletion,
+            source: .share,
+            fields: DrainFields(
+                status: "httpFailure",
+                error: .http,
+                durationMs: DrainSignpost.durationMs(since: start),
+                step: step,
+                httpStatusClass: DrainSignpost.httpStatusClass(statusCode)
+            )
+        )
     }
 
     func handleSaveSuccess(info: TaskInfo, responseData: Data) async {
@@ -752,31 +820,55 @@ private extension ImportQueue {
         descriptor: RequestDescriptor,
         observerHandle: String
     ) throws -> URL {
-        let rawData = try Data(contentsOf: self.rawURL(itemID: itemID, status: .pending))
-        let boundary = self.boundary(for: itemID)
-        let bodyURL = self.saveUploadURL(itemID: itemID, status: .pending)
+        let interval = DrainSignpost.begin(
+            .multipartBodyBuild,
+            source: .share,
+            fields: DrainFields(step: "save")
+        )
+        do {
+            let rawData = try Data(contentsOf: self.rawURL(itemID: itemID, status: .pending))
+            let boundary = self.boundary(for: itemID)
+            let bodyURL = self.saveUploadURL(itemID: itemID, status: .pending)
 
-        var body = Data()
-        body.append(self.multipartField(named: "imported_via", value: "mobile_share", boundary: boundary))
-        body.append(self.multipartField(named: "observer_handle", value: observerHandle, boundary: boundary))
+            var body = Data()
+            body.append(self.multipartField(named: "imported_via", value: "mobile_share", boundary: boundary))
+            body.append(self.multipartField(named: "observer_handle", value: observerHandle, boundary: boundary))
 
-        // The importer treats "quick" as the share-extension text path; all other sources are file imports.
-        if descriptor.source == "quick" {
-            guard let text = String(data: rawData, encoding: .utf8) else {
-                throw ImportQueueError.textDecodeFailed(itemID: itemID)
+            // The importer treats "quick" as the share-extension text path; all other sources are file imports.
+            if descriptor.source == "quick" {
+                guard let text = String(data: rawData, encoding: .utf8) else {
+                    throw ImportQueueError.textDecodeFailed(itemID: itemID)
+                }
+                body.append(self.multipartField(named: "text", value: text, boundary: boundary))
+            } else {
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(descriptor.filename)\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: \(descriptor.contentType)\r\n\r\n".data(using: .utf8)!)
+                body.append(rawData)
+                body.append("\r\n".data(using: .utf8)!)
             }
-            body.append(self.multipartField(named: "text", value: text, boundary: boundary))
-        } else {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(descriptor.filename)\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: \(descriptor.contentType)\r\n\r\n".data(using: .utf8)!)
-            body.append(rawData)
-            body.append("\r\n".data(using: .utf8)!)
-        }
 
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        try body.write(to: bodyURL, options: .atomic)
-        return bodyURL
+            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            let byteCount = body.count
+            try body.write(to: bodyURL, options: .atomic)
+            DrainSignpost.end(
+                interval,
+                source: .share,
+                fields: DrainFields(status: "success", error: .none, bytes: byteCount, step: "save")
+            )
+            return bodyURL
+        } catch {
+            DrainSignpost.end(
+                interval,
+                source: .share,
+                fields: DrainFields(
+                    status: "failure",
+                    error: DrainErrorCategory.classify(error),
+                    step: "save"
+                )
+            )
+            throw error
+        }
     }
 
     func buildStartRequestBody(
@@ -784,14 +876,39 @@ private extension ImportQueue {
         descriptor: RequestDescriptor,
         saveResult: SaveResult
     ) throws -> URL {
-        let bodyURL = self.startUploadURL(itemID: itemID, status: .pending)
-        let body = StartRequest(
-            path: saveResult.path,
-            timestamp: saveResult.timestamp,
-            source: descriptor.source
+        let interval = DrainSignpost.begin(
+            .multipartBodyBuild,
+            source: .share,
+            fields: DrainFields(step: "start")
         )
-        try self.encoder.encode(body).write(to: bodyURL, options: .atomic)
-        return bodyURL
+        do {
+            let bodyURL = self.startUploadURL(itemID: itemID, status: .pending)
+            let body = StartRequest(
+                path: saveResult.path,
+                timestamp: saveResult.timestamp,
+                source: descriptor.source
+            )
+            let bodyData = try self.encoder.encode(body)
+            let byteCount = bodyData.count
+            try bodyData.write(to: bodyURL, options: .atomic)
+            DrainSignpost.end(
+                interval,
+                source: .share,
+                fields: DrainFields(status: "success", error: .none, bytes: byteCount, step: "start")
+            )
+            return bodyURL
+        } catch {
+            DrainSignpost.end(
+                interval,
+                source: .share,
+                fields: DrainFields(
+                    status: "failure",
+                    error: DrainErrorCategory.classify(error),
+                    step: "start"
+                )
+            )
+            throw error
+        }
     }
 
     func multipartField(named name: String, value: String, boundary: String) -> Data {
@@ -1088,8 +1205,19 @@ private extension ImportQueue {
     }
 
     func refreshCounts() {
+        let start = DispatchTime.now().uptimeNanoseconds
         self.pendingCount = self.countItemDirectories(at: self.pendingDirectoryURL())
         self.failedCount = self.countItemDirectories(at: self.failedDirectoryURL())
+        DrainSignpost.event(
+            .countRefresh,
+            source: .share,
+            fields: DrainFields(
+                status: "success",
+                pending: self.pendingCount,
+                failed: self.failedCount,
+                durationMs: DrainSignpost.durationMs(since: start)
+            )
+        )
     }
 
     func countItemDirectories(at url: URL) -> Int {

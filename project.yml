@@ -149,6 +149,7 @@ targets:
       - Sources/ImportQueue/ImportQueue.swift
       - Sources/ImportQueue/ImporterServerURL.swift
       - Sources/ImportQueue/DeleteShareSourceResult.swift
+      - Sources/Instrumentation/DrainSignpost.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift
       - Sources/Observer/ObserverServerURL.swift

@@ -13,9 +13,13 @@ enum OnThisPhoneUITestSeeder {
     private static let agedBacklogSeedFlag = "--ui-test-seed-aged-backlog"
     private static let audioMagicSeedFlag = "--ui-test-seed-audio-magic"
     private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
+    private static let largeBacklogSeedFlag = "--ui-test-seed-large-backlog"
+    private static let largeBacklogCountPrefix = "--ui-test-seed-large-backlog-count="
     private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
     private static let resetOnThisPhoneFlag = "--ui-test-reset-on-this-phone"
+    private static let largeBacklogDefaultCount = 800
+    private static let largeBacklogMaxCount = 2_000
 
     static func runIfRequested(
         arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -33,13 +37,14 @@ enum OnThisPhoneUITestSeeder {
         let seedDefault = arguments.contains(Self.defaultSeedFlag)
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
         let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
+        let seedLargeBacklog = arguments.contains(Self.largeBacklogSeedFlag)
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
-        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic else { return }
+        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            guard seedDefault || seedAgedBacklog || seedAudioMagic else {
+            guard seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
                 return
             }
@@ -49,6 +54,23 @@ enum OnThisPhoneUITestSeeder {
                     durationS: Self.audioMagicDuration(arguments: arguments),
                     fileManager: fileManager
                 )
+            } else if seedLargeBacklog {
+                let requested = Self.largeBacklogCount(arguments: arguments)
+                let summary = try Self.seedLargeBacklog(
+                    observerRoot: roots.observer,
+                    omiRoot: roots.omi,
+                    requestedCount: requested,
+                    fileManager: fileManager
+                )
+                onThisPhoneUITestSeedLog.info(
+                    "on-this-phone large backlog seed observer=\(summary.observer, privacy: .public) omi=\(summary.omi, privacy: .public) total=\(summary.total, privacy: .public)"
+                )
+                if summary.total != requested {
+                    onThisPhoneUITestSeedLog.error(
+                        "on-this-phone large backlog seed count mismatch requested=\(requested, privacy: .public) total=\(summary.total, privacy: .public)"
+                    )
+                    throw SeedError.largeBacklogCountMismatch(requested: requested, actual: summary.total)
+                }
             } else if seedAgedBacklog {
                 try Self.seedAgedBacklog(roots: roots, fileManager: fileManager)
             } else {
@@ -62,21 +84,40 @@ enum OnThisPhoneUITestSeeder {
     }
 }
 
-private extension OnThisPhoneUITestSeeder {
+extension OnThisPhoneUITestSeeder {
     static let observerRootName = "observer".capitalized
     static let locationRootName = "location".capitalized
     static let importQueueRootName = ["import", "queue"].map { $0.capitalized }.joined()
 
     struct Roots {
         let observer: URL
+        let omi: URL
         let location: URL
         let importQueue: URL
+    }
+
+    struct LargeBacklogSeedSummary: Equatable {
+        let observer: Int
+        let omi: Int
+        let total: Int
+    }
+
+    enum SeedError: Error, CustomStringConvertible {
+        case largeBacklogCountMismatch(requested: Int, actual: Int)
+
+        var description: String {
+            switch self {
+            case .largeBacklogCountMismatch(let requested, let actual):
+                "large backlog seed count mismatch requested=\(requested) actual=\(actual)"
+            }
+        }
     }
 
     static func roots(fileManager: FileManager) throws -> Roots {
         let cachesRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return Roots(
             observer: cachesRoot.appendingPathComponent(Self.observerRootName, isDirectory: true),
+            omi: cachesRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
             location: cachesRoot.appendingPathComponent(Self.locationRootName, isDirectory: true),
             importQueue: try AppGroupContainer.rootURL(fileManager: fileManager)
                 .appendingPathComponent(Self.importQueueRootName, isDirectory: true)
@@ -84,10 +125,65 @@ private extension OnThisPhoneUITestSeeder {
     }
 
     static func reset(roots: Roots, fileManager: FileManager) throws {
-        for root in [roots.observer, roots.location, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
+        for root in [roots.observer, roots.omi, roots.location, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
             try fileManager.removeItem(at: root)
         }
         Self.resetAudioL5State()
+    }
+
+    static func largeBacklogCount(arguments: [String]) -> Int {
+        guard let rawArgument = arguments.first(where: { $0.hasPrefix(Self.largeBacklogCountPrefix) }) else {
+            return Self.largeBacklogDefaultCount
+        }
+        let rawValue = rawArgument.dropFirst(Self.largeBacklogCountPrefix.count)
+        guard let parsed = Int(rawValue) else {
+            return Self.largeBacklogDefaultCount
+        }
+        return min(max(parsed, 1), Self.largeBacklogMaxCount)
+    }
+
+    static func seedLargeBacklog(
+        observerRoot: URL,
+        omiRoot: URL,
+        requestedCount: Int,
+        fileManager: FileManager
+    ) throws -> LargeBacklogSeedSummary {
+        let count = min(max(requestedCount, 1), Self.largeBacklogMaxCount)
+        let observerCount = (count + 1) / 2
+        let omiCount = count / 2
+        let baseDate = Date(timeIntervalSince1970: 1_780_500_000)
+
+        for index in 0..<observerCount {
+            try Self.writeObserverChunk(
+                root: observerRoot,
+                sessionID: Self.largeBacklogSessionID(prefix: "10000000", index: index),
+                chunkID: Self.largeBacklogChunkID(source: "observer", index: index),
+                startedAt: baseDate.addingTimeInterval(Double(index)),
+                durationS: TimeInterval(30 + (index % 90)),
+                fileManager: fileManager
+            )
+        }
+
+        for index in 0..<omiCount {
+            try Self.writeObserverChunk(
+                root: omiRoot,
+                sessionID: Self.largeBacklogSessionID(prefix: "20000000", index: index),
+                chunkID: Self.largeBacklogChunkID(source: "omi", index: index),
+                startedAt: baseDate.addingTimeInterval(Double(observerCount + index)),
+                durationS: TimeInterval(30 + ((observerCount + index) % 90)),
+                fileManager: fileManager
+            )
+        }
+
+        return LargeBacklogSeedSummary(observer: observerCount, omi: omiCount, total: observerCount + omiCount)
+    }
+
+    private static func largeBacklogSessionID(prefix: String, index: Int) -> UUID {
+        UUID(uuidString: String(format: "%@-0000-0000-0000-%012d", prefix, index))!
+    }
+
+    private static func largeBacklogChunkID(source: String, index: Int) -> String {
+        String(format: "ui-test-large-backlog-%@-%04d", source, index)
     }
 
     static func seedDefault(roots: Roots, fileManager: FileManager) throws {
