@@ -50,15 +50,15 @@ private extension WatchSourceDetailView {
     }
 
     var stateBlock: some View {
-        let mapped = self.mappedState
+        let presentation = self.watchPresentation
         return VStack(alignment: .leading, spacing: 12) {
             self.stateLine
 
-            Text(mapped.state.subtext(activeSubtext: SourceVocabulary.watchListeningSubtext))
+            Text(presentation.subtext)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if let attention = mapped.attention {
+            if let attention = presentation.attention {
                 Text(attention.message)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -78,7 +78,7 @@ private extension WatchSourceDetailView {
     }
 
     var stateLine: some View {
-        let sourceState = self.mappedState.state
+        let sourceState = self.watchPresentation.state
         return HStack(spacing: 8) {
             Image(systemName: sourceState.symbol)
             Text(sourceState.label)
@@ -136,12 +136,15 @@ private extension WatchSourceDetailView {
         )
     }
 
-    var observing: Bool {
-        isWatchObserving(lastReceivedAt: self.receiver?.lastReceivedAt, now: self.now)
+    var recordingStatus: WatchRecordingStatus {
+        watchRecordingStatus(context: self.watchLink.watchStatus, now: self.now)
     }
 
-    var mappedState: (state: SourceState, attention: SourceAttention?) {
-        phoneWatchSourceState(install: self.installState, observing: self.observing, enabled: true)
+    var watchPresentation: PhoneWatchSourcePresentation {
+        phoneWatchSourcePresentation(
+            install: self.installState,
+            recordingStatus: self.recordingStatus
+        )
     }
 
     var syncSummary: WatchSourceSyncSummary {
@@ -158,6 +161,7 @@ private extension WatchSourceDetailView {
             activationState: self.watchLink.activationState,
             isPaired: self.watchLink.isPaired,
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
+            watchStatus: self.watchLink.watchStatus,
             lastReceivedAt: self.receiver?.lastReceivedAt,
             lastStagingError: self.receiver?.lastStagingError,
             lastUploadAt: self.watchUploaderHolder.lastUploadAt,

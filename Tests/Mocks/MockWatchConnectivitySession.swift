@@ -12,16 +12,19 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var isPaired = false
     var isWatchAppInstalled = false
     var activationState: WCSessionActivationState = .notActivated
+    var receivedApplicationContext: [String: Any] = [:]
     var onActivationChanged: (@Sendable (Bool) -> Void)?
     var onReachabilityChanged: (@Sendable (Bool) -> Void)?
     var onWatchStateChanged: (@Sendable () -> Void)?
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
+    var onReceiveApplicationContext: (([String: Any]) -> Void)?
 
     var activateCallCount = 0
     var transferredFiles: [(URL, [String: Any])] = []
     var transferredUserInfos: [[String: Any]] = []
     var sentMessages: [[String: Any]] = []
+    var updatedApplicationContexts: [[String: Any]] = []
 
     func activate() {
         self.activateCallCount += 1
@@ -39,6 +42,10 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func sendMessage(_ message: [String: Any]) {
         self.sentMessages.append(message)
+    }
+
+    func updateApplicationContext(_ applicationContext: [String: Any]) throws {
+        self.updatedApplicationContexts.append(applicationContext)
     }
 
     func emitReachability(_ isReachable: Bool) {
@@ -63,5 +70,10 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func deliverUserInfo(_ userInfo: [String: Any]) {
         self.onReceiveUserInfo?(userInfo)
+    }
+
+    func deliverApplicationContext(_ applicationContext: [String: Any]) {
+        self.receivedApplicationContext = applicationContext
+        self.onReceiveApplicationContext?(applicationContext)
     }
 }

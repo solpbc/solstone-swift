@@ -11,8 +11,6 @@ struct SourcesView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(OmiSourceManager.self) private var omiSourceManager
     @Environment(WatchLink.self) private var watchLink
-    @Environment(WatchRelayReceiver.self) private var watchRelayReceiver: WatchRelayReceiver?
-    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSourceRoute: SourceRoute?
     @State private var showingConnectJournal = false
@@ -225,25 +223,25 @@ private extension SourcesView {
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
             activationState: self.watchLink.activationState
         )
-        let observing = isWatchObserving(
-            lastReceivedAt: self.watchRelayReceiver?.lastReceivedAt,
+        let recordingStatus = watchRecordingStatus(
+            context: self.watchLink.watchStatus,
             now: self.now
         )
-        let mapped = phoneWatchSourceState(
+        let presentation = phoneWatchSourcePresentation(
             install: install,
-            observing: observing,
-            enabled: true
+            recordingStatus: recordingStatus
         )
         return Source(
             id: "watch",
             displayName: SourceVocabulary.watchSourceDisplayName,
             kind: .watch,
             group: .experiencingAlongsideYou,
-            state: mapped.0,
+            state: presentation.state,
             activeSubtext: SourceVocabulary.watchListeningSubtext,
-            attention: mapped.1,
+            subtextOverride: presentation.subtext,
+            attention: presentation.attention,
             pendingStatus: .nonePending,
-            detailSubtext: mapped.1?.message
+            detailSubtext: presentation.attention?.message
         )
     }
 

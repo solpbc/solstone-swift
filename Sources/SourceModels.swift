@@ -47,6 +47,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let group: SourceGroup
     let state: SourceState
     let activeSubtext: String
+    let subtextOverride: String?
     let attention: SourceAttention?
     let pendingStatus: SourcePendingStatus
     let detailSubtext: String?
@@ -58,6 +59,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         group: SourceGroup,
         state: SourceState,
         activeSubtext: String,
+        subtextOverride: String? = nil,
         attention: SourceAttention?,
         pendingStatus: SourcePendingStatus,
         detailSubtext: String? = nil
@@ -68,21 +70,31 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.group = group
         self.state = state
         self.activeSubtext = activeSubtext
+        self.subtextOverride = subtextOverride
         self.attention = attention
         self.pendingStatus = pendingStatus
         self.detailSubtext = detailSubtext
     }
 
     var subtext: String {
-        self.state.subtext(activeSubtext: self.activeSubtext)
+        self.subtextOverride ?? self.state.subtext(activeSubtext: self.activeSubtext)
     }
 
     var voiceOverText: String {
-        let base = self.state.voiceOverText(activeSubtext: self.activeSubtext)
+        let base: String
+        if let subtextOverride {
+            base = "\(self.state.label). \(Self.sentence(subtextOverride))"
+        } else {
+            base = self.state.voiceOverText(activeSubtext: self.activeSubtext)
+        }
         guard let detailSubtext else {
             return base
         }
         return "\(base) \(detailSubtext)."
+    }
+
+    private static func sentence(_ text: String) -> String {
+        text.hasSuffix(".") ? text : "\(text)."
     }
 }
 

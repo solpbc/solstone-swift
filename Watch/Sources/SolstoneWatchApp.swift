@@ -19,7 +19,8 @@ struct SolstoneWatchApp: App {
             ))
             self._captureModel = State(initialValue: WatchCaptureModel(
                 storage: storage,
-                relaySender: relaySender
+                relaySender: relaySender,
+                session: session
             ))
         } catch {
             self._sessionModel = State(initialValue: WatchSessionModel(

@@ -42,7 +42,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             failed: 2,
             lastUploadAt: nil
         )
-        let state = phoneWatchSourceState(install: .appInstalled, observing: true, enabled: true)
+        let state = phoneWatchSourceState(install: .appInstalled, recordingStatus: .observing)
         let rows = WatchSourceDetailPresentation.syncRows(summary: summary, now: now)
 
         XCTAssertEqual(summary.received, 2)
@@ -57,7 +57,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.value.localizedCaseInsensitiveContains("not working") })
     }
 
-    func testDiagnosticsRowsKeepUploadErrorsNeutral() {
+    func testDiagnosticsRowsShowUploadErrorDetail() {
         let now = Date(timeIntervalSince1970: 2_000)
         let rows = WatchSourceDetailPresentation.diagnosticsRows(
             activationState: .activated,
@@ -70,12 +70,12 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchLastUploadErrorLabel }?.value, SourceVocabulary.watchDetailPresent)
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchLastUploadErrorLabel }?.value, "connection failed")
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchStatusLabel }?.value, SourceVocabulary.watchDetailNone)
         for row in rows {
             XCTAssertFalse(row.label.localizedCaseInsensitiveContains("failed"))
             XCTAssertFalse(row.label.localizedCaseInsensitiveContains("not working"))
             XCTAssertFalse(row.label.localizedCaseInsensitiveContains("sync failed"))
-            XCTAssertFalse(row.value.localizedCaseInsensitiveContains("failed"))
             XCTAssertFalse(row.value.localizedCaseInsensitiveContains("not working"))
             XCTAssertFalse(row.value.localizedCaseInsensitiveContains("sync failed"))
         }

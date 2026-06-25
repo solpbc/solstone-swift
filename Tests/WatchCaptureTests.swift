@@ -27,7 +27,7 @@ final class WatchCaptureTests: XCTestCase {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
         await harness.engine.start()
-        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) == 1 })
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.clock.advance(by: 300)
         await self.drain(until: { harness.recorder.startURLs.count == 2 })
 
@@ -43,7 +43,7 @@ final class WatchCaptureTests: XCTestCase {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
         await harness.engine.start()
-        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) == 1 })
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.clock.advance(by: 300)
         await self.drain(until: {
             guard let manifests = try? harness.storage.scanManifests().map(\.manifest) else {
@@ -58,6 +58,82 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.recorder.startURLs.count, 2)
         XCTAssertTrue(manifests.contains { $0.state == .queued })
         XCTAssertTrue(manifests.contains { $0.state == .persisted })
+    }
+
+    func testStatusHeartbeatPublishesIncreasingSequenceWhileStationary() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.start()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } && self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let initial = try XCTUnwrap(statuses.last)
+        harness.clock.advance(by: 15)
+        await self.drain(until: { statuses.count >= 2 && statuses.last?.seq == initial.seq + 1 })
+
+        let heartbeat = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(initial.phase, .observing)
+        XCTAssertEqual(heartbeat.phase, .observing)
+        XCTAssertEqual(heartbeat.seq, initial.seq + 1)
+        XCTAssertEqual(heartbeat.sessionID, initial.sessionID)
+        XCTAssertEqual(heartbeat.startedAt, initial.startedAt)
+    }
+
+    func testStartStopPublishObservingStoppingAndIdle() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.start()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+        await harness.engine.stop()
+
+        XCTAssertEqual(statuses.first?.phase, .observing)
+        XCTAssertEqual(statuses.suffix(2).map(\.phase), [.stopping, .idle])
+        XCTAssertNil(statuses.last?.sessionID)
+        XCTAssertNil(statuses.last?.startedAt)
+    }
+
+    func testRolloverPublishesObservingForContinuedSession() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.start()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        statuses.removeAll()
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count == 2 && statuses.contains { $0.phase == .observing } })
+
+        XCTAssertEqual(statuses.last?.phase, .observing)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+    }
+
+    func testInterruptionBeganKeepsPublishedStatusObserving() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.start()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+        statuses.removeAll()
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+
+        XCTAssertEqual(statuses.last?.phase, .observing)
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .paused)
     }
 
     func testAppendFixInCallbackDurablyWritesBeforeFinalize() async throws {
@@ -113,7 +189,7 @@ final class WatchCaptureTests: XCTestCase {
         let stationary = try self.makeHarness(audioPermission: false, locationAuthorization: .authorized)
         await stationary.engine.start()
         stationary.locationProvider.emitFix(Self.fix())
-        await self.drain(until: { self.pendingSleeperCount(in: stationary.clock) == 1 })
+        await self.drain(until: { self.pendingSleeperCount(in: stationary.clock) >= 2 })
         stationary.clock.advance(by: 300)
         await self.drain(until: {
             (try? stationary.storage.scanManifests().count) == 2
@@ -206,7 +282,7 @@ final class WatchCaptureTests: XCTestCase {
         )
 
         await harness.engine.start()
-        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) == 1 })
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.locationProvider.emitFix(Self.fix())
         harness.clock.advance(by: 300)
         await self.drain(until: { harness.recorder.startURLs.count == 2 })
@@ -223,7 +299,7 @@ final class WatchCaptureTests: XCTestCase {
         let harness = try self.makeHarness(audioPermission: true, locationAuthorization: .authorized)
 
         await harness.engine.start()
-        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) == 1 })
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.locationProvider.emitAuthorization(.denied)
         harness.clock.advance(by: 300)
         await self.drain(until: { harness.recorder.startURLs.count == 2 })
@@ -339,8 +415,8 @@ final class WatchCaptureTests: XCTestCase {
         let off = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, isSessionRunning: false)
         XCTAssertEqual(off.headline, "off")
 
-        XCTAssertEqual(watchLinkLine(isReachable: true), "phone link: connected")
-        XCTAssertEqual(watchLinkLine(isReachable: false), "phone link: not connected")
+        XCTAssertEqual(watchLinkLine(isReachable: true), "phone link: in range")
+        XCTAssertEqual(watchLinkLine(isReachable: false), "phone link: out of range")
 
         let renderedStrings = [
             active.headline, active.countsLine, active.attentionLine,
@@ -421,6 +497,7 @@ private extension WatchCaptureTests {
         let storage: WatchCaptureStorage
         let clock: MockObserverClock
         let audioProbe: MockWatchAudioProbe
+        let notificationCenter: NotificationCenter
     }
 
     func makeHarness(
@@ -437,13 +514,15 @@ private extension WatchCaptureTests {
         let storage = try WatchCaptureStorage(rootURL: rootURL, fileWriter: writer)
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
         let audioProbe = MockWatchAudioProbe()
+        let notificationCenter = NotificationCenter()
         let engine = WatchCaptureEngine(
             audioRecorder: recorder,
             audioSession: audioSession,
             locationProvider: locationProvider,
             storage: storage,
             clock: clock,
-            audioProbe: audioProbe
+            audioProbe: audioProbe,
+            notificationCenter: notificationCenter
         )
         return Harness(
             engine: engine,
@@ -452,7 +531,8 @@ private extension WatchCaptureTests {
             locationProvider: locationProvider,
             storage: storage,
             clock: clock,
-            audioProbe: audioProbe
+            audioProbe: audioProbe,
+            notificationCenter: notificationCenter
         )
     }
 

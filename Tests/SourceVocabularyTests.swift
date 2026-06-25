@@ -304,6 +304,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchNoWatchPaired, "no watch paired with this iphone")
         XCTAssertEqual(SourceVocabulary.watchAppNotInstalled, "solstone isn't on your watch yet")
         XCTAssertEqual(SourceVocabulary.watchSourceDisplayName, "watch")
+        XCTAssertEqual(SourceVocabulary.watchLinkConnected, "phone link: in range")
+        XCTAssertEqual(SourceVocabulary.watchLinkNotConnected, "phone link: out of range")
+        XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
+        XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start solstone on your watch")
         XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch — listening")
         XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install solstone on your watch")
         XCTAssertEqual(SourceVocabulary.watchInstallInstruction, "open the Watch app to install it")
@@ -324,8 +328,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchLastStagingDetailLabel, "last staging detail")
         XCTAssertEqual(SourceVocabulary.watchLastSyncDetailLabel, "last sync detail")
         XCTAssertEqual(SourceVocabulary.watchLastUploadErrorLabel, "last upload error")
+        XCTAssertEqual(SourceVocabulary.watchStatusLabel, "watch status")
         XCTAssertEqual(SourceVocabulary.watchDetailNone, "none")
-        XCTAssertEqual(SourceVocabulary.watchDetailPresent, "present")
         XCTAssertEqual(SourceVocabulary.watchBooleanYes, "yes")
         XCTAssertEqual(SourceVocabulary.watchBooleanNo, "no")
         XCTAssertEqual(SourceVocabulary.watchActivationActivated, "activated")
@@ -508,6 +512,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchNoWatchPaired,
             SourceVocabulary.watchAppNotInstalled,
             SourceVocabulary.watchSourceDisplayName,
+            SourceVocabulary.watchLinkConnected,
+            SourceVocabulary.watchLinkNotConnected,
+            SourceVocabulary.watchNoContextSubtext,
+            SourceVocabulary.watchIdleSubtext,
             SourceVocabulary.watchListeningSubtext,
             SourceVocabulary.watchInstallTitle,
             SourceVocabulary.watchInstallInstruction,
@@ -528,8 +536,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchLastStagingDetailLabel,
             SourceVocabulary.watchLastSyncDetailLabel,
             SourceVocabulary.watchLastUploadErrorLabel,
+            SourceVocabulary.watchStatusLabel,
             SourceVocabulary.watchDetailNone,
-            SourceVocabulary.watchDetailPresent,
             SourceVocabulary.watchBooleanYes,
             SourceVocabulary.watchBooleanNo,
             SourceVocabulary.watchActivationActivated,

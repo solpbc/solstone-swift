@@ -14,16 +14,19 @@ protocol WatchConnectivitySession: AnyObject {
     var isPaired: Bool { get }
     var isWatchAppInstalled: Bool { get }
     var activationState: WCSessionActivationState { get }
+    var receivedApplicationContext: [String: Any] { get }
     var onActivationChanged: (@Sendable (Bool) -> Void)? { get set }
     var onReachabilityChanged: (@Sendable (Bool) -> Void)? { get set }
     var onWatchStateChanged: (@Sendable () -> Void)? { get set }
     var onReceiveFile: ((URL, [String: Any]) -> Void)? { get set }
     var onReceiveUserInfo: (([String: Any]) -> Void)? { get set }
+    var onReceiveApplicationContext: (([String: Any]) -> Void)? { get set }
 
     func activate()
     func transferFile(_ url: URL, metadata: [String: Any])
     func transferUserInfo(_ userInfo: [String: Any])
     func sendMessage(_ message: [String: Any])
+    func updateApplicationContext(_ applicationContext: [String: Any]) throws
 }
 
 @MainActor
@@ -33,6 +36,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var onWatchStateChanged: (@Sendable () -> Void)?
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
+    var onReceiveApplicationContext: (([String: Any]) -> Void)?
 
     private let session: WCSession?
 
@@ -46,6 +50,10 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 
     var activationState: WCSessionActivationState {
         self.session?.activationState ?? .notActivated
+    }
+
+    var receivedApplicationContext: [String: Any] {
+        self.session?.receivedApplicationContext ?? [:]
     }
 
 #if os(iOS)
@@ -105,6 +113,14 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         session.sendMessage(message, replyHandler: nil, errorHandler: { error in
             watchConnectivityLog.error("watch connectivity message send failed: \(String(describing: error), privacy: .public)")
         })
+    }
+
+    func updateApplicationContext(_ applicationContext: [String: Any]) throws {
+        guard let session else {
+            watchConnectivityLog.error("watch connectivity application context unavailable")
+            return
+        }
+        try session.updateApplicationContext(applicationContext)
     }
 
     nonisolated func session(
@@ -189,6 +205,19 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         }
         Task { @MainActor [weak self] in
             self?.onReceiveUserInfo?(Self.propertyListDictionary(from: userInfoData))
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        let contextData: Data
+        do {
+            contextData = try Self.propertyListData(from: applicationContext)
+        } catch {
+            watchConnectivityLog.error("watch connectivity incoming application context snapshot failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        Task { @MainActor [weak self] in
+            self?.onReceiveApplicationContext?(Self.propertyListDictionary(from: contextData))
         }
     }
 }

@@ -3,6 +3,9 @@
 
 import Foundation
 import Observation
+import os
+
+private let watchCaptureModelLog = Logger(subsystem: "app.solstone.swift", category: "watch-capture")
 
 @MainActor
 @Observable
@@ -11,7 +14,11 @@ final class WatchCaptureModel {
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
 
-    init(storage: WatchCaptureStorage, relaySender: WatchRelaySender) {
+    init(
+        storage: WatchCaptureStorage,
+        relaySender: WatchRelaySender,
+        session: any WatchConnectivitySession
+    ) {
         let engine = WatchCaptureEngine(
             audioRecorder: LiveWatchAudioRecorder(),
             audioSession: LiveWatchAudioSessionController(),
@@ -24,6 +31,13 @@ final class WatchCaptureModel {
         }
         engine.onRelayDrainRequested = { [weak relaySender] in
             relaySender?.drain()
+        }
+        engine.onPublishStatus = { [session] context in
+            do {
+                try session.updateApplicationContext(context.applicationContext())
+            } catch {
+                watchCaptureModelLog.error("watch status publish failed: \(String(describing: error), privacy: .public)")
+            }
         }
         relaySender.onStateChanged = { [weak self, weak engine] in
             engine?.refreshRelayCountsFromDisk()

@@ -67,6 +67,7 @@ nonisolated enum WatchSourceDetailPresentation {
         activationState: WCSessionActivationState,
         isPaired: Bool,
         isWatchAppInstalled: Bool,
+        watchStatus: WatchStatusContext? = nil,
         lastReceivedAt: Date?,
         lastStagingError: String?,
         lastUploadAt: Date?,
@@ -77,10 +78,11 @@ nonisolated enum WatchSourceDetailPresentation {
             WatchSourceDetailRow(label: SourceVocabulary.watchActivationLabel, value: self.activationText(activationState)),
             WatchSourceDetailRow(label: SourceVocabulary.watchPairedWithPhoneLabel, value: self.booleanText(isPaired)),
             WatchSourceDetailRow(label: SourceVocabulary.watchInstalledLabel, value: self.booleanText(isWatchAppInstalled)),
+            WatchSourceDetailRow(label: SourceVocabulary.watchStatusLabel, value: self.watchStatusText(watchStatus, now: now)),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastReceivedLabel, value: self.lastReceivedText(lastReceivedAt, now: now)),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: self.detailText(lastStagingError)),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(lastUploadAt, now: now)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.uploadErrorText(lastUploadError))
+            WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.detailText(lastUploadError))
         ]
     }
 
@@ -131,13 +133,6 @@ nonisolated enum WatchSourceDetailPresentation {
         return value
     }
 
-    static func uploadErrorText(_ value: String?) -> String {
-        guard let value, !value.isEmpty else {
-            return SourceVocabulary.watchDetailNone
-        }
-        return SourceVocabulary.watchDetailPresent
-    }
-
     static func relativeText(secondsAgo: TimeInterval) -> String {
         if secondsAgo < 60 {
             return SourceVocabulary.watchRelativeJustNow
@@ -145,5 +140,12 @@ nonisolated enum WatchSourceDetailPresentation {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(fromTimeInterval: -secondsAgo)
+    }
+
+    static func watchStatusText(_ status: WatchStatusContext?, now: Date) -> String {
+        guard let status else {
+            return SourceVocabulary.watchDetailNone
+        }
+        return "\(status.phase.rawValue) · \(self.relativeText(secondsAgo: max(0, now.timeIntervalSince(status.asOf))))"
     }
 }

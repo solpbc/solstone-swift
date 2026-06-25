@@ -11,6 +11,7 @@ private let watchCaptureLog = Logger(subsystem: "app.solstone.swift", category: 
 final class WatchCaptureEngine {
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
     var onRelayDrainRequested: (@MainActor () -> Void)?
+    var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
 
     private let audioRecorder: any WatchAudioRecording
     private let audioSession: any WatchAudioSessionControlling
@@ -22,12 +23,16 @@ final class WatchCaptureEngine {
 
     private var activeSegment: ActiveSegment?
     private var segmentationTask: Task<Void, Never>?
+    private var heartbeatTask: Task<Void, Never>?
     private var interruptionObserver: NSObjectProtocol?
     private var audioSessionIsActive = false
     private var audioArmed = false
     private var locationArmed = false
     private var lastKnownFix: WatchLocationFix?
     private var status: WatchCaptureRuntimeStatus = .off
+    private var statusSeq = 0
+    private var currentSessionID: String?
+    private var sessionStartedAt: Date?
     private var runtimeAttention: ObserverError?
     private var queuedCount = 0
     private var transferringCount = 0
@@ -120,18 +125,23 @@ final class WatchCaptureEngine {
 
         guard self.audioArmed || self.locationArmed else {
             if case .needsAttention = self.status {
+                self.publishStatus(.idle)
                 self.notifyPresentationChanged()
                 return
             }
             self.status = .needsAttention(.permissionDenied)
+            self.publishStatus(.idle)
             self.notifyPresentationChanged()
             return
         }
 
         do {
-            try self.openSegment(startedAt: self.clock.now())
+            let startedAt = self.clock.now()
+            self.beginStatusSession(startedAt: startedAt)
+            try self.openSegment(startedAt: startedAt)
             guard let segment = self.activeSegment else {
                 self.status = .needsAttention(.unavailable(reason: "no sensors available"))
+                self.publishStatus(.idle)
                 self.notifyPresentationChanged()
                 return
             }
@@ -139,6 +149,7 @@ final class WatchCaptureEngine {
                 self.status = .needsAttention(self.errorForNonRunningSegment(segment))
                 self.activeSegment = nil
                 await self.finalize(segment: segment, audioDuration: nil, end: self.clock.now())
+                self.publishStatus(.idle)
                 self.notifyPresentationChanged()
                 return
             }
@@ -159,10 +170,20 @@ final class WatchCaptureEngine {
                 }
             }
         }
+        if self.activeSegment != nil {
+            self.publishStatus(.observing)
+            self.startHeartbeatTask()
+        } else {
+            self.publishStatus(.idle)
+        }
         self.notifyPresentationChanged()
     }
 
     func stop() async {
+        self.cancelHeartbeatTask()
+        if self.activeSegment != nil {
+            self.publishStatus(.stopping)
+        }
         self.segmentationTask?.cancel()
         self.segmentationTask = nil
         self.removeInterruptionObserver()
@@ -205,12 +226,14 @@ final class WatchCaptureEngine {
         } else {
             self.status = .off
         }
+        self.publishStatus(.idle)
         self.notifyPresentationChanged()
     }
 }
 
 private extension WatchCaptureEngine {
     static let segmentDurationSeconds: TimeInterval = 300
+    static let heartbeatIntervalSeconds = 15
 
     struct ActiveSegment {
         var directoryURL: URL
@@ -382,12 +405,18 @@ private extension WatchCaptureEngine {
         if self.activeSegment == nil {
             self.segmentationTask?.cancel()
             self.segmentationTask = nil
+            self.cancelHeartbeatTask()
             self.locationArmed = false
             self.locationProvider.stop()
             self.audioArmed = false
         }
 
         await self.finalize(segment: segment, audioDuration: audioDuration, end: end)
+        if self.activeSegment == nil {
+            self.publishStatus(.idle)
+        } else {
+            self.publishStatus(.observing)
+        }
         self.notifyPresentationChanged()
     }
 
@@ -583,19 +612,27 @@ private extension WatchCaptureEngine {
     }
 
     func handleInterruption(_ type: AVAudioSession.InterruptionType) {
+        let phase: WatchStatusContext.Phase?
         switch type {
         case .began:
             self.audioRecorder.pause()
             self.status = .paused
+            phase = self.activeSegment == nil ? .idle : .observing
         case .ended:
             do {
                 try self.audioRecorder.resume()
                 self.status = self.activeSegment == nil ? .off : .active
+                phase = self.activeSegment == nil ? .idle : .observing
             } catch {
                 self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+                phase = self.activeSegment == nil ? .idle : .observing
             }
         @unknown default:
+            phase = nil
             break
+        }
+        if let phase {
+            self.publishStatus(phase)
         }
         self.notifyPresentationChanged()
     }
@@ -606,6 +643,51 @@ private extension WatchCaptureEngine {
 
     func requestRelayDrain() {
         self.onRelayDrainRequested?()
+    }
+
+    func beginStatusSession(startedAt: Date) {
+        self.currentSessionID = UUID().uuidString
+        self.sessionStartedAt = startedAt
+    }
+
+    func publishStatus(_ phase: WatchStatusContext.Phase) {
+        self.statusSeq += 1
+        let asOf = self.clock.now()
+        if phase == .idle {
+            self.currentSessionID = nil
+            self.sessionStartedAt = nil
+        } else if self.currentSessionID == nil || self.sessionStartedAt == nil {
+            self.beginStatusSession(startedAt: asOf)
+        }
+        let context = WatchStatusContext(
+            phase: phase,
+            sessionID: phase == .idle ? nil : self.currentSessionID,
+            startedAt: phase == .idle ? nil : self.sessionStartedAt,
+            asOf: asOf,
+            seq: self.statusSeq
+        )
+        self.onPublishStatus?(context)
+    }
+
+    func startHeartbeatTask() {
+        self.cancelHeartbeatTask()
+        self.heartbeatTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    try await self.clock.sleep(for: .seconds(Self.heartbeatIntervalSeconds))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, self.activeSegment != nil else { return }
+                self.publishStatus(.observing)
+            }
+        }
+    }
+
+    func cancelHeartbeatTask() {
+        self.heartbeatTask?.cancel()
+        self.heartbeatTask = nil
     }
 
     func refreshRelayCountsFromDiskThrowing() throws {

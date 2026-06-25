@@ -16,6 +16,7 @@ final class WatchLink {
     private(set) var isPaired: Bool
     private(set) var isWatchAppInstalled: Bool
     private(set) var activationState: WCSessionActivationState
+    private(set) var watchStatus: WatchStatusContext?
 
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
@@ -28,6 +29,7 @@ final class WatchLink {
         self.isPaired = session.isPaired
         self.isWatchAppInstalled = session.isWatchAppInstalled
         self.activationState = session.activationState
+        self.watchStatus = nil
         self.session.onActivationChanged = { [weak self] didActivate in
             Task { @MainActor [weak self] in
                 self?.handleActivationChanged(didActivate)
@@ -43,6 +45,11 @@ final class WatchLink {
                 self?.refreshWatchState()
             }
         }
+        self.session.onReceiveApplicationContext = { [weak self] applicationContext in
+            Task { @MainActor [weak self] in
+                self?.watchStatus = WatchStatusContext(applicationContext: applicationContext)
+            }
+        }
     }
 
     func activate() {
@@ -54,6 +61,7 @@ final class WatchLink {
         watchLog.info("watch: activating")
         self.session.activate()
         self.refreshWatchState()
+        self.refreshWatchStatus()
     }
 }
 
@@ -64,6 +72,10 @@ private extension WatchLink {
         self.isPaired = self.session.isPaired
         self.isWatchAppInstalled = self.session.isWatchAppInstalled
         self.activationState = self.session.activationState
+    }
+
+    func refreshWatchStatus() {
+        self.watchStatus = WatchStatusContext(applicationContext: self.session.receivedApplicationContext)
     }
 
     func handleActivationChanged(_ didActivate: Bool) {
