@@ -141,6 +141,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneEmpty,
             "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
         )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneAllQuietHeadline, "all quiet")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneAllQuietBody,
+            "everything you've gathered is in your journal. new moments rest here on their way through."
+        )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneNotBackedUp,
             "nothing here is backed up yet. connect a journal to keep a copy."
@@ -586,6 +591,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFailureReasonServer,
             SourceVocabulary.onThisPhoneFailureReasonUnknown,
             SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "today at 3:00 PM"),
+            SourceVocabulary.onThisPhoneAllQuietHeadline,
+            SourceVocabulary.onThisPhoneAllQuietBody,
         ]
     }
 
@@ -682,6 +689,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneScopeConnected,
             SourceVocabulary.onThisPhoneScopeOfflinePaired,
             SourceVocabulary.onThisPhoneEmpty,
+            SourceVocabulary.onThisPhoneAllQuietHeadline,
+            SourceVocabulary.onThisPhoneAllQuietBody,
             SourceVocabulary.onThisPhoneNotBackedUp,
             SourceVocabulary.onThisPhoneTurnOnSourceButton,
             SourceVocabulary.migrationStageOnThisPhone,

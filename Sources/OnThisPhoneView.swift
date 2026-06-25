@@ -84,6 +84,15 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 VStack(alignment: .leading, spacing: 16) {
                     self.header
 
+                    if let welcomeFraming = self.welcomeFraming {
+                        Text(welcomeFraming)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("onThisPhone.welcomeFraming")
+                    }
+
                     if self.hasItems, !self.isShowingNotBackedUpNudge {
                         Text(self.onThisPhoneScopeText)
                             .font(.subheadline)
@@ -91,13 +100,6 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                     }
 
                     self.magicMomentSection
-
-                    if let welcomeFraming = self.welcomeFraming {
-                        Text(welcomeFraming)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("onThisPhone.welcomeFraming")
-                    }
 
                     if self.hasItems, self.isShowingNotBackedUpNudge {
                         self.notBackedUpNudge
@@ -736,18 +738,37 @@ private extension OnThisPhoneMomentsView {
     @ViewBuilder
     func content(snapshot: OnThisPhoneAggregateSnapshot) -> some View {
         if snapshot.items.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(SourceVocabulary.onThisPhoneEmpty)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if self.appConfig.isPaired, self.welcomeFraming == nil {
+                VStack(alignment: .leading, spacing: 12) {
+                    Image("SolRing")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 18, height: 18)
+                        .opacity(0.55)
 
-                Button(SourceVocabulary.onThisPhoneTurnOnSourceButton) {
-                    self.onTurnOnSource()
+                    Text(SourceVocabulary.onThisPhoneAllQuietHeadline)
+                        .font(.headline)
+
+                    Text(SourceVocabulary.onThisPhoneAllQuietBody)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityIdentifier("onThisPhone.turnOnSource")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("onThisPhone.allQuiet")
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(SourceVocabulary.onThisPhoneEmpty)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    Button(SourceVocabulary.onThisPhoneTurnOnSourceButton) {
+                        self.onTurnOnSource()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("onThisPhone.turnOnSource")
+                }
             }
         } else {
             LazyVStack(alignment: .leading, spacing: 10) {

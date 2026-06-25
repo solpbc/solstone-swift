@@ -255,6 +255,8 @@ nonisolated enum SourceVocabulary {
     static let chatSourceOpenTitle = "open ↗"
     static let chatSourceSeparator = " · "
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
+    static let onThisPhoneAllQuietHeadline = "all quiet"
+    static let onThisPhoneAllQuietBody = "everything you've gathered is in your journal. new moments rest here on their way through."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let onThisPhoneTurnOnSourceButton = "turn on a source"
     static let migrationStageOnThisPhone = "on this phone"
