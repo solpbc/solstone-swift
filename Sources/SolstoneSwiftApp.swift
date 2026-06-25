@@ -36,7 +36,7 @@ struct SolstoneSwiftApp: App {
     @State private var voiceManager: VoiceManager
     @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
-    @State private var backgroundDisconnectTask: Task<Void, Never>?
+    @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
     @State private var integrationObserverStopTask: Task<Void, Never>?
@@ -457,8 +457,8 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
-                self.backgroundDisconnectTask?.cancel()
-                self.backgroundDisconnectTask = nil
+                self.backgroundDrainTask?.cancel()
+                self.backgroundDrainTask = nil
                 if Self.isIntegrationMode || Self.isUITest {
                     return
                 }
@@ -489,26 +489,41 @@ struct SolstoneSwiftApp: App {
                 self.integrationObserverStopTask?.cancel()
                 self.integrationObserverStopTask = nil
                 self.voiceManager.endSession()
-                self.tunnelManager.cancelConnect()
-                self.tunnelManager.cancelReconnect()
-                self.tunnelManager.stopNetworkMonitoring()
-
-                self.backgroundDisconnectTask = Task {
-                    let application = UIApplication.shared
-                    var taskID = UIBackgroundTaskIdentifier.invalid
-                    taskID = application.beginBackgroundTask {
-                        application.endBackgroundTask(taskID)
-                        taskID = .invalid
-                    }
-                    defer {
-                        if taskID != .invalid {
-                            application.endBackgroundTask(taskID)
-                        }
-                    }
-                    try? await Task.sleep(for: .seconds(20))
-                    if !Task.isCancelled {
+                if Self.isIntegrationMode || Self.isUITest {
+                    return
+                }
+                let coordinator = BackgroundDrainCoordinator(
+                    totals: {
+                        uploadTotals(
+                            observer: self.observerUploader,
+                            omi: self.omiUploaderHolder,
+                            watch: self.watchUploaderHolder,
+                            importQueue: self.importQueue,
+                            location: self.locationUploader
+                        )
+                    },
+                    isSustaining: { self.locationManager.isSustainingBackground },
+                    isConnected: { self.tunnelManager.state.isConnected },
+                    drive: {
+                        await driveUploadDrain(
+                            observer: self.observerUploader,
+                            omi: self.omiUploader,
+                            watch: self.watchUploader,
+                            importQueue: self.importQueue,
+                            location: self.locationUploader,
+                            watchDrain: self.watchSegmentDrain
+                        )
+                    },
+                    disconnect: {
+                        self.tunnelManager.cancelConnect()
+                        self.tunnelManager.cancelReconnect()
+                        self.tunnelManager.stopNetworkMonitoring()
                         await self.tunnelManager.disconnect()
-                    }
+                    },
+                    asserter: UIBackgroundTaskAsserter()
+                )
+                self.backgroundDrainTask = Task {
+                    await coordinator.run()
                 }
             default:
                 break
@@ -522,38 +537,14 @@ struct SolstoneSwiftApp: App {
                 self.watchRegistration.activeLocalPort = port
                 self.brainStatusMonitor.startPolling(localPort: port)
                 Task {
-                    await self.observerUploader.reconcilePortAndResume()
-                }
-                Task {
-                    await self.omiUploader.reconcilePortAndResume()
-                }
-                Task {
-                    await self.watchUploader.reconcilePortAndResume()
-                }
-                // follow-up: ImportQueue and LocationUploader share the same stale-port background-task shape.
-                Task {
-                    await self.importQueue.resumeFromDisk()
-                }
-                Task {
-                    await self.locationUploader.resumeFromDisk()
-                }
-                Task {
-                    await self.observerUploader.retryFailed()
-                }
-                Task {
-                    await self.omiUploader.retryFailed()
-                }
-                Task {
-                    await self.watchUploader.retryFailed()
-                }
-                Task {
-                    await self.importQueue.retryFailed()
-                }
-                Task {
-                    await self.locationUploader.retryFailed()
-                }
-                Task {
-                    await self.watchSegmentDrain?.drain()
+                    await driveUploadDrain(
+                        observer: self.observerUploader,
+                        omi: self.omiUploader,
+                        watch: self.watchUploader,
+                        importQueue: self.importQueue,
+                        location: self.locationUploader,
+                        watchDrain: self.watchSegmentDrain
+                    )
                 }
 
                 if Self.isIntegrationMode,

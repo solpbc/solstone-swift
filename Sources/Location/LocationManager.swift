@@ -115,6 +115,13 @@ final class LocationManager {
         self.lastCapability
     }
 
+    var isSustainingBackground: Bool {
+        guard case .active = self.state else { return false }
+        guard self.tier.requiredAuthorization == .always else { return false }
+        if case .always = self.effectiveCapability() { return true }
+        return false
+    }
+
     var recoveryActions: [LocationRecovery] {
         self.recoveryActions(for: self.effectiveCapability())
     }

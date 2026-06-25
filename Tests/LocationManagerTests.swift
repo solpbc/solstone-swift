@@ -66,6 +66,49 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testIsSustainingBackgroundFalseWhenAlwaysTierOnlyHasWhenInUse() async {
+        self.provider.capability = .whenInUse(accuracy: .reduced)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        self.provider.emitAuthorization(.whenInUse(accuracy: .reduced))
+        await self.yieldToMainActor()
+
+        XCTAssertFalse(manager.isSustainingBackground)
+        guard case .error = manager.state else {
+            return XCTFail("Expected non-active state")
+        }
+    }
+
+    @MainActor
+    func testIsSustainingBackgroundTrueWhenAlwaysGrantedAndActive() async {
+        self.provider.capability = .always(accuracy: .reduced)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        XCTAssertTrue(manager.isSustainingBackground)
+    }
+
+    @MainActor
+    func testIsSustainingBackgroundFalseWhenAlwaysRevokedWhileActive() async {
+        self.provider.capability = .always(accuracy: .reduced)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+        XCTAssertTrue(manager.isSustainingBackground)
+
+        self.provider.emitAuthorization(.whenInUse(accuracy: .reduced))
+        await self.yieldToMainActor()
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+        XCTAssertFalse(manager.isSustainingBackground)
+    }
+
+    @MainActor
     func testLightRequestsWhenInUseOnlyAndStartsVisits() async {
         let manager = self.makeManager()
 
