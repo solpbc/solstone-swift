@@ -506,7 +506,6 @@ private extension ImportQueue {
         let clientItemID: String
         let source: String?
         let recommendedAction: RecommendedAction
-        let duplicate: Bool?
 
         enum CodingKeys: String, CodingKey {
             case status
@@ -514,7 +513,6 @@ private extension ImportQueue {
             case path
             case timestamp
             case source
-            case duplicate
             case clientItemID = "client_item_id"
             case recommendedAction = "recommended_action"
         }

@@ -233,6 +233,36 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDuplicateObjectFinalizesLedgerWithoutStart() async throws {
+        ImportQueueURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start","path":"/imports/original","timestamp":"2026-04-20T12:00:00Z","duplicate":{"matching_path":"/imports/original","content_hash":"sha256:abc"}}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("terminal duplicate finalizes") {
+            queue.pendingCount == 0 && queue.lastDeliveredAt != nil
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+        let ledgerEntry = try XCTUnwrap(self.readLedger()[itemID])
+        XCTAssertEqual(ledgerEntry.serverPath, "/imports/original")
+        XCTAssertEqual(ledgerEntry.serverTimestamp, "2026-04-20T12:00:00Z")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+    }
+
+    @MainActor
     func testSaveResponseMissingClientItemIDFailsWithoutStartOrLedger() async throws {
         ImportQueueURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
