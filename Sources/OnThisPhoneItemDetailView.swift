@@ -4,7 +4,6 @@
 import SwiftUI
 
 struct OnThisPhoneItemDetailView: View {
-    @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(ObserverRegistration.self) private var observerRegistration
@@ -13,6 +12,7 @@ struct OnThisPhoneItemDetailView: View {
     let item: OnThisPhoneItem
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
     @State private var showingDropConfirm = false
+    @State private var showingJournal = false
 
     init(item: OnThisPhoneItem, onRequestDrop: @escaping @MainActor (OnThisPhoneItem) -> Void) {
         self.item = item
@@ -130,15 +130,16 @@ private extension OnThisPhoneItemDetailView {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button(SourceVocabulary.openJournalLink) {
-                    if let conveyURL {
-                        self.openURL(conveyURL)
-                    }
+                    self.showingJournal = true
                 }
                 .buttonStyle(.bordered)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(!availability.enabled)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("Opens your journal in the browser.")
+                .accessibilityHint("Opens your journal inside solstone.")
+                .sheet(isPresented: self.$showingJournal) {
+                    InAppJournalView()
+                }
             }
         }
     }

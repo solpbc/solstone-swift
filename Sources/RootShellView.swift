@@ -18,10 +18,10 @@ struct RootShellView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @Environment(PendingFoldState.self) private var pendingFold
-    @Environment(\.openURL) private var openURL
     @State private var showingSources = false
     @State private var showingYourSolstone = false
     @State private var showingChat = false
+    @State private var showingJournal = false
     @State private var navigateToDiagnostics = false
     @State private var didPresentFirstSources = false
     @State private var connectedSince = Date()
@@ -45,7 +45,7 @@ struct RootShellView: View {
                     self.showingSources = true
                 },
                 onOpenJournal: {
-                    self.openInJournal()
+                    self.showingJournal = true
                 },
                 onPresentChat: {
                     self.presentChat()
@@ -67,6 +67,9 @@ struct RootShellView: View {
         }
         .sheet(isPresented: self.$showingChat) {
             ChatView()
+        }
+        .sheet(isPresented: self.$showingJournal) {
+            InAppJournalView()
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
@@ -164,12 +167,6 @@ struct RootShellView: View {
     private func presentChat() {
         routerLog.info("chat presented")
         self.showingChat = true
-    }
-
-    private func openInJournal() {
-        if let url = ConveyURL.rootURL(activeLocalPort: self.localPort) {
-            self.openURL(url)
-        }
     }
 }
 

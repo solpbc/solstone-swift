@@ -8,10 +8,10 @@ struct LocationSourceDetailView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
-    @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
     @State private var showingDeleteConfirm = false
+    @State private var showingJournal = false
     @State private var isDeleting = false
     @State private var deleteResult: DeleteShareSourceResult?
 
@@ -252,15 +252,16 @@ private extension LocationSourceDetailView {
     var openJournalBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(SourceVocabulary.openJournalLink) {
-                if let url = self.journalURL {
-                    self.openURL(url)
-                }
+                self.showingJournal = true
             }
             .buttonStyle(.bordered)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .disabled(self.journalURL == nil)
             .accessibilityLabel(SourceVocabulary.openJournalLink)
-            .accessibilityHint("Opens your journal in the browser.")
+            .accessibilityHint("Opens your journal inside solstone.")
+            .sheet(isPresented: self.$showingJournal) {
+                InAppJournalView()
+            }
 
             if self.journalURL == nil {
                 Text(SourceVocabulary.notConnectedRowAffordance)

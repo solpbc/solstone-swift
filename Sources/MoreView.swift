@@ -19,7 +19,6 @@ struct MoreView: View {
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(PushNotificationManager.self) private var pushManager
-    @Environment(\.openURL) private var openURL
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
@@ -36,6 +35,7 @@ struct MoreView: View {
     @State private var showingObserverReset = false
     @State private var showingUnpairConfirm = false
     @State private var showingConnectJournal = false
+    @State private var showingJournal = false
 
     private var serverHost: String {
         self.appConfig.host
@@ -195,14 +195,15 @@ struct MoreView: View {
             Section {
                 let conveyURL = ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
                 Button(SourceVocabulary.openJournalLink) {
-                    if let conveyURL {
-                        self.openURL(conveyURL)
-                    }
+                    self.showingJournal = true
                 }
                 .disabled(conveyURL == nil)
                 .hoverEffect(.highlight)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("Opens your journal in the browser.")
+                .accessibilityHint("Opens your journal inside solstone.")
+                .sheet(isPresented: self.$showingJournal) {
+                    InAppJournalView()
+                }
 
                 if conveyURL == nil {
                     Text(SourceVocabulary.notConnectedRowAffordance)
