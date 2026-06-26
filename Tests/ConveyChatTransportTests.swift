@@ -60,25 +60,7 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
 
     @MainActor
     func testEventsHydratesChatErrorFromSessionSnapshot() async throws {
-        ChatTransportURLProtocol.handler = { request in
-            switch request.url?.path {
-            case "/api/chat/session":
-                return Self.response(
-                    status: 200,
-                    request: request,
-                    body: #"{"chat_error":{"reason":"chat_timeout","use_id":"use-1","detail":"took too long"},"queue_depth":0}"#
-                )
-            case "/sse/events":
-                return Self.response(status: 204, request: request)
-            default:
-                XCTFail("unexpected path \(request.url?.path ?? "")")
-                return Self.response(status: 404, request: request)
-            }
-        }
-
-        let stream = self.transport.events()
-        var iterator = stream.makeAsyncIterator()
-        let event = await iterator.next()
+        let event = await self.sessionSnapshotEvent(#"{"chat_error":{"reason":"chat_timeout","use_id":"use-1","detail":"took too long"},"queue_depth":0}"#)
 
         XCTAssertEqual(
             event,
@@ -115,39 +97,7 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
 
     @MainActor
     func testEventsHydratesSessionSnapshotBeforeSSE() async throws {
-        let port = OSAllocatedUnfairLock<Int?>(initialState: 7071)
-        let sseOpened = OSAllocatedUnfairLock<Bool>(initialState: false)
-        let transport = self.transport(localPortProvider: {
-            port.withLock { $0 }
-        })
-        ChatTransportURLProtocol.handler = { request in
-            switch request.url?.path {
-            case "/api/chat/session":
-                return Self.response(
-                    status: 200,
-                    request: request,
-                    body: #"{"latest_sol_message":{"id":"sol-1","text":"answer","use_id":"use-1"},"active_talents":[{"id":"read","label":"Reading your journal…"}],"queue_depth":2}"#
-                )
-            case "/sse/events":
-                sseOpened.withLock { $0 = true }
-                port.withLock { $0 = nil }
-                return Self.response(status: 204, request: request)
-            default:
-                XCTFail("unexpected path \(request.url?.path ?? "")")
-                return Self.response(status: 404, request: request)
-            }
-        }
-
-        let stream = transport.events()
-        let task = Task {
-            var iterator = stream.makeAsyncIterator()
-            return await iterator.next()
-        }
-        let event = await task.value
-        task.cancel()
-        for _ in 0..<20 where !sseOpened.withLock({ $0 }) {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        let event = await self.sessionSnapshotEvent(#"{"latest_sol_message":{"id":"sol-1","text":"answer","use_id":"use-1"},"active_talents":[{"id":"read","label":"Reading your journal…"}],"queue_depth":2}"#)
 
         XCTAssertEqual(
             event,
@@ -157,7 +107,6 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
                 queueDepth: 2
             ))
         )
-        XCTAssertTrue(sseOpened.withLock { $0 })
     }
 
     @MainActor
@@ -213,25 +162,7 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
 
     @MainActor
     func testEventsHydratesQueuedTalentsFromSessionSnapshot() async throws {
-        ChatTransportURLProtocol.handler = { request in
-            switch request.url?.path {
-            case "/api/chat/session":
-                return Self.response(
-                    status: 200,
-                    request: request,
-                    body: #"{"queued_talents":[{"use_id":"talent-1","name":"reading","task":"read notes","queued_at":"2026-06-18T10:11:12Z"}]}"#
-                )
-            case "/sse/events":
-                return Self.response(status: 204, request: request)
-            default:
-                XCTFail("unexpected path \(request.url?.path ?? "")")
-                return Self.response(status: 404, request: request)
-            }
-        }
-
-        let stream = self.transport.events()
-        var iterator = stream.makeAsyncIterator()
-        let event = await iterator.next()
+        let event = await self.sessionSnapshotEvent(#"{"queued_talents":[{"use_id":"talent-1","name":"reading","task":"read notes","queued_at":"2026-06-18T10:11:12Z"}]}"#)
 
         let queuedAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-18T10:11:12Z"))
         XCTAssertEqual(
@@ -342,6 +273,39 @@ nonisolated final class ConveyChatTransportTests: XCTestCase {
             return event
         }
         return nil
+    }
+
+    @MainActor
+    private func sessionSnapshotEvent(_ sessionBody: String) async -> ChatEvent? {
+        let port = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let sseOpened = OSAllocatedUnfairLock<Bool>(initialState: false)
+        let transport = self.transport(localPortProvider: { port.withLock { $0 } })
+        ChatTransportURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/chat/session":
+                return Self.response(status: 200, request: request, body: sessionBody)
+            case "/sse/events":
+                sseOpened.withLock { $0 = true }
+                port.withLock { $0 = nil }
+                return Self.response(status: 204, request: request)
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "")")
+                return Self.response(status: 404, request: request)
+            }
+        }
+
+        let stream = transport.events()
+        let task = Task {
+            var iterator = stream.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let event = await task.value
+        task.cancel()
+        for _ in 0..<20 where !sseOpened.withLock({ $0 }) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(sseOpened.withLock { $0 }, "producer never reached /sse/events")
+        return event
     }
 
     private static func response(status: Int, request: URLRequest, body: String = "") -> (HTTPURLResponse, Data) {

@@ -95,10 +95,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testSaveThenStartFinalizesLedgerAndBackgroundCompletion() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             switch request.url?.path {
             case "/app/import/api/save":
-                let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+                let clientItemID = Self.clientItemID(fromSaveBody: body)
                 return (
                     Self.response(for: request, statusCode: 200),
                     Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"start","path":"/imports/item-1","timestamp":"2026-04-20T12:00:00Z","source":"audio"}"#.utf8)
@@ -168,9 +168,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testQuickTextSaveUsesTextFieldWithoutFilePart() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
-            let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+            let clientItemID = Self.clientItemID(fromSaveBody: body)
             return (
                 Self.response(for: request, statusCode: 200),
                 Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start","path":"/imports/text","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
@@ -204,9 +204,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testDoNotStartWithoutPathTimestampFinalizesLedgerWithNilServerFields() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
-            let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+            let clientItemID = Self.clientItemID(fromSaveBody: body)
             return (
                 Self.response(for: request, statusCode: 200),
                 Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
@@ -234,9 +234,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testTerminalDuplicateObjectFinalizesLedgerWithoutStart() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
-            let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+            let clientItemID = Self.clientItemID(fromSaveBody: body)
             return (
                 Self.response(for: request, statusCode: 200),
                 Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start","path":"/imports/original","timestamp":"2026-04-20T12:00:00Z","duplicate":{"matching_path":"/imports/original","content_hash":"sha256:abc"}}"#.utf8)
@@ -264,7 +264,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testSaveResponseMissingClientItemIDFailsWithoutStartOrLedger() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, _ in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
             return (
                 Self.response(for: request, statusCode: 200),
@@ -290,7 +290,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testSaveResponseClientItemIDMismatchFailsWithoutStartOrLedger() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, _ in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
             return (
                 Self.response(for: request, statusCode: 200),
@@ -325,9 +325,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
         for (name, template) in cases {
             ImportQueueURLProtocol.reset()
             let root = self.tempDirectory.appendingPathComponent("recommended-action-\(name)", isDirectory: true)
-            ImportQueueURLProtocol.handler = { request in
+            ImportQueueURLProtocol.handler = { request, body in
                 XCTAssertEqual(request.url?.path, "/app/import/api/save")
-                let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+                let clientItemID = Self.clientItemID(fromSaveBody: body)
                 return (
                     Self.response(for: request, statusCode: 200),
                     Data(template.replacingOccurrences(of: "CLIENT", with: clientItemID).utf8)
@@ -361,9 +361,9 @@ nonisolated final class ImportQueueTests: XCTestCase {
         for (name, template) in cases {
             ImportQueueURLProtocol.reset()
             let root = self.tempDirectory.appendingPathComponent(name, isDirectory: true)
-            ImportQueueURLProtocol.handler = { request in
+            ImportQueueURLProtocol.handler = { request, body in
                 XCTAssertEqual(request.url?.path, "/app/import/api/save")
-                let clientItemID = Self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+                let clientItemID = Self.clientItemID(fromSaveBody: body)
                 return (
                     Self.response(for: request, statusCode: 200),
                     Data(template.replacingOccurrences(of: "CLIENT", with: clientItemID).utf8)
@@ -398,7 +398,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         try Data(#"{"path":"/imports/saved","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
             .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
         let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, _ in
             XCTAssertEqual(request.url?.path, "/app/import/api/start")
             return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
         }
@@ -455,7 +455,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
                     .appendingPathComponent("pending", isDirectory: true)
                     .appendingPathComponent(itemID, isDirectory: true)
                     .appendingPathComponent("save.json"), options: .atomic)
-            ImportQueueURLProtocol.handler = { request in
+            ImportQueueURLProtocol.handler = { request, _ in
                 XCTAssertEqual(request.url?.path, "/app/import/api/start")
                 return (Self.response(for: request, statusCode: 200), responseData)
             }
@@ -473,7 +473,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testHTTP409ImportClientIDConflictMovesToFailedWithoutLedgerAndPreservesBody() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, _ in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
             return (
                 Self.response(for: request, statusCode: 409),
@@ -526,7 +526,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
     func testSaveSuccessResetsRetryBudgetBeforeStart() async throws {
         let saveFailures = OSAllocatedUnfairLock<Int>(initialState: 0)
         let startFailures = OSAllocatedUnfairLock<Int>(initialState: 0)
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             switch request.url?.path {
             case "/app/import/api/save":
                 if saveFailures.withLock({ count in
@@ -537,7 +537,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
                 }
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Self.saveStartResponse(path: "/imports/retry")
+                    Self.saveStartResponse(path: "/imports/retry", body: body)
                 )
             case "/app/import/api/start":
                 if startFailures.withLock({ count in
@@ -570,7 +570,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     @MainActor
     func testRepeatedSaveFailuresMoveToFailed() async throws {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, _ in
             (Self.response(for: request, statusCode: 503), Data("service unavailable".utf8))
         }
         let queue = self.makeQueue(retryDelays: [0, 0], maxAttempts: 3)
@@ -614,12 +614,12 @@ nonisolated final class ImportQueueTests: XCTestCase {
     @MainActor
     func testNilPortHoldsThenFlushesWhenPortAppears() async throws {
         let localPort = OSAllocatedUnfairLock<Int?>(initialState: nil)
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             switch request.url?.path {
             case "/app/import/api/save":
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Self.saveStartResponse(path: "/imports/item")
+                    Self.saveStartResponse(path: "/imports/item", body: body)
                 )
             case "/app/import/api/start":
                 return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
@@ -738,9 +738,74 @@ nonisolated final class ImportQueueTests: XCTestCase {
                 && ImportQueueURLProtocol.callCount == 4
         }
         let ledger = try self.readLedger()
-        XCTAssertNotNil(ledger[pendingItemID])
-        XCTAssertNotNil(ledger[failedItemID])
+        XCTAssertEqual(Set(ledger.keys), [pendingItemID, failedItemID])
+        XCTAssertEqual(ledger.count, 2)
         XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
+    }
+
+    func testConcurrentSaveResponsesEchoEachRequestClientItemID() async throws {
+        let arrivalOrder = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let responseOrder = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let alphaArrived = DispatchSemaphore(value: 0)
+        let bothArrived = DispatchSemaphore(value: 0)
+        let betaResponseBuilt = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.respondsAsynchronously = true
+        ImportQueueURLProtocol.handler = { request, body in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            let clientItemID = Self.clientItemID(fromSaveBody: body)
+            let arrivalCount = arrivalOrder.withLock { order in
+                order.append(clientItemID)
+                return order.count
+            }
+            if clientItemID == "alpha" {
+                alphaArrived.signal()
+            }
+            if arrivalCount == 2 {
+                bothArrived.signal()
+                bothArrived.signal()
+            }
+            XCTAssertEqual(bothArrived.wait(timeout: .now() + .seconds(5)), .success)
+            if clientItemID == "alpha" {
+                XCTAssertEqual(betaResponseBuilt.wait(timeout: .now() + .seconds(5)), .success)
+            }
+            let response = (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
+            )
+            responseOrder.withLock { $0.append(clientItemID) }
+            if clientItemID == "beta" {
+                betaResponseBuilt.signal()
+            }
+            return response
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ImportQueueURLProtocol.self]
+        configuration.httpMaximumConnectionsPerHost = 2
+        let alphaSession = URLSession(configuration: configuration)
+        let betaSession = URLSession(configuration: configuration)
+        defer {
+            alphaSession.invalidateAndCancel()
+            betaSession.invalidateAndCancel()
+        }
+
+        async let alphaClientItemID = Self.uploadSaveClientItemID("alpha", session: alphaSession)
+        let alphaArrival = await withCheckedContinuation { (continuation: CheckedContinuation<DispatchTimeoutResult, Never>) in
+            DispatchQueue.global().async {
+                continuation.resume(returning: alphaArrived.wait(timeout: .now() + .seconds(5)))
+            }
+        }
+        guard alphaArrival == .success else {
+            XCTFail("alpha /save request did not arrive")
+            return
+        }
+        async let betaClientItemID = Self.uploadSaveClientItemID("beta", session: betaSession)
+
+        let (alpha, beta) = try await (alphaClientItemID, betaClientItemID)
+        XCTAssertEqual(arrivalOrder.withLock { $0 }, ["alpha", "beta"])
+        XCTAssertEqual(responseOrder.withLock { $0 }, ["beta", "alpha"])
+        XCTAssertEqual(beta, "beta")
+        XCTAssertEqual(alpha, "alpha")
     }
 
     @MainActor
@@ -773,12 +838,12 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     private func installSuccessfulImportHandler() {
-        ImportQueueURLProtocol.handler = { request in
+        ImportQueueURLProtocol.handler = { request, body in
             switch request.url?.path {
             case "/app/import/api/save":
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Self.saveStartResponse(path: "/imports/retry")
+                    Self.saveStartResponse(path: "/imports/retry", body: body)
                 )
             case "/app/import/api/start":
                 return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
@@ -895,14 +960,27 @@ nonisolated final class ImportQueueTests: XCTestCase {
 
     private static let validStartResponse = Data(#"{"status":"ok","task_id":"task-1"}"#.utf8)
 
-    private static func saveStartResponse(path: String, timestamp: String = "2026-04-20T12:00:00Z") -> Data {
-        let clientItemID = self.clientItemID(fromLatestSaveBody: ImportQueueURLProtocol.capturedBodies.last)
+    private static func uploadSaveClientItemID(_ clientItemID: String, session: URLSession) async throws -> String {
+        let boundary = "Boundary-\(clientItemID)"
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:7071/app/import/api/save")))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 5
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let body = Data(
+            "--\(boundary)\r\nContent-Disposition: form-data; name=\"client_item_id\"\r\n\r\n\(clientItemID)\r\n--\(boundary)--\r\n".utf8
+        )
+        let (data, _) = try await session.upload(for: request, from: body)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        return try XCTUnwrap(json["client_item_id"])
+    }
+
+    private static func saveStartResponse(path: String, body: Data, timestamp: String = "2026-04-20T12:00:00Z") -> Data {
+        let clientItemID = self.clientItemID(fromSaveBody: body)
         return Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"start","path":"\#(path)","timestamp":"\#(timestamp)"}"#.utf8)
     }
 
-    private static func clientItemID(fromLatestSaveBody data: Data?) -> String {
-        guard let data,
-              let string = String(data: data, encoding: .utf8),
+    private static func clientItemID(fromSaveBody data: Data) -> String {
+        guard let string = String(data: data, encoding: .utf8),
               let markerRange = string.range(of: "name=\"client_item_id\"\r\n\r\n")
         else {
             return "MISSING"
@@ -1002,9 +1080,10 @@ private final class ImportQueueCompletionCounter: @unchecked Sendable {
 }
 
 private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+    typealias Handler = @Sendable (URLRequest, Data) throws -> (HTTPURLResponse, Data)
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let respondsAsynchronouslyBox = OSAllocatedUnfairLock<Bool>(initialState: false)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
     private static let pathsBox = OSAllocatedUnfairLock<[String]>(initialState: [])
@@ -1012,6 +1091,10 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
         set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var respondsAsynchronously: Bool {
+        get { self.respondsAsynchronouslyBox.withLock { $0 } }
+        set { self.respondsAsynchronouslyBox.withLock { $0 = newValue } }
     }
     static var callCount: Int {
         get { self.callCountBox.withLock { $0 } }
@@ -1028,6 +1111,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
 
     static func reset() {
         self.handler = nil
+        self.respondsAsynchronously = false
         self.callCount = 0
         self.capturedBodies = []
         self.capturedPaths = []
@@ -1053,8 +1137,21 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        let request = self.request
+        if Self.respondsAsynchronously {
+            DispatchQueue.global().async {
+                self.load(handler: handler, request: request, body: body)
+            }
+        } else {
+            self.load(handler: handler, request: request, body: body)
+        }
+    }
+
+    override func stopLoading() {}
+
+    private func load(handler: Handler, request: URLRequest, body: Data) {
         do {
-            let (response, data) = try handler(self.request)
+            let (response, data) = try handler(request, body)
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             self.client?.urlProtocol(self, didLoad: data)
             self.client?.urlProtocolDidFinishLoading(self)
@@ -1062,8 +1159,6 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
             self.client?.urlProtocol(self, didFailWithError: error)
         }
     }
-
-    override func stopLoading() {}
 
     private static func bodyData(from request: URLRequest) -> Data {
         guard let stream = request.httpBodyStream else { return Data() }
