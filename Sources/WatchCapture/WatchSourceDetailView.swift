@@ -4,12 +4,16 @@
 
 import Foundation
 import SwiftUI
+import os
+
+private let watchSourceLog = Logger(subsystem: "app.solstone.swift", category: "watch")
 
 struct WatchSourceDetailView: View {
     @Environment(WatchLink.self) private var watchLink
     @Environment(WatchRelayReceiver.self) private var receiver: WatchRelayReceiver?
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.openURL) private var openURL
     @State private var diagnosticsExportURL: URL?
     @State private var now = Date()
 
@@ -65,13 +69,22 @@ private extension WatchSourceDetailView {
             }
 
             if let affordance = WatchSourceDetailPresentation.installAffordance(install: self.installState) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(affordance.title)
-                        .font(.subheadline.weight(.semibold))
-                    Text(affordance.instruction)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                Button {
+                    self.openURL(URL(string: "itms-watchs://")!) { accepted in
+                        if !accepted {
+                            watchSourceLog.info("watch install deep link not accepted")
+                        }
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(affordance.title)
+                            .font(.subheadline.weight(.semibold))
+                        Text(affordance.instruction)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("watch.installAffordance")
             }
         }

@@ -21,6 +21,12 @@ struct DiagnosticsView: View {
     @State private var diagnosticsExportURL: URL?
     @State private var problemsOnly = false
     @State private var isRetrying = false
+    @State private var lifecycleMigration = OnThisPhoneMigration(
+        onThisPhone: 0,
+        onItsWay: 0,
+        inYourJournal: 0,
+        needsAttention: 0
+    )
 
     private var failedTotal: Int {
         uploadFailedTotal(
@@ -50,17 +56,8 @@ struct DiagnosticsView: View {
     }
 
     var body: some View {
-        let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: self.importQueue,
-            observerUploader: self.observerUploader,
-            omiUploader: self.omiUploaderHolder.uploader,
-            watchUploader: self.watchUploaderHolder.uploader,
-            locationUploader: self.locationUploader
-        )
-        let migration = onThisPhoneMigration(snapshot: aggregate)
-
         List {
-            self.lifecycleSection(migration: migration)
+            self.lifecycleSection(migration: self.lifecycleMigration)
             if let failedSegmentPresentation {
                 self.failedSegmentSection(failedSegmentPresentation)
             }
@@ -124,6 +121,9 @@ struct DiagnosticsView: View {
         }
         .onChange(of: self.log.events.count) {
             self.refreshDiagnosticsExport()
+        }
+        .task {
+            await self.refreshLifecycle()
         }
         .onDisappear {
             self.copyTask?.cancel()
@@ -266,6 +266,20 @@ struct DiagnosticsView: View {
             voice: self.voiceManager,
             brain: self.brainStatusMonitor
         )
+    }
+
+    private func refreshLifecycle() async {
+        while !Task.isCancelled {
+            let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+                importQueue: self.importQueue,
+                observerUploader: self.observerUploader,
+                omiUploader: self.omiUploaderHolder.uploader,
+                watchUploader: self.watchUploaderHolder.uploader,
+                locationUploader: self.locationUploader
+            )
+            self.lifecycleMigration = onThisPhoneMigration(snapshot: snapshot)
+            try? await Task.sleep(for: .seconds(1))
+        }
     }
 }
 
