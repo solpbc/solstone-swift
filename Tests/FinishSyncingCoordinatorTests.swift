@@ -12,6 +12,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: false,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
@@ -23,6 +25,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: false,
+                isSustaining: false,
+                isCapable: true,
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
@@ -34,6 +38,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: FinishSyncingCoordinator.backlogThreshold - 1,
                 isFinishing: false,
                 lastOutcome: nil,
@@ -45,6 +51,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
@@ -54,8 +62,36 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(
             FinishSyncingCoordinator.cardState(
+                isPaired: true,
+                isConnected: true,
+                isSustaining: true,
+                isCapable: true,
+                backlog: FinishSyncingCoordinator.backlogThreshold,
+                isFinishing: false,
+                lastOutcome: nil,
+                threshold: FinishSyncingCoordinator.backlogThreshold
+            ),
+            .hidden
+        )
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
+                isPaired: true,
+                isConnected: true,
+                isSustaining: false,
+                isCapable: false,
+                backlog: FinishSyncingCoordinator.backlogThreshold,
+                isFinishing: false,
+                lastOutcome: nil,
+                threshold: FinishSyncingCoordinator.backlogThreshold
+            ),
+            .hidden
+        )
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
                 isPaired: false,
                 isConnected: false,
+                isSustaining: false,
+                isCapable: true,
                 backlog: 0,
                 isFinishing: true,
                 lastOutcome: nil,
@@ -67,6 +103,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: 0,
                 isFinishing: false,
                 lastOutcome: .completed,
@@ -78,6 +116,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: 0,
                 isFinishing: false,
                 lastOutcome: .interrupted(remaining: 3),
@@ -93,6 +133,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: 5,
                 isFinishing: false,
                 lastOutcome: nil,
@@ -104,6 +146,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
             FinishSyncingCoordinator.cardState(
                 isPaired: true,
                 isConnected: true,
+                isSustaining: false,
+                isCapable: true,
                 backlog: 4,
                 isFinishing: false,
                 lastOutcome: nil,
@@ -255,9 +299,10 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
 
         registrationCoordinator.registerLaunchHandler()
 
+        XCTAssertFalse(registrationCoordinator.isCapable)
         XCTAssertEqual(
             registrationCoordinator.availability,
-            .unavailable(reason: SourceVocabulary.finishSyncingUnavailableRegistration)
+            .ready
         )
 
         let submitScheduling = SpyFinishSyncingScheduling()
@@ -297,8 +342,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
 
     @MainActor
     func testSingularAndPluralCopy() async {
-        XCTAssertTrue(SourceVocabulary.finishSyncingCardBody(count: 1).contains("1 observation"))
-        XCTAssertTrue(SourceVocabulary.finishSyncingCardBody(count: 2).contains("2 observations"))
+        XCTAssertTrue(SourceVocabulary.finishSyncingCardBody(count: 1).contains("1 segment"))
+        XCTAssertTrue(SourceVocabulary.finishSyncingCardBody(count: 2).contains("2 segments"))
         XCTAssertTrue(SourceVocabulary.finishSyncingInterrupted(count: 1).contains("1 still waiting"))
         XCTAssertTrue(SourceVocabulary.finishSyncingInterrupted(count: 2).contains("2 still waiting"))
         XCTAssertTrue(SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1).contains("1 item"))

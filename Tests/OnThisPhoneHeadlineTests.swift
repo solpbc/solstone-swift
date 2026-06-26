@@ -6,44 +6,50 @@ import XCTest
 
 nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     func testNeedsAttentionOnlyProducesNeedsAttentionLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1), reachingJournal: true)
+        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1), isPaired: false)
 
         XCTAssertEqual(headline.lines, [
             OnThisPhoneHeadline.Line(text: "1 needs attention", role: .needsAttention),
         ])
     }
 
-    func testNeedsAttentionPrecedesSyncingWhenBacklogExists() {
+    func testPairedNeedsAttentionMergesWithBacklogIntoTroubleLine() {
         let headline = onThisPhoneHeadline(
             migration: Self.migration(onItsWay: 2, needsAttention: 1),
-            reachingJournal: true
+            isPaired: true
         )
 
-        XCTAssertEqual(headline.lines.map(\.role), [.needsAttention, .syncing])
-        XCTAssertEqual(headline.lines.map(\.text), [
-            "1 needs attention",
-            "syncing 2 items to your journal",
+        XCTAssertEqual(headline.lines, [
+            OnThisPhoneHeadline.Line(text: "3 waiting · trouble reaching your journal", role: .trouble),
         ])
     }
 
     func testOnThisPhoneBacklogProducesSingularSyncingLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onThisPhone: 1), reachingJournal: true)
+        let headline = onThisPhoneHeadline(migration: Self.migration(onThisPhone: 1), isPaired: true)
 
         XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "syncing 1 item to your journal", role: .syncing),
+            OnThisPhoneHeadline.Line(text: "syncing 1 segment to your journal", role: .syncing),
         ])
     }
 
     func testOnItsWayBacklogProducesPluralSyncingLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2), reachingJournal: true)
+        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2), isPaired: true)
 
         XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "syncing 2 items to your journal", role: .syncing),
+            OnThisPhoneHeadline.Line(text: "syncing 2 segments to your journal", role: .syncing),
+        ])
+    }
+
+    func testPairedNeedsAttentionOnlyProducesTroubleLine() {
+        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1), isPaired: true)
+
+        XCTAssertEqual(headline.lines, [
+            OnThisPhoneHeadline.Line(text: "1 waiting · trouble reaching your journal", role: .trouble),
         ])
     }
 
     func testDeliveredOnlyProducesUpToDateLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(inYourJournal: 3), reachingJournal: true)
+        let headline = onThisPhoneHeadline(migration: Self.migration(inYourJournal: 3), isPaired: true)
 
         XCTAssertEqual(headline.lines, [
             OnThisPhoneHeadline.Line(text: "your journal is up to date", role: .upToDate),
@@ -51,7 +57,19 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
     }
 
     func testEmptyMigrationProducesNoLines() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(), reachingJournal: true)
+        let headline = onThisPhoneHeadline(migration: Self.migration(), isPaired: true)
+
+        XCTAssertEqual(headline.lines, [])
+    }
+
+    func testUnpairedOnItsWayWithoutNeedsAttentionProducesNoLines() {
+        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2), isPaired: false)
+
+        XCTAssertEqual(headline.lines, [])
+    }
+
+    func testUnpairedEmptyMigrationProducesNoLines() {
+        let headline = onThisPhoneHeadline(migration: Self.migration(), isPaired: false)
 
         XCTAssertEqual(headline.lines, [])
     }

@@ -39,6 +39,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
+    @Environment(LocationManager.self) private var locationManager
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -292,17 +293,8 @@ private extension OnThisPhoneMomentsView {
         items: [OnThisPhoneItem],
         summary: [OnThisPhoneSendStateSummary]
     ) -> some View {
-        let reach = uploadReach(
-            observer: self.observerUploader,
-            omi: self.omiUploaderHolder,
-            watch: self.watchUploaderHolder,
-            importQueue: self.importQueue,
-            location: self.locationUploader
-        )
-        let headline = onThisPhoneHeadline(migration: migration, reachingJournal: reach != .failing)
-        let lines = self.appConfig.isPaired
-            ? headline.lines
-            : headline.lines.filter { $0.role == .needsAttention }
+        let headline = onThisPhoneHeadline(migration: migration, isPaired: self.appConfig.isPaired)
+        let lines = headline.lines
 
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -529,20 +521,17 @@ private extension OnThisPhoneMomentsView {
     }
 
     private var finishSyncingBacklog: Int {
-        let totals = uploadTotals(
-            observer: self.observerUploader,
-            omi: self.omiUploaderHolder,
-            watch: self.watchUploaderHolder,
-            importQueue: self.importQueue,
-            location: self.locationUploader
-        )
-        return totals.failed + totals.pending
+        guard let displayAggregate = self.displayAggregate else { return 0 }
+        let migration = onThisPhoneMigration(snapshot: displayAggregate)
+        return migration.onThisPhone + migration.onItsWay + migration.needsAttention
     }
 
     private var finishSyncingCardState: FinishSyncingCoordinator.CardState {
         FinishSyncingCoordinator.cardState(
             isPaired: self.appConfig.isPaired,
             isConnected: self.tunnelManager.state.isConnected,
+            isSustaining: self.locationManager.isSustainingBackground,
+            isCapable: self.finishSyncingCoordinator.isCapable,
             backlog: self.finishSyncingBacklog,
             isFinishing: self.finishSyncingCoordinator.isFinishing,
             lastOutcome: self.finishSyncingCoordinator.lastOutcome,

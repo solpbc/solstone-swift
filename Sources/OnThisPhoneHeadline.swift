@@ -21,37 +21,39 @@ nonisolated struct OnThisPhoneHeadline: Equatable {
 
 nonisolated func onThisPhoneHeadline(
     migration: OnThisPhoneMigration,
-    reachingJournal: Bool
+    isPaired: Bool
 ) -> OnThisPhoneHeadline {
     guard !migration.isEmpty else { return OnThisPhoneHeadline(lines: []) }
-    let backlog = migration.onThisPhone + migration.onItsWay
-    var lines: [OnThisPhoneHeadline.Line] = []
 
-    if migration.needsAttention > 0 {
-        lines.append(.init(
+    if isPaired {
+        let segmentBacklog = migration.onThisPhone + migration.onItsWay + migration.needsAttention
+        guard segmentBacklog > 0 else {
+            return OnThisPhoneHeadline(lines: [
+                .init(text: SourceVocabulary.migrationHeadlineUpToDate, role: .upToDate),
+            ])
+        }
+        let reaching = migration.needsAttention == 0
+        return OnThisPhoneHeadline(lines: [
+            .init(
+                text: reaching
+                    ? SourceVocabulary.migrationHeadlineSyncing(count: segmentBacklog)
+                    : SourceVocabulary.migrationHeadlineTrouble(count: segmentBacklog),
+                role: reaching ? .syncing : .trouble
+            ),
+        ])
+    }
+
+    // unpaired: surface only the local needs-attention line (consumed where pairing is absent)
+    guard migration.needsAttention > 0 else { return OnThisPhoneHeadline(lines: []) }
+    return OnThisPhoneHeadline(lines: [
+        .init(
             text: SourceVocabulary.migrationStageCount(
                 migration.needsAttention,
                 stage: SourceVocabulary.needsAttention
             ),
             role: .needsAttention
-        ))
-    }
-
-    if backlog > 0 {
-        lines.append(.init(
-            text: !reachingJournal
-                ? SourceVocabulary.migrationHeadlineTrouble(count: backlog)
-                : SourceVocabulary.migrationHeadlineSyncing(count: backlog),
-            role: !reachingJournal ? .trouble : .syncing
-        ))
-    } else if migration.needsAttention == 0 {
-        lines.append(.init(
-            text: SourceVocabulary.migrationHeadlineUpToDate,
-            role: .upToDate
-        ))
-    }
-
-    return OnThisPhoneHeadline(lines: lines)
+        ),
+    ])
 }
 
 nonisolated func onThisPhoneLastActive(items: [OnThisPhoneItem]) -> Date? {
