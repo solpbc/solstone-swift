@@ -487,6 +487,9 @@ struct SolstoneSwiftApp: App {
                     UserDefaults.standard.set(true, forKey: "didMigrateLegacyAudioSegmentKeysV1")
                 }
                 .task {
+                    _ = ObserverKeychain.migrateIngestKeyAccessibility()
+                }
+                .task {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {

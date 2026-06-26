@@ -3,12 +3,15 @@
 
 import Foundation
 import Security
+import os
 
 enum KeychainError: Error {
     case unexpectedStatus(OSStatus)
 }
 
 nonisolated enum ObserverKeychain {
+    private static let log = Logger(subsystem: "app.solstone.swift", category: "observer-keychain")
+
     static let service = "app.solstone.swift"
     static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key"
     static let observerIngestPrefixAccount = "solstone-swift-observer-ingest-prefix"
@@ -95,9 +98,10 @@ nonisolated enum ObserverKeychain {
         try delete(account: watchIngestPrefixAccount)
     }
 
+    // Keys and prefixes share this helper; newly saved keychain items use
+    // AfterFirstUnlockThisDeviceOnly. Prefix migration is intentionally out of scope.
     private static func save(data: Data, account: String) throws {
-        let addQuery = baseQuery(account: account).merging([kSecValueData as String: data]) { _, new in new }
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        let status = SecItemAdd(addAttributes(data: data, account: account) as CFDictionary, nil)
 
         if status == errSecSuccess {
             return
@@ -107,12 +111,10 @@ nonisolated enum ObserverKeychain {
             throw KeychainError.unexpectedStatus(status)
         }
 
-        let attributesToUpdate: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
-        ]
-        let updateStatus = SecItemUpdate(baseQuery(account: account) as CFDictionary, attributesToUpdate as CFDictionary)
+        let updateStatus = SecItemUpdate(
+            baseQuery(account: account) as CFDictionary,
+            updateAttributes(data: data) as CFDictionary
+        )
 
         guard updateStatus == errSecSuccess else {
             throw KeychainError.unexpectedStatus(updateStatus)
@@ -148,12 +150,62 @@ nonisolated enum ObserverKeychain {
         }
     }
 
-    private static func baseQuery(account: String) -> [String: Any] {
+    private static func performAccessibilityMigration(account: String) throws -> Bool {
+        let attributes: [String: Any] = [
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let status = SecItemUpdate(baseQuery(account: account) as CFDictionary, attributes as CFDictionary)
+        switch status {
+        case errSecSuccess:
+            return true
+        case errSecItemNotFound:
+            return false
+        default:
+            throw KeychainError.unexpectedStatus(status)
+        }
+    }
+
+    static func migrateIngestKeyAccessibility() -> Int {
+        migrateIngestKeyAccessibility(
+            accounts: [observerIngestKeyAccount, omiIngestKeyAccount, watchIngestKeyAccount],
+            perform: performAccessibilityMigration(account:)
+        )
+    }
+
+    static func migrateIngestKeyAccessibility(accounts: [String], perform: (String) throws -> Bool) -> Int {
+        var count = 0
+        for account in accounts {
+            do {
+                if try perform(account) {
+                    count += 1
+                }
+            } catch {
+                log.error("ingest-key accessibility migration failed for account \(account, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
+        return count
+    }
+
+    static func addAttributes(data: Data, account: String) -> [String: Any] {
+        baseQuery(account: account).merging([
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]) { _, new in new }
+    }
+
+    static func updateAttributes(data: Data) -> [String: Any] {
+        [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+    }
+
+    static func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
     }
