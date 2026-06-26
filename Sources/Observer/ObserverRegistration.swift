@@ -71,9 +71,9 @@ final class ObserverRegistration {
         loadKey: @escaping @Sendable () throws -> String? = { try ObserverKeychain.loadObserverIngestKey() },
         saveKey: @escaping @Sendable (String) throws -> Void = { try ObserverKeychain.saveObserverIngestKey($0) },
         deleteKey: @escaping @Sendable () throws -> Void = { try ObserverKeychain.deleteObserverIngestKey() },
-        loadPrefix: @escaping @Sendable () throws -> String? = { try ObserverKeychain.loadObserverIngestPrefix() },
-        savePrefix: @escaping @Sendable (String) throws -> Void = { try ObserverKeychain.saveObserverIngestPrefix($0) },
-        deletePrefix: @escaping @Sendable () throws -> Void = { try ObserverKeychain.deleteObserverIngestPrefix() }
+        loadPrefix: @escaping @Sendable () throws -> String? = { IngestPrefixStore().load(.observer) },
+        savePrefix: @escaping @Sendable (String) throws -> Void = { IngestPrefixStore().save($0, for: .observer) },
+        deletePrefix: @escaping @Sendable () throws -> Void = { IngestPrefixStore().clear(.observer) }
     ) {
         self.session = session
         self.urlBuilder = urlBuilder

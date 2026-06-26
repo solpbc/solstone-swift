@@ -133,6 +133,7 @@ struct SolstoneSwiftApp: App {
 
     init() {
         Self.purgeLegacyKeychainEntries()
+        Self.migrateLegacyIngestPrefixes()
         InnerTLS.purgeOrphanedIdentities()
         if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
             Self.resetOnboardingIntegrationState()
@@ -188,13 +189,13 @@ struct SolstoneSwiftApp: App {
                 try ObserverKeychain.deleteOmiIngestKey()
             },
             loadPrefix: {
-                try ObserverKeychain.loadOmiIngestPrefix()
+                IngestPrefixStore().load(.omi)
             },
             savePrefix: {
-                try ObserverKeychain.saveOmiIngestPrefix($0)
+                IngestPrefixStore().save($0, for: .omi)
             },
             deletePrefix: {
-                try ObserverKeychain.deleteOmiIngestPrefix()
+                IngestPrefixStore().clear(.omi)
             }
         )
         let omiUploadConfiguration = URLSessionConfiguration.background(
@@ -237,13 +238,13 @@ struct SolstoneSwiftApp: App {
                 try ObserverKeychain.deleteWatchIngestKey()
             },
             loadPrefix: {
-                try ObserverKeychain.loadWatchIngestPrefix()
+                IngestPrefixStore().load(.watch)
             },
             savePrefix: {
-                try ObserverKeychain.saveWatchIngestPrefix($0)
+                IngestPrefixStore().save($0, for: .watch)
             },
             deletePrefix: {
-                try ObserverKeychain.deleteWatchIngestPrefix()
+                IngestPrefixStore().clear(.watch)
             }
         )
         let watchUploadConfiguration = URLSessionConfiguration.background(
@@ -654,7 +655,55 @@ struct SolstoneSwiftApp: App {
     }
 }
 
+extension SolstoneSwiftApp {
+    typealias LegacyIngestPrefixStream = (
+        stream: IngestPrefixStore.Stream,
+        name: String,
+        legacyLoad: () throws -> String?,
+        legacyDelete: () throws -> Void
+    )
+
+    static func migrateLegacyIngestPrefixes(store: IngestPrefixStore, streams: [LegacyIngestPrefixStream]) {
+        let log = Logger(subsystem: "app.solstone.swift", category: "ingest-prefix-migration")
+
+        for (stream, name, legacyLoad, legacyDelete) in streams {
+            guard let legacy = try? legacyLoad() else { continue }
+            let current = store.load(stream)
+            if current == nil {
+                store.save(legacy, for: stream)
+                guard store.load(stream) != nil else { continue }
+            } else if current != legacy {
+                log.error("legacy ingest prefix conflict for \(name, privacy: .public): keeping defaults value")
+            }
+
+            do {
+                try legacyDelete()
+            } catch {
+                log.error("legacy ingest prefix delete failed for \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+        }
+    }
+}
+
 private extension SolstoneSwiftApp {
+    static func migrateLegacyIngestPrefixes() {
+        let store = IngestPrefixStore()
+        let streams: [LegacyIngestPrefixStream] = [
+            (.observer, "observer",
+             { try ObserverKeychain.legacyLoadObserverIngestPrefix() },
+             { try ObserverKeychain.legacyDeleteObserverIngestPrefix() }),
+            (.omi, "omi",
+             { try ObserverKeychain.legacyLoadOmiIngestPrefix() },
+             { try ObserverKeychain.legacyDeleteOmiIngestPrefix() }),
+            (.watch, "watch",
+             { try ObserverKeychain.legacyLoadWatchIngestPrefix() },
+             { try ObserverKeychain.legacyDeleteWatchIngestPrefix() }),
+        ]
+
+        self.migrateLegacyIngestPrefixes(store: store, streams: streams)
+    }
+
     static func purgeLegacyKeychainEntries() {
         for account in [
             "solstone-swift-identity-key",

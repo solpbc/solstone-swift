@@ -93,6 +93,21 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     }
 
     @MainActor
+    func testEnsureRegisteredSkipsNetworkWhenKeyExistsAndPrefixMissing() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = nil }
+        let registration = self.makeRegistration()
+
+        let key = try await registration.ensureRegistered()
+
+        XCTAssertEqual(key, "existing-key")
+        XCTAssertNil(registration.registrationPrefix)
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 0)
+        let state = await MainActor.run { registration.state }
+        XCTAssertEqual(state, .registered)
+    }
+
+    @MainActor
     func testEnsureRegisteredRetriesAndSucceeds() async throws {
         let sleepRecorder = DelayRecorder()
         ObserverRegistrationURLProtocol.handler = { request in

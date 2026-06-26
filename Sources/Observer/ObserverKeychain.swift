@@ -32,18 +32,14 @@ nonisolated enum ObserverKeychain {
         try delete(account: observerIngestKeyAccount)
     }
 
-    static func saveObserverIngestPrefix(_ prefix: String) throws {
-        try save(data: Data(prefix.utf8), account: observerIngestPrefixAccount)
-    }
-
-    static func loadObserverIngestPrefix() throws -> String? {
+    static func legacyLoadObserverIngestPrefix() throws -> String? {
         guard let data = try load(account: observerIngestPrefixAccount) else {
             return nil
         }
         return String(data: data, encoding: .utf8)
     }
 
-    static func deleteObserverIngestPrefix() throws {
+    static func legacyDeleteObserverIngestPrefix() throws {
         try delete(account: observerIngestPrefixAccount)
     }
 
@@ -62,18 +58,14 @@ nonisolated enum ObserverKeychain {
         try delete(account: omiIngestKeyAccount)
     }
 
-    static func saveOmiIngestPrefix(_ prefix: String) throws {
-        try save(data: Data(prefix.utf8), account: omiIngestPrefixAccount)
-    }
-
-    static func loadOmiIngestPrefix() throws -> String? {
+    static func legacyLoadOmiIngestPrefix() throws -> String? {
         guard let data = try load(account: omiIngestPrefixAccount) else {
             return nil
         }
         return String(data: data, encoding: .utf8)
     }
 
-    static func deleteOmiIngestPrefix() throws {
+    static func legacyDeleteOmiIngestPrefix() throws {
         try delete(account: omiIngestPrefixAccount)
     }
 
@@ -92,18 +84,14 @@ nonisolated enum ObserverKeychain {
         try delete(account: watchIngestKeyAccount)
     }
 
-    static func saveWatchIngestPrefix(_ prefix: String) throws {
-        try save(data: Data(prefix.utf8), account: watchIngestPrefixAccount)
-    }
-
-    static func loadWatchIngestPrefix() throws -> String? {
+    static func legacyLoadWatchIngestPrefix() throws -> String? {
         guard let data = try load(account: watchIngestPrefixAccount) else {
             return nil
         }
         return String(data: data, encoding: .utf8)
     }
 
-    static func deleteWatchIngestPrefix() throws {
+    static func legacyDeleteWatchIngestPrefix() throws {
         try delete(account: watchIngestPrefixAccount)
     }
 
