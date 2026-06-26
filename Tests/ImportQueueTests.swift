@@ -1161,6 +1161,9 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     private static func bodyData(from request: URLRequest) -> Data {
+        if let body = request.httpBody {
+            return body
+        }
         guard let stream = request.httpBodyStream else { return Data() }
         stream.open()
         defer { stream.close() }
