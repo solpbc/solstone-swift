@@ -220,6 +220,8 @@ final class ObserverUploader {
     }
 
     func resumeFromDisk() async {
+        guard self.localPortProvider() != nil else { return }
+
         await self.reconcilePortIfNeeded()
 
         do {
@@ -771,17 +773,6 @@ private extension ObserverUploader {
 
         guard let localPort = self.localPortProvider() else {
             uploaderLog.debug("observer upload held: local port unavailable")
-            self.appendUploadDiagnostic(
-                stage: "no-request-created",
-                severity: .warning,
-                chunkID: chunkID,
-                prefix: self.registrationPrefixProvider(),
-                localPort: nil,
-                httpStatus: nil,
-                transportError: nil,
-                attempt: self.attemptCountByChunkID[chunkID, default: 0],
-                reason: "local port unavailable"
-            )
             self.lastError = nil
             return
         }
