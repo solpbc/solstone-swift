@@ -60,7 +60,10 @@ deps: generate
 
 brand-sync:
 	@test -d "$(BRAND_DIR)" || { echo "brand: $(BRAND_DIR) not found — set BRAND_DIR to the sol brand source directory (BRAND_DIR=/path/to/brand make brand-sync)"; exit 1; }
-	cp "$(BRAND_DIR)/png/apple/sol-app-icon-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
+	# unified sol app icon (wordmark, full-bleed cream master, locked 2026-06-25). iOS auto-masks to the
+	# squircle — keep full-bleed, do NOT pre-round. Same 1024 cream master feeds the watch AppIcon too.
+	cp "$(BRAND_DIR)/app-icon/png-cream/sol-app-icon-cream-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
+	cp "$(BRAND_DIR)/app-icon/png-cream/sol-app-icon-cream-1024.png" Watch/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
 	cp "$(BRAND_DIR)/sol-wordmark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
 	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmarkWhite.imageset/sol-wordmark-white.svg
 	cp "$(BRAND_DIR)/sol-ring-icon.svg" Sources/Assets.xcassets/SolRing.imageset/sol-ring-icon.svg
