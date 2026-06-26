@@ -77,8 +77,8 @@ struct ContentView: View {
                 self.pushManager.activeLocalPort = nil
             }
             let message: String? = switch newState {
-            case .connecting(let via):
-                via == .lan ? "connecting via local network" : "connecting via remote journal"
+            case .connecting:
+                "connecting…"
             case .connected(_, let via):
                 via == .lan ? "connected via local network" : "connected via remote journal"
             case .error(let error):
@@ -433,8 +433,8 @@ struct ConnectingView: View {
 
     private var summaryText: String {
         switch self.state {
-        case .connecting(let via):
-            via == .lan ? "connecting via local network" : "connecting via remote journal"
+        case .connecting:
+            "connecting…"
         case .connected:
             "connected"
         case .disconnected:

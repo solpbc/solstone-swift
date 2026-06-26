@@ -34,6 +34,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         pairing: StoredPairing? = fixturePairing(),
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
         initialRetryDelay: TimeInterval = 10,
+        connectDeadline: Duration = .seconds(15),
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
@@ -47,6 +48,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             loadPairing: { pairing },
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
             initialRetryDelay: initialRetryDelay,
+            connectDeadline: connectDeadline,
             probeSession: probeSession,
             probeURLBuilder: probeURLBuilder,
             diagnosticLog: diagnosticLog
@@ -206,6 +208,175 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.state, .error(.muxTeardown))
         XCTAssertNotNil(manager.reconnectCountdown)
+    }
+
+    @MainActor
+    func testConnectingWatchdogDisconnectsWhileStillConnecting() async {
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            connectDeadline: .milliseconds(200),
+            diagnosticLog: diagnosticLog
+        )
+        var wasConnectingAtDisconnect = false
+        transport.onDisconnectInvoked = {
+            if case .connecting = manager.state {
+                wasConnectingAtDisconnect = true
+            }
+        }
+
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didTimeout = await Self.waitUntil {
+            if case .error(.unreachable) = manager.state {
+                return true
+            }
+            return false
+        }
+        guard didTimeout else {
+            connectTask.cancel()
+            await manager.disconnect()
+            XCTFail("watchdog did not time out")
+            return
+        }
+        await connectTask.value
+        await Self.settle()
+
+        XCTAssertTrue(wasConnectingAtDisconnect)
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+        XCTAssertNil(transport.returnedPort)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testConnectingWatchdogTimeoutIsIdempotentAfterSuspendedConnectThrows() async {
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            connectDeadline: .milliseconds(200),
+            diagnosticLog: diagnosticLog
+        )
+
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didTimeout = await Self.waitUntil {
+            if case .error(.unreachable) = manager.state {
+                return true
+            }
+            return false
+        }
+        guard didTimeout else {
+            connectTask.cancel()
+            await manager.disconnect()
+            XCTFail("watchdog did not time out")
+            return
+        }
+        await connectTask.value
+        await Self.settle()
+
+        let timeoutEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.severity == .warning && $0.message == "connection timed out"
+        }
+        let connectionFailedEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.message == "connection failed"
+        }
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+        XCTAssertEqual(timeoutEvents.count, 1)
+        XCTAssertEqual(connectionFailedEvents.count, 0)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testFastSuccessfulConnectCancelsWatchdog() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        transport.nextResult = .success(6060)
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            connectDeadline: .milliseconds(200),
+            diagnosticLog: diagnosticLog
+        )
+
+        await manager.connect()
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertEqual(manager.state, .connected(localPort: 6060, via: .lan))
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+        XCTAssertNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.returnedPort, 6060)
+        XCTAssertFalse(diagnosticLog.events.contains { $0.message == "connection timed out" })
+    }
+
+    @MainActor
+    func testSuccessfulConnectLogsSinglePrepareCandidatesCompletion() async {
+        let transport = MockCFTunnelTransport()
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        await Self.settle()
+
+        let prepareDoneEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.message.hasPrefix("stage: prepareCandidates done")
+        }
+        let raceStartedEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.message == "stage: raceCandidates started"
+        }
+        let raceDoneEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.message.hasPrefix("stage: raceCandidates done")
+        }
+        XCTAssertEqual(prepareDoneEvents.count, 1)
+        XCTAssertFalse(raceStartedEvents.isEmpty)
+        XCTAssertFalse(raceDoneEvents.isEmpty)
+    }
+
+    @MainActor
+    func testConnectingWatchdogLogsTimeoutWarningDiagnostic() async {
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            connectDeadline: .milliseconds(200),
+            diagnosticLog: diagnosticLog
+        )
+
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didTimeout = await Self.waitUntil {
+            if case .error(.unreachable) = manager.state {
+                return true
+            }
+            return false
+        }
+        guard didTimeout else {
+            connectTask.cancel()
+            await manager.disconnect()
+            XCTFail("watchdog did not time out")
+            return
+        }
+        await connectTask.value
+        await Self.settle()
+
+        let timeoutEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.severity == .warning && $0.message == "connection timed out"
+        }
+        XCTAssertEqual(timeoutEvents.count, 1)
+        XCTAssertNil(timeoutEvents.first?.detail)
+        await manager.disconnect()
     }
 
     @MainActor
@@ -499,6 +670,22 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     private static func settle() async {
         await Task.yield()
         try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    @MainActor
+    private static func waitUntil(
+        _ condition: () -> Bool,
+        timeout: Duration = .seconds(1),
+        interval: Duration = .milliseconds(20)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(for: interval)
+        }
+        return condition()
     }
 
     private static func tempFileURL() -> URL {

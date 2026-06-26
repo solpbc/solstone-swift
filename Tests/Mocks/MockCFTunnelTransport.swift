@@ -14,6 +14,10 @@ final class MockCFTunnelTransport: Transporting {
     var disconnectCallCount = 0
     var stageEvents: [TransportStage] = []
     var connectDelay: Duration?
+    var suspendConnectUntilDisconnect = false
+    var returnedPort: Int?
+    var onDisconnectInvoked: (() -> Void)?
+    private var suspendedConnect: CheckedContinuation<Int, Error>?
 
     func connect(
         candidates: [TransportEndpoint],
@@ -27,6 +31,11 @@ final class MockCFTunnelTransport: Transporting {
             stageEvents.append(stage)
             onStageChange(stage)
         }
+        if suspendConnectUntilDisconnect {
+            return try await withCheckedThrowingContinuation { continuation in
+                suspendedConnect = continuation
+            }
+        }
         if let connectDelay {
             try? await Task.sleep(for: connectDelay)
         }
@@ -35,6 +44,7 @@ final class MockCFTunnelTransport: Transporting {
             let ready = TransportStage.loopbackReady(port: port)
             stageEvents.append(ready)
             onStageChange(ready)
+            returnedPort = port
             return port
         case .failure(let error):
             let failed = TransportStage.failed(error.userMessage)
@@ -46,6 +56,12 @@ final class MockCFTunnelTransport: Transporting {
 
     func disconnect() async {
         disconnectCallCount += 1
+        onDisconnectInvoked?()
+        guard let continuation = suspendedConnect else {
+            return
+        }
+        suspendedConnect = nil
+        continuation.resume(throwing: SessionError.transportFailed("watchdog test"))
     }
 
     func simulateDisconnect(error: Error? = nil) {
