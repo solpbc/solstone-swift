@@ -113,6 +113,7 @@ final class FinishSyncingCoordinator {
     }
 
     private(set) var availability: Availability = .ready
+    private(set) var isCapable: Bool = true
     private(set) var isFinishing = false
     private(set) var lastOutcome: Outcome?
 
@@ -146,6 +147,8 @@ final class FinishSyncingCoordinator {
     nonisolated static func cardState(
         isPaired: Bool,
         isConnected: Bool,
+        isSustaining: Bool,
+        isCapable: Bool,
         backlog: Int,
         isFinishing: Bool,
         lastOutcome: Outcome?,
@@ -158,7 +161,8 @@ final class FinishSyncingCoordinator {
             case .interrupted(let remaining): return .interrupted(remaining: remaining)
             }
         }
-        if isPaired, isConnected, backlog >= threshold { return .idle }
+        if isSustaining { return .hidden }
+        if isPaired, isConnected, isCapable, backlog >= threshold { return .idle }
         return .hidden
     }
 
@@ -180,7 +184,7 @@ final class FinishSyncingCoordinator {
             }
         }
         if !didRegister {
-            self.availability = .unavailable(reason: SourceVocabulary.finishSyncingUnavailableRegistration)
+            self.isCapable = false
             finishSyncingLog.error("finish-syncing: registration failed")
         }
     }

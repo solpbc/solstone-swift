@@ -445,8 +445,8 @@ nonisolated enum SourceVocabulary {
 
     static func migrationHeadlineSyncing(count: Int) -> String {
         count == 1
-            ? "syncing 1 item to your journal"
-            : "syncing \(count) items to your journal"
+            ? "syncing 1 segment to your journal"
+            : "syncing \(count) segments to your journal"
     }
 
     static func migrationHeadlineTrouble(count: Int) -> String {

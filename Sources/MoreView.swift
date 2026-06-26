@@ -7,6 +7,13 @@ import os
 
 private let moreLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
 
+nonisolated func standingSegmentReach(migration: OnThisPhoneMigration) -> UploadReach {
+    uploadReach(
+        failedTotal: migration.needsAttention,
+        pendingTotal: migration.onThisPhone + migration.onItsWay
+    )
+}
+
 struct MoreView: View {
     let localPort: Int
     let via: ConnectionEndpoint
@@ -37,6 +44,7 @@ struct MoreView: View {
     @State private var showingUnpairConfirm = false
     @State private var showingConnectJournal = false
     @State private var showingJournal = false
+    @State private var segmentMigration: OnThisPhoneMigration?
 
     private var serverHost: String {
         self.appConfig.host
@@ -48,20 +56,13 @@ struct MoreView: View {
         return "\(version) (\(build))"
     }
 
-    private var standingReach: UploadReach {
-        uploadReach(
-            observer: self.observerUploader,
-            omi: self.omiUploaderHolder,
-            watch: self.watchUploaderHolder,
-            importQueue: self.importQueue,
-            location: self.locationUploader
-        )
-    }
-
     private var standingHealth: (health: ConnectionHealth, syncing: Bool) {
-        SourceVocabulary.standingHealth(
+        guard let migration = self.segmentMigration else {
+            return (.unknown, false)
+        }
+        return SourceVocabulary.standingHealth(
             isConnected: self.tunnelManager.state.isConnected,
-            reach: self.standingReach
+            reach: standingSegmentReach(migration: migration)
         )
     }
 
@@ -378,8 +379,25 @@ struct MoreView: View {
         .onDisappear {
             self.snapshotCopyTask?.cancel()
         }
+        .task {
+            await self.refreshSegmentMigration()
+        }
         .sheet(isPresented: self.$showingConnectJournal) {
             ConnectJournalSheet(isPresented: self.$showingConnectJournal)
+        }
+    }
+
+    private func refreshSegmentMigration() async {
+        while !Task.isCancelled {
+            let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+                importQueue: self.importQueue,
+                observerUploader: self.observerUploader,
+                omiUploader: self.omiUploaderHolder.uploader,
+                watchUploader: self.watchUploaderHolder.uploader,
+                locationUploader: self.locationUploader
+            )
+            self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
+            try? await Task.sleep(for: .seconds(2))
         }
     }
 

@@ -8,11 +8,11 @@ extension SourceVocabulary {
 
     nonisolated static func finishSyncingCardBody(count: Int) -> String {
         count == 1
-            ? "1 observation hasn't landed yet. tap to keep syncing for a bit after you switch away from solstone."
-            : "\(count) observations haven't landed yet. tap to keep syncing for a bit after you switch away from solstone."
+            ? "1 segment hasn't landed yet. tap to keep this syncing in the background after you switch away from solstone."
+            : "\(count) segments haven't landed yet. tap to keep this syncing in the background after you switch away from solstone."
     }
 
-    nonisolated static let finishSyncingButton = "finish syncing now"
+    nonisolated static let finishSyncingButton = "enable background for this sync"
     nonisolated static let finishSyncingInProgress = "finishing up in the background. you can switch away — solstone keeps syncing for as long as iOS allows."
     nonisolated static let finishSyncingCompleted = "done — everything's in your journal now."
 
@@ -23,7 +23,6 @@ extension SourceVocabulary {
     }
 
     nonisolated static let finishSyncingInterruptedFallback = "stopped before everything synced. what's left is safe on this phone and keeps trying whenever solstone is open."
-    nonisolated static let finishSyncingUnavailableRegistration = "finish syncing isn't available on this phone."
     nonisolated static let finishSyncingUnavailableUnavailable = "background syncing isn't available right now."
     nonisolated static let finishSyncingUnavailableNotPermitted = "iOS isn't allowing finish syncing right now."
     nonisolated static let finishSyncingUnavailableTooManyPending = "iOS already has too many background tasks waiting."

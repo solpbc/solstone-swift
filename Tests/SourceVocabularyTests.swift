@@ -155,8 +155,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.migrationStageOnItsWay, "on its way")
         XCTAssertEqual(SourceVocabulary.migrationStageInYourJournal, "in your journal")
         XCTAssertEqual(SourceVocabulary.migrationHeadlineUpToDate, "your journal is up to date")
-        XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 1), "syncing 1 item to your journal")
-        XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 2), "syncing 2 items to your journal")
+        XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 1), "syncing 1 segment to your journal")
+        XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 2), "syncing 2 segments to your journal")
         XCTAssertEqual(SourceVocabulary.lastActiveLine(relative: "just now"), "last active · just now")
         XCTAssertEqual(
             SourceVocabulary.migrationStageCount(12, stage: SourceVocabulary.migrationStageOnItsWay),

@@ -263,6 +263,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     func testNilPortHoldsThenFlushesWhenPortAppears() async throws {
         let localPort = OSAllocatedUnfairLock<Int?>(initialState: nil)
         let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let diagLog = DiagnosticLog()
         ObserverUploaderURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -272,6 +273,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         let uploader = self.makeUploader(
             isJournalConfigured: { true },
             localPortProvider: { localPort.withLock { $0 } },
+            diagnosticLog: diagLog,
             sleep: { _ in sleepCalls.withLock { $0 += 1 } }
         )
         uploader.lastError = "stale"
@@ -288,6 +290,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertNil(uploader.lastError)
         XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
         XCTAssertEqual(sleepCalls.withLock { $0 }, 0)
+        XCTAssertTrue(self.uploadEvents(in: diagLog).allSatisfy {
+            $0.message != "observer-audio upload no-request-created"
+        })
 
         localPort.withLock { $0 = 7071 }
         await uploader.resumeFromDisk()
@@ -898,15 +903,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             sidecar: self.makeSidecar(sessionID: noPortSessionID, chunkIndex: 0)
         )
 
-        let noRequest = try XCTUnwrap(self.uploadEvents(in: noPortLog).first {
-            $0.message == "observer-audio upload no-request-created"
+        XCTAssertTrue(self.uploadEvents(in: noPortLog).allSatisfy {
+            $0.message != "observer-audio upload no-request-created"
         })
-        XCTAssertEqual(noRequest.severity, .warning)
-        XCTAssertTrue((noRequest.detail ?? "").contains("source=observer-audio"))
-        XCTAssertTrue((noRequest.detail ?? "").contains("chunkID=chunk-no-port"))
-        XCTAssertTrue((noRequest.detail ?? "").contains("prefix=obs_"))
-        XCTAssertTrue((noRequest.detail ?? "").contains("localPort=none"))
-        XCTAssertTrue((noRequest.detail ?? "").contains("attempt=0/5"))
         noPortUploader.dropItem(sessionID: noPortSessionID, chunkID: "chunk-no-port")
 
         ObserverUploaderURLProtocol.handler = { request in

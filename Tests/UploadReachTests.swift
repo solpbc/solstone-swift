@@ -12,6 +12,25 @@ nonisolated final class UploadReachTests: XCTestCase {
         XCTAssertEqual(uploadReach(failedTotal: 0, pendingTotal: 0), .idle)
     }
 
+    func testStandingSegmentReachDerivesBacklogExcludingDeliveredItems() {
+        XCTAssertEqual(
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, onItsWay: 0, inYourJournal: 0, needsAttention: 1)),
+            .failing
+        )
+        XCTAssertEqual(
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 2, onItsWay: 0, inYourJournal: 5, needsAttention: 0)),
+            .reaching
+        )
+        XCTAssertEqual(
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, onItsWay: 3, inYourJournal: 0, needsAttention: 0)),
+            .reaching
+        )
+        XCTAssertEqual(
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, onItsWay: 0, inYourJournal: 9, needsAttention: 0)),
+            .idle
+        )
+    }
+
     @MainActor
     func testStandingHealthCombinesConnectionAndUploadReach() {
         XCTAssertEqual(
@@ -59,7 +78,7 @@ nonisolated final class UploadReachTests: XCTestCase {
         )
     }
 
-    func testTroubleHeadlineUsesWaitingCopyWhenJournalIsNotReachable() {
+    func testTroubleCopy() {
         XCTAssertEqual(
             SourceVocabulary.migrationHeadlineTrouble(count: 1),
             "1 waiting · trouble reaching your journal"
@@ -68,20 +87,6 @@ nonisolated final class UploadReachTests: XCTestCase {
             SourceVocabulary.migrationHeadlineTrouble(count: 2),
             "2 waiting · trouble reaching your journal"
         )
-
-        let headline = onThisPhoneHeadline(
-            migration: OnThisPhoneMigration(
-                onThisPhone: 1,
-                onItsWay: 1,
-                inYourJournal: 0,
-                needsAttention: 0
-            ),
-            reachingJournal: false
-        )
-
-        XCTAssertEqual(headline.lines.count, 1)
-        XCTAssertEqual(headline.lines.first?.role, .trouble)
-        XCTAssertTrue(headline.lines.first?.text.contains("trouble reaching your journal") == true)
     }
 
     @MainActor
