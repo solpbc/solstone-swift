@@ -12,6 +12,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -35,12 +36,14 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testNoForwardProgressStopsAfterOneDriveAndDisconnects() async {
+    func testGenuineNoProgressGivesOneGraceRedriveThenDisconnects() async {
         let totals = TotalsBox(failed: 0, pending: 2)
         let asserter = SpyBackgroundTaskAsserter()
         let counters = CountersBox()
+        let clock = MockObserverClock()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -50,12 +53,70 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
                 counters.disconnectCount += 1
             },
             asserter: asserter,
-            clock: MockObserverClock()
+            clock: clock,
+            settleInterval: .milliseconds(1)
         )
 
-        await coordinator.run()
+        let runTask = Task {
+            await coordinator.run()
+        }
+        await self.drain(until: {
+            counters.driveCount == 1 && self.pendingSleeperCount(in: clock) == 1
+        })
+        XCTAssertEqual(counters.disconnectCount, 0)
 
-        XCTAssertEqual(counters.driveCount, 1)
+        clock.advance(by: 1)
+        await runTask.value
+
+        XCTAssertEqual(counters.driveCount, 2)
+        XCTAssertEqual(counters.disconnectCount, 1)
+        XCTAssertEqual(asserter.beginCount, 1)
+        XCTAssertEqual(asserter.endCount, 1)
+    }
+
+    @MainActor
+    func testInFlightNoProgressHoldsUntilTotalsDrain() async {
+        let totals = TotalsBox(failed: 0, pending: 2)
+        let inFlight = InFlightBox(1)
+        let asserter = SpyBackgroundTaskAsserter()
+        let counters = CountersBox()
+        let clock = MockObserverClock()
+        let coordinator = BackgroundDrainCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { inFlight.value },
+            isSustaining: { false },
+            isConnected: { true },
+            drive: {
+                counters.driveCount += 1
+            },
+            disconnect: {
+                counters.disconnectCount += 1
+            },
+            asserter: asserter,
+            clock: clock,
+            settleInterval: .milliseconds(1)
+        )
+
+        let runTask = Task {
+            await coordinator.run()
+        }
+        await self.drain(until: {
+            counters.driveCount == 1 && self.pendingSleeperCount(in: clock) == 1
+        })
+        XCTAssertEqual(counters.disconnectCount, 0)
+
+        clock.advance(by: 1)
+        await self.drain(until: {
+            counters.driveCount == 2 && self.pendingSleeperCount(in: clock) == 1
+        })
+        XCTAssertEqual(counters.disconnectCount, 0)
+
+        inFlight.value = 0
+        totals.pending = 0
+        clock.advance(by: 1)
+        await runTask.value
+
+        XCTAssertEqual(counters.driveCount, 3)
         XCTAssertEqual(counters.disconnectCount, 1)
         XCTAssertEqual(asserter.beginCount, 1)
         XCTAssertEqual(asserter.endCount, 1)
@@ -69,6 +130,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let clock = MockObserverClock()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -112,6 +174,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -140,6 +203,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { true },
             isConnected: { true },
             drive: {
@@ -167,6 +231,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -194,6 +259,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { false },
             drive: {
@@ -222,6 +288,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -249,6 +316,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let counters = CountersBox()
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             isSustaining: { false },
             isConnected: { true },
             drive: {
@@ -308,6 +376,15 @@ private final class TotalsBox {
 private final class CountersBox {
     var driveCount = 0
     var disconnectCount = 0
+}
+
+@MainActor
+private final class InFlightBox {
+    var value: Int
+
+    init(_ value: Int) {
+        self.value = value
+    }
 }
 
 @MainActor

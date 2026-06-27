@@ -118,6 +118,7 @@ final class FinishSyncingCoordinator {
     private(set) var lastOutcome: Outcome?
 
     @ObservationIgnored private let totals: () -> (failed: Int, pending: Int)
+    @ObservationIgnored private let inFlight: () -> Int
     @ObservationIgnored private let drive: () async -> Void
     @ObservationIgnored private let isConnected: () -> Bool
     @ObservationIgnored private let disconnect: () async -> Void
@@ -128,6 +129,7 @@ final class FinishSyncingCoordinator {
 
     init(
         totals: @escaping () -> (failed: Int, pending: Int),
+        inFlight: @escaping () -> Int,
         drive: @escaping () async -> Void,
         isConnected: @escaping () -> Bool,
         disconnect: @escaping () async -> Void,
@@ -136,6 +138,7 @@ final class FinishSyncingCoordinator {
         settleInterval: Duration = .seconds(2)
     ) {
         self.totals = totals
+        self.inFlight = inFlight
         self.drive = drive
         self.isConnected = isConnected
         self.disconnect = disconnect
@@ -228,6 +231,7 @@ final class FinishSyncingCoordinator {
         )
 
         var previous = backlog
+        var stalledRounds = 0
         while self.isConnected(), !self.expired && !handle.isCancelled {
             await self.drive()
             if self.expired || handle.isCancelled { break }
@@ -235,11 +239,25 @@ final class FinishSyncingCoordinator {
             let total = current.failed + current.pending
             handle.setProgressCompleted(max(0, backlog - total))
             if total == 0 { break }
-            if total >= previous { break }
-            previous = total
+            let n = self.inFlight()
+            if total < previous {
+                previous = total
+                stalledRounds = 0
+            } else if n > 0 {
+                stalledRounds = 0
+            } else {
+                stalledRounds += 1
+                if stalledRounds >= 2 { break }
+            }
             do { try await self.clock.sleep(for: self.settleInterval) } catch { break }
         }
 
+        let exitInFlight = self.inFlight()
+        if self.expired {
+            finishSyncingLog.info("finish-syncing: stopped at expiration with \(exitInFlight, privacy: .public) in-flight")
+        } else {
+            finishSyncingLog.info("finish-syncing: clean quiesce (in-flight \(exitInFlight, privacy: .public))")
+        }
         let final = self.totals()
         let remaining = final.failed + final.pending
         let success = remaining == 0

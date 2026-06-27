@@ -23,6 +23,10 @@ final class WatchUploaderHolder {
         self.uploader.failedCount
     }
 
+    var inFlightCount: Int {
+        self.uploader.inFlightCount
+    }
+
     var lastUploadAt: Date? {
         self.uploader.lastUploadAt
     }

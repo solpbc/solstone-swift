@@ -57,6 +57,7 @@ func driveUploadDrain(
 @MainActor
 final class BackgroundDrainCoordinator {
     private let totals: () -> (failed: Int, pending: Int)
+    private let inFlight: () -> Int
     private let isSustaining: () -> Bool
     private let isConnected: () -> Bool
     private let drive: () async -> Void
@@ -70,6 +71,7 @@ final class BackgroundDrainCoordinator {
 
     init(
         totals: @escaping () -> (failed: Int, pending: Int),
+        inFlight: @escaping () -> Int,
         isSustaining: @escaping () -> Bool,
         isConnected: @escaping () -> Bool,
         drive: @escaping () async -> Void,
@@ -79,6 +81,7 @@ final class BackgroundDrainCoordinator {
         settleInterval: Duration = .seconds(2)
     ) {
         self.totals = totals
+        self.inFlight = inFlight
         self.isSustaining = isSustaining
         self.isConnected = isConnected
         self.drive = drive
@@ -114,20 +117,37 @@ final class BackgroundDrainCoordinator {
         defer { self.endAssertion() }
 
         var previous = backlog
+        var stalledRounds = 0
         while !self.expired && !Task.isCancelled {
             await self.drive()
             if self.expired || Task.isCancelled { break }
             let current = self.totals()
             let total = current.failed + current.pending
             if total == 0 { break }
-            if total >= previous { break }
-            previous = total
+            let n = self.inFlight()
+            if total < previous {
+                previous = total
+                stalledRounds = 0
+            } else if n > 0 {
+                stalledRounds = 0
+            } else {
+                stalledRounds += 1
+                if stalledRounds >= 2 { break }
+            }
             do { try await self.clock.sleep(for: self.settleInterval) } catch { break }
         }
 
         self.endAssertion()
         // Foreground takeover cancelled us - leave the tunnel as-is for the .active branch to manage.
         if Task.isCancelled { return }
+        let exitInFlight = self.inFlight()
+        if self.expired {
+            backgroundLog.info("background: stopped at expiration with \(exitInFlight, privacy: .public) in-flight")
+        } else {
+            let remaining = self.totals()
+            let remainingTotal = remaining.failed + remaining.pending
+            backgroundLog.info("background: clean quiesce (remaining \(remainingTotal, privacy: .public), in-flight \(exitInFlight, privacy: .public))")
+        }
         await self.disconnect()
     }
 

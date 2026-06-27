@@ -92,6 +92,10 @@ final class ObserverUploader {
     var lastError: String?
     private let throughputMeter = ThroughputMeter()
 
+    var inFlightCount: Int {
+        self.activeTasksByTaskID.count + self.retryTasksByChunkID.count
+    }
+
     @ObservationIgnored private(set) var fullRecountCount = 0
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL

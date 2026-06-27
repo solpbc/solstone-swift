@@ -160,6 +160,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let handle = SpyFinishSyncingTaskHandle()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             drive: {
                 totals.failed = 0
                 totals.pending = 0
@@ -184,6 +185,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let clock = MockObserverClock()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             drive: {
                 counters.driveCount += 1
                 if counters.driveCount == 1 {
@@ -224,6 +226,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let handle = SpyFinishSyncingTaskHandle()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             drive: {
                 totals.failed = 0
                 totals.pending = 0
@@ -242,23 +245,97 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testNoForwardProgressInterruptsWithLiveRemaining() async {
+    func testNoForwardProgressGivesOneSettleGraceThenInterruptsWithLiveRemaining() async {
         let totals = FinishSyncingTotalsBox(failed: 0, pending: 3)
+        let counters = FinishSyncingCountersBox()
         let handle = SpyFinishSyncingTaskHandle()
+        let clock = MockObserverClock()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
-            drive: {},
+            inFlight: { 0 },
+            drive: {
+                counters.driveCount += 1
+            },
             isConnected: { true },
-            disconnect: {},
+            disconnect: {
+                counters.disconnectCount += 1
+            },
             scheduling: SpyFinishSyncingScheduling(),
-            clock: MockObserverClock()
+            clock: clock,
+            settleInterval: .milliseconds(1)
         )
 
-        await coordinator.runTask(handle)
+        let runTask = Task {
+            await coordinator.runTask(handle)
+        }
+        await self.drain(until: {
+            counters.driveCount == 1 && self.pendingSleeperCount(in: clock) == 1
+        })
+        XCTAssertEqual(counters.disconnectCount, 0)
+        XCTAssertNil(handle.completedSuccess)
+        XCTAssertNil(coordinator.lastOutcome)
 
+        clock.advance(by: 1)
+        await runTask.value
+
+        XCTAssertEqual(counters.driveCount, 2)
+        XCTAssertEqual(counters.disconnectCount, 1)
         XCTAssertEqual(handle.completedSuccess, false)
         XCTAssertEqual(coordinator.lastOutcome, .interrupted(remaining: 3))
+        XCTAssertEqual(totals.snapshot.failed, 0)
+        XCTAssertEqual(totals.snapshot.pending, 3)
         XCTAssertEqual(handle.titleUpdates.last?.title, SourceVocabulary.finishSyncingSystemPausedTitle)
+    }
+
+    @MainActor
+    func testInFlightNoProgressKeepsTaskRunningUntilTotalsDrain() async {
+        let totals = FinishSyncingTotalsBox(failed: 0, pending: 3)
+        let inFlight = FinishSyncingInFlightBox(1)
+        let counters = FinishSyncingCountersBox()
+        let handle = SpyFinishSyncingTaskHandle()
+        let clock = MockObserverClock()
+        let coordinator = FinishSyncingCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { inFlight.value },
+            drive: {
+                counters.driveCount += 1
+            },
+            isConnected: { true },
+            disconnect: {
+                counters.disconnectCount += 1
+            },
+            scheduling: SpyFinishSyncingScheduling(),
+            clock: clock,
+            settleInterval: .milliseconds(1)
+        )
+
+        let runTask = Task {
+            await coordinator.runTask(handle)
+        }
+        await self.drain(until: {
+            counters.driveCount == 1 && self.pendingSleeperCount(in: clock) == 1
+        })
+        XCTAssertEqual(counters.disconnectCount, 0)
+        XCTAssertNil(handle.completedSuccess)
+        XCTAssertNil(coordinator.lastOutcome)
+
+        clock.advance(by: 1)
+        await self.drain(until: {
+            counters.driveCount == 2 && self.pendingSleeperCount(in: clock) == 1
+        })
+        XCTAssertEqual(counters.disconnectCount, 0)
+        XCTAssertNil(handle.completedSuccess)
+        XCTAssertNil(coordinator.lastOutcome)
+
+        inFlight.value = 0
+        totals.pending = 0
+        clock.advance(by: 1)
+        await runTask.value
+
+        XCTAssertEqual(counters.driveCount, 3)
+        XCTAssertEqual(counters.disconnectCount, 1)
+        XCTAssertEqual(handle.completedSuccess, true)
+        XCTAssertEqual(coordinator.lastOutcome, .completed)
     }
 
     @MainActor
@@ -267,6 +344,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let handle = SpyFinishSyncingTaskHandle()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             drive: {
                 handle.fireExpiration()
             },
@@ -290,6 +368,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         failedScheduling.registerReturn = false
         let registrationCoordinator = FinishSyncingCoordinator(
             totals: { (0, 0) },
+            inFlight: { 0 },
             drive: {},
             isConnected: { true },
             disconnect: {},
@@ -309,6 +388,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         submitScheduling.submitError = GenericFinishSyncingSubmitError()
         let submitCoordinator = FinishSyncingCoordinator(
             totals: { (0, 1) },
+            inFlight: { 0 },
             drive: {},
             isConnected: { true },
             disconnect: {},
@@ -357,6 +437,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let handle = SpyFinishSyncingTaskHandle()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
+            inFlight: { 0 },
             drive: {
                 totals.pending = 0
             },
@@ -419,6 +500,15 @@ private final class FinishSyncingTotalsBox {
 private final class FinishSyncingCountersBox {
     var driveCount = 0
     var disconnectCount = 0
+}
+
+@MainActor
+private final class FinishSyncingInFlightBox {
+    var value: Int
+
+    init(_ value: Int) {
+        self.value = value
+    }
 }
 
 @MainActor

@@ -197,6 +197,38 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testInFlightCountTracksHeldUploadLifecycle() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader()
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-in-flight")
+
+        XCTAssertEqual(uploader.inFlightCount, 0)
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(uploader.inFlightCount, 1)
+
+        uploadRelease.signal()
+        try await self.waitFor("in-flight upload cleanup") {
+            uploader.inFlightCount == 0 && uploader.pendingCount == 0 && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
+    }
+
+    @MainActor
     func testJournalUnconfiguredLeavesPendingChunkWithoutAttemptsOrRetry() async throws {
         let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
         let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)

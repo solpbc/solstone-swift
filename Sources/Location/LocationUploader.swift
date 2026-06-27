@@ -52,6 +52,10 @@ final class LocationUploader: LocationUploading {
     var lastError: String?
     private let throughputMeter = ThroughputMeter()
 
+    var inFlightCount: Int {
+        self.uploadTaskByFileID.count + self.retryTasksByFileID.count
+    }
+
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: LocationUploaderSessionDelegate

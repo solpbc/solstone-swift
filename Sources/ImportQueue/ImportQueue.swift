@@ -60,6 +60,10 @@ final class ImportQueue {
     var lastError: String?
     private let throughputMeter = ThroughputMeter()
 
+    var inFlightCount: Int {
+        self.uploadTaskByItemID.count + self.retryTasksByItemID.count
+    }
+
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: ImportQueueSessionDelegate

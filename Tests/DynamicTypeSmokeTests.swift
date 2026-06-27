@@ -122,6 +122,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         )
         let finishSyncingCoordinator = FinishSyncingCoordinator(
             totals: { (0, 0) },
+            inFlight: { 0 },
             drive: {},
             isConnected: { false },
             disconnect: {}

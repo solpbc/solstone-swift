@@ -34,6 +34,17 @@ func uploadTotals(
 }
 
 @MainActor
+func uploadInFlight(
+    observer: ObserverUploader,
+    omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder,
+    importQueue: ImportQueue,
+    location: LocationUploader
+) -> Int {
+    observer.inFlightCount + omi.inFlightCount + watch.inFlightCount + importQueue.inFlightCount + location.inFlightCount
+}
+
+@MainActor
 func uploadFailedTotal(
     observer: ObserverUploader,
     omi: OmiUploaderHolder,

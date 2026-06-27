@@ -19,4 +19,8 @@ final class OmiUploaderHolder {
     var failedCount: Int {
         self.uploader.failedCount
     }
+
+    var inFlightCount: Int {
+        self.uploader.inFlightCount
+    }
 }

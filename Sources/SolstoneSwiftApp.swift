@@ -378,6 +378,15 @@ struct SolstoneSwiftApp: App {
                     location: locationUploader
                 )
             },
+            inFlight: {
+                uploadInFlight(
+                    observer: observerUploader,
+                    omi: omiUploaderHolder,
+                    watch: watchUploaderHolder,
+                    importQueue: importQueue,
+                    location: locationUploader
+                )
+            },
             drive: {
                 await driveUploadDrain(
                     observer: observerUploader,
@@ -545,6 +554,15 @@ struct SolstoneSwiftApp: App {
                 let coordinator = BackgroundDrainCoordinator(
                     totals: {
                         uploadTotals(
+                            observer: self.observerUploader,
+                            omi: self.omiUploaderHolder,
+                            watch: self.watchUploaderHolder,
+                            importQueue: self.importQueue,
+                            location: self.locationUploader
+                        )
+                    },
+                    inFlight: {
+                        uploadInFlight(
                             observer: self.observerUploader,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
