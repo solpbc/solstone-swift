@@ -158,44 +158,56 @@ public actor LoopbackProxy {
         return bytes
     }
 
-    private nonisolated static func receive(from connection: NWConnection) async throws -> (Data?, Bool) {
-        try await withCheckedThrowingContinuation { continuation in
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, isComplete, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
+    nonisolated static func receive(from connection: NWConnection) async throws -> (Data?, Bool) {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, isComplete, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    continuation.resume(returning: (data, isComplete))
                 }
-                continuation.resume(returning: (data, isComplete))
             }
+        } onCancel: {
+            connection.cancel()
         }
     }
 
-    private nonisolated static func send(_ data: Data, to connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            })
-        }
-    }
-
-    private nonisolated static func sendEOF(to connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(
-                content: nil,
-                contentContext: .finalMessage,
-                isComplete: true,
-                completion: .contentProcessed { error in
+    nonisolated static func send(_ data: Data, to connection: NWConnection) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(content: data, completion: .contentProcessed { error in
                     if let error {
                         continuation.resume(throwing: error)
                     } else {
                         continuation.resume()
                     }
-                }
-            )
+                })
+            }
+        } onCancel: {
+            connection.cancel()
+        }
+    }
+
+    private nonisolated static func sendEOF(to connection: NWConnection) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(
+                    content: nil,
+                    contentContext: .finalMessage,
+                    isComplete: true,
+                    completion: .contentProcessed { error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else {
+                            continuation.resume()
+                        }
+                    }
+                )
+            }
+        } onCancel: {
+            connection.cancel()
         }
     }
 }

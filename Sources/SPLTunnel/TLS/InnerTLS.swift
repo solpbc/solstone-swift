@@ -142,17 +142,41 @@ public actor InnerTLS {
         let parameters = NWParameters(tls: options, tcp: NWProtocolTCP.Options())
         let connection = NWConnection(host: "127.0.0.1", port: port, using: parameters)
         let connectionWaiter = startAndReturnReadyWaiter(connection)
+        var peer: NWConnection?
+        var pumps: [Task<Void, Never>] = []
 
-        let peer = try await acceptor.wait()
-        try await startAndWaitReady(peer)
-
-        let pumps = makePumpTasks(transport: transport, peer: peer)
-        let startedAt = ContinuousClock.now
         do {
-            try await connectionWaiter.wait()
+            let acceptedPeer = try await withTaskCancellationHandler {
+                try await acceptor.wait()
+            } onCancel: {
+                acceptor.cancel()
+            }
+            peer = acceptedPeer
+            try await startAndWaitReady(acceptedPeer)
+
+            pumps = makePumpTasks(transport: transport, peer: acceptedPeer)
+            let startedAt = ContinuousClock.now
+            try await withTaskCancellationHandler {
+                try await connectionWaiter.wait()
+            } onCancel: {
+                connection.cancel()
+            }
+
+            let elapsed = startedAt.duration(to: .now).milliseconds
+            logger.debug("handshake transport=\(transport.transportKind, privacy: .public) duration_ms=\(elapsed, privacy: .public)")
+
+            let tls = InnerTLS(
+                connection: connection,
+                relayTransport: transport,
+                listener: listener,
+                peerConnection: acceptedPeer,
+                pumpTasks: pumps
+            )
+            await tls.startReceiveLoop()
+            return tls
         } catch let error as InnerTLSError {
             pumps.forEach { $0.cancel() }
-            peer.cancel()
+            peer?.cancel()
             connection.cancel()
             listener.cancel()
             await transport.close()
@@ -162,7 +186,7 @@ public actor InnerTLS {
             throw error
         } catch {
             pumps.forEach { $0.cancel() }
-            peer.cancel()
+            peer?.cancel()
             connection.cancel()
             listener.cancel()
             await transport.close()
@@ -171,19 +195,6 @@ public actor InnerTLS {
             }
             throw InnerTLSError.handshakeFailed(error.localizedDescription)
         }
-
-        let elapsed = startedAt.duration(to: .now).milliseconds
-        logger.debug("handshake transport=\(transport.transportKind, privacy: .public) duration_ms=\(elapsed, privacy: .public)")
-
-        let tls = InnerTLS(
-            connection: connection,
-            relayTransport: transport,
-            listener: listener,
-            peerConnection: peer,
-            pumpTasks: pumps
-        )
-        await tls.startReceiveLoop()
-        return tls
     }
 
     public static func connectPairingViaTransport(transport: any ByteTransport, caPin: PairingCAPin) async throws -> InnerTLS {
@@ -204,17 +215,41 @@ public actor InnerTLS {
         let parameters = NWParameters(tls: options, tcp: NWProtocolTCP.Options())
         let connection = NWConnection(host: "127.0.0.1", port: port, using: parameters)
         let connectionWaiter = startAndReturnReadyWaiter(connection)
+        var peer: NWConnection?
+        var pumps: [Task<Void, Never>] = []
 
-        let peer = try await acceptor.wait()
-        try await startAndWaitReady(peer)
-
-        let pumps = makePumpTasks(transport: transport, peer: peer)
-        let startedAt = ContinuousClock.now
         do {
-            try await connectionWaiter.wait()
+            let acceptedPeer = try await withTaskCancellationHandler {
+                try await acceptor.wait()
+            } onCancel: {
+                acceptor.cancel()
+            }
+            peer = acceptedPeer
+            try await startAndWaitReady(acceptedPeer)
+
+            pumps = makePumpTasks(transport: transport, peer: acceptedPeer)
+            let startedAt = ContinuousClock.now
+            try await withTaskCancellationHandler {
+                try await connectionWaiter.wait()
+            } onCancel: {
+                connection.cancel()
+            }
+
+            let elapsed = startedAt.duration(to: .now).milliseconds
+            logger.debug("pairing handshake transport=\(transport.transportKind, privacy: .public) duration_ms=\(elapsed, privacy: .public)")
+
+            let tls = InnerTLS(
+                connection: connection,
+                relayTransport: transport,
+                listener: listener,
+                peerConnection: acceptedPeer,
+                pumpTasks: pumps
+            )
+            await tls.startReceiveLoop()
+            return tls
         } catch let error as InnerTLSError {
             pumps.forEach { $0.cancel() }
-            peer.cancel()
+            peer?.cancel()
             connection.cancel()
             listener.cancel()
             await transport.close()
@@ -224,7 +259,7 @@ public actor InnerTLS {
             throw error
         } catch {
             pumps.forEach { $0.cancel() }
-            peer.cancel()
+            peer?.cancel()
             connection.cancel()
             listener.cancel()
             await transport.close()
@@ -233,19 +268,6 @@ public actor InnerTLS {
             }
             throw InnerTLSError.handshakeFailed(error.localizedDescription)
         }
-
-        let elapsed = startedAt.duration(to: .now).milliseconds
-        logger.debug("pairing handshake transport=\(transport.transportKind, privacy: .public) duration_ms=\(elapsed, privacy: .public)")
-
-        let tls = InnerTLS(
-            connection: connection,
-            relayTransport: transport,
-            listener: listener,
-            peerConnection: peer,
-            pumpTasks: pumps
-        )
-        await tls.startReceiveLoop()
-        return tls
     }
 
     public func send(_ plaintext: Data) async throws {
@@ -459,7 +481,7 @@ private final class TLSVerifyFailure: @unchecked Sendable {
     }
 }
 
-private final class ConnectionReadyWaiter: @unchecked Sendable {
+final class InnerTLSConnectionReadyWaiter: @unchecked Sendable {
     // why: NWConnection/NWListener state callbacks race cancellation; NSLock gives one-shot resume.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, Error>?
@@ -495,39 +517,70 @@ private final class ConnectionReadyWaiter: @unchecked Sendable {
     }
 }
 
-private final class OneShotConnectionAcceptor: @unchecked Sendable {
+final class OneShotConnectionAcceptor: @unchecked Sendable {
     // why: NWListener accepts on a queue while the factory awaits; NSLock guards one accepted connection.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<NWConnection, Error>?
     private var connection: NWConnection?
+    private var isCancelled = false
+    private var didComplete = false
 
     func wait() async throws -> NWConnection {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NWConnection, Error>) in
-            let connection: NWConnection? = lock.withLock {
+            let result: Result<NWConnection, Error>? = lock.withLock {
+                if isCancelled {
+                    return .failure(InnerTLSError.closed)
+                }
                 if let connection = self.connection {
-                    return connection
+                    self.connection = nil
+                    return .success(connection)
+                }
+                if didComplete {
+                    return .failure(InnerTLSError.closed)
                 }
                 self.continuation = continuation
                 return nil
             }
-            if let connection {
-                continuation.resume(returning: connection)
+            if let result {
+                continuation.resume(with: result)
             }
         }
     }
 
     func complete(_ connection: NWConnection) {
-        let continuation = lock.withLock {
-            guard self.connection == nil else {
-                connection.cancel()
-                return nil as CheckedContinuation<NWConnection, Error>?
+        let (continuation, shouldCancelConnection) = lock.withLock {
+            guard !isCancelled, !didComplete else {
+                return (nil as CheckedContinuation<NWConnection, Error>?, true)
             }
-            self.connection = connection
+            didComplete = true
             let continuation = self.continuation
             self.continuation = nil
-            return continuation
+            if continuation == nil {
+                self.connection = connection
+            }
+            return (continuation, false)
+        }
+        if shouldCancelConnection {
+            connection.cancel()
+            return
         }
         continuation?.resume(returning: connection)
+    }
+
+    func cancel() {
+        let (continuation, connection) = lock.withLock {
+            guard !isCancelled else {
+                return (nil as CheckedContinuation<NWConnection, Error>?, nil as NWConnection?)
+            }
+            isCancelled = true
+            let continuation = self.continuation
+            self.continuation = nil
+            let connection = self.connection
+            self.connection = nil
+            return (continuation, connection)
+        }
+        connection?.cancel()
+        continuation?.resume(throwing: InnerTLSError.closed)
     }
 }
 
@@ -540,8 +593,8 @@ private func startAndWaitReady(_ connection: NWConnection) async throws {
     }
 }
 
-private func startAndReturnReadyWaiter(_ connection: NWConnection) -> ConnectionReadyWaiter {
-    let waiter = ConnectionReadyWaiter()
+func startAndReturnReadyWaiter(_ connection: NWConnection) -> InnerTLSConnectionReadyWaiter {
+    let waiter = InnerTLSConnectionReadyWaiter()
     connection.stateUpdateHandler = { state in
         switch state {
         case .ready:
@@ -563,7 +616,7 @@ private func startAndReturnReadyWaiter(_ connection: NWConnection) -> Connection
 }
 
 private func startAndWaitReady(_ listener: NWListener) async throws {
-    let waiter = ConnectionReadyWaiter()
+    let waiter = InnerTLSConnectionReadyWaiter()
     listener.stateUpdateHandler = { state in
         switch state {
         case .ready:

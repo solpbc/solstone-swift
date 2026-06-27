@@ -70,7 +70,13 @@ public actor Multiplexer {
 
         let id = nextOutboundID
         nextOutboundID &+= 2
-        let stream = MuxStream(id: id, sink: sink)
+        let stream = MuxStream(
+            id: id,
+            sink: sink,
+            onTerminal: { [weak self] id in
+                await self?.removeStream(id)
+            }
+        )
         let frame = try encodeFrame(buildOpen(streamID: id))
         try await sink(frame)
         streams[id] = stream
@@ -181,7 +187,13 @@ public actor Multiplexer {
             return
         }
 
-        let stream = MuxStream(id: frame.streamID, sink: sink)
+        let stream = MuxStream(
+            id: frame.streamID,
+            sink: sink,
+            onTerminal: { [weak self] id in
+                await self?.removeStream(id)
+            }
+        )
         streams[frame.streamID] = stream
         incomingContinuation.yield(stream)
     }
@@ -247,5 +259,13 @@ public actor Multiplexer {
             }
         }
         return count
+    }
+
+    private func removeStream(_ id: UInt32) {
+        streams.removeValue(forKey: id)
+    }
+
+    func streamCountForTesting() -> Int {
+        streams.count
     }
 }

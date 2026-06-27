@@ -26,8 +26,10 @@ public final actor MuxStream {
     public let inbound: AsyncThrowingStream<Data, Error>
 
     private let sink: @Sendable (Data) async throws -> Void
+    private let onTerminal: @Sendable (UInt32) async -> Void
     private let inboundContinuation: AsyncThrowingStream<Data, Error>.Continuation
     private var inboundFinished = false
+    private var didNotifyTerminal = false
     private var sendCredit = Int(MuxConstants.initialCredit)
     private var receiveWindow = Int(MuxConstants.initialCredit)
     private var consumedSinceLastGrant = 0
@@ -36,11 +38,13 @@ public final actor MuxStream {
     init(
         id: UInt32,
         state: StreamState = .open,
-        sink: @escaping @Sendable (Data) async throws -> Void
+        sink: @escaping @Sendable (Data) async throws -> Void,
+        onTerminal: @escaping @Sendable (UInt32) async -> Void
     ) {
         self.id = id
         self.state = state
         self.sink = sink
+        self.onTerminal = onTerminal
 
         var continuation: AsyncThrowingStream<Data, Error>.Continuation!
         self.inbound = AsyncThrowingStream { continuation = $0 }
@@ -82,6 +86,7 @@ public final actor MuxStream {
             state = .closed
             finishInbound(nil)
             resumeCreditWaiters()
+            await notifyTerminal()
         case .halfClosedLocal, .closed, .resetLocal, .resetRemote:
             throw MuxError.writeAfterClose
         }
@@ -99,6 +104,7 @@ public final actor MuxStream {
         state = .resetLocal
         finishInbound(MuxError.transportClosed)
         resumeCreditWaiters()
+        await notifyTerminal()
     }
 
     func deliverInboundData(_ payload: Data) async throws {
@@ -120,7 +126,7 @@ public final actor MuxStream {
         }
     }
 
-    func deliverInboundClose() {
+    func deliverInboundClose() async {
         switch state {
         case .open:
             state = .halfClosedRemote
@@ -129,15 +135,20 @@ public final actor MuxStream {
             state = .closed
             finishInbound(nil)
             resumeCreditWaiters()
+            await notifyTerminal()
         case .halfClosedRemote, .closed, .resetLocal, .resetRemote:
             finishInbound(nil)
         }
     }
 
-    func deliverInboundReset(reason _: ResetReason) {
+    func deliverInboundReset(reason _: ResetReason) async {
+        guard state != .closed && state != .resetLocal && state != .resetRemote else {
+            return
+        }
         state = .resetRemote
         finishInbound(MuxError.transportClosed)
         resumeCreditWaiters()
+        await notifyTerminal()
     }
 
     func grantSendCredit(_ credit: UInt32) {
@@ -200,6 +211,14 @@ public final actor MuxStream {
         } else {
             inboundContinuation.finish()
         }
+    }
+
+    private func notifyTerminal() async {
+        guard !didNotifyTerminal else {
+            return
+        }
+        didNotifyTerminal = true
+        await onTerminal(id)
     }
 
     private func resumeCreditWaiters() {
