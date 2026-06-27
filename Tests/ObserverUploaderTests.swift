@@ -447,6 +447,44 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testDropItemCancelsInFlightUploadAndClearsBookkeeping() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/observer/ingest"
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held upload should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader()
+        let sessionID = UUID()
+        let chunkID = "chunk-cancel-drop"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+
+        try await self.waitFor("drop cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/observer/ingest" }
+        }
+        XCTAssertFalse(uploader.hasInFlightTrackingForTesting(chunkID: chunkID))
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastError)
+    }
+
+    @MainActor
     func testDropItemClearsInFlightStateSoLateCompletionIsHarmless() async throws {
         let uploadStarted = DispatchSemaphore(value: 0)
         let uploadRelease = DispatchSemaphore(value: 0)
@@ -460,7 +498,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         }
         let uploader = self.makeUploader(retryDelays: [0])
         let sessionID = UUID()
-        let sourceURL = try self.makeChunkFile(named: "chunk-in-flight")
+        let chunkID = "chunk-in-flight"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
 
         await uploader.enqueue(
             chunkURL: sourceURL,
@@ -468,15 +507,58 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
         XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
 
-        uploader.dropItem(sessionID: sessionID, chunkID: "chunk-in-flight")
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
         XCTAssertEqual(uploader.pendingCount, 0)
         XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertTrue(uploader.isDropTombstonedForTesting(chunkID: chunkID))
         uploadRelease.signal()
-        try await Task.sleep(for: .milliseconds(100))
+
+        try await self.waitFor("dropped completion ignored") {
+            !uploader.isDropTombstonedForTesting(chunkID: chunkID)
+        }
 
         XCTAssertNil(uploader.lastError)
         XCTAssertEqual(uploader.pendingCount, 0)
         XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+        XCTAssertEqual(try self.directoryEntries(at: self.failedDirectoryURL(sessionID: sessionID)), [])
+    }
+
+    @MainActor
+    func testDropTombstoneSuppressesLateSuccessfulCompletion() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let deliveredCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let uploader = self.makeUploader(onSegmentDelivered: { _ in
+            deliveredCount.withLock { $0 += 1 }
+        })
+        let sessionID = UUID()
+        let chunkID = "chunk-tombstone-success"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.plantDropTombstoneForTesting(chunkID: chunkID)
+        uploadRelease.signal()
+
+        try await self.waitFor("success tombstone eviction") {
+            !uploader.isDropTombstonedForTesting(chunkID: chunkID)
+        }
+
+        XCTAssertEqual(deliveredCount.withLock { $0 }, 0)
+        XCTAssertNil(uploader.lastUploadAt)
     }
 
     func testBackgroundSessionIdentifierInvariant() {
@@ -1177,6 +1259,78 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(uploader.failedCount, 0)
     }
 
+    @MainActor
+    func testRelaunchCompletionWithoutReconcileHonorsSuccess() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(registrationPrefixProvider: { "obs_" })
+        let sessionID = UUID()
+        let chunkID = "chunk-relaunch-success"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        uploadRelease.signal()
+
+        try await self.waitFor("relaunch success completion") {
+            uploader.pendingCount == 0 && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testRelaunchCompletionWithoutReconcileHonorsFailure() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data("late failure".utf8)
+            )
+        }
+        let uploader = self.makeUploader(
+            retryDelays: [0],
+            registrationPrefixProvider: { "obs_" },
+            maxAttempts: 1
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-relaunch-failure"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        uploadRelease.signal()
+
+        try await self.waitFor("relaunch failure completion") {
+            uploader.failedCount == 1 && uploader.lastError != nil
+        }
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
+        XCTAssertTrue((uploader.lastError ?? "").contains("HTTP 500"))
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
     @MainActor private func makeUploader(
         cacheRootURL: URL? = nil,
         retryDelays: [UInt64] = [0],
@@ -1188,6 +1342,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             ObserverServerURL.ingestURL(localPort: localPort)
         },
         diagnosticLog: DiagnosticLog? = nil,
+        onSegmentDelivered: (@MainActor @Sendable (UUID) -> Void)? = nil,
         sourceType: String = "observer-audio",
         maxAttempts: Int = 5,
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
@@ -1204,6 +1359,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             urlBuilder: urlBuilder,
             diagnosticLog: diagnosticLog,
             sourceType: sourceType,
+            onSegmentDelivered: onSegmentDelivered,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
             sleep: sleep,

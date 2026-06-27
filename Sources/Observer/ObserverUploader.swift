@@ -120,6 +120,7 @@ final class ObserverUploader {
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
     @ObservationIgnored private var activeTasksByTaskID: [Int: URLSessionTask] = [:]
     @ObservationIgnored private var activeTaskIDByChunkID: [String: Int] = [:]
+    @ObservationIgnored private var droppedChunkIDs: Set<String> = []
     @ObservationIgnored private var attemptCountByChunkID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
@@ -443,6 +444,9 @@ final class ObserverUploader {
     }
 
     func dropItem(sessionID: UUID, chunkID: String) {
+        if self.activeTaskIDByChunkID[chunkID] != nil {
+            self.droppedChunkIDs.insert(chunkID)
+        }
         self.clearUploadState(chunkID: chunkID)
 
         let pendingDirectory = self.pendingDirectoryURL(sessionID: sessionID)
@@ -472,6 +476,19 @@ final class ObserverUploader {
         self.taskInfoByTaskID.removeAll()
         self.activeTasksByTaskID.removeAll()
         self.activeTaskIDByChunkID.removeAll()
+    }
+
+    func plantDropTombstoneForTesting(chunkID: String) {
+        self.droppedChunkIDs.insert(chunkID)
+    }
+
+    func isDropTombstonedForTesting(chunkID: String) -> Bool {
+        self.droppedChunkIDs.contains(chunkID)
+    }
+
+    func hasInFlightTrackingForTesting(chunkID: String) -> Bool {
+        guard let taskID = self.activeTaskIDByChunkID[chunkID] else { return false }
+        return self.taskInfoByTaskID[taskID] != nil || self.activeTasksByTaskID[taskID] != nil
     }
 
     func inProgressChunkURL(sessionID: UUID, chunkID: String) throws -> URL {
@@ -707,11 +724,38 @@ private extension ObserverUploader {
         }
     }
 
+    func resolveTaskInfo(for task: URLSessionTask) -> TaskInfo? {
+        if let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) {
+            return info
+        }
+        guard let descriptor = self.uploadTaskDescriptor(from: task.taskDescription) else { return nil }
+        let audioURL = self.pendingAudioURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
+        let sidecarURL = self.pendingSidecarURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
+        guard self.fileManager.fileExists(atPath: audioURL.path),
+              self.fileManager.fileExists(atPath: sidecarURL.path)
+        else {
+            return nil
+        }
+        let requestBodyURL = self.pendingDirectoryURL(sessionID: descriptor.sessionID)
+            .appendingPathComponent("\(descriptor.chunkID).upload", isDirectory: false)
+        return TaskInfo(
+            chunkID: descriptor.chunkID,
+            sessionID: descriptor.sessionID,
+            audioURL: audioURL,
+            sidecarURL: sidecarURL,
+            requestBodyURL: requestBodyURL,
+            localPort: descriptor.localPort,
+            prefix: descriptor.prefix,
+            sourceType: descriptor.sourceType
+        )
+    }
+
     func clearUploadState(chunkID: String) {
         self.retryTasksByChunkID[chunkID]?.cancel()
         self.retryTasksByChunkID.removeValue(forKey: chunkID)
         self.attemptCountByChunkID.removeValue(forKey: chunkID)
         if let taskID = self.activeTaskIDByChunkID.removeValue(forKey: chunkID) {
+            self.activeTasksByTaskID[taskID]?.cancel()
             self.taskInfoByTaskID.removeValue(forKey: taskID)
             self.activeTasksByTaskID.removeValue(forKey: taskID)
             self.responseDataByTaskID.removeValue(forKey: taskID)
@@ -895,7 +939,18 @@ private extension ObserverUploader {
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         let start = DispatchTime.now().uptimeNanoseconds
-        guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
+        let descriptor = self.uploadTaskDescriptor(from: task.taskDescription)
+        let resolvedChunkID = descriptor?.chunkID ?? self.taskInfoByTaskID[task.taskIdentifier]?.chunkID
+        if let resolvedChunkID, self.droppedChunkIDs.remove(resolvedChunkID) != nil {
+            self.clearTaskState(taskID: task.taskIdentifier, chunkID: resolvedChunkID)
+            uploaderLog.info("observer dropped-chunk completion ignored \(resolvedChunkID, privacy: .public)")
+            return
+        }
+
+        guard let info = self.resolveTaskInfo(for: task) else {
+            uploaderLog.error("observer completion could not be reconciled to a known chunk (task \(task.taskIdentifier, privacy: .public))")
+            return
+        }
         let drainSource = DrainSource.audio(info.sourceType)
         self.activeTasksByTaskID.removeValue(forKey: task.taskIdentifier)
         self.activeTaskIDByChunkID.removeValue(forKey: info.chunkID)
