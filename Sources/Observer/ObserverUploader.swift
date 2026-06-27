@@ -1154,7 +1154,7 @@ private extension ObserverUploader {
         self.diagnosticLog?.append(
             category: .upload,
             severity: severity,
-            message: "\(source) upload \(stage)",
+            message: stage == "success" ? "synced to your journal" : "\(source) upload \(stage)",
             detail: detail
         )
     }

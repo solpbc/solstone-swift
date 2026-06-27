@@ -67,3 +67,24 @@ func uploadReach(
     )
     return uploadReach(failedTotal: totals.failed, pendingTotal: totals.pending)
 }
+
+nonisolated func lastSyncedAt(_ dates: [Date?]) -> Date? {
+    dates.compactMap { $0 }.max()
+}
+
+@MainActor
+func lastSyncedAt(
+    observer: ObserverUploader,
+    omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder,
+    location: LocationUploader,
+    importQueue: ImportQueue
+) -> Date? {
+    lastSyncedAt([
+        observer.lastUploadAt,
+        omi.uploader.lastUploadAt,
+        watch.lastUploadAt,
+        location.lastUploadAt,
+        importQueue.lastDeliveredAt,
+    ])
+}

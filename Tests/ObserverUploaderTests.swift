@@ -929,10 +929,10 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
 
         try await self.waitFor("success diagnostics") {
-            self.uploadEvents(in: successLog).contains { $0.message == "observer-audio upload success" }
+            self.uploadEvents(in: successLog).contains { $0.message == "synced to your journal" }
         }
         let success = try XCTUnwrap(self.uploadEvents(in: successLog).first {
-            $0.message == "observer-audio upload success"
+            $0.message == "synced to your journal"
         })
         XCTAssertEqual(success.severity, .info)
         XCTAssertTrue((success.detail ?? "").contains("localPort=7071"))

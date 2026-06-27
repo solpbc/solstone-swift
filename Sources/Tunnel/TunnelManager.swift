@@ -497,7 +497,7 @@ final class TunnelManager {
             self.appendStage(.loopback)
             self.diagnosticLog?.append(category: .tunnel, message: "loopback ready on port \(port)")
         case .failed(let message):
-            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "transport failed", detail: message)
+            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "couldn't reach your journal", detail: message)
         }
     }
 

@@ -7,6 +7,7 @@ struct DiagnosticsView: View {
     @Environment(DiagnosticLog.self) private var log
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
@@ -21,6 +22,8 @@ struct DiagnosticsView: View {
     @State private var diagnosticsExportURL: URL?
     @State private var problemsOnly = false
     @State private var isRetrying = false
+    @State private var showingObserverReset = false
+    @State private var lastSynced: Date?
     @State private var lifecycleMigration = OnThisPhoneMigration(
         onThisPhone: 0,
         needsAttention: 0
@@ -59,9 +62,18 @@ struct DiagnosticsView: View {
             if let failedSegmentPresentation {
                 self.failedSegmentSection(failedSegmentPresentation)
             }
+            self.reconnectSection
             self.eventRows
         }
         .navigationTitle("diagnostics")
+        .alert(SourceVocabulary.reconnectObserverConfirmTitle, isPresented: self.$showingObserverReset) {
+            Button(SourceVocabulary.cancel, role: .cancel) {}
+            Button("reconnect", role: .destructive) {
+                self.observerRegistration.reset()
+            }
+        } message: {
+            Text(SourceVocabulary.reconnectObserverConfirmBody)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -166,13 +178,29 @@ struct DiagnosticsView: View {
     }
 
     private func lifecycleSection(migration: OnThisPhoneMigration) -> some View {
-        Section(SourceVocabulary.onThisPhone) {
+        let standing = SourceVocabulary.standingHealth(
+            isConnected: self.tunnelManager.state.isConnected,
+            reach: standingSegmentReach(migration: migration)
+        )
+        return Section(SourceVocabulary.onThisPhone) {
             LabeledContent(SourceVocabulary.migrationStageOnThisPhone, value: "\(migration.onThisPhone)")
                 .accessibilityIdentifier("diagnostics.lifecycle.onThisPhone")
             LabeledContent(SourceVocabulary.needsAttention, value: "\(migration.needsAttention)")
                 .accessibilityIdentifier("diagnostics.lifecycle.needsAttention")
+            LabeledContent(
+                SourceVocabulary.yourJournalSection,
+                value: SourceVocabulary.standingSyncLine(health: standing.health, syncing: standing.syncing)
+            )
+            .accessibilityIdentifier("diagnostics.lifecycle.yourJournal")
+            LabeledContent(SourceVocabulary.lastSyncedLabel, value: self.lastSyncedValue)
+                .accessibilityIdentifier("diagnostics.lifecycle.lastSynced")
         }
         .accessibilityIdentifier("diagnostics.lifecycle")
+    }
+
+    private var lastSyncedValue: String {
+        guard let lastSynced = self.lastSynced else { return "—" }
+        return SourceVocabulary.probeRelativeLabel(secondsAgo: Date().timeIntervalSince(lastSynced))
     }
 
     private func failedSegmentSection(_ presentation: FailedSegmentPresentation) -> some View {
@@ -203,6 +231,19 @@ struct DiagnosticsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
+        }
+    }
+
+    private var reconnectSection: some View {
+        Section {
+            Button(role: .destructive) {
+                self.showingObserverReset = true
+            } label: {
+                Text(SourceVocabulary.reconnectObserverButton)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .hoverEffect(.highlight)
+            .accessibilityIdentifier("diagnostics.reconnectObserver")
         }
     }
 
@@ -272,6 +313,13 @@ struct DiagnosticsView: View {
                 locationUploader: self.locationUploader
             )
             self.lifecycleMigration = onThisPhoneMigration(snapshot: snapshot)
+            self.lastSynced = lastSyncedAt(
+                observer: self.observerUploader,
+                omi: self.omiUploaderHolder,
+                watch: self.watchUploaderHolder,
+                location: self.locationUploader,
+                importQueue: self.importQueue
+            )
             try? await Task.sleep(for: .seconds(1))
         }
     }
