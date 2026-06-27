@@ -23,12 +23,13 @@ private enum ReconnectReason: Sendable, Equatable {
     case transportClosed(TunnelError)
     case pathChanged
     case probeFailed
+    case keepaliveMissed
 
     var tunnelError: TunnelError {
         switch self {
         case .transportClosed(let error):
             return error
-        case .pathChanged, .probeFailed:
+        case .pathChanged, .probeFailed, .keepaliveMissed:
             return .muxTeardown
         }
     }
@@ -41,6 +42,8 @@ private enum ReconnectReason: Sendable, Equatable {
             return "path changed"
         case .probeFailed:
             return "probe failed"
+        case .keepaliveMissed:
+            return "keepalive missed"
         }
     }
 }
@@ -302,9 +305,13 @@ final class TunnelManager {
             onDisconnect: { [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    await self.forceReconnect(
-                        reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown)
-                    )
+                    if let sessionError = error as? SessionError, sessionError == .directKeepaliveMissed {
+                        await self.forceReconnect(reason: .keepaliveMissed)
+                    } else {
+                        await self.forceReconnect(
+                            reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown)
+                        )
+                    }
                 }
             },
             onStageChange: { [weak self] event in

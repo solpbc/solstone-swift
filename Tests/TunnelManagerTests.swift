@@ -919,9 +919,11 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     @MainActor
     func testPostConnectForceReconnectIsNotOverwrittenByOldWatchdogDeadline() async {
         let transport = MockCFTunnelTransport()
+        let diagnosticLog = DiagnosticLog()
         let manager = makeManager(
             transport: transport,
-            connectDeadline: .milliseconds(80)
+            connectDeadline: .milliseconds(80),
+            diagnosticLog: diagnosticLog
         )
 
         await manager.connect()
@@ -944,6 +946,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(transport.connectCallCount, 1)
         XCTAssertEqual(transport.disconnectCallCount, 1)
         XCTAssertNotNil(manager.reconnectCountdown)
+        let reconnectEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.message == "forcing reconnect"
+        }
+        XCTAssertEqual(reconnectEvents.last?.detail, "keepalive missed")
         await manager.disconnect()
     }
 

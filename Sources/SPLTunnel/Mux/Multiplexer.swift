@@ -47,6 +47,7 @@ public actor Multiplexer {
     private var keepaliveTask: Task<Void, Never>?
     private var pendingPingNonce: Data?
     private var missedPings = 0
+    private var lastInboundActivity: ContinuousClock.Instant?
 
     public init(sink: @escaping @Sendable (Data) async throws -> Void, role: Role = .dialer) {
         let incoming = AsyncStream<MuxStream>.makeStream()
@@ -96,14 +97,16 @@ public actor Multiplexer {
 
     public func startKeepalive(
         interval: Duration = .milliseconds(500),
+        idleThreshold: Duration = .seconds(2),
         missedLimit: Int = 3
     ) {
         guard keepaliveTask == nil else {
             return
         }
 
+        lastInboundActivity = ContinuousClock.now
         keepaliveTask = Task {
-            await runKeepalive(interval: interval, missedLimit: missedLimit)
+            await runKeepalive(interval: interval, idleThreshold: idleThreshold, missedLimit: missedLimit)
         }
     }
 
@@ -121,6 +124,9 @@ public actor Multiplexer {
     }
 
     private func dispatch(_ frame: Frame) async throws {
+        // Mark any successfully decoded inbound frame as proof-of-life for the idle keepalive gate.
+        lastInboundActivity = ContinuousClock.now
+
         let isOpen = frame.flags & FrameFlags.open.rawValue != 0
         let isData = frame.flags & FrameFlags.data.rawValue != 0
         let isClose = frame.flags & FrameFlags.close.rawValue != 0
@@ -214,11 +220,15 @@ public actor Multiplexer {
         }
     }
 
-    private func runKeepalive(interval: Duration, missedLimit: Int) async {
+    private func runKeepalive(interval: Duration, idleThreshold: Duration, missedLimit: Int) async {
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: interval)
-                try await sendKeepalivePing(missedLimit: missedLimit)
+                try await performKeepaliveTick(
+                    now: ContinuousClock.now,
+                    idleThreshold: idleThreshold,
+                    missedLimit: missedLimit
+                )
             } catch {
                 await tearDown(reason: .transportFailure)
                 return
@@ -226,11 +236,30 @@ public actor Multiplexer {
         }
     }
 
-    private func sendKeepalivePing(missedLimit: Int) async throws {
+    private func performKeepaliveTick(
+        now: ContinuousClock.Instant,
+        idleThreshold: Duration,
+        missedLimit: Int
+    ) async throws {
         guard !tornDown else {
             throw MuxError.transportClosed
         }
 
+        // LAN-direct mux is currently dialer-initiated only: the phone OPENs streams and
+        // PUSHes data, and every inbound frame is a response to outbound work. Treat any
+        // inbound frame as proof the outbound path is healthy (an outbound black-hole also
+        // stalls inbound, so we still escalate). Revisit this gate if server-push/download
+        // streams are ever added.
+        if let last = lastInboundActivity, last.duration(to: now) < idleThreshold {
+            // BUSY: inbound traffic is flowing - stay silent and reset the idle probe state.
+            missedPings = 0
+            pendingPingNonce = nil
+            return
+        }
+
+        // IDLE: no inbound frame within idleThreshold. Escalate only on consecutive
+        // unanswered idle ping ticks (suspend-safe: a backgrounded keepalive Task accrues
+        // no ticks while suspended and re-evaluates fresh on resume).
         if pendingPingNonce != nil {
             missedPings += 1
             if missedPings >= missedLimit {
@@ -267,5 +296,17 @@ public actor Multiplexer {
 
     func streamCountForTesting() -> Int {
         streams.count
+    }
+
+    func setLastInboundActivityForTesting(_ instant: ContinuousClock.Instant?) {
+        lastInboundActivity = instant
+    }
+
+    func performKeepaliveTickForTesting(
+        now: ContinuousClock.Instant,
+        idleThreshold: Duration,
+        missedLimit: Int
+    ) async throws {
+        try await performKeepaliveTick(now: now, idleThreshold: idleThreshold, missedLimit: missedLimit)
     }
 }
