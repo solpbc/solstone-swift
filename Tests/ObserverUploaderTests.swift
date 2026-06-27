@@ -141,6 +141,92 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testCurrentPortTransportErrorMovesChunkToFailedDirectory() async throws {
+        ObserverUploaderURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let uploader = self.makeUploader(maxAttempts: 1)
+        let sessionID = UUID()
+        let chunkID = "chunk-current-port-timeout"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("current-port timeout failure") {
+            uploader.failedCount == 1
+        }
+        XCTAssertEqual(uploader.pendingCount, 0)
+        let failure = try self.decodeFailureSidecar(at: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID))
+        XCTAssertEqual(failure.attemptCount, 1)
+        XCTAssertEqual(failure.stage, "transport-failure")
+    }
+
+    @MainActor
+    func testCancelledCompletionRequeuesWithoutConsumingAttempt() async throws {
+        ObserverUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(diagnosticLog: log, maxAttempts: 1)
+        let sessionID = UUID()
+        let chunkID = "chunk-cancelled-requeued"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("cancelled completion requeued") {
+            uploader.inFlightCount == 0
+                && self.uploadEvents(in: log).contains { $0.message == "observer-audio upload reconnect-requeued" }
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
+    @MainActor
+    func testStalePortErrorRequeuesWithoutConsumingAttempt() async throws {
+        let staleStarted = DispatchSemaphore(value: 0)
+        let staleRelease = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.handler = { _ in
+            staleStarted.signal()
+            _ = staleRelease.wait(timeout: .now() + 2)
+            throw URLError(.timedOut)
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            localPortProvider: { localPort.withLock { $0 } },
+            diagnosticLog: log,
+            maxAttempts: 1
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-stale-port-timeout"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(staleStarted.wait(timeout: .now() + 2), .success)
+
+        localPort.withLock { $0 = 9090 }
+        staleRelease.signal()
+
+        try await self.waitFor("stale-port completion requeued") {
+            uploader.inFlightCount == 0
+                && self.uploadEvents(in: log).contains { $0.message == "observer-audio upload reconnect-requeued" }
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
+    @MainActor
     func testExhaustionAppliesDeltaWithoutFullRecount() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -1224,6 +1310,70 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(ObserverUploaderURLProtocol.capturedRequests.contains { $0.url?.port == 9090 })
         XCTAssertEqual(uploader.failedCount, 0)
         XCTAssertFalse((uploader.lastError ?? "").contains("cancelled"))
+    }
+
+    @MainActor
+    func testStaleCompletionDoesNotClobberRescheduledTask() async throws {
+        let staleStarted = DispatchSemaphore(value: 0)
+        let replacementStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.port == 7071 || request.url?.port == 9090
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { request in
+            switch request.url?.port {
+            case 7071:
+                staleStarted.signal()
+            case 9090:
+                replacementStarted.signal()
+            default:
+                break
+            }
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held clobber-regression uploads should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            localPortProvider: { localPort.withLock { $0 } },
+            registrationPrefixProvider: { "obs_" },
+            urlBuilder: { localPort in
+                URL(string: "http://127.0.0.1:\(localPort)/app/observer/ingest")
+            },
+            diagnosticLog: log,
+            maxAttempts: 1
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-stale-clobber"
+        let requestBodyURL = self.sessionDirectoryURL(sessionID: sessionID)
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent("\(chunkID).upload", isDirectory: false)
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(staleStarted.wait(timeout: .now() + 2), .success)
+
+        localPort.withLock { $0 = 9090 }
+        await uploader.reconcilePortAndResume()
+        XCTAssertEqual(replacementStarted.wait(timeout: .now() + 2), .success)
+        try await self.waitFor("stale completion did not clobber replacement") {
+            self.uploadEvents(in: log).contains { $0.message == "observer-audio upload reconnect-requeued" }
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertTrue(uploader.hasInFlightTrackingForTesting(chunkID: chunkID))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: requestBodyURL.path))
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        try await self.waitFor("replacement cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == 9090 }
+        }
     }
 
     @MainActor

@@ -282,6 +282,10 @@ final class LocationUploader: LocationUploading {
         self.backgroundCompletionHandler = completionHandler
     }
 
+    func attemptCountForTesting(fileID: String) -> Int {
+        self.attemptCountByFileID[fileID, default: 0]
+    }
+
     func dropItem(fileID: String) {
         self.uploadTaskByFileID[fileID]?.cancel()
         self.uploadTaskByFileID.removeValue(forKey: fileID)
@@ -841,6 +845,15 @@ private extension LocationUploader {
         }
 
         if let error {
+            let ns = error as NSError
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
+                // Defensive parity: this only fires if loopback teardown surfaces -999.
+                // Re-enqueue correctness assumes a segment that reached the server before
+                // reconnect re-uploads to 2xx (status==duplicate is success); revisit if ingest
+                // ever returns 4xx for duplicates.
+                locationUploadLog.info("location upload cancelled by reconnect; awaiting resume \(info.fileID, privacy: .public)")
+                return
+            }
             await self.handleUploadFailure(
                 fileID: info.fileID,
                 segmentURL: info.segmentURL,

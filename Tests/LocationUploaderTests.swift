@@ -259,6 +259,76 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testCancelledCompletionRequeuesWithoutConsumingAttempt() async throws {
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        LocationUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ $0 }) {
+                throw URLError(.cancelled)
+            }
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader(maxAttempts: 1)
+        let fileID = "20240420-094000_300"
+        let pendingURL = self.tempDirectory
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent("\(fileID).jsonl", isDirectory: false)
+
+        await uploader.enqueue(self.makeBatch())
+
+        try await self.waitFor("cancelled location completion") {
+            LocationUploaderURLProtocol.callCount == 1 && uploader.inFlightCount == 0
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(fileID: fileID), 0)
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path))
+
+        shouldCancel.withLock { $0 = false }
+        await uploader.resumeFromDisk()
+
+        try await self.waitFor("location resume after cancellation") {
+            LocationUploaderURLProtocol.callCount == 2
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testCurrentPortTransportErrorIncrementsAttemptAndCanExhaust() async throws {
+        let retrySleepGate = LocationRetrySleepGate()
+        defer { retrySleepGate.release() }
+        LocationUploaderURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let uploader = self.makeUploader(
+            retryDelays: [1],
+            maxAttempts: 2,
+            sleep: { _ in
+                await retrySleepGate.sleep()
+            }
+        )
+        let fileID = "20240420-094000_300"
+
+        await uploader.enqueue(self.makeBatch())
+
+        try await self.waitFor("location timeout attempt") {
+            uploader.attemptCountForTesting(fileID: fileID) == 1
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(fileID: fileID), 1)
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 1)
+
+        retrySleepGate.release()
+        try await self.waitFor("location timeout exhaustion") {
+            uploader.failedCount == 1
+        }
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 2)
+        XCTAssertEqual(uploader.pendingCount, 0)
+    }
+
+    @MainActor
     func testRepeatedFailuresMoveSegmentToFailedDirectory() async throws {
         LocationUploaderURLProtocol.handler = { request in
             (
@@ -954,6 +1024,41 @@ nonisolated final class LocationUploaderTests: XCTestCase {
 
 private enum LocationUploaderTestError: Error {
     case transport
+}
+
+private final class LocationRetrySleepGate: @unchecked Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Void, Never>?
+        var released = false
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    func sleep() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.lock.withLock {
+                if self.state.released {
+                    return true
+                }
+                self.state.continuation = continuation
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = self.lock.withLock {
+            self.state.released = true
+            let continuation = self.state.continuation
+            self.state.continuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
 }
 
 private final class LocationUploaderURLProtocol: URLProtocol, @unchecked Sendable {

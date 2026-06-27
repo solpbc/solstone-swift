@@ -309,6 +309,10 @@ final class ImportQueue {
         importQueueLog.info("import item dropped \(itemIDString, privacy: .public)")
     }
 
+    func attemptCountForTesting(itemID: String) -> Int {
+        self.attemptCountByItemID[itemID, default: 0]
+    }
+
     func onThisPhoneSourceSnapshot() -> OnThisPhoneSourceResult {
         let interval = DrainSignpost.begin(.sourceSnapshotScan, source: .share)
         let ledger: [String: LedgerEntry]
@@ -701,6 +705,15 @@ private extension ImportQueue {
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
 
         if let error {
+            let ns = error as NSError
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled && info.step == .save {
+                // Defensive parity: this only fires if loopback teardown surfaces -999.
+                // Re-enqueue correctness assumes a SAVE that reached the server before reconnect
+                // re-uploads to 2xx via client_item_id. START cancels are intentionally not benign
+                // because /start replay-safety is unresolved.
+                importQueueLog.info("import save cancelled by reconnect; awaiting resume \(info.itemID, privacy: .public)")
+                return
+            }
             await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))
             try? self.fileManager.removeItem(at: info.bodyURL)
             DrainSignpost.event(

@@ -478,6 +478,10 @@ final class ObserverUploader {
         self.activeTaskIDByChunkID.removeAll()
     }
 
+    func attemptCountForTesting(chunkID: String) -> Int {
+        self.attemptCountByChunkID[chunkID, default: 0]
+    }
+
     func plantDropTombstoneForTesting(chunkID: String) {
         self.droppedChunkIDs.insert(chunkID)
     }
@@ -953,10 +957,34 @@ private extension ObserverUploader {
         }
         let drainSource = DrainSource.audio(info.sourceType)
         self.activeTasksByTaskID.removeValue(forKey: task.taskIdentifier)
-        self.activeTaskIDByChunkID.removeValue(forKey: info.chunkID)
+        if self.activeTaskIDByChunkID[info.chunkID] == task.taskIdentifier {
+            self.activeTaskIDByChunkID.removeValue(forKey: info.chunkID)
+        }
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
 
         if let error {
+            let ns = error as NSError
+            let currentPort = self.localPortProvider()
+            let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+            let isStalePort = currentPort.map { $0 != info.localPort } ?? true
+            if isCancelled || isStalePort {
+                // Re-enqueue correctness assumes a chunk that reached the server before reconnect
+                // re-uploads to 2xx (sha256 dedup -> 200 duplicate); revisit if ingest ever
+                // returns 4xx for duplicates.
+                self.appendUploadDiagnostic(
+                    stage: "reconnect-requeued",
+                    severity: .info,
+                    sourceType: info.sourceType,
+                    chunkID: info.chunkID,
+                    prefix: info.prefix,
+                    localPort: info.localPort,
+                    httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
+                    transportError: String(describing: error),
+                    attempt: self.attemptCountByChunkID[info.chunkID, default: 0],
+                    reason: "reconnect requeued"
+                )
+                return
+            }
             await self.handleUploadFailure(
                 chunkID: info.chunkID,
                 sessionID: info.sessionID,

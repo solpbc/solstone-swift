@@ -168,6 +168,132 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testSaveCancelledRequeuesWithoutConsumingAttempt() async throws {
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ImportQueueURLProtocol.handler = { request, body in
+            switch request.url?.path {
+            case "/app/import/api/save":
+                if shouldCancel.withLock({ $0 }) {
+                    throw URLError(.cancelled)
+                }
+                let clientItemID = Self.clientItemID(fromSaveBody: body)
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
+                )
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "nil")")
+                return (Self.response(for: request, statusCode: 404), Data())
+            }
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "cancelled.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("cancelled save completion") {
+            ImportQueueURLProtocol.callCount == 1 && queue.inFlightCount == 0
+        }
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertFalse(self.ledgerExists())
+
+        shouldCancel.withLock { $0 = false }
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("import resume after cancelled save") {
+            ImportQueueURLProtocol.callCount == 2
+                && queue.pendingCount == 0
+                && queue.lastDeliveredAt != nil
+        }
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNotNil(try self.readLedger()[itemID])
+    }
+
+    @MainActor
+    func testStartCancelledUsesFailurePath() async throws {
+        let retrySleepGate = ImportQueueRetrySleepGate()
+        defer { retrySleepGate.release() }
+        let itemID = try self.writeLocalItem(status: "pending")
+        try Data(#"{"path":"/imports/start-cancelled","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/start")
+            throw URLError(.cancelled)
+        }
+        let queue = self.makeQueue(
+            retryDelays: [1],
+            maxAttempts: 2,
+            sleep: { _ in
+                await retrySleepGate.sleep()
+            }
+        )
+
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("start cancellation attempt") {
+            queue.attemptCountForTesting(itemID: itemID) == 1
+        }
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 1)
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/start"])
+
+        retrySleepGate.release()
+        try await self.waitFor("start cancellation exhaustion") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 2)
+        XCTAssertEqual(queue.pendingCount, 0)
+    }
+
+    @MainActor
+    func testSaveTransportErrorIncrementsAttemptAndCanExhaust() async throws {
+        let retrySleepGate = ImportQueueRetrySleepGate()
+        defer { retrySleepGate.release() }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            throw URLError(.timedOut)
+        }
+        let queue = self.makeQueue(
+            retryDelays: [1],
+            maxAttempts: 2,
+            sleep: { _ in
+                await retrySleepGate.sleep()
+            }
+        )
+        let source = try self.makeSourceFile(named: "timeout.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("save timeout attempt") {
+            queue.attemptCountForTesting(itemID: itemID) == 1
+        }
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 1)
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+
+        retrySleepGate.release()
+        try await self.waitFor("save timeout exhaustion") {
+            queue.failedCount == 1
+        }
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 2)
+        XCTAssertEqual(queue.pendingCount, 0)
+    }
+
+    @MainActor
     func testQuickTextSaveUsesTextFieldWithoutFilePart() async throws {
         ImportQueueURLProtocol.handler = { request, body in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
@@ -1266,6 +1392,41 @@ private final class ImportQueueReservationProbe {
             return
         }
         XCTAssertEqual(queue.inFlightCount, 1, file: file, line: line)
+    }
+}
+
+private final class ImportQueueRetrySleepGate: @unchecked Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Void, Never>?
+        var released = false
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    func sleep() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.lock.withLock {
+                if self.state.released {
+                    return true
+                }
+                self.state.continuation = continuation
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = self.lock.withLock {
+            self.state.released = true
+            let continuation = self.state.continuation
+            self.state.continuation = nil
+            return continuation
+        }
+        continuation?.resume()
     }
 }
 
