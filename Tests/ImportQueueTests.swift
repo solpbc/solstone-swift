@@ -173,7 +173,13 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ImportQueueURLProtocol.handler = { request, body in
             switch request.url?.path {
             case "/app/import/api/save":
-                if shouldCancel.withLock({ $0 }) {
+                if shouldCancel.withLock({ value in
+                    if value {
+                        value = false
+                        return true
+                    }
+                    return false
+                }) {
                     throw URLError(.cancelled)
                 }
                 let clientItemID = Self.clientItemID(fromSaveBody: body)
@@ -197,21 +203,57 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ).uuidString.lowercased()
 
         try await self.waitFor("cancelled save completion") {
-            ImportQueueURLProtocol.callCount == 1 && queue.inFlightCount == 0
-        }
-        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
-        XCTAssertEqual(queue.pendingCount, 1)
-        XCTAssertEqual(queue.failedCount, 0)
-        XCTAssertFalse(self.ledgerExists())
-
-        shouldCancel.withLock { $0 = false }
-        await queue.resumeFromDisk()
-
-        try await self.waitFor("import resume after cancelled save") {
             ImportQueueURLProtocol.callCount == 2
                 && queue.pendingCount == 0
                 && queue.lastDeliveredAt != nil
         }
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNotNil(try self.readLedger()[itemID])
+    }
+
+    @MainActor
+    func testSaveCancelledReuploadsViaOwnReschedule() async throws {
+        // Must RED-FAIL on the bare-`return` build (76237a1) — if it passes without the Sources fix it is masking, not testing.
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ImportQueueURLProtocol.handler = { request, body in
+            switch request.url?.path {
+            case "/app/import/api/save":
+                if shouldCancel.withLock({ value in
+                    if value {
+                        value = false
+                        return true
+                    }
+                    return false
+                }) {
+                    throw URLError(.cancelled)
+                }
+                let clientItemID = Self.clientItemID(fromSaveBody: body)
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
+                )
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "nil")")
+                return (Self.response(for: request, statusCode: 404), Data())
+            }
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "own-reschedule.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("import save cancelled own reschedule") {
+            ImportQueueURLProtocol.callCount == 2
+                && queue.pendingCount == 0
+                && queue.lastDeliveredAt != nil
+        }
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
         XCTAssertEqual(queue.failedCount, 0)
         XCTAssertNotNil(try self.readLedger()[itemID])
     }

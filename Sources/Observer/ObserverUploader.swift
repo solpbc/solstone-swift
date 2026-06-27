@@ -969,8 +969,9 @@ private extension ObserverUploader {
             let isStalePort = currentPort.map { $0 != info.localPort } ?? true
             if isCancelled || isStalePort {
                 // Re-enqueue correctness assumes a chunk that reached the server before reconnect
-                // re-uploads to 2xx (sha256 dedup -> 200 duplicate); revisit if ingest ever
-                // returns 4xx for duplicates.
+                // re-uploads to 2xx (sha256 dedup -> 200 duplicate). This branch owns
+                // a delayed, un-counted re-drive; revisit if ingest ever returns 4xx
+                // for duplicates.
                 self.appendUploadDiagnostic(
                     stage: "reconnect-requeued",
                     severity: .info,
@@ -983,6 +984,14 @@ private extension ObserverUploader {
                     attempt: self.attemptCountByChunkID[info.chunkID, default: 0],
                     reason: "reconnect requeued"
                 )
+                let requeueDelay = self.retryDelays.first ?? 0
+                self.retryTasksByChunkID[info.chunkID]?.cancel()
+                self.retryTasksByChunkID[info.chunkID] = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.sleep(requeueDelay)
+                    guard !Task.isCancelled else { return }
+                    await self.scheduleUpload(chunkID: info.chunkID, sessionID: info.sessionID)
+                }
                 return
             }
             await self.handleUploadFailure(

@@ -165,8 +165,21 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
     @MainActor
     func testCancelledCompletionRequeuesWithoutConsumingAttempt() async throws {
-        ObserverUploaderURLProtocol.handler = { _ in
-            throw URLError(.cancelled)
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
         }
         let log = DiagnosticLog()
         let uploader = self.makeUploader(diagnosticLog: log, maxAttempts: 1)
@@ -179,23 +192,79 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
 
         try await self.waitFor("cancelled completion requeued") {
-            uploader.inFlightCount == 0
+            uploader.pendingCount == 0
                 && self.uploadEvents(in: log).contains { $0.message == "observer-audio upload reconnect-requeued" }
         }
         XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
-        XCTAssertEqual(uploader.pendingCount, 1)
         XCTAssertEqual(uploader.failedCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
+    @MainActor
+    func testCancelledCompletionReuploadsViaOwnReschedule() async throws {
+        // Must RED-FAIL on the bare-`return` build (76237a1) — if it passes without the Sources fix it is masking, not testing.
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let deliveredSessions = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let uploader = self.makeUploader(
+            onSegmentDelivered: { sessionID in
+                deliveredSessions.withLock { $0.append(sessionID) }
+            },
+            maxAttempts: 1
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-cancelled-own-reschedule"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("cancelled completion own reschedule") {
+            ObserverUploaderURLProtocol.callCount == 2
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+                && deliveredSessions.withLock { $0.contains(sessionID) }
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.failedCount, 0)
     }
 
     @MainActor
     func testStalePortErrorRequeuesWithoutConsumingAttempt() async throws {
         let staleStarted = DispatchSemaphore(value: 0)
         let staleRelease = DispatchSemaphore(value: 0)
-        ObserverUploaderURLProtocol.handler = { _ in
-            staleStarted.signal()
-            _ = staleRelease.wait(timeout: .now() + 2)
-            throw URLError(.timedOut)
+        let shouldTimeout = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldTimeout.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                staleStarted.signal()
+                _ = staleRelease.wait(timeout: .now() + 2)
+                throw URLError(.timedOut)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
         }
         let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
         let log = DiagnosticLog()
@@ -217,11 +286,10 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         staleRelease.signal()
 
         try await self.waitFor("stale-port completion requeued") {
-            uploader.inFlightCount == 0
+            uploader.pendingCount == 0
                 && self.uploadEvents(in: log).contains { $0.message == "observer-audio upload reconnect-requeued" }
         }
         XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
-        XCTAssertEqual(uploader.pendingCount, 1)
         XCTAssertEqual(uploader.failedCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
     }

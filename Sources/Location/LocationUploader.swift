@@ -849,9 +849,20 @@ private extension LocationUploader {
             if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
                 // Defensive parity: this only fires if loopback teardown surfaces -999.
                 // Re-enqueue correctness assumes a segment that reached the server before
-                // reconnect re-uploads to 2xx (status==duplicate is success); revisit if ingest
-                // ever returns 4xx for duplicates.
+                // reconnect re-uploads to 2xx (status==duplicate is success). This branch
+                // owns a delayed, un-counted re-drive; revisit if ingest ever returns 4xx
+                // for duplicates.
                 locationUploadLog.info("location upload cancelled by reconnect; awaiting resume \(info.fileID, privacy: .public)")
+                let requeueDelay = self.retryDelays.first ?? 0
+                self.retryTasksByFileID[info.fileID]?.cancel()
+                self.retryTasksByFileID[info.fileID] = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.sleep(requeueDelay)
+                    guard !Task.isCancelled else { return }
+                    guard !self.isDeleting else { return }
+                    await self.scheduleUpload(fileID: info.fileID)
+                }
+                self.refreshCounts()
                 return
             }
             await self.handleUploadFailure(

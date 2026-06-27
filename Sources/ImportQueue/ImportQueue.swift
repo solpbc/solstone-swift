@@ -744,9 +744,19 @@ private extension ImportQueue {
             if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled && info.step == .save {
                 // Defensive parity: this only fires if loopback teardown surfaces -999.
                 // Re-enqueue correctness assumes a SAVE that reached the server before reconnect
-                // re-uploads to 2xx via client_item_id. START cancels are intentionally not benign
-                // because /start replay-safety is unresolved.
+                // re-uploads to 2xx via client_item_id. This branch owns a delayed,
+                // un-counted re-drive. START cancels are intentionally not benign because
+                // /start replay-safety is unresolved.
                 importQueueLog.info("import save cancelled by reconnect; awaiting resume \(info.itemID, privacy: .public)")
+                let requeueDelay = self.retryDelays.first ?? 0
+                self.retryTasksByItemID[info.itemID]?.cancel()
+                self.retryTasksByItemID[info.itemID] = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.sleep(requeueDelay)
+                    guard !Task.isCancelled else { return }
+                    await self.scheduleUpload(itemID: info.itemID)
+                }
+                self.refreshCounts()
                 return
             }
             await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))

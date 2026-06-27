@@ -262,35 +262,58 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     func testCancelledCompletionRequeuesWithoutConsumingAttempt() async throws {
         let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
         LocationUploaderURLProtocol.handler = { request in
-            if shouldCancel.withLock({ $0 }) {
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
                 throw URLError(.cancelled)
             }
             return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
         }
         let uploader = self.makeUploader(maxAttempts: 1)
         let fileID = "20240420-094000_300"
-        let pendingURL = self.tempDirectory
-            .appendingPathComponent("pending", isDirectory: true)
-            .appendingPathComponent("\(fileID).jsonl", isDirectory: false)
 
         await uploader.enqueue(self.makeBatch())
 
         try await self.waitFor("cancelled location completion") {
-            LocationUploaderURLProtocol.callCount == 1 && uploader.inFlightCount == 0
-        }
-        XCTAssertEqual(uploader.attemptCountForTesting(fileID: fileID), 0)
-        XCTAssertEqual(uploader.pendingCount, 1)
-        XCTAssertEqual(uploader.failedCount, 0)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path))
-
-        shouldCancel.withLock { $0 = false }
-        await uploader.resumeFromDisk()
-
-        try await self.waitFor("location resume after cancellation") {
             LocationUploaderURLProtocol.callCount == 2
                 && uploader.pendingCount == 0
                 && uploader.lastUploadAt != nil
         }
+        XCTAssertEqual(uploader.attemptCountForTesting(fileID: fileID), 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testCancelledCompletionReuploadsViaOwnReschedule() async throws {
+        // Must RED-FAIL on the bare-`return` build (76237a1) — if it passes without the Sources fix it is masking, not testing.
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        LocationUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader(maxAttempts: 1)
+        let fileID = "20240420-094000_300"
+
+        await uploader.enqueue(self.makeBatch())
+
+        try await self.waitFor("location cancelled own reschedule") {
+            LocationUploaderURLProtocol.callCount == 2
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(fileID: fileID), 0)
         XCTAssertEqual(uploader.failedCount, 0)
     }
 
