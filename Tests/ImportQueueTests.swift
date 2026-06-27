@@ -744,6 +744,139 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
     }
 
+    @MainActor
+    func testConcurrentScheduleCreatesSingleTaskPerItem() async throws {
+        let targetItemID = "00000000-0000-0000-0000-000000000030"
+        ImportQueueURLProtocol.handler = { request, body in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            let clientItemID = Self.clientItemID(fromSaveBody: body)
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
+            )
+        }
+        let gate = ImportQueueRegistrationGate()
+        _ = try self.writeLocalItem(status: "pending", itemID: targetItemID)
+        let queue = self.makeQueue(ensureRegistered: {
+            await gate.ensureRegistered()
+        })
+
+        async let firstResume: Void = queue.resumeFromDisk()
+        await gate.waitUntilParked()
+        await queue.resumeFromDisk()
+        gate.release()
+        await firstResume
+
+        try await self.waitFor("single scheduled import") {
+            queue.pendingCount == 0
+        }
+        let saveBodiesForItem = ImportQueueURLProtocol.capturedBodies.filter {
+            Self.clientItemID(fromSaveBody: $0) == targetItemID
+        }
+        XCTAssertEqual(saveBodiesForItem.count, 1)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths.filter { $0 == "/app/import/api/start" }.count, 0)
+    }
+
+    @MainActor
+    func testScheduleReservationClearsOnPreTaskExits() async throws {
+        let journalRoot = self.tempDirectory.appendingPathComponent("cleanup-journal", isDirectory: true)
+        _ = try self.writeLocalItem(root: journalRoot, status: "pending")
+        let journalProbe = ImportQueueReservationProbe()
+        let journalQueue = self.makeQueue(cacheRootURL: journalRoot, isJournalConfigured: {
+            journalProbe.assertReserved()
+            return false
+        })
+        journalProbe.queue = journalQueue
+
+        await journalQueue.resumeFromDisk()
+        XCTAssertEqual(journalQueue.inFlightCount, 0)
+
+        let portRoot = self.tempDirectory.appendingPathComponent("cleanup-port", isDirectory: true)
+        _ = try self.writeLocalItem(root: portRoot, status: "pending")
+        let portProbe = ImportQueueReservationProbe()
+        let portQueue = self.makeQueue(cacheRootURL: portRoot, localPortProvider: {
+            portProbe.assertReserved()
+            return nil
+        })
+        portProbe.queue = portQueue
+
+        await portQueue.resumeFromDisk()
+        XCTAssertEqual(portQueue.inFlightCount, 0)
+
+        let registrationRoot = self.tempDirectory.appendingPathComponent("cleanup-registration", isDirectory: true)
+        _ = try self.writeLocalItem(root: registrationRoot, status: "pending")
+        let registrationProbe = ImportQueueReservationProbe()
+        let registrationQueue = self.makeQueue(cacheRootURL: registrationRoot, ensureRegistered: {
+            registrationProbe.assertReserved()
+            throw ImportQueueError.registrationUnavailable
+        })
+        registrationProbe.queue = registrationQueue
+
+        await registrationQueue.resumeFromDisk()
+        XCTAssertEqual(registrationQueue.inFlightCount, 0)
+
+        let saveURLRoot = self.tempDirectory.appendingPathComponent("cleanup-save-url", isDirectory: true)
+        _ = try self.writeLocalItem(root: saveURLRoot, status: "pending")
+        let saveURLProbe = ImportQueueReservationProbe()
+        let saveURLQueue = self.makeQueue(
+            cacheRootURL: saveURLRoot,
+            ensureRegistered: {
+                saveURLProbe.assertReserved()
+                return "test-observer-key-abc"
+            },
+            saveURLBuilder: { _ in nil }
+        )
+        saveURLProbe.queue = saveURLQueue
+
+        await saveURLQueue.resumeFromDisk()
+        XCTAssertEqual(saveURLQueue.inFlightCount, 0)
+
+        let startURLRoot = self.tempDirectory.appendingPathComponent("cleanup-start-url", isDirectory: true)
+        let startItemID = try self.writeLocalItem(root: startURLRoot, status: "pending")
+        let startSaveResultURL = startURLRoot
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent(startItemID, isDirectory: true)
+            .appendingPathComponent("save.json")
+        try Data(#"{"path":"/imports/start","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+            .write(to: startSaveResultURL, options: .atomic)
+        let startURLProbe = ImportQueueReservationProbe()
+        let startURLQueue = self.makeQueue(
+            cacheRootURL: startURLRoot,
+            isJournalConfigured: {
+                startURLProbe.assertReserved()
+                return true
+            },
+            startURLBuilder: { _ in nil }
+        )
+        startURLProbe.queue = startURLQueue
+
+        await startURLQueue.resumeFromDisk()
+        XCTAssertEqual(startURLQueue.inFlightCount, 0)
+
+        let bodyRoot = self.tempDirectory.appendingPathComponent("cleanup-body", isDirectory: true)
+        _ = try self.writeLocalItem(
+            root: bodyRoot,
+            status: "pending",
+            rawData: Data([0xff, 0xfe, 0xfd]),
+            source: "quick",
+            noteContentType: "public.plain-text",
+            noteFilename: "note.txt",
+            descriptorFilename: "text.txt",
+            descriptorContentType: "text/plain"
+        )
+        let bodyProbe = ImportQueueReservationProbe()
+        let bodyQueue = self.makeQueue(cacheRootURL: bodyRoot, maxAttempts: 1, ensureRegistered: {
+            bodyProbe.assertReserved()
+            return "test-observer-key-abc"
+        })
+        bodyProbe.queue = bodyQueue
+
+        await bodyQueue.resumeFromDisk()
+        XCTAssertEqual(bodyQueue.inFlightCount, 0)
+
+        // Missing required files are prefiltered by resumeFromDisk with requiredFilesExist before scheduleUpload is called.
+    }
+
     func testConcurrentSaveResponsesEchoEachRequestClientItemID() async throws {
         let arrivalOrder = OSAllocatedUnfairLock<[String]>(initialState: [])
         let responseOrder = OSAllocatedUnfairLock<[String]>(initialState: [])
@@ -818,6 +951,8 @@ nonisolated final class ImportQueueTests: XCTestCase {
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        saveURLBuilder: @escaping @Sendable (Int) -> URL? = { ImporterServerURL.saveURL(localPort: $0) },
+        startURLBuilder: @escaping @Sendable (Int) -> URL? = { ImporterServerURL.startURL(localPort: $0) },
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_713_624_000) }
     ) -> ImportQueue {
@@ -830,6 +965,8 @@ nonisolated final class ImportQueueTests: XCTestCase {
             ensureRegistered: ensureRegistered,
             isJournalConfigured: isJournalConfigured,
             localPortProvider: localPortProvider,
+            saveURLBuilder: saveURLBuilder,
+            startURLBuilder: startURLBuilder,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
             sleep: sleep,
@@ -864,17 +1001,23 @@ nonisolated final class ImportQueueTests: XCTestCase {
     private func writeLocalItem(
         root: URL? = nil,
         status: String,
-        itemID: String = UUID().uuidString.lowercased()
+        itemID: String = UUID().uuidString.lowercased(),
+        rawData: Data = Data("raw".utf8),
+        source: String = "document",
+        noteContentType: String = "com.adobe.pdf",
+        noteFilename: String = "source.pdf",
+        descriptorFilename: String = "document.pdf",
+        descriptorContentType: String = "application/pdf"
     ) throws -> String {
         let root = root ?? self.tempDirectory!
         let directory = root
             .appendingPathComponent(status, isDirectory: true)
             .appendingPathComponent(itemID, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data("raw".utf8).write(to: directory.appendingPathComponent("raw.bin"))
-        let note = #"{"schema":"solstone.source.item/1","source":"document","origin_app":null,"content_type":"com.adobe.pdf","filename":"source.pdf","bytes":3,"basis":"sent","item_time":"2026-06-02T00:00:00.000Z","target_journal":"home","kind":"raw","item_id":"\#(itemID)"}"#
+        try rawData.write(to: directory.appendingPathComponent("raw.bin"))
+        let note = #"{"schema":"solstone.source.item/1","source":"\#(source)","origin_app":null,"content_type":"\#(noteContentType)","filename":"\#(noteFilename)","bytes":\#(rawData.count),"basis":"sent","item_time":"2026-06-02T00:00:00.000Z","target_journal":"home","kind":"raw","item_id":"\#(itemID)"}"#
         try Data(note.utf8).write(to: directory.appendingPathComponent("item.json"))
-        let request = #"{"source":"document","filename":"document.pdf","content_type":"application/pdf"}"#
+        let request = #"{"source":"\#(source)","filename":"\#(descriptorFilename)","content_type":"\#(descriptorContentType)"}"#
         try Data(request.utf8).write(to: directory.appendingPathComponent("request.json"))
         return itemID
     }
@@ -1080,6 +1223,52 @@ private final class ImportQueueCompletionCounter: @unchecked Sendable {
     }
 }
 
+@MainActor
+private final class ImportQueueRegistrationGate {
+    private var parkedContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<String, Never>?
+    private var isParked = false
+    private var releasedHandle: String?
+
+    func ensureRegistered() async -> String {
+        guard !self.isParked else {
+            return self.releasedHandle ?? "test-observer-key-abc"
+        }
+        self.isParked = true
+        self.parkedContinuation?.resume()
+        self.parkedContinuation = nil
+        return await withCheckedContinuation { continuation in
+            self.releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilParked() async {
+        guard !self.isParked else { return }
+        await withCheckedContinuation { continuation in
+            self.parkedContinuation = continuation
+        }
+    }
+
+    func release(handle: String = "test-observer-key-abc") {
+        self.releasedHandle = handle
+        self.releaseContinuation?.resume(returning: handle)
+        self.releaseContinuation = nil
+    }
+}
+
+@MainActor
+private final class ImportQueueReservationProbe {
+    weak var queue: ImportQueue?
+
+    func assertReserved(file: StaticString = #filePath, line: UInt = #line) {
+        guard let queue else {
+            XCTFail("ImportQueue reservation probe missing queue", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(queue.inFlightCount, 1, file: file, line: line)
+    }
+}
+
 private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest, Data) throws -> (HTTPURLResponse, Data)
 
@@ -1174,7 +1363,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
 
-        while stream.hasBytesAvailable {
+        while true {
             let read = stream.read(buffer, maxLength: bufferSize)
             if read <= 0 {
                 break

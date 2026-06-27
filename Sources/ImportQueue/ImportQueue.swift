@@ -61,7 +61,7 @@ final class ImportQueue {
     private let throughputMeter = ThroughputMeter()
 
     var inFlightCount: Int {
-        self.uploadTaskByItemID.count + self.retryTasksByItemID.count
+        self.uploadTaskByItemID.count + self.retryTasksByItemID.count + self.schedulingItemIDs.count
     }
 
     @ObservationIgnored private let fileManager: FileManager
@@ -86,6 +86,7 @@ final class ImportQueue {
     @ObservationIgnored private var uploadTaskByItemID: [String: URLSessionTask] = [:]
     @ObservationIgnored private var attemptCountByItemID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByItemID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var schedulingItemIDs: Set<String> = []
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.import-queue")
 
@@ -235,6 +236,9 @@ final class ImportQueue {
                     continue
                 }
 
+                // Skip items with a live upload task or an in-progress scheduling reservation; resume must not delete a body a live URLSessionTask is streaming.
+                guard self.activeTaskIDByItemID[itemID] == nil,
+                      !self.schedulingItemIDs.contains(itemID) else { continue }
                 try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
                 try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
                 await self.scheduleUpload(itemID: itemID)
@@ -568,6 +572,9 @@ private extension ImportQueue {
 
     func scheduleUpload(itemID: String) async {
         guard self.activeTaskIDByItemID[itemID] == nil else { return }
+        guard !self.schedulingItemIDs.contains(itemID) else { return }
+        self.schedulingItemIDs.insert(itemID)
+        defer { self.schedulingItemIDs.remove(itemID) }
         guard self.requiredFilesExist(itemID: itemID, status: .pending) else { return }
 
         guard self.isJournalConfigured() else {
