@@ -254,6 +254,7 @@ nonisolated final class LocationUploaderTests: XCTestCase {
         try await self.waitFor("duplicate success") {
             uploader.pendingCount == 0 && uploader.failedCount == 0 && uploader.lastUploadAt != nil
         }
+        XCTAssertGreaterThan(uploader.recentBytesPerSecond, 0)
         XCTAssertEqual(LocationUploaderURLProtocol.callCount, 1)
     }
 

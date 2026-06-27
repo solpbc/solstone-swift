@@ -90,6 +90,7 @@ final class ObserverUploader {
     var failedCount = 0
     var lastUploadAt: Date?
     var lastError: String?
+    private let throughputMeter = ThroughputMeter()
 
     @ObservationIgnored private(set) var fullRecountCount = 0
     @ObservationIgnored private let fileManager: FileManager
@@ -119,6 +120,10 @@ final class ObserverUploader {
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.observer-uploader")
+
+    var recentBytesPerSecond: Double {
+        self.throughputMeter.recentBytesPerSecond
+    }
 
     init(
         cacheRootURL: URL? = nil,
@@ -935,6 +940,10 @@ private extension ObserverUploader {
                 transportError: nil,
                 attempt: self.attemptCountByChunkID[info.chunkID, default: 0] + 1,
                 reason: "uploaded"
+            )
+            let uploadedBytes = ThroughputMeter.byteCount(of: info.requestBodyURL)
+            self.throughputMeter.record(
+                bytes: uploadedBytes > 0 ? uploadedBytes : ThroughputMeter.byteCount(of: info.audioURL)
             )
             let removedAudio = (try? self.fileManager.removeItem(at: info.audioURL)) != nil
             try? self.fileManager.removeItem(at: info.sidecarURL)

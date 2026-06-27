@@ -33,18 +33,17 @@ struct MoreView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(LocationUploader.self) private var locationUploader
     @Environment(LocationManager.self) private var locationManager
-    @Environment(ObserverManager.self) private var observerManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
     @State private var isProbing = false
     @State private var probeCheckedAt: Date?
     @State private var probeAlive = false
     @State private var probeMilliseconds = 0
-    @State private var showingObserverReset = false
     @State private var showingUnpairConfirm = false
     @State private var showingConnectJournal = false
     @State private var showingJournal = false
     @State private var segmentMigration: OnThisPhoneMigration?
+    @State private var transferRate: Double = 0
 
     private var serverHost: String {
         self.appConfig.host
@@ -114,34 +113,6 @@ struct MoreView: View {
         }
     }
 
-    private var observerStateText: String {
-        switch self.observerManager.state {
-        case .idle:
-            "idle"
-        case .starting:
-            "starting"
-        case .active:
-            "active"
-        case .stopping:
-            "stopping"
-        case .error(let error):
-            "error — \(error.message)"
-        }
-    }
-
-    private var observerRegistrationText: String {
-        switch self.observerRegistration.state {
-        case .idle:
-            "idle"
-        case .registering:
-            "registering"
-        case .registered:
-            "registered"
-        case .failed(let reason):
-            "failed — \(reason)"
-        }
-    }
-
     var body: some View {
         List {
             Section {
@@ -185,6 +156,14 @@ struct MoreView: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("status: \(line)")
                     }
+                    LabeledContent(SourceVocabulary.transferRateLabel) {
+                        Text(
+                            self.transferRate > 0
+                                ? SourceVocabulary.transferRateValue(bytesPerSecond: self.transferRate)
+                                : SourceVocabulary.transferRateIdle
+                        )
+                    }
+                    .accessibilityIdentifier("more.transferRate")
                     Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -305,28 +284,6 @@ struct MoreView: View {
                 .accessibilityHint("Turns interface haptics on or off")
             }
 
-            Section("observer") {
-                LabeledContent("state", value: self.observerStateText)
-                LabeledContent("registration", value: self.observerRegistrationText)
-                LabeledContent("last upload") {
-                    if let lastUploadAt = self.observerUploader.lastUploadAt {
-                        Text(lastUploadAt, style: .time)
-                    } else {
-                        Text("none")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                LabeledContent("pending", value: "\(self.observerUploader.pendingCount)")
-                LabeledContent("failed", value: "\(self.observerUploader.failedCount)")
-
-                Button(role: .destructive) {
-                    self.showingObserverReset = true
-                } label: {
-                    Text("reset observer registration")
-                }
-                .hoverEffect(.highlight)
-            }
-
             Section("identity") {
                 LabeledContent("owner", value: self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity)
                 LabeledContent("device", value: self.appConfig.deviceID.isEmpty ? "unpaired" : self.appConfig.deviceID)
@@ -357,14 +314,6 @@ struct MoreView: View {
         .navigationTitle(SourceVocabulary.yourSolstoneTitle)
         .navigationDestination(isPresented: self.$navigateToDiagnostics) {
             DiagnosticsView()
-        }
-        .alert("reset observer registration?", isPresented: self.$showingObserverReset) {
-            Button("Cancel", role: .cancel) {}
-            Button("Reset", role: .destructive) {
-                self.observerRegistration.reset()
-            }
-        } message: {
-            Text("this clears the stored observer key and forces a fresh registration on next use.")
         }
         .alert("unpair this device?", isPresented: self.$showingUnpairConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -397,6 +346,11 @@ struct MoreView: View {
                 locationUploader: self.locationUploader
             )
             self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
+            self.transferRate = self.observerUploader.recentBytesPerSecond
+                + self.omiUploaderHolder.uploader.recentBytesPerSecond
+                + self.watchUploaderHolder.uploader.recentBytesPerSecond
+                + self.locationUploader.recentBytesPerSecond
+                + self.importQueue.recentBytesPerSecond
             try? await Task.sleep(for: .seconds(2))
         }
     }

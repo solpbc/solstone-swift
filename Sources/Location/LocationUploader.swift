@@ -50,6 +50,7 @@ final class LocationUploader: LocationUploading {
     private(set) var failedCount = 0
     var lastUploadAt: Date?
     var lastError: String?
+    private let throughputMeter = ThroughputMeter()
 
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
@@ -75,6 +76,10 @@ final class LocationUploader: LocationUploading {
     @ObservationIgnored private var isDeleting = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.location-uploader")
+
+    var recentBytesPerSecond: Double {
+        self.throughputMeter.recentBytesPerSecond
+    }
 
     init(
         cacheRootURL: URL? = nil,
@@ -856,6 +861,10 @@ private extension LocationUploader {
             if ingestResponse?.status == "duplicate" {
                 locationUploadLog.info("location segment already delivered \(info.fileID, privacy: .public)")
             }
+            let uploadedBytes = ThroughputMeter.byteCount(of: info.requestBodyURL)
+            self.throughputMeter.record(
+                bytes: uploadedBytes > 0 ? uploadedBytes : ThroughputMeter.byteCount(of: info.segmentURL)
+            )
             try? self.fileManager.removeItem(at: info.segmentURL)
             try? self.fileManager.removeItem(at: info.requestBodyURL)
             self.attemptCountByFileID.removeValue(forKey: info.fileID)

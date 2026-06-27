@@ -149,6 +149,7 @@ targets:
     sources:
       - SolstoneShareExtension
       - Sources/ImportQueue/ImportQueue.swift
+      - Sources/ThroughputMeter.swift
       - Sources/ImportQueue/ImporterServerURL.swift
       - Sources/ImportQueue/DeleteShareSourceResult.swift
       - Sources/Instrumentation/DrainSignpost.swift

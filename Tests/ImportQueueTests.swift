@@ -132,6 +132,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         try await self.waitFor("save/start delivery") {
             queue.pendingCount == 0 && queue.lastDeliveredAt != nil
         }
+        XCTAssertGreaterThan(queue.recentBytesPerSecond, 0)
         XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save", "/app/import/api/start"])
 
         let saveBody = String(decoding: try XCTUnwrap(ImportQueueURLProtocol.capturedBodies.first), as: UTF8.self)

@@ -60,6 +60,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             uploader.pendingCount == 0 && uploader.lastUploadAt != nil
         }
 
+        XCTAssertGreaterThan(uploader.recentBytesPerSecond, 0)
         XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingAudioURL(sessionID: sessionID, chunkID: "chunk-1").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: "chunk-1").path))

@@ -58,6 +58,7 @@ final class ImportQueue {
     var failedCount = 0
     var lastDeliveredAt: Date?
     var lastError: String?
+    private let throughputMeter = ThroughputMeter()
 
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
@@ -83,6 +84,10 @@ final class ImportQueue {
     @ObservationIgnored private var retryTasksByItemID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.import-queue")
+
+    var recentBytesPerSecond: Double {
+        self.throughputMeter.recentBytesPerSecond
+    }
 
     init(
         cacheRootURL: URL? = nil,
@@ -702,6 +707,7 @@ private extension ImportQueue {
 
         let statusCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
         if 200..<300 ~= statusCode {
+            self.throughputMeter.record(bytes: ThroughputMeter.byteCount(of: info.bodyURL))
             switch info.step {
             case .save:
                 await self.handleSaveSuccess(info: info, responseData: responseData)

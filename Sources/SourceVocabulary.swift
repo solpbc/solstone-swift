@@ -281,6 +281,8 @@ nonisolated enum SourceVocabulary {
     static let openJournalLink = "open journal ↗"
     static let openInJournal = "open in journal"
     static let journalTunnel = "private network"
+    static let transferRateLabel = "transfer rate"
+    static let transferRateIdle = "idle"
     static let standingConnected = "connected"
     static let standingSyncing = "connected · syncing"
     static let standingOffline = "offline"
@@ -332,6 +334,13 @@ nonisolated enum SourceVocabulary {
 
     static func journalLivesAction(isPaired: Bool) -> String {
         isPaired ? journalLivesRepairAction : journalLivesConnectAction
+    }
+
+    static func transferRateValue(bytesPerSecond: Double) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+        formatter.allowedUnits = [.useKB, .useMB]
+        return "~" + formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
     }
 
     static let retry = "retry"

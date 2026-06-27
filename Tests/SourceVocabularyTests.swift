@@ -18,6 +18,15 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.journalLivesAction(isPaired: true), "re-pair")
     }
 
+    func testTransferRateValueFormatsApproximateThroughput() {
+        let kbRate = SourceVocabulary.transferRateValue(bytesPerSecond: 240_000)
+        XCTAssertTrue(kbRate.contains("~"), kbRate)
+        XCTAssertTrue(kbRate.contains("KB/s"), kbRate)
+
+        let mbRate = SourceVocabulary.transferRateValue(bytesPerSecond: 1_300_000)
+        XCTAssertTrue(mbRate.contains("MB/s"), mbRate)
+    }
+
     func testLockedOwnerSourceCopy() {
         XCTAssertEqual(
             SourceVocabulary.trustLineUnpaired,
@@ -44,6 +53,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.turnOnAudio, "turn on audio")
         XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
         XCTAssertEqual(SourceVocabulary.yourJournalSection, "your journal")
+        XCTAssertEqual(SourceVocabulary.transferRateLabel, "transfer rate")
+        XCTAssertEqual(SourceVocabulary.transferRateIdle, "idle")
         XCTAssertEqual(SourceVocabulary.details, "details")
         XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
@@ -572,6 +583,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingSyncing,
             SourceVocabulary.standingOffline,
             SourceVocabulary.standingDegraded,
+            SourceVocabulary.transferRateLabel,
+            SourceVocabulary.transferRateIdle,
             SourceVocabulary.checkConnection,
             SourceVocabulary.probeReachable,
             SourceVocabulary.standingSyncLine(health: .healthy, syncing: true),
@@ -715,6 +728,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneAgedBacklog(count: 2),
             SourceVocabulary.onThisPhoneLocationRowLabel(count: 2),
             SourceVocabulary.yourJournalSection,
+            SourceVocabulary.transferRateLabel,
+            SourceVocabulary.transferRateIdle,
             SourceVocabulary.details,
             SourceVocabulary.notProvided,
             SourceVocabulary.originAppNotProvided,
