@@ -254,6 +254,243 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testDropCancelsInFlightSaveUploadAndClearsState() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/import/api/save"
+        }
+        ImportQueueURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTFail("held save upload should not complete normally")
+            return (Self.response(for: request, statusCode: 200), Data())
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "drop-save.pdf", data: Data("pdf".utf8))
+
+        let itemUUID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        let itemID = itemUUID.uuidString.lowercased()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        queue.dropItem(itemID: itemUUID)
+
+        try await self.waitFor("save drop cancellation") {
+            ImportQueueURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/import/api/save" }
+        }
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertEqual(queue.pendingCount, 0)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNil(queue.lastError)
+        XCTAssertNil(try self.readLedgerIfPresent()[itemID])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.startUploadURL(itemID: itemID, status: "pending").path))
+    }
+
+    @MainActor
+    func testDropCancelsInFlightStartUploadAndClearsState() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        try Data(#"{"path":"/imports/drop-start","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
+        let itemUUID = try XCTUnwrap(UUID(uuidString: itemID))
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/import/api/start"
+        }
+        ImportQueueURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTFail("held start upload should not complete normally")
+            return (Self.response(for: request, statusCode: 200), Data())
+        }
+        let queue = self.makeQueue(ensureRegistered: {
+            XCTFail("start resume should not register")
+            throw ImportQueueError.registrationUnavailable
+        })
+
+        await queue.resumeFromDisk()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        queue.dropItem(itemID: itemUUID)
+
+        try await self.waitFor("start drop cancellation") {
+            ImportQueueURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/import/api/start" }
+        }
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertEqual(queue.pendingCount, 0)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertNil(queue.lastError)
+        XCTAssertNil(try self.readLedgerIfPresent()[itemID])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.startUploadURL(itemID: itemID, status: "pending").path))
+    }
+
+    @MainActor
+    func testDroppedSaveLateFailureIsIgnored() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.respondsAsynchronously = true
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            uploadStarted.signal()
+            XCTAssertEqual(uploadRelease.wait(timeout: .now() + 2), .success)
+            return (Self.response(for: request, statusCode: 500), Data("late failure".utf8))
+        }
+        let queue = self.makeQueue(retryDelays: [0])
+        let source = try self.makeSourceFile(named: "drop-save-late-failure.pdf", data: Data("pdf".utf8))
+
+        let itemUUID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        let itemID = itemUUID.uuidString.lowercased()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        queue.dropItem(itemID: itemUUID)
+        XCTAssertTrue(queue.isDropTombstonedForTesting(itemID: itemID))
+        try await self.waitFor("save late failure cancellation") {
+            ImportQueueURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/import/api/save" }
+        }
+        uploadRelease.signal()
+
+        try await self.waitFor("save late failure tombstone eviction") {
+            !queue.isDropTombstonedForTesting(itemID: itemID)
+        }
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "failed").path))
+        XCTAssertNil(try self.readLedgerIfPresent()[itemID])
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.startUploadURL(itemID: itemID, status: "pending").path))
+    }
+
+    @MainActor
+    func testDroppedStartLateFailureIsIgnored() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        try Data(#"{"path":"/imports/drop-start-late-failure","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
+        let itemUUID = try XCTUnwrap(UUID(uuidString: itemID))
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.respondsAsynchronously = true
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/start")
+            uploadStarted.signal()
+            XCTAssertEqual(uploadRelease.wait(timeout: .now() + 2), .success)
+            return (Self.response(for: request, statusCode: 500), Data("late failure".utf8))
+        }
+        let queue = self.makeQueue(ensureRegistered: {
+            XCTFail("start resume should not register")
+            throw ImportQueueError.registrationUnavailable
+        })
+
+        await queue.resumeFromDisk()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        queue.dropItem(itemID: itemUUID)
+        XCTAssertTrue(queue.isDropTombstonedForTesting(itemID: itemID))
+        try await self.waitFor("start late failure cancellation") {
+            ImportQueueURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/import/api/start" }
+        }
+        uploadRelease.signal()
+
+        try await self.waitFor("start late failure tombstone eviction") {
+            !queue.isDropTombstonedForTesting(itemID: itemID)
+        }
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "failed").path))
+        XCTAssertNil(try self.readLedgerIfPresent()[itemID])
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/start"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.startUploadURL(itemID: itemID, status: "pending").path))
+    }
+
+    @MainActor
+    func testDroppedSaveLateSuccessIsSuppressed() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.respondsAsynchronously = true
+        ImportQueueURLProtocol.handler = { request, body in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            uploadStarted.signal()
+            XCTAssertEqual(uploadRelease.wait(timeout: .now() + 2), .success)
+            return (
+                Self.response(for: request, statusCode: 200),
+                Self.saveStartResponse(path: "/imports/drop-save-late-success", body: body)
+            )
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "drop-save-late-success.pdf", data: Data("pdf".utf8))
+
+        let itemUUID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        let itemID = itemUUID.uuidString.lowercased()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        queue.plantDropTombstoneForTesting(itemID: itemID)
+        uploadRelease.signal()
+
+        try await self.waitFor("save late success tombstone eviction") {
+            !queue.isDropTombstonedForTesting(itemID: itemID)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveResultURL(itemID: itemID, status: "pending").path))
+        XCTAssertNil(try self.readLedgerIfPresent()[itemID])
+        XCTAssertNil(queue.lastDeliveredAt)
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(queue.inFlightCount, 0)
+    }
+
+    @MainActor
+    func testDroppedStartLateSuccessIsSuppressed() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        try Data(#"{"path":"/imports/drop-start-late-success","timestamp":"2026-04-20T12:00:00Z","recommended_action":"start"}"#.utf8)
+            .write(to: self.saveResultURL(itemID: itemID, status: "pending"), options: .atomic)
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.respondsAsynchronously = true
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/start")
+            uploadStarted.signal()
+            XCTAssertEqual(uploadRelease.wait(timeout: .now() + 2), .success)
+            return (Self.response(for: request, statusCode: 200), Self.validStartResponse)
+        }
+        let queue = self.makeQueue(ensureRegistered: {
+            XCTFail("start resume should not register")
+            throw ImportQueueError.registrationUnavailable
+        })
+
+        await queue.resumeFromDisk()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        queue.plantDropTombstoneForTesting(itemID: itemID)
+        uploadRelease.signal()
+
+        try await self.waitFor("start late success tombstone eviction") {
+            !queue.isDropTombstonedForTesting(itemID: itemID)
+        }
+        XCTAssertNil(try self.readLedgerIfPresent()[itemID])
+        XCTAssertNil(queue.lastDeliveredAt)
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(queue.inFlightCount, 0)
+    }
+
+    @MainActor
     func testSaveTransportErrorIncrementsAttemptAndCanExhaust() async throws {
         let retrySleepGate = ImportQueueRetrySleepGate()
         defer { retrySleepGate.release() }
@@ -1180,6 +1417,14 @@ nonisolated final class ImportQueueTests: XCTestCase {
         self.itemDirectory(itemID: itemID, status: status).appendingPathComponent("save.json")
     }
 
+    private func saveUploadURL(itemID: String, status: String) -> URL {
+        self.itemDirectory(itemID: itemID, status: status).appendingPathComponent("save.upload")
+    }
+
+    private func startUploadURL(itemID: String, status: String) -> URL {
+        self.itemDirectory(itemID: itemID, status: status).appendingPathComponent("start.upload")
+    }
+
     private func itemDirectory(itemID: String, status: String) -> URL {
         self.tempDirectory
             .appendingPathComponent(status, isDirectory: true)
@@ -1200,6 +1445,11 @@ nonisolated final class ImportQueueTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode([String: TestLedgerEntry].self, from: Data(contentsOf: url))
+    }
+
+    private func readLedgerIfPresent() throws -> [String: TestLedgerEntry] {
+        guard self.ledgerExists() else { return [:] }
+        return try self.readLedger()
     }
 
     private func ledgerExists() -> Bool {
@@ -1432,16 +1682,29 @@ private final class ImportQueueRetrySleepGate: @unchecked Sendable {
 
 private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest, Data) throws -> (HTTPURLResponse, Data)
+    typealias RequestPredicate = @Sendable (URLRequest) -> Bool
+    typealias RequestObserver = @Sendable (URLRequest) -> Void
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let heldRequestPredicateBox = OSAllocatedUnfairLock<RequestPredicate?>(initialState: nil)
+    private static let onHeldRequestBox = OSAllocatedUnfairLock<RequestObserver?>(initialState: nil)
     private static let respondsAsynchronouslyBox = OSAllocatedUnfairLock<Bool>(initialState: false)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
     private static let pathsBox = OSAllocatedUnfairLock<[String]>(initialState: [])
+    private static let stoppedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
 
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
         set { self.handlerBox.withLock { $0 = newValue } }
+    }
+    static var heldRequestPredicate: RequestPredicate? {
+        get { self.heldRequestPredicateBox.withLock { $0 } }
+        set { self.heldRequestPredicateBox.withLock { $0 = newValue } }
+    }
+    static var onHeldRequest: RequestObserver? {
+        get { self.onHeldRequestBox.withLock { $0 } }
+        set { self.onHeldRequestBox.withLock { $0 = newValue } }
     }
     static var respondsAsynchronously: Bool {
         get { self.respondsAsynchronouslyBox.withLock { $0 } }
@@ -1459,13 +1722,20 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         get { self.pathsBox.withLock { $0 } }
         set { self.pathsBox.withLock { $0 = newValue } }
     }
+    static var stoppedRequests: [URLRequest] {
+        get { self.stoppedRequestsBox.withLock { $0 } }
+        set { self.stoppedRequestsBox.withLock { $0 = newValue } }
+    }
 
     static func reset() {
         self.handler = nil
+        self.heldRequestPredicate = nil
+        self.onHeldRequest = nil
         self.respondsAsynchronously = false
         self.callCount = 0
         self.capturedBodies = []
         self.capturedPaths = []
+        self.stoppedRequests = []
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -1483,6 +1753,10 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         Self.pathsBox.withLock { $0.append(self.request.url?.path ?? "") }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
+        if Self.heldRequestPredicate?(self.request) == true {
+            Self.onHeldRequest?(self.request)
+            return
+        }
         guard let handler = Self.handler else {
             XCTFail("ImportQueueURLProtocol handler not set")
             return
@@ -1498,7 +1772,9 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.stoppedRequestsBox.withLock { $0.append(self.request) }
+    }
 
     private func load(handler: Handler, request: URLRequest, body: Data) {
         do {

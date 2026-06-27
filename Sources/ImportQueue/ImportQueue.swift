@@ -87,6 +87,7 @@ final class ImportQueue {
     @ObservationIgnored private var attemptCountByItemID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByItemID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var schedulingItemIDs: Set<String> = []
+    @ObservationIgnored private var droppedItemIDs: Set<String> = []
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.import-queue")
 
@@ -295,6 +296,13 @@ final class ImportQueue {
 
     func dropItem(itemID: UUID) {
         let itemIDString = Self.itemIDString(itemID)
+        let hadLiveWork = self.uploadTaskByItemID[itemIDString] != nil
+            || self.activeTaskIDByItemID[itemIDString] != nil
+            || self.schedulingItemIDs.contains(itemIDString)
+        if hadLiveWork {
+            self.droppedItemIDs.insert(itemIDString)
+        }
+        self.uploadTaskByItemID[itemIDString]?.cancel()
         self.retryTasksByItemID[itemIDString]?.cancel()
         self.retryTasksByItemID.removeValue(forKey: itemIDString)
         self.attemptCountByItemID.removeValue(forKey: itemIDString)
@@ -311,6 +319,14 @@ final class ImportQueue {
 
     func attemptCountForTesting(itemID: String) -> Int {
         self.attemptCountByItemID[itemID, default: 0]
+    }
+
+    func isDropTombstonedForTesting(itemID: String) -> Bool {
+        self.droppedItemIDs.contains(itemID)
+    }
+
+    func plantDropTombstoneForTesting(itemID: String) {
+        self.droppedItemIDs.insert(itemID)
     }
 
     func onThisPhoneSourceSnapshot() -> OnThisPhoneSourceResult {
@@ -663,7 +679,13 @@ private extension ImportQueue {
             }
 
             let createResumeStart = DispatchTime.now().uptimeNanoseconds
+            guard !self.droppedItemIDs.contains(itemID) else {
+                self.droppedItemIDs.remove(itemID)
+                try? self.fileManager.removeItem(at: bodyURL)
+                return
+            }
             let task = self.session.uploadTask(with: request, fromFile: bodyURL)
+            task.taskDescription = itemID
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
                 itemID: itemID,
                 itemDirectoryURL: itemDirectoryURL,
@@ -698,6 +720,19 @@ private extension ImportQueue {
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         let start = DispatchTime.now().uptimeNanoseconds
+        let resolvedItemID = task.taskDescription ?? self.taskInfoByTaskID[task.taskIdentifier]?.itemID
+        if let resolvedItemID, self.droppedItemIDs.remove(resolvedItemID) != nil {
+            self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier)
+            if self.activeTaskIDByItemID[resolvedItemID] == task.taskIdentifier {
+                self.activeTaskIDByItemID.removeValue(forKey: resolvedItemID)
+            }
+            self.uploadTaskByItemID.removeValue(forKey: resolvedItemID)
+            self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier)
+            try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: resolvedItemID, status: .pending))
+            try? self.fileManager.removeItem(at: self.startUploadURL(itemID: resolvedItemID, status: .pending))
+            importQueueLog.info("import dropped-item completion ignored \(resolvedItemID, privacy: .public)")
+            return
+        }
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
         let step = info.step.drainLabel
         self.activeTaskIDByItemID.removeValue(forKey: info.itemID)
