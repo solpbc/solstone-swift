@@ -136,6 +136,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.connectDoorHostedSubtitle,
             "a journal sol pbc keeps for you. on by you, off by you, yours either way."
         )
+        XCTAssertEqual(SourceVocabulary.pairingLinked, "journal connected")
+        XCTAssertEqual(SourceVocabulary.pairingAlreadyConnected, "this journal is already connected")
+        XCTAssertEqual(SourceVocabulary.pairingReconnected, "journal connection updated")
+        XCTAssertEqual(SourceVocabulary.pairingReconnecting, "reconnecting…")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneScope,
             "everything your observers have gathered, resting here until you connect a journal."
@@ -782,6 +786,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.connectDoorOwnSubtitle,
             SourceVocabulary.connectDoorHostedTitle,
             SourceVocabulary.connectDoorHostedSubtitle,
+            SourceVocabulary.pairingLinked,
+            SourceVocabulary.pairingAlreadyConnected,
+            SourceVocabulary.pairingReconnected,
+            SourceVocabulary.pairingReconnecting,
             SourceVocabulary.retry,
             SourceVocabulary.drop,
             SourceVocabulary.cancel,

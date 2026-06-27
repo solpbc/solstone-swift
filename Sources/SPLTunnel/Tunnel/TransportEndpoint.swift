@@ -11,7 +11,7 @@ public enum TransportEndpoint: Sendable, Equatable {
         let local = pairing.localEndpoints.map {
             TransportEndpoint.lan(host: $0.host, port: $0.port, scope: $0.scope)
         }
-        guard case .enrolled(let deviceToken) = pairing.relayEnrollment else {
+        guard case .enrolled(let deviceToken, _) = pairing.relayEnrollment else {
             return local
         }
         guard let relayEndpoint = URL(string: pairing.relayEndpoint) else {

@@ -32,7 +32,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         endpointCache: EndpointCache? = nil,
         pathMonitor: PathMonitor = PathMonitor(),
         pairing: StoredPairing? = fixturePairing(),
+        loadPairing: (@Sendable () throws -> StoredPairing?)? = nil,
+        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { _ in },
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
+        deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(),
         initialRetryDelay: TimeInterval = 10,
         connectDeadline: Duration = .seconds(15),
         probeSession: URLSession = .shared,
@@ -47,8 +50,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             endpointCache: endpointCache ?? EndpointCache(fileURL: Self.tempFileURL()),
             pathMonitor: pathMonitor,
-            loadPairing: { pairing },
+            loadPairing: loadPairing ?? { pairing },
+            savePairing: savePairing,
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
+            deviceTokenRefresher: deviceTokenRefresher,
             initialRetryDelay: initialRetryDelay,
             connectDeadline: connectDeadline,
             probeSession: probeSession,
@@ -164,6 +169,78 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.state, .connected(localPort: 9090, via: .remote))
         XCTAssertEqual(transport.connectionMode, .plViaSpl)
+    }
+
+    @MainActor
+    func testPreDialRefreshUsesFreshRelayTokenAndSavesPairing() async {
+        let oldToken = "bad-token"
+        let newToken = Self.validFutureDeviceToken + "x"
+        let original = Self.fixturePairing(localEndpoints: [], deviceToken: oldToken)
+        let saved = OSAllocatedUnfairLock<StoredPairing?>(initialState: nil)
+        let transport = MockCFTunnelTransport()
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)))
+        let manager = makeManager(
+            transport: transport,
+            pairing: original,
+            savePairing: { updated in saved.withLock { $0 = updated } },
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(saved.withLock { $0?.relayEnrollment }, .enrolled(deviceToken: newToken, expiresAt: "2036-01-01T00:00:00Z"))
+        XCTAssertEqual(Self.relayTokens(from: transport.capturedCandidates), [newToken])
+    }
+
+    @MainActor
+    func testReactiveTokenExpiredRefreshesAndRedialsOnce() async {
+        let newToken = Self.validFutureDeviceToken + "x"
+        let pairingBox = OSAllocatedUnfairLock(initialState: Self.fixturePairing(localEndpoints: [], deviceToken: Self.validFutureDeviceToken))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.tokenExpired),
+            .success(8181),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)))
+        let manager = makeManager(
+            transport: transport,
+            loadPairing: { pairingBox.withLock { $0 } },
+            savePairing: { updated in pairingBox.withLock { $0 = updated } },
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .connected(localPort: 8181, via: .remote))
+        XCTAssertEqual(transport.connectCallCount, 2)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs(), ["https://relay.example.com/token/refresh"])
+        XCTAssertEqual(Self.relayTokens(from: transport.capturedCandidateBatches.last ?? []), [newToken])
+    }
+
+    @MainActor
+    func testReactiveTokenExpiredSecondFailureIsTerminalRevoked() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let pairingBox = OSAllocatedUnfairLock(initialState: Self.fixturePairing(localEndpoints: [], deviceToken: Self.validFutureDeviceToken))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.tokenExpired),
+            .failure(SessionError.tokenExpired),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData()))
+        let manager = makeManager(
+            transport: transport,
+            loadPairing: { pairingBox.withLock { $0 } },
+            savePairing: { updated in pairingBox.withLock { $0 = updated } },
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertEqual(transport.connectCallCount, 2)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 1)
+        XCTAssertTrue(didDeletePairing.withLock { $0 })
     }
 
     @MainActor
@@ -1013,6 +1090,13 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         return URLSession(configuration: configuration)
     }
 
+    private static func tokenRefreshSession(responseData: Data = Data(), statusCode: Int = 200, error: URLError? = nil) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TunnelTokenRefreshURLProtocol.self]
+        TunnelTokenRefreshURLProtocol.configure(responseData: responseData, statusCode: statusCode, error: error)
+        return URLSession(configuration: configuration)
+    }
+
     @MainActor
     private static func pathChangedEvents(in log: DiagnosticLog) -> [DiagnosticEvent] {
         log.events.filter { $0.category == .tunnel && $0.message == "path changed" }
@@ -1020,9 +1104,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     private static func fixturePairing(
         localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
-        deviceToken: String = "device-token"
+        deviceToken: String? = nil
     ) -> StoredPairing {
-        StoredPairing(
+        let deviceToken = deviceToken ?? Self.validFutureDeviceToken
+        return StoredPairing(
             instanceID: "instance-123",
             homeLabel: "sol",
             relayEndpoint: "wss://relay.example.com",
@@ -1030,7 +1115,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
-            relayEnrollment: .enrolled(deviceToken: deviceToken),
+            relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: nil),
             localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
@@ -1038,6 +1123,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     private static func localEndpoint(host: String, port: Int, scope: String) -> LocalEndpoint {
         LocalEndpoint(host: host, port: port, scope: scope)
+    }
+
+    private static let validFutureDeviceToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJpYXQiOjE3NjcyMjU2MDAsImV4cCI6MjA4Mjc1ODQwMH0.sig"
+
+    private static func tokenRefreshSuccessData(deviceToken: String = validFutureDeviceToken) -> Data {
+        Data(#"{"device_token":"\#(deviceToken)","expires_at":"2036-01-01T00:00:00Z"}"#.utf8)
     }
 
     private static func lanCandidates(from candidates: [TransportEndpoint]) -> [TransportEndpoint] {
@@ -1056,6 +1147,15 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             }
             return false
         }.count
+    }
+
+    private static func relayTokens(from candidates: [TransportEndpoint]) -> [String] {
+        candidates.compactMap { endpoint in
+            if case .relay(_, _, let deviceToken) = endpoint {
+                return deviceToken
+            }
+            return nil
+        }
     }
 }
 
@@ -1103,6 +1203,60 @@ private final class TunnelProbeURLProtocol: URLProtocol, @unchecked Sendable {
         } catch {
             self.client?.urlProtocol(self, didFailWithError: error)
         }
+    }
+
+    override func stopLoading() {}
+}
+
+private final class TunnelTokenRefreshURLProtocol: URLProtocol, @unchecked Sendable {
+    struct State: Sendable {
+        var responseData = Data()
+        var statusCode = 200
+        var error: URLError?
+        var requestURLs: [String] = []
+    }
+
+    private static let state = OSAllocatedUnfairLock(initialState: State())
+
+    static func configure(responseData: Data = Data(), statusCode: Int = 200, error: URLError? = nil) {
+        state.withLock {
+            $0.responseData = responseData
+            $0.statusCode = statusCode
+            $0.error = error
+            $0.requestURLs = []
+        }
+    }
+
+    static func requestURLs() -> [String] {
+        state.withLock { $0.requestURLs }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "relay.example.com"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let current = Self.state.withLock { state in
+            state.requestURLs.append(self.request.url?.absoluteString ?? "")
+            return state
+        }
+        if let error = current.error {
+            self.client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
+        let response = HTTPURLResponse(
+            url: self.request.url!,
+            statusCode: current.statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        self.client?.urlProtocol(self, didLoad: current.responseData)
+        self.client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() {}

@@ -122,7 +122,7 @@ nonisolated final class EndpointCacheTests: XCTestCase {
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
-            relayEnrollment: .enrolled(deviceToken: "token"),
+            relayEnrollment: .enrolled(deviceToken: "token", expiresAt: nil),
             localEndpoints: endpoints,
             pairedAt: Date()
         )

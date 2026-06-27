@@ -253,7 +253,7 @@ nonisolated final class PairClientTests: XCTestCase {
             relayEndpoint: Self.relayEndpoint
         )
 
-        XCTAssertEqual(pairing.relayEnrollment, .enrolled(deviceToken: "relay-token"))
+        XCTAssertEqual(pairing.relayEnrollment, .enrolled(deviceToken: "relay-token", expiresAt: "2036-01-01T00:00:00Z"))
         let candidates = try TransportEndpoint.candidates(for: pairing)
         XCTAssertEqual(candidates.count, 3)
         XCTAssertTrue(candidates.contains(.lan(host: "192.0.2.42", port: 7070, scope: "")))

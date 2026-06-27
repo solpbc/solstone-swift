@@ -134,13 +134,13 @@ struct PairFlowView: View {
                         .autocorrectionDisabled()
                         .padding(12)
                         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                    Button(self.coordinator.state == .pairing ? "pairing..." : "pair this device") {
+                    Button(self.pairButtonTitle) {
                         Task {
                             await self.handlePastedURL()
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.coordinator.state == .pairing)
+                    .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.coordinator.state.isPairingInputInProgress)
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }
 
@@ -231,6 +231,17 @@ struct PairFlowView: View {
             await self.handle(pairURL)
         case .routeFailure(let error):
             self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
+        }
+    }
+
+    private var pairButtonTitle: String {
+        switch self.coordinator.state {
+        case .pairing:
+            return "pairing..."
+        case .reconnecting:
+            return SourceVocabulary.pairingReconnecting
+        case .idle, .scanning, .failed, .connected, .alreadyConnected, .reconnected:
+            return "pair this device"
         }
     }
 

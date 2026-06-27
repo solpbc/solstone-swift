@@ -7,17 +7,37 @@ import XCTest
 
 nonisolated final class SPLKeychainCodableTests: XCTestCase {
     func testEncodingWritesRelayEnrollmentAsTopLevelKey() throws {
-        let data = try SPLKeychain.encode(Self.pairing(enrollment: .enrolled(deviceToken: "token-123")))
+        let data = try SPLKeychain.encode(Self.pairing(enrollment: .enrolled(deviceToken: "token-123", expiresAt: nil)))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertNotNil(object["relayEnrollment"])
         XCTAssertNil(object["deviceToken"])
     }
 
+    func testRelayEnrollmentRoundTripsExpiresAt() throws {
+        let expected = Self.pairing(enrollment: .enrolled(deviceToken: "token-123", expiresAt: "2036-01-01T00:00:00Z"))
+
+        let decoded = try SPLKeychain.decode(try SPLKeychain.encode(expected))
+
+        XCTAssertEqual(decoded, expected)
+    }
+
     func testLegacyDeviceTokenDecodesAsEnrolled() throws {
         let pairing = try SPLKeychain.decode(Self.legacyPayload(extra: ["deviceToken": "legacy-token"]))
 
-        XCTAssertEqual(pairing.relayEnrollment, .enrolled(deviceToken: "legacy-token"))
+        XCTAssertEqual(pairing.relayEnrollment, .enrolled(deviceToken: "legacy-token", expiresAt: nil))
+    }
+
+    func testCurrentRelayEnrollmentWithoutExpiresAtDecodesAsNil() throws {
+        let pairing = try SPLKeychain.decode(Self.legacyPayload(extra: [
+            "relayEnrollment": [
+                "enrolled": [
+                    "deviceToken": "current-token"
+                ]
+            ]
+        ]))
+
+        XCTAssertEqual(pairing.relayEnrollment, .enrolled(deviceToken: "current-token", expiresAt: nil))
     }
 
     func testMissingRelayEnrollmentDecodesAsUnavailable() throws {

@@ -247,7 +247,7 @@ public struct PairClient: Sendable {
     private func optionalRelayEnrollment(relayEndpoint: URL, lanResponse: LANPairResponse) async -> RelayEnrollment {
         do {
             let relayResponse = try await postRelay(relayEndpoint: relayEndpoint, lanResponse: lanResponse)
-            return .enrolled(deviceToken: relayResponse.deviceToken)
+            return .enrolled(deviceToken: relayResponse.deviceToken, expiresAt: relayResponse.expiresAt)
         } catch {
             pairLog.error("relay enrollment failed: \(String(describing: error), privacy: .public)")
             return .unavailable

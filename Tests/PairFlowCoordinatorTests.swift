@@ -150,12 +150,90 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
 
-        XCTAssertEqual(coordinator.state, .success)
+        XCTAssertEqual(coordinator.state, .connected)
         let endpoints = await endpointCache.endpoints()
         XCTAssertEqual(endpoints, [
             .lan(host: "192.0.2.42", port: 7070, scope: ""),
             .lan(host: "10.0.0.2", port: 9443, scope: "wifi")
         ])
+    }
+
+    @MainActor
+    func testRelayAlreadyConnectedShortCircuitsWithoutPairingOrSaving() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        let prior = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "prior")
+        try SPLKeychain.save(prior)
+        let pairCalls = OSAllocatedUnfairLock(initialState: 0)
+        let coordinator = PairFlowCoordinator(
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in
+                pairCalls.withLock { $0 += 1 }
+                return Self.pairing(instanceID: "should-not-run")
+            }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
+
+        XCTAssertEqual(coordinator.state, .alreadyConnected)
+        XCTAssertEqual(pairCalls.withLock { $0 }, 0)
+        XCTAssertEqual(try SPLKeychain.load(), prior)
+    }
+
+    @MainActor
+    func testRelayReconnectSavesAndPublishesReconnected() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        try SPLKeychain.save(Self.pairing(instanceID: "old-instance", homeLabel: "old"))
+        let replacement = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "new")
+        let coordinator = PairFlowCoordinator(
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in replacement }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
+
+        XCTAssertEqual(coordinator.state, .reconnected)
+        XCTAssertEqual(try SPLKeychain.load(), replacement)
+    }
+
+    @MainActor
+    func testDirectReconnectSavesDifferentReturnedInstance() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        try SPLKeychain.save(Self.pairing(instanceID: "old-instance", homeLabel: "old"))
+        let replacement = Self.pairing(instanceID: "new-instance", homeLabel: "new")
+        let coordinator = PairFlowCoordinator(
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in replacement }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        XCTAssertEqual(coordinator.state, .reconnected)
+        XCTAssertEqual(try SPLKeychain.load(), replacement)
+    }
+
+    @MainActor
+    func testDirectAlreadyConnectedDoesNotOverwriteExistingPairing() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        let prior = Self.pairing(instanceID: "instance-123", homeLabel: "prior")
+        try SPLKeychain.save(prior)
+        let returned = Self.pairing(instanceID: "instance-123", homeLabel: "returned")
+        let coordinator = PairFlowCoordinator(
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in returned }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        XCTAssertEqual(coordinator.state, .alreadyConnected)
+        XCTAssertEqual(try SPLKeychain.load(), prior)
     }
 
     private static func relaySession(
@@ -173,6 +251,10 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         URL(string: "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
     }
 
+    private static func canonicalRelayURL() -> URL {
+        URL(string: "https://go.solstone.app/p#0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY00")!
+    }
+
     private static func tempFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -188,6 +270,21 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             homeAttestation: "attestation",
             localEndpoints: [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")]
         ))
+    }
+
+    private static func pairing(instanceID: String, homeLabel: String = "sol") -> StoredPairing {
+        StoredPairing(
+            instanceID: instanceID,
+            homeLabel: homeLabel,
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+            clientCertPEM: "cert",
+            clientKeyPEM: "key",
+            caChainPEM: "ca",
+            relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
+            localEndpoints: [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
     }
 }
 

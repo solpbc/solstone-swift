@@ -72,7 +72,7 @@ nonisolated final class TunnelSessionTests: XCTestCase {
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
-            relayEnrollment: .enrolled(deviceToken: "device-token"),
+            relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )

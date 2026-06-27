@@ -23,8 +23,50 @@ public struct LocalEndpoint: Codable, Sendable, Equatable {
 }
 
 public enum RelayEnrollment: Codable, Sendable, Equatable {
-    case enrolled(deviceToken: String)
+    case enrolled(deviceToken: String, expiresAt: String?)
     case unavailable
+
+    private enum CodingKeys: String, CodingKey {
+        case enrolled
+        case unavailable
+    }
+
+    private enum EnrolledCodingKeys: String, CodingKey {
+        case deviceToken
+        case expiresAt
+    }
+
+    private struct EmptyPayload: Codable {}
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.enrolled) {
+            let nested = try container.nestedContainer(keyedBy: EnrolledCodingKeys.self, forKey: .enrolled)
+            let deviceToken = try nested.decode(String.self, forKey: .deviceToken)
+            let expiresAt = try nested.decodeIfPresent(String.self, forKey: .expiresAt)
+            self = .enrolled(deviceToken: deviceToken, expiresAt: expiresAt)
+            return
+        }
+        if container.contains(.unavailable) {
+            self = .unavailable
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "invalid relay enrollment")
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .enrolled(let deviceToken, let expiresAt):
+            var nested = container.nestedContainer(keyedBy: EnrolledCodingKeys.self, forKey: .enrolled)
+            try nested.encode(deviceToken, forKey: .deviceToken)
+            try nested.encodeIfPresent(expiresAt, forKey: .expiresAt)
+        case .unavailable:
+            try container.encode(EmptyPayload(), forKey: .unavailable)
+        }
+    }
 }
 
 public struct StoredPairing: Codable, Sendable, Equatable {
@@ -89,7 +131,7 @@ public struct StoredPairing: Codable, Sendable, Equatable {
         if let enrollment = try container.decodeIfPresent(RelayEnrollment.self, forKey: .relayEnrollment) {
             relayEnrollment = enrollment
         } else if let legacyDeviceToken = try container.decodeIfPresent(String.self, forKey: .deviceToken) {
-            relayEnrollment = .enrolled(deviceToken: legacyDeviceToken)
+            relayEnrollment = .enrolled(deviceToken: legacyDeviceToken, expiresAt: nil)
         } else {
             relayEnrollment = .unavailable
         }
