@@ -45,6 +45,12 @@ private enum ReconnectReason: Sendable, Equatable {
     }
 }
 
+private enum ReactiveTokenRefreshDecision: Sendable {
+    case retry(StoredPairing)
+    case revoked
+    case unreachable
+}
+
 @Observable
 final class TunnelManager {
     var state: TunnelState = .disconnected
@@ -52,7 +58,9 @@ final class TunnelManager {
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let pathMonitor: PathMonitor
     @ObservationIgnored private let loadPairing: @Sendable () throws -> StoredPairing?
+    @ObservationIgnored private let savePairing: @Sendable (StoredPairing) throws -> Void
     @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
+    @ObservationIgnored private let deviceTokenRefresher: DeviceTokenRefresher
     @ObservationIgnored private let probeSession: URLSession
     @ObservationIgnored private let probeURLBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
@@ -84,7 +92,9 @@ final class TunnelManager {
         endpointCache: EndpointCache = EndpointCache(),
         pathMonitor: PathMonitor = PathMonitor(),
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
+        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLKeychain.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
+        deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(),
         initialRetryDelay: TimeInterval = 2.0,
         connectDeadline: Duration = .seconds(15),
         jitterRange: ClosedRange<Double> = 0.75...1.25,
@@ -100,7 +110,9 @@ final class TunnelManager {
         self.endpointCache = endpointCache
         self.pathMonitor = pathMonitor
         self.loadPairing = loadPairing
+        self.savePairing = savePairing
         self.deletePairing = deletePairing
+        self.deviceTokenRefresher = deviceTokenRefresher
         self.probeSession = probeSession
         self.probeURLBuilder = probeURLBuilder
         self.initialRetryDelay = initialRetryDelay
@@ -180,26 +192,7 @@ final class TunnelManager {
             guard let self else { return }
             defer { self.connectTask = nil }
             do {
-                self.appendStage(.prepareCandidates)
-                let candidates = try await self.candidateList()
-                self.completeStage(.prepareCandidates, detail: "\(candidates.count) candidate\(candidates.count == 1 ? "" : "s")")
-
-                let localPort = try await self.transport.connect(
-                    candidates: candidates,
-                    onDisconnect: { [weak self] error in
-                        Task { @MainActor [weak self] in
-                            guard let self else { return }
-                            await self.forceReconnect(
-                                reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown)
-                            )
-                        }
-                    },
-                    onStageChange: { [weak self] event in
-                        Task { @MainActor [weak self] in
-                            self?.handleStageChange(event)
-                        }
-                    }
-                )
+                let localPort = try await self.connectWithReactiveTokenRefresh()
 
                 if Task.isCancelled {
                     await self.transport.disconnect()
@@ -272,6 +265,79 @@ final class TunnelManager {
             self.scheduleReconnect(for: .unreachable)
         }
         await task.value
+    }
+
+    private func connectWithReactiveTokenRefresh() async throws -> Int {
+        var didReactiveRefresh = false
+        var retryPairing: StoredPairing?
+        while true {
+            do {
+                return try await self.connectTransportOnce(pairingOverride: retryPairing)
+            } catch SessionError.tokenExpired {
+                guard !didReactiveRefresh else {
+                    throw SessionError.revoked
+                }
+                didReactiveRefresh = true
+                await self.transport.disconnect()
+                switch await self.refreshAfterTokenExpired() {
+                case .retry(let updated):
+                    retryPairing = updated
+                    continue
+                case .revoked:
+                    throw SessionError.revoked
+                case .unreachable:
+                    throw SessionError.unreachable
+                }
+            }
+        }
+    }
+
+    private func connectTransportOnce(pairingOverride: StoredPairing? = nil) async throws -> Int {
+        self.appendStage(.prepareCandidates)
+        let candidates = try await self.candidateList(pairingOverride: pairingOverride)
+        self.completeStage(.prepareCandidates, detail: "\(candidates.count) candidate\(candidates.count == 1 ? "" : "s")")
+
+        return try await self.transport.connect(
+            candidates: candidates,
+            onDisconnect: { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.forceReconnect(
+                        reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown)
+                    )
+                }
+            },
+            onStageChange: { [weak self] event in
+                Task { @MainActor [weak self] in
+                    self?.handleStageChange(event)
+                }
+            }
+        )
+    }
+
+    private func refreshAfterTokenExpired() async -> ReactiveTokenRefreshDecision {
+        let pairing: StoredPairing
+        do {
+            guard let loaded = try self.loadPairing() else {
+                return .revoked
+            }
+            pairing = loaded
+        } catch {
+            log.error("[solstone-swift] token refresh load pairing failed: \(String(describing: error), privacy: .public)")
+            return .unreachable
+        }
+
+        switch await self.deviceTokenRefresher.refreshNow(pairing: pairing) {
+        case .refreshed(let updated):
+            self.persistRefreshedPairing(updated)
+            return .retry(updated)
+        case .notNeeded:
+            return .revoked
+        case .transientFailure:
+            return .unreachable
+        case .definitiveAuthFailure:
+            return .revoked
+        }
     }
 
     func disconnect() async {
@@ -539,12 +605,33 @@ final class TunnelManager {
         return .other
     }
 
-    private func candidateList() async throws -> [TransportEndpoint] {
-        guard let pairing = try self.loadPairing() else {
-            throw TunnelError.revoked
+    private func candidateList(pairingOverride: StoredPairing? = nil) async throws -> [TransportEndpoint] {
+        let pairing: StoredPairing
+        if let pairingOverride {
+            pairing = pairingOverride
+        } else {
+            guard let loaded = try self.loadPairing() else {
+                throw TunnelError.revoked
+            }
+            pairing = loaded
         }
 
-        let bootstrapCandidates = try TransportEndpoint.candidates(for: pairing)
+        let refreshedPairing: StoredPairing
+        if pairingOverride != nil {
+            refreshedPairing = pairing
+        } else {
+            switch await self.deviceTokenRefresher.refreshIfNeeded(pairing: pairing, now: Date()) {
+            case .refreshed(let updated):
+                self.persistRefreshedPairing(updated)
+                refreshedPairing = updated
+            case .notNeeded(let current), .transientFailure(let current):
+                refreshedPairing = current
+            case .definitiveAuthFailure:
+                refreshedPairing = pairing
+            }
+        }
+
+        let bootstrapCandidates = try TransportEndpoint.candidates(for: refreshedPairing)
         let cachedCandidates = await self.endpointCache.endpoints()
         var seenDirects = Set<String>()
         var directCandidates: [TransportEndpoint] = []
@@ -568,6 +655,14 @@ final class TunnelManager {
             throw TunnelError.unreachable
         }
         return candidates
+    }
+
+    private func persistRefreshedPairing(_ pairing: StoredPairing) {
+        do {
+            try self.savePairing(pairing)
+        } catch {
+            log.error("[solstone-swift] refreshed token save failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     private func directCandidateKey(for endpoint: TransportEndpoint) -> String? {
@@ -618,7 +713,7 @@ final class TunnelManager {
             switch sessionError {
             case .unreachable, .invalidRelayURL, .transportFailed:
                 return .unreachable
-            case .revoked:
+            case .revoked, .tokenExpired:
                 return .revoked
             case .tlsFailed:
                 return .tlsHandshakeFailed

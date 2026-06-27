@@ -16,6 +16,7 @@ public enum DialError: Error, Equatable, Sendable {
     case receiveFailed(String)
     case unexpectedTextFrame
     case relayUnauthorized
+    case relayTokenExpired
     case relayInstanceUnknown
     case wsHandshakeFailed(httpStatus: Int?)
 }
@@ -202,7 +203,12 @@ public actor RelayWSTransport: ByteTransport {
         }
         do {
             try await task.send(.data(data))
+        } catch let error as DialError {
+            throw error
         } catch {
+            if let closeError = relayCloseError() {
+                throw closeError
+            }
             throw DialError.sendFailed(error.localizedDescription)
         }
     }
@@ -223,6 +229,9 @@ public actor RelayWSTransport: ByteTransport {
         } catch let error as DialError {
             throw error
         } catch {
+            if let closeError = relayCloseError() {
+                throw closeError
+            }
             throw DialError.receiveFailed(error.localizedDescription)
         }
     }
@@ -270,6 +279,13 @@ public actor RelayWSTransport: ByteTransport {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
         return "solstone-ios/\(version)"
     }
+
+    private func relayCloseError() -> DialError? {
+        if task.closeCode.rawValue == 4401 || delegate.recordedCloseCode == 4401 {
+            return .relayTokenExpired
+        }
+        return nil
+    }
 }
 
 private final class WebSocketOpenCancellation: @unchecked Sendable {
@@ -296,6 +312,11 @@ final class WebSocketOpenDelegate: NSObject, URLSessionWebSocketDelegate, URLSes
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, Error>?
     private var result: Result<Void, Error>?
+    private var closeCode: Int?
+
+    var recordedCloseCode: Int? {
+        lock.withLock { closeCode }
+    }
 
     func waitForOpen() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -330,6 +351,20 @@ final class WebSocketOpenDelegate: NSObject, URLSessionWebSocketDelegate, URLSes
             return
         }
         complete(.failure(Self.mapFailure(error: error, task: task)))
+    }
+
+    func urlSession(
+        _: URLSession,
+        webSocketTask _: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason _: Data?
+    ) {
+        lock.withLock {
+            self.closeCode = closeCode.rawValue
+        }
+        if closeCode.rawValue == 4401 {
+            complete(.failure(DialError.relayTokenExpired))
+        }
     }
 
     func cancelOpen() {

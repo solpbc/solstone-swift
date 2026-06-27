@@ -39,7 +39,7 @@ nonisolated final class SPLKeychainStorageTests: XCTestCase {
         let testService = "app.solstone.observer.spl.test.\(UUID().uuidString)"
         defer { try? SPLKeychain._delete(service: testService) }
 
-        let pairing = Self.pairing(enrollment: .enrolled(deviceToken: "token-123"))
+        let pairing = Self.pairing(enrollment: .enrolled(deviceToken: "token-123", expiresAt: nil))
         try SPLKeychain._save(pairing, service: testService)
         XCTAssertEqual(try SPLKeychain._load(service: testService), pairing)
 

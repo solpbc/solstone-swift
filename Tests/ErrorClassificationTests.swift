@@ -35,6 +35,7 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         let manager = TunnelManager(transport: MockCFTunnelTransport())
 
         XCTAssertEqual(manager.mapTransportError(SessionError.revoked), .revoked)
+        XCTAssertEqual(manager.mapTransportError(SessionError.tokenExpired), .revoked)
         XCTAssertEqual(
             manager.mapTransportError(SessionError.revoked).userMessage,
             "this solstone has unpaired your phone. tap to re-pair."

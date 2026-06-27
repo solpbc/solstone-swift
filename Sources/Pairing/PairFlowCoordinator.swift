@@ -9,6 +9,13 @@ import os
 
 private let pairFlowLog = Logger(subsystem: "app.solstone.swift", category: "pair-flow")
 
+typealias PairOperation = @Sendable (
+    PairURL,
+    String,
+    URL,
+    @Sendable ([PairCandidate]) -> [PairCandidate]
+) async throws -> StoredPairing
+
 enum SPLPairingConstants {
     static let relayEndpoint = URL(string: "https://link.solstone.app")!
 }
@@ -17,8 +24,20 @@ enum PairFlowState: Equatable, Sendable {
     case idle
     case scanning
     case pairing
+    case reconnecting
     case failed(error: String)
-    case success
+    case connected
+    case alreadyConnected
+    case reconnected
+
+    var isPairingInputInProgress: Bool {
+        switch self {
+        case .pairing, .reconnecting:
+            return true
+        case .idle, .scanning, .failed, .connected, .alreadyConnected, .reconnected:
+            return false
+        }
+    }
 }
 
 @MainActor
@@ -30,38 +49,65 @@ final class PairFlowCoordinator {
         switch state {
         case .idle, .failed:
             true
-        case .scanning, .pairing, .success:
+        case .scanning, .pairing, .reconnecting, .connected, .alreadyConnected, .reconnected:
             false
         }
     }
 
-    private let pairClient: PairClient
+    private let pairOperation: PairOperation
     private let endpointCache: EndpointCache
     private let networkReader: any OwnNetworkReading
 
     init(
         pairClient: PairClient = PairClient(),
         endpointCache: EndpointCache = EndpointCache(),
-        networkReader: any OwnNetworkReading = GetifaddrsNetworkReader()
+        networkReader: any OwnNetworkReading = GetifaddrsNetworkReader(),
+        pairOperation: PairOperation? = nil
     ) {
-        self.pairClient = pairClient
+        if let pairOperation {
+            self.pairOperation = pairOperation
+        } else {
+            self.pairOperation = { pairURL, deviceLabel, relayEndpoint, orderCandidates in
+                try await pairClient.pair(
+                    pairURL: pairURL,
+                    deviceLabel: deviceLabel,
+                    relayEndpoint: relayEndpoint,
+                    orderCandidates: orderCandidates
+                )
+            }
+        }
         self.endpointCache = endpointCache
         self.networkReader = networkReader
     }
 
     func handlePairURL(_ pairURL: PairURL) async throws {
-        state = .pairing
+        let priorInstance = (try? SPLKeychain.load())?.instanceID
+        if pairURL.kind == .relay,
+           let scannedInstance = pairURL.instanceID,
+           Self.sameInstance(priorInstance, scannedInstance) {
+            state = .alreadyConnected
+            pairFlowLog.info("pairing skipped: already connected")
+            return
+        }
+
+        state = priorInstance == nil ? .pairing : .reconnecting
         let interfaces = networkReader.interfaces()
         do {
-            let pairing = try await pairClient.pair(
-                pairURL: pairURL,
-                deviceLabel: Self.deviceLabel(),
-                relayEndpoint: SPLPairingConstants.relayEndpoint,
-                orderCandidates: { orderCandidatesBySubnet($0, interfaces: interfaces) }
+            let pairing = try await pairOperation(
+                pairURL,
+                Self.deviceLabel(),
+                SPLPairingConstants.relayEndpoint,
+                { orderCandidatesBySubnet($0, interfaces: interfaces) }
             )
+            if let priorInstance,
+               Self.sameInstance(priorInstance, pairing.instanceID) {
+                state = .alreadyConnected
+                pairFlowLog.info("pairing completed against existing journal")
+                return
+            }
             try SPLKeychain.save(pairing)
             await endpointCache.bootstrap(from: pairing)
-            state = .success
+            state = priorInstance == nil ? .connected : .reconnected
             pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
         } catch {
             let message: String
@@ -98,6 +144,10 @@ final class PairFlowCoordinator {
 
     private static func deviceLabel() -> String {
         "\(UIDevice.current.name)'s \(UIDevice.current.model)"
+    }
+
+    private static func sameInstance(_ lhs: String?, _ rhs: String) -> Bool {
+        lhs?.caseInsensitiveCompare(rhs) == .orderedSame
     }
 
     internal static func message(for error: Error, targetAddress: String?, interfaces: [IPv4Interface]) -> String {

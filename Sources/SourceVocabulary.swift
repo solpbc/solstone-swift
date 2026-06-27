@@ -320,6 +320,11 @@ nonisolated enum SourceVocabulary {
     static let connectDoorOwnSubtitle = "pair this phone to a solstone running on your computer."
     static let connectDoorHostedTitle = "a hosted journal"
     static let connectDoorHostedSubtitle = "a journal sol pbc keeps for you. on by you, off by you, yours either way."
+    // VPX: functional placeholders pending product voice review.
+    static let pairingLinked = "journal connected"
+    static let pairingAlreadyConnected = "this journal is already connected"
+    static let pairingReconnected = "journal connection updated"
+    static let pairingReconnecting = "reconnecting…"
     static let journalLivesTitle = "where your journal lives"
     static let journalLivesPromise = "your journal is always private, only yours."
     static let journalLivesOnThisPhoneTitle = "on this phone"
