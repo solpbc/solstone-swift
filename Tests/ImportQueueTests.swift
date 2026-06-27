@@ -1163,7 +1163,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         let gate = ImportQueueRegistrationGate()
         _ = try self.writeLocalItem(status: "pending", itemID: targetItemID)
         let queue = self.makeQueue(ensureRegistered: {
-            await gate.ensureRegistered()
+            try await gate.ensureRegistered()
         })
 
         async let firstResume: Void = queue.resumeFromDisk()
@@ -1180,6 +1180,123 @@ nonisolated final class ImportQueueTests: XCTestCase {
         }
         XCTAssertEqual(saveBodiesForItem.count, 1)
         XCTAssertEqual(ImportQueueURLProtocol.capturedPaths.filter { $0 == "/app/import/api/start" }.count, 0)
+    }
+
+    @MainActor
+    func testDropDuringRegistrationSuccessWindowIsTerminal() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        let itemUUID = try XCTUnwrap(UUID(uuidString: itemID))
+        let gate = ImportQueueRegistrationGate()
+        let queue = self.makeQueue(ensureRegistered: {
+            try await gate.ensureRegistered()
+        })
+
+        async let resume: Void = queue.resumeFromDisk()
+        await gate.waitUntilParked()
+        queue.dropItem(itemID: itemUUID)
+        gate.release()
+        await resume
+
+        try await self.waitFor("drop during registration success terminal") {
+            queue.inFlightCount == 0
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "failed").path))
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertFalse(queue.isDropTombstonedForTesting(itemID: itemID))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.startUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, [])
+    }
+
+    @MainActor
+    func testDropDuringRegistrationThrowWindowIsTerminal() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        let itemUUID = try XCTUnwrap(UUID(uuidString: itemID))
+        let gate = ImportQueueRegistrationGate()
+        let queue = self.makeQueue(ensureRegistered: {
+            try await gate.ensureRegistered()
+        })
+
+        async let resume: Void = queue.resumeFromDisk()
+        await gate.waitUntilParked()
+        queue.dropItem(itemID: itemUUID)
+        gate.release(throwing: ImportQueueError.registrationUnavailable)
+        await resume
+
+        try await self.waitFor("drop during registration throw terminal") {
+            queue.inFlightCount == 0
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "failed").path))
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
+        XCTAssertNil(queue.lastError)
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertFalse(queue.isDropTombstonedForTesting(itemID: itemID))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.startUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, [])
+    }
+
+    @MainActor
+    func testHeldRegistrationThrowNonDroppedStillFails() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        let gate = ImportQueueRegistrationGate()
+        let queue = self.makeQueue(ensureRegistered: {
+            try await gate.ensureRegistered()
+        })
+
+        async let resume: Void = queue.resumeFromDisk()
+        await gate.waitUntilParked()
+        gate.release(throwing: ImportQueueError.registrationUnavailable)
+        await resume
+
+        try await self.waitFor("held registration throw settled") {
+            queue.inFlightCount == 0
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
+        XCTAssertNotNil(queue.lastError)
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testHeldRegistrationSuccessNonDroppedStillUploads() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        let itemUUID = try XCTUnwrap(UUID(uuidString: itemID))
+        let gate = ImportQueueRegistrationGate()
+        ImportQueueURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/import/api/save"
+        }
+        let queue = self.makeQueue(ensureRegistered: {
+            try await gate.ensureRegistered()
+        })
+
+        async let resume: Void = queue.resumeFromDisk()
+        await gate.waitUntilParked()
+        gate.release()
+        await resume
+
+        try await self.waitFor("held registration success upload started") {
+            ImportQueueURLProtocol.callCount >= 1
+                && ImportQueueURLProtocol.capturedPaths.contains("/app/import/api/save")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.saveUploadURL(itemID: itemID, status: "pending").path))
+        XCTAssertGreaterThanOrEqual(ImportQueueURLProtocol.callCount, 1)
+        XCTAssertTrue(ImportQueueURLProtocol.capturedPaths.contains("/app/import/api/save"))
+
+        queue.dropItem(itemID: itemUUID)
+        try await self.waitFor("held success upload cleanup") {
+            queue.inFlightCount == 0
+                && ImportQueueURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/import/api/save" }
+        }
     }
 
     @MainActor
@@ -1644,18 +1761,18 @@ private final class ImportQueueCompletionCounter: @unchecked Sendable {
 @MainActor
 private final class ImportQueueRegistrationGate {
     private var parkedContinuation: CheckedContinuation<Void, Never>?
-    private var releaseContinuation: CheckedContinuation<String, Never>?
+    private var releaseContinuation: CheckedContinuation<String, any Error>?
     private var isParked = false
-    private var releasedHandle: String?
+    private var releasedResult: Result<String, any Error>?
 
-    func ensureRegistered() async -> String {
+    func ensureRegistered() async throws -> String {
         guard !self.isParked else {
-            return self.releasedHandle ?? "test-observer-key-abc"
+            return try self.releasedResult?.get() ?? "test-observer-key-abc"
         }
         self.isParked = true
         self.parkedContinuation?.resume()
         self.parkedContinuation = nil
-        return await withCheckedContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             self.releaseContinuation = continuation
         }
     }
@@ -1668,8 +1785,14 @@ private final class ImportQueueRegistrationGate {
     }
 
     func release(handle: String = "test-observer-key-abc") {
-        self.releasedHandle = handle
+        self.releasedResult = .success(handle)
         self.releaseContinuation?.resume(returning: handle)
+        self.releaseContinuation = nil
+    }
+
+    func release(throwing error: any Error) {
+        self.releasedResult = .failure(error)
+        self.releaseContinuation?.resume(throwing: error)
         self.releaseContinuation = nil
     }
 }

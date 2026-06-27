@@ -653,7 +653,20 @@ private extension ImportQueue {
                 } catch {
                     let detail = String(describing: error)
                     importQueueLog.error("import save pending \(itemID, privacy: .public): registration unavailable \(detail, privacy: .public)")
+                    if self.droppedItemIDs.contains(itemID) {
+                        self.droppedItemIDs.remove(itemID)
+                        importQueueLog.info("import drop consumed during registration window (throw) \(itemID, privacy: .public)")
+                        self.refreshCounts()
+                        return
+                    }
                     self.lastError = detail
+                    self.refreshCounts()
+                    return
+                }
+
+                if self.droppedItemIDs.contains(itemID) {
+                    self.droppedItemIDs.remove(itemID)
+                    importQueueLog.info("import drop consumed during registration window (success) \(itemID, privacy: .public)")
                     self.refreshCounts()
                     return
                 }
