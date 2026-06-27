@@ -53,7 +53,6 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
     @State private var magicMomentDismissed = false
-    @State private var statusDetailsExpanded = false
     @State private var openRowID: String?
     @State private var pendingDropItem: OnThisPhoneItem?
     @State private var welcomeFraming: String?
@@ -110,11 +109,10 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                         let migration = onThisPhoneMigration(
                             snapshot: displayAggregate
                         )
-                        if !migration.isEmpty {
+                        if !displayAggregate.items.isEmpty,
+                           self.appConfig.isPaired || migration.needsAttention > 0 {
                             self.statusBlock(
-                                migration: migration,
-                                items: displayAggregate.items,
-                                summary: displayAggregate.sendStateSummary
+                                migration: migration
                             )
                         }
                         if !self.appConfig.isPaired,
@@ -289,39 +287,63 @@ private extension OnThisPhoneMomentsView {
 
     @ViewBuilder
     func statusBlock(
-        migration: OnThisPhoneMigration,
-        items: [OnThisPhoneItem],
-        summary: [OnThisPhoneSendStateSummary]
+        migration: OnThisPhoneMigration
     ) -> some View {
-        let headline = onThisPhoneHeadline(migration: migration, isPaired: self.appConfig.isPaired)
-        let lines = headline.lines
+        let headline = onThisPhoneHeadline(
+            migration: migration,
+            isPaired: self.appConfig.isPaired,
+            isConnected: self.tunnelManager.state.isConnected
+        )
 
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                self.statusLine(line)
-            }
-
-            if let last = onThisPhoneLastActive(items: items) {
-                Text(SourceVocabulary.lastActiveLine(
-                    relative: SourceVocabulary.probeRelativeLabel(secondsAgo: Date().timeIntervalSince(last))
-                ))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("onThisPhone.status.lastActive")
-            }
-
-            DisclosureGroup(isExpanded: self.$statusDetailsExpanded) {
-                EmptyView()
-            } label: {
-                Text(SourceVocabulary.details)
+        VStack(alignment: .leading, spacing: 12) {
+            switch headline.role {
+            case .syncing:
+                self.statusHero(count: headline.onThisPhone)
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color("SendState/Sending/Foreground"))
+                    Text(SourceVocabulary.syncingPulse)
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(Color("SendState/Sending/Foreground"))
+                .accessibilityElement(children: .combine)
+            case .offline:
+                self.statusHero(count: headline.onThisPhone)
+                Text(SourceVocabulary.offlineSafeLine)
                     .font(.subheadline)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .foregroundStyle(.secondary)
+            case .upToDate:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(SourceVocabulary.syncedHeadline)
+                        .font(.headline)
+                    Text(SourceVocabulary.syncedBody)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("onThisPhone.status.headline")
+            case .needsAttentionOnly, .none:
+                EmptyView()
             }
-            .accessibilityIdentifier("onThisPhone.details")
 
-            if self.statusDetailsExpanded {
-                self.detailsBreakdown(summary: summary)
+            if headline.needsAttention > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text(SourceVocabulary.needsAttentionRow(count: headline.needsAttention))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color("SendState/NeedsAttention/Foreground"))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Color("SendState/NeedsAttention/Foreground").opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(SourceVocabulary.needsAttentionRow(count: headline.needsAttention))
+                .accessibilityIdentifier("onThisPhone.status.needsAttention")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -329,61 +351,17 @@ private extension OnThisPhoneMomentsView {
         .accessibilityIdentifier("onThisPhone.status")
     }
 
-    @ViewBuilder
-    func statusLine(_ line: OnThisPhoneHeadline.Line) -> some View {
-        switch line.role {
-        case .needsAttention:
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
-                Text(line.text)
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.red)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("onThisPhone.status.needsAttention")
-        case .syncing:
-            Text(line.text)
-                .font(.headline)
+    func statusHero(count: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(count)")
+                .font(.system(size: 56, weight: .bold))
+                .foregroundStyle(.primary)
                 .accessibilityIdentifier("onThisPhone.status.headline")
-        case .trouble:
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
-                Text(line.text)
-            }
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(Color("SendState/Sending/Foreground"))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("onThisPhone.status.headline")
-        case .upToDate:
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle")
-                    .foregroundStyle(Color.accentColor)
-                Text(line.text)
-                    .font(.headline)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("onThisPhone.status.headline")
+            Text(SourceVocabulary.migrationStageOnThisPhone)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-    }
-
-    @ViewBuilder
-    func detailsBreakdown(summary: [OnThisPhoneSendStateSummary]) -> some View {
-        HStack(spacing: 8) {
-            ForEach(summary) { item in
-                let style = SendStateStyle.style(for: item.sendState)
-                let label = "\(item.count) \(style.compactLabel)"
-                Text(label)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(style.foreground)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(style.chipBackground, in: Capsule())
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(label)
-                    .accessibilityIdentifier("onThisPhone.summary.\(item.sendState.stateID)")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     func magicMomentShownCard(item: OnThisPhoneItem) -> some View {
@@ -523,7 +501,7 @@ private extension OnThisPhoneMomentsView {
     private var finishSyncingBacklog: Int {
         guard let displayAggregate = self.displayAggregate else { return 0 }
         let migration = onThisPhoneMigration(snapshot: displayAggregate)
-        return migration.onThisPhone + migration.onItsWay + migration.needsAttention
+        return migration.onThisPhone + migration.needsAttention
     }
 
     private var finishSyncingCardState: FinishSyncingCoordinator.CardState {
@@ -979,6 +957,10 @@ private extension SwipeToDropRow {
     }
 }
 
+nonisolated func shouldShowChip(_ state: OnThisPhoneSendState) -> Bool {
+    state == .needsAttention || state == .inYourJournal
+}
+
 private struct OnThisPhoneRow: View {
     let item: OnThisPhoneItem
 
@@ -1002,7 +984,9 @@ private struct OnThisPhoneRow: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            SendStateChip(state: self.item.sendState)
+            if shouldShowChip(self.item.sendState) {
+                SendStateChip(state: self.item.sendState)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)

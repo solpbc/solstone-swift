@@ -7,68 +7,52 @@ import XCTest
 
 nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
     @MainActor
-    func testFrozenCountGuardDifferentiatesPendingAndDeliveredSnapshots() {
-        let pending = onThisPhoneMigration(
-            snapshot: Self.snapshot(states: [.savedOnThisPhone, .savedOnThisPhone, .savedOnThisPhone])
-        )
-        let delivered = onThisPhoneMigration(
-            snapshot: Self.snapshot(states: [.inYourJournal, .inYourJournal, .inYourJournal])
-        )
-
-        XCTAssertEqual(pending.onThisPhone, 3)
-        XCTAssertEqual(pending.onItsWay, 0)
-        XCTAssertEqual(pending.inYourJournal, 0)
-        XCTAssertEqual(delivered.onItsWay, 0)
-        XCTAssertEqual(delivered.inYourJournal, 3)
-        XCTAssertNotEqual(pending, delivered)
-    }
-
-    @MainActor
-    func testMixedMigrationKeepsDeliveredPartialAndAttentionDistinct() {
+    func testMigrationFoldsSendingIntoOnThisPhoneAndExcludesDelivered() {
         let migration = onThisPhoneMigration(
             snapshot: Self.snapshot(states: [
-                .sending,
                 .savedOnThisPhone,
-                .inYourJournal,
+                .savedOnThisPhone,
+                .savedOnThisPhone,
+                .sending,
+                .sending,
+                .sending,
+                .sending,
+                .sending,
                 .inYourJournal,
                 .needsAttention,
                 .needsAttention,
             ])
         )
 
+        XCTAssertEqual(migration.onThisPhone, 8)
         XCTAssertEqual(migration.needsAttention, 2)
-        XCTAssertEqual(migration.onThisPhone, 1)
-        XCTAssertEqual(migration.onItsWay, 1)
-        XCTAssertEqual(migration.inYourJournal, 2)
+        XCTAssertEqual(migration.total, 10)
+        XCTAssertFalse(migration.isEmpty)
     }
 
     @MainActor
-    func testEmptyStalledAndColdLaunchEdgesStayHonest() {
+    func testEmptyAndDeliveredOnlySnapshotsAreEmpty() {
         let empty = onThisPhoneMigration(snapshot: Self.snapshot(states: []))
-        let stalled = onThisPhoneMigration(
-            snapshot: Self.snapshot(states: [.savedOnThisPhone, .savedOnThisPhone, .inYourJournal])
-        )
         let delivered = onThisPhoneMigration(
-            snapshot: Self.snapshot(states: [.inYourJournal])
+            snapshot: Self.snapshot(states: [.inYourJournal, .inYourJournal])
         )
 
         XCTAssertTrue(empty.isEmpty)
-        XCTAssertEqual(stalled.onThisPhone, 2)
-        XCTAssertEqual(stalled.onItsWay, 0)
-        XCTAssertEqual(stalled.inYourJournal, 1)
-        XCTAssertEqual(delivered.inYourJournal, 1)
+        XCTAssertTrue(delivered.isEmpty)
+        XCTAssertEqual(delivered.onThisPhone, 0)
+        XCTAssertEqual(delivered.needsAttention, 0)
+        XCTAssertEqual(delivered.total, 0)
     }
 
     @MainActor
-    func testNeedsAttentionOnlyDoesNotFabricateLifecycleBuckets() {
+    func testNeedsAttentionOnlyDoesNotFabricateOnThisPhoneCount() {
         let migration = onThisPhoneMigration(
             snapshot: Self.snapshot(states: [.needsAttention, .needsAttention])
         )
 
         XCTAssertEqual(migration.onThisPhone, 0)
-        XCTAssertEqual(migration.onItsWay, 0)
-        XCTAssertEqual(migration.inYourJournal, 0)
         XCTAssertEqual(migration.needsAttention, 2)
+        XCTAssertEqual(migration.total, 2)
     }
 }
 

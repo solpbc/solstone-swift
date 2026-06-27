@@ -10,7 +10,7 @@ private let moreLog = Logger(subsystem: "app.solstone.swift", category: "pairing
 nonisolated func standingSegmentReach(migration: OnThisPhoneMigration) -> UploadReach {
     uploadReach(
         failedTotal: migration.needsAttention,
-        pendingTotal: migration.onThisPhone + migration.onItsWay
+        pendingTotal: migration.onThisPhone
     )
 }
 

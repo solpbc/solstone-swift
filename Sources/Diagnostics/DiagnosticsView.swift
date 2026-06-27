@@ -23,8 +23,6 @@ struct DiagnosticsView: View {
     @State private var isRetrying = false
     @State private var lifecycleMigration = OnThisPhoneMigration(
         onThisPhone: 0,
-        onItsWay: 0,
-        inYourJournal: 0,
         needsAttention: 0
     )
 
@@ -171,10 +169,6 @@ struct DiagnosticsView: View {
         Section(SourceVocabulary.onThisPhone) {
             LabeledContent(SourceVocabulary.migrationStageOnThisPhone, value: "\(migration.onThisPhone)")
                 .accessibilityIdentifier("diagnostics.lifecycle.onThisPhone")
-            LabeledContent(SourceVocabulary.migrationStageOnItsWay, value: "\(migration.onItsWay)")
-                .accessibilityIdentifier("diagnostics.lifecycle.onItsWay")
-            LabeledContent(SourceVocabulary.migrationStageInYourJournal, value: "\(migration.inYourJournal)")
-                .accessibilityIdentifier("diagnostics.lifecycle.inYourJournal")
             LabeledContent(SourceVocabulary.needsAttention, value: "\(migration.needsAttention)")
                 .accessibilityIdentifier("diagnostics.lifecycle.needsAttention")
         }

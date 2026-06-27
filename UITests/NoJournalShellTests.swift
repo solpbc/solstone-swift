@@ -289,16 +289,12 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSeededOnThisPhoneSummaryUsesSendStatePills() {
+    func testSeededOnThisPhoneSummaryShowsNeedsAttentionRow() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        let needsAttention = app.descendants(matching: .any)["onThisPhone.status.needsAttention"]
 
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.status.needsAttention"].waitForExistence(timeout: 10))
-        app.descendants(matching: .any)["onThisPhone.details"].tap()
-
-        XCTAssertTrue(app.staticTexts["5 on this phone"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["1 needs attention"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.summary.savedOnThisPhone"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.summary.needsAttention"].exists)
+        XCTAssertTrue(needsAttention.waitForExistence(timeout: 10))
+        XCTAssertEqual(needsAttention.label, "1 needs attention")
     }
 
     @MainActor

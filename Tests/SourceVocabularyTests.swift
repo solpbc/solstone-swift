@@ -155,6 +155,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.migrationStageOnItsWay, "on its way")
         XCTAssertEqual(SourceVocabulary.migrationStageInYourJournal, "in your journal")
         XCTAssertEqual(SourceVocabulary.migrationHeadlineUpToDate, "your journal is up to date")
+        XCTAssertEqual(SourceVocabulary.syncingPulse, "syncing to your journal…")
+        XCTAssertEqual(SourceVocabulary.syncedHeadline, "all caught up")
+        XCTAssertEqual(SourceVocabulary.syncedBody, "everything's in your journal")
+        XCTAssertEqual(SourceVocabulary.offlineSafeLine, "safe here · your journal will catch up")
+        XCTAssertEqual(SourceVocabulary.needsAttentionRow(count: 1), "1 needs attention")
+        XCTAssertEqual(SourceVocabulary.needsAttentionRow(count: 3), "3 need attention")
         XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 1), "syncing 1 segment to your journal")
         XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 2), "syncing 2 segments to your journal")
         XCTAssertEqual(SourceVocabulary.lastActiveLine(relative: "just now"), "last active · just now")
@@ -575,6 +581,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
             SourceVocabulary.migrationHeadlineUpToDate,
+            SourceVocabulary.syncingPulse,
+            SourceVocabulary.syncedHeadline,
+            SourceVocabulary.syncedBody,
+            SourceVocabulary.offlineSafeLine,
+            SourceVocabulary.needsAttentionRow(count: 2),
             SourceVocabulary.migrationHeadlineSyncing(count: 1),
             SourceVocabulary.migrationHeadlineSyncing(count: 2),
             SourceVocabulary.lastActiveLine(relative: "just now"),
@@ -692,6 +703,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.migrationStageOnItsWay,
             SourceVocabulary.migrationStageInYourJournal,
             SourceVocabulary.migrationHeadlineUpToDate,
+            SourceVocabulary.syncingPulse,
+            SourceVocabulary.syncedHeadline,
+            SourceVocabulary.syncedBody,
+            SourceVocabulary.offlineSafeLine,
+            SourceVocabulary.needsAttentionRow(count: 2),
             SourceVocabulary.migrationHeadlineSyncing(count: 1),
             SourceVocabulary.migrationHeadlineSyncing(count: 2),
             SourceVocabulary.lastActiveLine(relative: "just now"),

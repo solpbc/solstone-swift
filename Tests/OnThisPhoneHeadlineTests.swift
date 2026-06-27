@@ -5,87 +5,37 @@
 import XCTest
 
 nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
-    func testNeedsAttentionOnlyProducesNeedsAttentionLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1), isPaired: false)
+    func testConnectionAwareRolesCarryCounts() {
+        let cases: [(OnThisPhoneMigration, Bool, Bool, OnThisPhoneHeadline.Role)] = [
+            (Self.migration(onThisPhone: 8, needsAttention: 2), true, true, .syncing),
+            (Self.migration(onThisPhone: 8, needsAttention: 2), true, false, .offline),
+            (Self.migration(), true, true, .upToDate),
+            (Self.migration(needsAttention: 2), true, true, .needsAttentionOnly),
+            (Self.migration(needsAttention: 2), false, true, .needsAttentionOnly),
+            (Self.migration(), false, false, .none),
+        ]
 
-        XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "1 needs attention", role: .needsAttention),
-        ])
-    }
+        for (migration, isPaired, isConnected, expectedRole) in cases {
+            let headline = onThisPhoneHeadline(
+                migration: migration,
+                isPaired: isPaired,
+                isConnected: isConnected
+            )
 
-    func testPairedNeedsAttentionMergesWithBacklogIntoTroubleLine() {
-        let headline = onThisPhoneHeadline(
-            migration: Self.migration(onItsWay: 2, needsAttention: 1),
-            isPaired: true
-        )
-
-        XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "3 waiting · trouble reaching your journal", role: .trouble),
-        ])
-    }
-
-    func testOnThisPhoneBacklogProducesSingularSyncingLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onThisPhone: 1), isPaired: true)
-
-        XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "syncing 1 segment to your journal", role: .syncing),
-        ])
-    }
-
-    func testOnItsWayBacklogProducesPluralSyncingLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2), isPaired: true)
-
-        XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "syncing 2 segments to your journal", role: .syncing),
-        ])
-    }
-
-    func testPairedNeedsAttentionOnlyProducesTroubleLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(needsAttention: 1), isPaired: true)
-
-        XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "1 waiting · trouble reaching your journal", role: .trouble),
-        ])
-    }
-
-    func testDeliveredOnlyProducesUpToDateLine() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(inYourJournal: 3), isPaired: true)
-
-        XCTAssertEqual(headline.lines, [
-            OnThisPhoneHeadline.Line(text: "your journal is up to date", role: .upToDate),
-        ])
-    }
-
-    func testEmptyMigrationProducesNoLines() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(), isPaired: true)
-
-        XCTAssertEqual(headline.lines, [])
-    }
-
-    func testUnpairedOnItsWayWithoutNeedsAttentionProducesNoLines() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(onItsWay: 2), isPaired: false)
-
-        XCTAssertEqual(headline.lines, [])
-    }
-
-    func testUnpairedEmptyMigrationProducesNoLines() {
-        let headline = onThisPhoneHeadline(migration: Self.migration(), isPaired: false)
-
-        XCTAssertEqual(headline.lines, [])
+            XCTAssertEqual(headline.role, expectedRole)
+            XCTAssertEqual(headline.onThisPhone, migration.onThisPhone)
+            XCTAssertEqual(headline.needsAttention, migration.needsAttention)
+        }
     }
 }
 
 private extension OnThisPhoneHeadlineTests {
     static func migration(
         onThisPhone: Int = 0,
-        onItsWay: Int = 0,
-        inYourJournal: Int = 0,
         needsAttention: Int = 0
     ) -> OnThisPhoneMigration {
         OnThisPhoneMigration(
             onThisPhone: onThisPhone,
-            onItsWay: onItsWay,
-            inYourJournal: inYourJournal,
             needsAttention: needsAttention
         )
     }

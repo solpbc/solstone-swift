@@ -14,19 +14,15 @@ nonisolated final class UploadReachTests: XCTestCase {
 
     func testStandingSegmentReachDerivesBacklogExcludingDeliveredItems() {
         XCTAssertEqual(
-            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, onItsWay: 0, inYourJournal: 0, needsAttention: 1)),
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, needsAttention: 1)),
             .failing
         )
         XCTAssertEqual(
-            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 2, onItsWay: 0, inYourJournal: 5, needsAttention: 0)),
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 2, needsAttention: 0)),
             .reaching
         )
         XCTAssertEqual(
-            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, onItsWay: 3, inYourJournal: 0, needsAttention: 0)),
-            .reaching
-        )
-        XCTAssertEqual(
-            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, onItsWay: 0, inYourJournal: 9, needsAttention: 0)),
+            standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)),
             .idle
         )
     }

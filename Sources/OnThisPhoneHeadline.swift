@@ -3,59 +3,40 @@
 
 import Foundation
 
-nonisolated struct OnThisPhoneHeadline: Equatable {
-    enum Role: Equatable {
+nonisolated struct OnThisPhoneHeadline: Equatable, Sendable {
+    let onThisPhone: Int
+    let needsAttention: Int
+    let role: Role
+
+    enum Role: Equatable, Sendable {
         case syncing
-        case trouble
         case upToDate
-        case needsAttention
+        case offline
+        case needsAttentionOnly
+        case none
     }
-
-    struct Line: Equatable {
-        let text: String
-        let role: Role
-    }
-
-    let lines: [Line]
 }
 
 nonisolated func onThisPhoneHeadline(
     migration: OnThisPhoneMigration,
-    isPaired: Bool
+    isPaired: Bool,
+    isConnected: Bool
 ) -> OnThisPhoneHeadline {
-    guard !migration.isEmpty else { return OnThisPhoneHeadline(lines: []) }
+    let role: OnThisPhoneHeadline.Role
 
-    if isPaired {
-        let segmentBacklog = migration.onThisPhone + migration.onItsWay + migration.needsAttention
-        guard segmentBacklog > 0 else {
-            return OnThisPhoneHeadline(lines: [
-                .init(text: SourceVocabulary.migrationHeadlineUpToDate, role: .upToDate),
-            ])
-        }
-        let reaching = migration.needsAttention == 0
-        return OnThisPhoneHeadline(lines: [
-            .init(
-                text: reaching
-                    ? SourceVocabulary.migrationHeadlineSyncing(count: segmentBacklog)
-                    : SourceVocabulary.migrationHeadlineTrouble(count: segmentBacklog),
-                role: reaching ? .syncing : .trouble
-            ),
-        ])
+    if !isPaired {
+        role = migration.needsAttention > 0 ? .needsAttentionOnly : .none
+    } else if migration.onThisPhone > 0 {
+        role = isConnected ? .syncing : .offline
+    } else if migration.needsAttention == 0 {
+        role = .upToDate
+    } else {
+        role = .needsAttentionOnly
     }
 
-    // unpaired: surface only the local needs-attention line (consumed where pairing is absent)
-    guard migration.needsAttention > 0 else { return OnThisPhoneHeadline(lines: []) }
-    return OnThisPhoneHeadline(lines: [
-        .init(
-            text: SourceVocabulary.migrationStageCount(
-                migration.needsAttention,
-                stage: SourceVocabulary.needsAttention
-            ),
-            role: .needsAttention
-        ),
-    ])
-}
-
-nonisolated func onThisPhoneLastActive(items: [OnThisPhoneItem]) -> Date? {
-    items.compactMap { $0.lastAttemptAt ?? $0.deliveredAt }.max()
+    return OnThisPhoneHeadline(
+        onThisPhone: migration.onThisPhone,
+        needsAttention: migration.needsAttention,
+        role: role
+    )
 }
