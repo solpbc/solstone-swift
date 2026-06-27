@@ -13,7 +13,8 @@ struct WelcomeScreen: View {
     var body: some View {
         OnboardingScaffold(
             title: "welcome to solstone",
-            subtitle: "solstone observes alongside you and keeps it on this phone — yours alone, until you connect a journal."
+            subtitle: "solstone observes alongside you and keeps it on this phone — yours alone, until you connect a journal.",
+            showsBrandMark: true
         ) {
             VStack(alignment: .leading, spacing: 16) {
                 Label("private by design", systemImage: "lock.fill")

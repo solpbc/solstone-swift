@@ -72,10 +72,10 @@ struct DayHomeView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Image("SolRing")
+            Image("SolWordmark")
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 44, height: 44)
+                .frame(width: 48, height: 48)
 
             Text(greeting(forHour: Calendar.current.component(.hour, from: Date())))
                 .font(.title2.weight(.semibold))

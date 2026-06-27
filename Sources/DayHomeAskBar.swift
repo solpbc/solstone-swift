@@ -12,10 +12,10 @@ struct DayHomeAskBar: View {
     var body: some View {
         Button(action: self.action) {
             HStack(spacing: 10) {
-                Image("SolRing")
+                Image("SolWordmark")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 24, height: 24)
                     .accessibilityHidden(true)
 
                 Text(self.title)

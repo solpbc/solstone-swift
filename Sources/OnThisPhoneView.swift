@@ -729,7 +729,7 @@ private extension OnThisPhoneMomentsView {
         if snapshot.items.isEmpty {
             if self.appConfig.isPaired, self.welcomeFraming == nil {
                 VStack(alignment: .leading, spacing: 12) {
-                    Image("SolRing")
+                    Image("SolWordmark")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 18, height: 18)

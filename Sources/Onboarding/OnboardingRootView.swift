@@ -36,23 +36,34 @@ struct OnboardingScaffold<Content: View>: View {
     let title: String
     let subtitle: String
     let titleAccessibilityIdentifier: String?
+    let showsBrandMark: Bool
     let content: Content
 
     init(
         title: String,
         subtitle: String,
         titleAccessibilityIdentifier: String? = nil,
+        showsBrandMark: Bool = false,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.titleAccessibilityIdentifier = titleAccessibilityIdentifier
+        self.showsBrandMark = showsBrandMark
         self.content = content()
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if self.showsBrandMark {
+                    Image("SolWordmark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 72, height: 72)
+                        .accessibilityHidden(true)
+                }
+
                 VStack(alignment: .leading, spacing: 12) {
                     self.titleView
                     Text(self.subtitle)

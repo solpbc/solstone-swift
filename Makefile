@@ -64,9 +64,8 @@ brand-sync:
 	# squircle — keep full-bleed, do NOT pre-round. Same 1024 cream master feeds the watch AppIcon too.
 	cp "$(BRAND_DIR)/app-icon/png-cream/sol-app-icon-cream-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
 	cp "$(BRAND_DIR)/app-icon/png-cream/sol-app-icon-cream-1024.png" Watch/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
-	cp "$(BRAND_DIR)/sol-wordmark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
-	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmarkWhite.imageset/sol-wordmark-white.svg
-	cp "$(BRAND_DIR)/sol-ring-icon.svg" Sources/Assets.xcassets/SolRing.imageset/sol-ring-icon.svg
+	cp "$(BRAND_DIR)/sol-wordmark-accessible.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark-accessible.svg
+	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark-white.svg
 	@echo "brand: synced from $(BRAND_DIR)"
 
 # --- Keychain (required for device builds over SSH) ---

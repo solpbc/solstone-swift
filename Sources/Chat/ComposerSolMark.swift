@@ -53,7 +53,7 @@ struct ComposerSolMark: View {
                     .scaleEffect(self.isPulsing ? 1.12 : 1)
                     .opacity(self.isPulsing ? 0.45 : 1)
 
-                Image("SolRing")
+                Image("SolWordmark")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 24, height: 24)
