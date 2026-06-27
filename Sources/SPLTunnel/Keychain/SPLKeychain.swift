@@ -139,9 +139,7 @@ public enum SPLKeychain {
     static func _save(_ pairing: StoredPairing, service: String) throws {
         try _delete(service: service)
 
-        var query = baseQuery(service: service)
-        query[kSecValueData as String] = try encode(pairing)
-        let status = SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(addAttributes(data: try encode(pairing), service: service) as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw SPLKeychainError.saveFailed(status: status)
         }
@@ -174,12 +172,22 @@ public enum SPLKeychain {
         }
     }
 
+    // The SPL pairing bundle is intentionally backup-migratable (AfterFirstUnlock rather
+    // than a device-only keychain class) so restoring to a new device preserves journal
+    // pairing; observer ingest keys are the device-local marker and are handled separately
+    // in ObserverKeychain.
+    static func addAttributes(data: Data, service: String) -> [String: Any] {
+        baseQuery(service: service).merging([
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]) { _, new in new }
+    }
+
     static func baseQuery(service: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
     }

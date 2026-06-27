@@ -9,6 +9,10 @@ private let log = Logger(subsystem: "app.solstone.swift", category: "registratio
 
 @MainActor
 @Observable
+// Observer ingest keys are device-local registrations (keychain
+// AfterFirstUnlockThisDeviceOnly, do not survive device restore) and serve as the
+// per-physical-device marker. The SPL journal pairing is backup-migratable and is
+// not reset on restore.
 final class ObserverRegistration {
     enum State: Equatable {
         case idle
@@ -145,6 +149,10 @@ final class ObserverRegistration {
             throw ObserverRegistrationError.invalidURL
         }
 
+        // With no local ingest key, any persisted prefix can only be a backup-restored stale
+        // prefix; a real key would have taken the fast path. Clear it before minting a key.
+        try? self.deletePrefix()
+
         var lastError = "observer registration failed"
         for (index, delay) in self.retryDelays.enumerated() {
             try Task.checkCancellation()
@@ -173,8 +181,8 @@ final class ObserverRegistration {
                 }
 
                 let payload = try JSONDecoder().decode(RegistrationResponse.self, from: data)
-                try self.saveKey(payload.key)
                 try self.savePrefix(payload.prefix)
+                try self.saveKey(payload.key)
                 self.registrationPrefix = payload.prefix
                 self.state = .registered
                 log.info("observer registration succeeded (key length=\(payload.key.count, privacy: .public))")

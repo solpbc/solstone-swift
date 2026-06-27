@@ -108,6 +108,119 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredDeviceReregistersAndReplacesStalePrefix() async throws {
+        self.storedKeyBox.withLock { $0 = nil }
+        self.storedPrefixBox.withLock { $0 = "obs_stale_" }
+        ObserverRegistrationURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/app/observer/register")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"observer-key-fresh","prefix":"obs_fresh_"}"#.utf8)
+            )
+        }
+
+        let registration = self.makeRegistration()
+        await MainActor.run {
+            registration.activeLocalPort = 7071
+        }
+
+        let key = try await registration.ensureRegistered()
+
+        XCTAssertEqual(key, "observer-key-fresh")
+        XCTAssertEqual(self.storedKeyBox.withLock { $0 }, "observer-key-fresh")
+        XCTAssertEqual(self.storedPrefixBox.withLock { $0 }, "obs_fresh_")
+        XCTAssertEqual(registration.registrationPrefix, "obs_fresh_")
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+        let state = await MainActor.run { registration.state }
+        XCTAssertEqual(state, .registered)
+    }
+
+    @MainActor
+    func testFreshRegistrationLeavesNoStalePrefixWhenSavePrefixThrows() async throws {
+        self.storedKeyBox.withLock { $0 = nil }
+        self.storedPrefixBox.withLock { $0 = "obs_stale_" }
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"observer-key-fresh","prefix":"obs_fresh_"}"#.utf8)
+            )
+        }
+
+        let registration = self.makeRegistration(
+            retryDelays: [1],
+            savePrefix: { _ in throw ObserverRegistrationTestError.injectedSavePrefixFailure }
+        )
+        await MainActor.run {
+            registration.activeLocalPort = 7071
+        }
+
+        do {
+            _ = try await registration.ensureRegistered()
+            XCTFail("expected registration failure")
+        } catch {}
+
+        XCTAssertNil(self.storedKeyBox.withLock { $0 })
+        XCTAssertNil(self.storedPrefixBox.withLock { $0 })
+    }
+
+    @MainActor
+    func testRestoredDeviceReregistersAcrossAllStreams() async throws {
+        let streams = [
+            (
+                streamType: "mobile",
+                keyBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                prefixBox: OSAllocatedUnfairLock<String?>(initialState: "stale_mobile_")
+            ),
+            (
+                streamType: "omi",
+                keyBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                prefixBox: OSAllocatedUnfairLock<String?>(initialState: "stale_omi_")
+            ),
+            (
+                streamType: "watch",
+                keyBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                prefixBox: OSAllocatedUnfairLock<String?>(initialState: "stale_watch_")
+            ),
+        ]
+
+        for stream in streams {
+            let streamType = stream.streamType
+            let expectedKey = "observer-key-\(streamType)"
+            let expectedPrefix = "obs_\(streamType)_"
+            ObserverRegistrationURLProtocol.handler = { request in
+                let body = try XCTUnwrap(requestBody(from: request))
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+                XCTAssertEqual(payload["stream_type"], streamType)
+                return (
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"name":"solstone-swift","key":"\#(expectedKey)","prefix":"\#(expectedPrefix)"}"#.utf8)
+                )
+            }
+
+            let registration = self.makeRegistration(
+                streamType: streamType,
+                keyBox: stream.keyBox,
+                prefixBox: stream.prefixBox
+            )
+            await MainActor.run {
+                registration.activeLocalPort = 7071
+            }
+
+            let key = try await registration.ensureRegistered()
+
+            XCTAssertEqual(key, expectedKey)
+            XCTAssertEqual(registration.registrationPrefix, expectedPrefix)
+        }
+
+        for stream in streams {
+            XCTAssertEqual(stream.keyBox.withLock { $0 }, "observer-key-\(stream.streamType)")
+            XCTAssertEqual(stream.prefixBox.withLock { $0 }, "obs_\(stream.streamType)_")
+        }
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, streams.count)
+    }
+
+    @MainActor
     func testEnsureRegisteredRetriesAndSucceeds() async throws {
         let sleepRecorder = DelayRecorder()
         ObserverRegistrationURLProtocol.handler = { request in
@@ -180,23 +293,35 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     }
 
     @MainActor private func makeRegistration(
+        streamType: String = "mobile",
+        keyBox: OSAllocatedUnfairLock<String?>? = nil,
+        prefixBox: OSAllocatedUnfairLock<String?>? = nil,
         retryDelays: [UInt64] = [1, 2, 3],
-        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
+        savePrefix: (@Sendable (String) throws -> Void)? = nil
     ) -> ObserverRegistration {
-        ObserverRegistration(
+        let keyBox = keyBox ?? self.storedKeyBox
+        let prefixBox = prefixBox ?? self.storedPrefixBox
+        let savePrefix = savePrefix ?? { [prefixBox] prefix in prefixBox.withLock { $0 = prefix } }
+        return ObserverRegistration(
             hostname: "test-device",
             version: "1.2.3",
+            streamType: streamType,
             session: self.session,
             retryDelays: retryDelays,
             sleep: sleep,
-            loadKey: { [storedKeyBox] in storedKeyBox.withLock { $0 } },
-            saveKey: { [storedKeyBox] key in storedKeyBox.withLock { $0 = key } },
-            deleteKey: { [storedKeyBox] in storedKeyBox.withLock { $0 = nil } },
-            loadPrefix: { [storedPrefixBox] in storedPrefixBox.withLock { $0 } },
-            savePrefix: { [storedPrefixBox] prefix in storedPrefixBox.withLock { $0 = prefix } },
-            deletePrefix: { [storedPrefixBox] in storedPrefixBox.withLock { $0 = nil } }
+            loadKey: { [keyBox] in keyBox.withLock { $0 } },
+            saveKey: { [keyBox] key in keyBox.withLock { $0 = key } },
+            deleteKey: { [keyBox] in keyBox.withLock { $0 = nil } },
+            loadPrefix: { [prefixBox] in prefixBox.withLock { $0 } },
+            savePrefix: savePrefix,
+            deletePrefix: { [prefixBox] in prefixBox.withLock { $0 = nil } }
         )
     }
+}
+
+private enum ObserverRegistrationTestError: Error {
+    case injectedSavePrefixFailure
 }
 
 private final class ObserverRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
