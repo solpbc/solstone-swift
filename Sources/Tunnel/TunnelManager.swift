@@ -19,6 +19,32 @@ private struct PathMeaningfulSignature: Equatable, Sendable {
     let isSatisfied: Bool
 }
 
+private enum ReconnectReason: Sendable, Equatable {
+    case transportClosed(TunnelError)
+    case pathChanged
+    case probeFailed
+
+    var tunnelError: TunnelError {
+        switch self {
+        case .transportClosed(let error):
+            return error
+        case .pathChanged, .probeFailed:
+            return .muxTeardown
+        }
+    }
+
+    var logLabel: String {
+        switch self {
+        case .transportClosed:
+            return "transport closed"
+        case .pathChanged:
+            return "path changed"
+        case .probeFailed:
+            return "probe failed"
+        }
+    }
+}
+
 @Observable
 final class TunnelManager {
     var state: TunnelState = .disconnected
@@ -32,10 +58,13 @@ final class TunnelManager {
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var connectWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var livenessProbeTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: TimeInterval
     @ObservationIgnored private let initialRetryDelay: TimeInterval
     @ObservationIgnored private let connectDeadline: Duration
     @ObservationIgnored private let jitterRange: ClosedRange<Double>
+    @ObservationIgnored private let probeInterval: Duration
+    @ObservationIgnored private let probeFailureThreshold: Int
     var reconnectCountdown: Int?
     var consecutiveWiFiFailures: Int = 0
     var currentPathStatus: NetworkPathStatus?
@@ -63,6 +92,8 @@ final class TunnelManager {
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
         },
+        probeInterval: Duration = .seconds(15),
+        probeFailureThreshold: Int = 2,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.transport = transport ?? CFTunnelTransport()
@@ -76,6 +107,8 @@ final class TunnelManager {
         self.connectDeadline = connectDeadline
         self.retryDelay = initialRetryDelay
         self.jitterRange = jitterRange
+        self.probeInterval = probeInterval
+        self.probeFailureThreshold = probeFailureThreshold
         self.diagnosticLog = diagnosticLog
     }
 
@@ -155,13 +188,10 @@ final class TunnelManager {
                     candidates: candidates,
                     onDisconnect: { [weak self] error in
                         Task { @MainActor [weak self] in
-                            guard let self, case .connected = self.state else { return }
-                            log.error("[solstone-swift] SPL tunnel closed unexpectedly")
-                            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "tunnel closed unexpectedly")
-                            let tunnelError = error.map { self.mapTransportError($0) } ?? .muxTeardown
-                            self.state = .error(tunnelError)
-                            await self.transport.disconnect()
-                            self.scheduleReconnect(for: tunnelError)
+                            guard let self else { return }
+                            await self.forceReconnect(
+                                reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown)
+                            )
                         }
                     },
                     onStageChange: { [weak self] event in
@@ -187,6 +217,7 @@ final class TunnelManager {
                 self.lastProbeAlive = nil
                 self.consecutiveProbeFailures = 0
                 self.consecutiveKeepaliveFailures = 0
+                self.startLivenessProbe()
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,
@@ -246,6 +277,7 @@ final class TunnelManager {
     func disconnect() async {
         self.cancelReconnect()
         self.cancelConnectWatchdog()
+        self.stopLivenessProbe()
         self.state = .disconnected
         self.consecutiveWiFiFailures = 0
         self.lastProbeAlive = nil
@@ -261,6 +293,7 @@ final class TunnelManager {
 
     func cancelConnect() {
         self.cancelConnectWatchdog()
+        self.stopLivenessProbe()
         self.connectTask?.cancel()
         self.connectTask = nil
         if case .connecting = self.state {
@@ -308,10 +341,70 @@ final class TunnelManager {
         self.connectWatchdogTask = nil
     }
 
+    private func startLivenessProbe() {
+        self.stopLivenessProbe()
+        self.livenessProbeTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.jitteredProbeInterval() else {
+                    return
+                }
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else {
+                    return
+                }
+                guard let self else {
+                    return
+                }
+                guard case .connected = self.state else {
+                    return
+                }
+                let result = await self.probeConnection()
+                if result?.alive == false,
+                   self.consecutiveProbeFailures >= self.probeFailureThreshold {
+                    await self.forceReconnect(reason: .probeFailed)
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopLivenessProbe() {
+        self.livenessProbeTask?.cancel()
+        self.livenessProbeTask = nil
+    }
+
+    private func jitteredProbeInterval() -> Duration {
+        let components = self.probeInterval.components
+        let seconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
+        let milliseconds = max(Int(seconds * 1_000 * Double.random(in: self.jitterRange)), 1)
+        return .milliseconds(milliseconds)
+    }
+
+    private func forceReconnect(reason: ReconnectReason) async {
+        guard case .connected = self.state else { return }
+        let tunnelError = reason.tunnelError
+        log.error("[solstone-swift] forcing reconnect: \(reason.logLabel, privacy: .public)")
+        self.diagnosticLog?.append(
+            category: .tunnel,
+            severity: .warning,
+            message: "forcing reconnect",
+            detail: reason.logLabel
+        )
+        self.cancelConnectWatchdog()
+        self.cancelReconnect()
+        self.stopLivenessProbe()
+        self.connectTask?.cancel()
+        self.connectTask = nil
+        self.state = .error(tunnelError)
+        await self.transport.disconnect()
+        self.scheduleReconnect(for: tunnelError)
+    }
+
     func startNetworkMonitoring() {
         self.pathMonitor.start { [weak self] status in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                let previousBucket = self.currentPathStatus.map(self.pathInterfaceBucket)
                 self.applyPathStatus(status)
                 let detail = self.pathStatusDetail(status)
                 log.debug("[solstone-swift] path changed: \(detail, privacy: .public)")
@@ -326,7 +419,11 @@ final class TunnelManager {
                 }
                 switch self.state {
                 case .connected:
-                    log.info("[solstone-swift] network: path changed while connected")
+                    if status.isSatisfied,
+                       let previousBucket,
+                       previousBucket != self.pathInterfaceBucket(status) {
+                        await self.forceReconnect(reason: .pathChanged)
+                    }
                 case .error(let error) where error.isRetryable:
                     if status.isSatisfied {
                         self.scheduleReconnect(for: error)
@@ -386,7 +483,7 @@ final class TunnelManager {
         }
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: alive ? "manual probe available" : "manual probe not reachable",
+            message: alive ? "probe available" : "probe not reachable",
             detail: "latency: \(elapsed); \(detail)"
         )
         return (alive, elapsed)

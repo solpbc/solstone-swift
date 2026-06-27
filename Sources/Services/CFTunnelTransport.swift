@@ -17,9 +17,11 @@ final class CFTunnelTransport: Transporting {
     private let appConfig: AppConfig?
     @ObservationIgnored
     private let loadPairing: @Sendable () throws -> StoredPairing?
+    @ObservationIgnored
+    private let makeSession: @Sendable (StoredPairing) -> any TunnelSessioning
 
     @ObservationIgnored
-    private var session: TunnelSession?
+    private var session: (any TunnelSessioning)?
     @ObservationIgnored
     private var proxy: LoopbackProxy?
     @ObservationIgnored
@@ -29,10 +31,12 @@ final class CFTunnelTransport: Transporting {
 
     init(
         appConfig: AppConfig? = nil,
-        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() }
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
+        makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning = { TunnelSession(pairing: $0) }
     ) {
         self.appConfig = appConfig
         self.loadPairing = loadPairing
+        self.makeSession = makeSession
     }
 
     public func connect(
@@ -46,9 +50,9 @@ final class CFTunnelTransport: Transporting {
             throw CFTunnelTransportError.missingPairing
         }
 
-        let session = TunnelSession(pairing: pairing)
+        let session = makeSession(pairing)
         self.session = session
-        observe(session: session, onDisconnect: onDisconnect, onStageChange: onStageChange)
+        observe(session: session, onDisconnect: onDisconnect)
         observeConnectionModeUpdates(session.connectionModeUpdates)
 
         onStageChange(.racing)
@@ -77,9 +81,8 @@ final class CFTunnelTransport: Transporting {
     }
 
     private func observe(
-        session: TunnelSession,
-        onDisconnect: @Sendable @escaping (Error?) -> Void,
-        onStageChange: @Sendable @escaping (TransportStage) -> Void
+        session: any TunnelSessioning,
+        onDisconnect: @Sendable @escaping (Error?) -> Void
     ) {
         stateTask?.cancel()
         stateTask = Task {
@@ -88,7 +91,7 @@ final class CFTunnelTransport: Transporting {
                 case .disconnected:
                     onDisconnect(nil)
                 case .failed(let error):
-                    onStageChange(.failed(String(describing: error)))
+                    onDisconnect(error)
                 case .connecting, .tlsHandshaking, .connected:
                     break
                 }

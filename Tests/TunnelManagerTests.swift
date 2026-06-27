@@ -28,7 +28,7 @@ private final class MockPathSource: PathMonitoringSource, @unchecked Sendable {
 
 nonisolated final class TunnelManagerTests: XCTestCase {
     @MainActor private func makeManager(
-        transport: MockCFTunnelTransport,
+        transport: any Transporting,
         endpointCache: EndpointCache? = nil,
         pathMonitor: PathMonitor = PathMonitor(),
         pairing: StoredPairing? = fixturePairing(),
@@ -39,6 +39,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
         },
+        probeInterval: Duration = .seconds(15),
+        probeFailureThreshold: Int = 2,
         diagnosticLog: DiagnosticLog? = nil
     ) -> TunnelManager {
         TunnelManager(
@@ -51,6 +53,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             connectDeadline: connectDeadline,
             probeSession: probeSession,
             probeURLBuilder: probeURLBuilder,
+            probeInterval: probeInterval,
+            probeFailureThreshold: probeFailureThreshold,
             diagnosticLog: diagnosticLog
         )
     }
@@ -208,6 +212,36 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.state, .error(.muxTeardown))
         XCTAssertNotNil(manager.reconnectCountdown)
+    }
+
+    @MainActor
+    func testRealCFTunnelTransportSessionFailureForcesManagerReconnect() async {
+        let pairing = Self.fixturePairing()
+        let fakeSession = FakeTunnelSession()
+        let transport = CFTunnelTransport(
+            loadPairing: { pairing },
+            makeSession: { _ in fakeSession }
+        )
+        let manager = makeManager(transport: transport, pairing: pairing)
+
+        await manager.connect()
+        guard case .connected = manager.state else {
+            XCTFail("expected connected state")
+            return
+        }
+
+        await fakeSession.pushFailed(.transportFailed("pump ended"))
+
+        let didSchedule = await Self.waitUntil {
+            if case .error(.unreachable) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didSchedule)
+        let fakeConnectCallCount = await fakeSession.connectCallCount
+        XCTAssertEqual(fakeConnectCallCount, 1)
+        await manager.disconnect()
     }
 
     @MainActor
@@ -380,7 +414,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testPathChangeWhileConnectedRecordsFactsWithoutFreshRace() async {
+    func testPathInterfaceFlipWhileConnectedForcesReconnect() async {
         let source = MockPathSource()
         let pathMonitor = PathMonitor(source: source)
         let transport = MockCFTunnelTransport()
@@ -390,6 +424,15 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(transport.connectCallCount, 1)
 
         manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        let didApplyWiFiBaseline = await Self.waitUntil {
+            manager.currentPathStatus == .satisfiedWiFi
+        }
+
+        XCTAssertTrue(didApplyWiFiBaseline)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+        XCTAssertEqual(transport.connectCallCount, 1)
+
         source.trigger(NetworkPathStatus(
             isSatisfied: true,
             isWiFi: false,
@@ -397,16 +440,68 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             isExpensive: true,
             isConstrained: false
         ))
+        let didForceReconnect = await Self.waitUntil {
+            transport.disconnectCallCount == 1 && manager.reconnectCountdown != nil
+        }
+
+        XCTAssertTrue(didForceReconnect)
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(manager.isNetworkSatisfied, true)
+        XCTAssertEqual(manager.currentInterfaceIsWiFi, false)
+        XCTAssertEqual(manager.currentPathStatus?.isCellular, true)
+        XCTAssertEqual(manager.currentPathStatus?.isExpensive, true)
+        XCTAssertNotNil(manager.reconnectCountdown)
+
+        source.trigger(NetworkPathStatus(
+            isSatisfied: true,
+            isWiFi: false,
+            isCellular: true,
+            isExpensive: false,
+            isConstrained: false
+        ))
+        try? await Task.sleep(for: .milliseconds(80))
+        await Self.settle()
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+
+        await manager.retryNow()
+        XCTAssertEqual(transport.connectCallCount, 2)
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testSameBucketPathChangeWhileConnectedRecordsFactsWithoutFreshRace() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+
+        await manager.connect()
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        // Clear PathMonitor's 200ms debounce so the baseline bucket is established.
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        source.trigger(NetworkPathStatus(
+            isSatisfied: true,
+            isWiFi: true,
+            isCellular: false,
+            isExpensive: true,
+            isConstrained: true
+        ))
         try? await Task.sleep(for: .milliseconds(260))
         await Self.settle()
 
         XCTAssertEqual(transport.disconnectCallCount, 0)
         XCTAssertEqual(transport.connectCallCount, 1)
         XCTAssertEqual(manager.isNetworkSatisfied, true)
-        XCTAssertEqual(manager.currentInterfaceIsWiFi, false)
-        XCTAssertEqual(manager.currentPathStatus?.isCellular, true)
+        XCTAssertEqual(manager.currentInterfaceIsWiFi, true)
         XCTAssertEqual(manager.currentPathStatus?.isExpensive, true)
         XCTAssertNil(manager.reconnectCountdown)
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
     }
 
     @MainActor
@@ -605,6 +700,224 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             SourceVocabulary.standingSyncLine(health: manager.connectionHealth, syncing: false),
             "connected"
         )
+    }
+
+    @MainActor
+    func testLivenessProbeReconnectsAfterSustainedFailuresAndStops() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            probeFailureThreshold: 2
+        )
+
+        await manager.connect()
+        let didForceReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(2))
+
+        XCTAssertTrue(didForceReconnect)
+        let requestCount = TunnelProbeURLProtocol.capturedRequests.count
+        XCTAssertGreaterThanOrEqual(requestCount, 2)
+        try? await Task.sleep(for: .milliseconds(140))
+        await Self.settle()
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, requestCount)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testConvergingDeathPathSignalsProduceSingleReconnectAttempt() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            pathMonitor: pathMonitor,
+            probeSession: session,
+            probeInterval: .milliseconds(40),
+            probeFailureThreshold: 1
+        )
+
+        await manager.connect()
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        await Self.settle()
+
+        let probeForcedReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(2))
+        XCTAssertTrue(probeForcedReconnect)
+
+        transport.simulateDisconnect(error: TunnelError.muxTeardown)
+        source.trigger(NetworkPathStatus(
+            isSatisfied: true,
+            isWiFi: false,
+            isCellular: true,
+            isExpensive: false,
+            isConstrained: false
+        ))
+        await Self.settle()
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+        XCTAssertEqual(transport.connectCallCount, 1)
+
+        TunnelProbeURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        await manager.retryNow()
+        XCTAssertEqual(transport.connectCallCount, 2)
+        try? await Task.sleep(for: .milliseconds(120))
+        await Self.settle()
+        XCTAssertEqual(transport.connectCallCount, 2)
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testDeliberateDisconnectStopsProbeAndIgnoresUnsatisfiedPathChange() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            pathMonitor: pathMonitor,
+            probeSession: session,
+            probeInterval: .milliseconds(40),
+            probeFailureThreshold: 1
+        )
+
+        await manager.connect()
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        await Self.settle()
+
+        await manager.disconnect()
+        let requestCount = TunnelProbeURLProtocol.capturedRequests.count
+        source.trigger(.unsatisfiedCellular)
+        try? await Task.sleep(for: .milliseconds(140))
+        await Self.settle()
+
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, requestCount)
+        XCTAssertNil(manager.reconnectCountdown)
+        manager.stopNetworkMonitoring()
+    }
+
+    @MainActor
+    func testPostConnectForceReconnectIsNotOverwrittenByOldWatchdogDeadline() async {
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            connectDeadline: .milliseconds(80)
+        )
+
+        await manager.connect()
+        XCTAssertEqual(transport.connectCallCount, 1)
+
+        // The watchdog should already be cancelled after connect success; this pins the defensive
+        // forceReconnect cancellation so an old deadline cannot overwrite recovery with .unreachable.
+        transport.simulateDisconnect(error: SessionError.directKeepaliveMissed)
+        let didSchedule = await Self.waitUntil {
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didSchedule)
+
+        try? await Task.sleep(for: .milliseconds(160))
+        await Self.settle()
+        XCTAssertEqual(manager.state, .error(.muxTeardown))
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+        XCTAssertNotNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testForcedReconnectStateSequenceLeavesConnectedAndReturns() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        transport.nextResult = .success(1111)
+        let manager = makeManager(transport: transport)
+        var states: [solstone_swift.TunnelState] = []
+
+        await manager.connect()
+        XCTAssertEqual(manager.state, .connected(localPort: 1111, via: .lan))
+        states.append(manager.state)
+
+        transport.connectDelay = .milliseconds(80)
+        transport.nextResult = .success(2222)
+        transport.simulateDisconnect(error: TunnelError.muxTeardown)
+        let didReachError = await Self.waitUntil {
+            if case .error(.muxTeardown) = manager.state {
+                return true
+            }
+            return false
+        }
+        XCTAssertTrue(didReachError)
+        states.append(manager.state)
+
+        let retryTask = Task { @MainActor in
+            await manager.retryNow()
+        }
+        let didStartConnecting = await Self.waitUntil {
+            manager.state == .connecting
+        }
+        XCTAssertTrue(didStartConnecting)
+        states.append(manager.state)
+        await retryTask.value
+        XCTAssertEqual(manager.state, .connected(localPort: 2222, via: .lan))
+        states.append(manager.state)
+
+        let firstConnected = states.firstIndex(of: .connected(localPort: 1111, via: .lan))
+        let error = states.firstIndex(of: .error(.muxTeardown))
+        let connecting = states.firstIndex(of: .connecting)
+        let secondConnected = states.firstIndex(of: .connected(localPort: 2222, via: .lan))
+        XCTAssertNotNil(firstConnected)
+        XCTAssertNotNil(error)
+        XCTAssertNotNil(connecting)
+        XCTAssertNotNil(secondConnected)
+        XCTAssertLessThan(firstConnected ?? 0, error ?? 0)
+        XCTAssertLessThan(error ?? 0, connecting ?? 0)
+        XCTAssertLessThan(connecting ?? 0, secondConnected ?? 0)
+        await manager.disconnect()
     }
 
     @MainActor
