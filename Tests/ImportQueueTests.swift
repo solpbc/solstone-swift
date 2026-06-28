@@ -878,6 +878,58 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testStartInvalidOperationForStateFinalizesFromPersistedSaveResultAfterRelaunch() async throws {
+        let itemID = try self.writeLocalItem(status: "pending")
+        try self.writePersistedSaveResult(itemID: itemID, path: "/imports/replayed-start")
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/start")
+            return (
+                Self.response(for: request, statusCode: 400),
+                Data(#"{"reason_code":"invalid_operation_for_state"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("invalid operation start replay terminal") {
+            queue.pendingCount == 0
+        }
+        let ledger = try self.readLedgerIfPresent()
+        XCTAssertNotNil(ledger[itemID])
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingItemDirectory(itemID: itemID).path))
+    }
+
+    @MainActor
+    func testStartReplaySafetyOnlyAcceptsInvalidOperationForState400() async throws {
+        let cases: [(String, Int, Data)] = [
+            ("not-found", 404, Data()),
+            ("missing-required-field", 400, Data(#"{"reason_code":"missing_required_field"}"#.utf8)),
+        ]
+
+        for (name, statusCode, responseData) in cases {
+            ImportQueueURLProtocol.reset()
+            let root = self.tempDirectory.appendingPathComponent("start-replay-negative-\(name)", isDirectory: true)
+            let itemID = try self.writeLocalItem(root: root, status: "pending")
+            try self.writePersistedSaveResult(root: root, itemID: itemID, path: "/imports/\(name)")
+            ImportQueueURLProtocol.handler = { request, _ in
+                XCTAssertEqual(request.url?.path, "/app/import/api/start")
+                return (Self.response(for: request, statusCode: statusCode), responseData)
+            }
+            let queue = self.makeQueue(cacheRootURL: root, maxAttempts: 1)
+
+            await queue.resumeFromDisk()
+
+            try await self.waitFor("\(name) start replay negative failure") {
+                queue.failedCount == 1
+            }
+            XCTAssertEqual(queue.pendingCount, 0)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("ledger.json").path))
+        }
+    }
+
+    @MainActor
     func testHTTP409ImportClientIDConflictMovesToFailedWithoutLedgerAndPreservesBody() async throws {
         ImportQueueURLProtocol.handler = { request, _ in
             XCTAssertEqual(request.url?.path, "/app/import/api/save")
@@ -996,6 +1048,92 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testFailureRetryClearsInFlightWhenRetryFindsNilPort() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let retrySleepGate = ImportQueueRetrySleepGate()
+        let retryParked = OSAllocatedUnfairLock<Bool>(initialState: false)
+        defer { retrySleepGate.release() }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (Self.response(for: request, statusCode: 503), Data("service unavailable".utf8))
+        }
+        let queue = self.makeQueue(
+            retryDelays: [1],
+            maxAttempts: 3,
+            localPortProvider: { localPort.withLock { $0 } },
+            sleep: { _ in
+                retryParked.withLock { $0 = true }
+                await retrySleepGate.sleep()
+            }
+        )
+        let source = try self.makeSourceFile(named: "retry-nil-port.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("failure retry armed") {
+            queue.attemptCountForTesting(itemID: itemID) == 1 && queue.inFlightCount == 1
+        }
+        try await self.waitFor("failure retry parked") {
+            retryParked.withLock { $0 }
+        }
+        localPort.withLock { $0 = nil }
+        retrySleepGate.release()
+
+        try await self.waitFor("failure retry in-flight cleared") {
+            queue.inFlightCount == 0
+        }
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+    }
+
+    @MainActor
+    func testReconnectRetryClearsInFlightWhenRetryFindsNilPort() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let retrySleepGate = ImportQueueRetrySleepGate()
+        let retryParked = OSAllocatedUnfairLock<Bool>(initialState: false)
+        defer { retrySleepGate.release() }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            throw URLError(.cancelled)
+        }
+        let queue = self.makeQueue(
+            retryDelays: [1],
+            maxAttempts: 3,
+            localPortProvider: { localPort.withLock { $0 } },
+            sleep: { _ in
+                retryParked.withLock { $0 = true }
+                await retrySleepGate.sleep()
+            }
+        )
+        let source = try self.makeSourceFile(named: "reconnect-nil-port.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("reconnect retry parked") {
+            retryParked.withLock { $0 }
+        }
+        XCTAssertEqual(queue.attemptCountForTesting(itemID: itemID), 0)
+        localPort.withLock { $0 = nil }
+        retrySleepGate.release()
+
+        try await self.waitFor("reconnect retry in-flight cleared") {
+            queue.inFlightCount == 0
+        }
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
+    }
+
+    @MainActor
     func testLedgerPreventsResendOnResume() async throws {
         let itemID = try self.writeLocalItem(status: "pending")
         try self.writeLedger([
@@ -1055,6 +1193,81 @@ nonisolated final class ImportQueueTests: XCTestCase {
             queue.pendingCount == 0 && ImportQueueURLProtocol.callCount == 2
         }
         XCTAssertNil(queue.lastError)
+    }
+
+    @MainActor
+    func testResumeReconcilesHeldUploadWhenLocalPortChanges() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/import/api/save" && request.url?.port == 7071
+        }
+        ImportQueueURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ImportQueueURLProtocol.handler = { request, body in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            XCTAssertEqual(request.url?.port, 7072)
+            let clientItemID = Self.clientItemID(fromSaveBody: body)
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"do_not_start"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(localPortProvider: { localPort.withLock { $0 } })
+        let source = try self.makeSourceFile(named: "stale-port.pdf", data: Data("pdf".utf8))
+
+        let itemUUID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        defer { queue.dropItem(itemID: itemUUID) }
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPorts, [7071])
+
+        localPort.withLock { $0 = 7072 }
+        await queue.resumeFromDisk()
+
+        try await self.waitFor("stale-port import redispatch") {
+            ImportQueueURLProtocol.capturedPorts == [7071, 7072]
+                && queue.pendingCount == 0
+        }
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(queue.inFlightCount, 0)
+    }
+
+    @MainActor
+    func testResumeLeavesHeldCurrentPortUploadSingleDispatched() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ImportQueueURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/import/api/save" && request.url?.port == 7071
+        }
+        ImportQueueURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTFail("held current-port upload should not complete normally: \(request)")
+            return (Self.response(for: request, statusCode: 200), Data())
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "current-port.pdf", data: Data("pdf".utf8))
+
+        let itemUUID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        )
+        defer { queue.dropItem(itemID: itemUUID) }
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        await queue.resumeFromDisk()
+
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 1)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPorts, [7071])
+        XCTAssertEqual(queue.inFlightCount, 1)
     }
 
     @MainActor
@@ -1544,6 +1757,23 @@ nonisolated final class ImportQueueTests: XCTestCase {
         return itemID
     }
 
+    private func writePersistedSaveResult(
+        root: URL? = nil,
+        itemID: String,
+        status: String = "pending",
+        path: String,
+        timestamp: String = "2026-04-20T12:00:00Z",
+        recommendedAction: String = "start"
+    ) throws {
+        let root = root ?? self.tempDirectory!
+        let url = root
+            .appendingPathComponent(status, isDirectory: true)
+            .appendingPathComponent(itemID, isDirectory: true)
+            .appendingPathComponent("save.json")
+        let body = #"{"path":"\#(path)","timestamp":"\#(timestamp)","recommended_action":"\#(recommendedAction)"}"#
+        try Data(body.utf8).write(to: url, options: .atomic)
+    }
+
     private func pendingItemDirectory(itemID: String) -> URL {
         self.tempDirectory
             .appendingPathComponent("pending", isDirectory: true)
@@ -1857,6 +2087,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
     private static let pathsBox = OSAllocatedUnfairLock<[String]>(initialState: [])
+    private static let portsBox = OSAllocatedUnfairLock<[Int?]>(initialState: [])
     private static let stoppedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
 
     static var handler: Handler? {
@@ -1887,6 +2118,10 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         get { self.pathsBox.withLock { $0 } }
         set { self.pathsBox.withLock { $0 = newValue } }
     }
+    static var capturedPorts: [Int?] {
+        get { self.portsBox.withLock { $0 } }
+        set { self.portsBox.withLock { $0 = newValue } }
+    }
     static var stoppedRequests: [URLRequest] {
         get { self.stoppedRequestsBox.withLock { $0 } }
         set { self.stoppedRequestsBox.withLock { $0 = newValue } }
@@ -1900,6 +2135,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         self.callCount = 0
         self.capturedBodies = []
         self.capturedPaths = []
+        self.capturedPorts = []
         self.stoppedRequests = []
     }
 
@@ -1916,6 +2152,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         XCTAssertNotEqual(self.request.url?.path, "/app/observer/ingest")
         Self.callCountBox.withLock { $0 += 1 }
         Self.pathsBox.withLock { $0.append(self.request.url?.path ?? "") }
+        Self.portsBox.withLock { $0.append(self.request.url?.port) }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
         if Self.heldRequestPredicate?(self.request) == true {

@@ -214,6 +214,7 @@ final class ImportQueue {
         do {
             try self.ensureRootDirectories()
             let ledger = try self.loadLedger()
+            await self.reconcilePortIfNeeded()
             let itemDirectories = try self.fileManager.contentsOfDirectory(
                 at: self.pendingDirectoryURL(),
                 includingPropertiesForKeys: [.isDirectoryKey],
@@ -313,6 +314,13 @@ final class ImportQueue {
         try? self.fileManager.removeItem(at: self.pendingItemDirectoryURL(itemID: itemIDString))
         try? self.fileManager.removeItem(at: self.failedItemDirectoryURL(itemID: itemIDString))
         self.uploadTaskByItemID.removeValue(forKey: itemIDString)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let tasks = await self.sessionTasks()
+            for task in tasks where task.taskDescription == itemIDString {
+                task.cancel()
+            }
+        }
         self.refreshCounts()
         importQueueLog.info("import item dropped \(itemIDString, privacy: .public)")
     }
@@ -561,6 +569,14 @@ private extension ImportQueue {
         }
     }
 
+    struct StartErrorResponse: Decodable {
+        let reasonCode: String?
+
+        enum CodingKeys: String, CodingKey {
+            case reasonCode = "reason_code"
+        }
+    }
+
     struct StartRequest: Encodable {
         let path: String
         let timestamp: String
@@ -588,6 +604,93 @@ private extension ImportQueue {
         }
         monitor.start(queue: self.pathMonitorQueue)
         self.pathMonitor = monitor
+    }
+
+    func reconcilePortIfNeeded() async {
+        let tasks = await self.sessionTasks()
+        guard !self.taskInfoByTaskID.isEmpty || !tasks.isEmpty else { return }
+        guard let currentPort = self.localPortProvider() else { return }
+
+        let staleInMemoryTasks = self.taskInfoByTaskID.compactMap { taskID, info -> (Int, TaskInfo, URLSessionTask)? in
+            guard let task = self.uploadTaskByItemID[info.itemID],
+                  let requestPort = task.originalRequest?.url?.port,
+                  requestPort != currentPort
+            else {
+                return nil
+            }
+            return (taskID, info, task)
+        }
+        for (taskID, info, task) in staleInMemoryTasks {
+            self.taskInfoByTaskID.removeValue(forKey: taskID)
+            if self.activeTaskIDByItemID[info.itemID] == taskID {
+                self.activeTaskIDByItemID.removeValue(forKey: info.itemID)
+            }
+            if self.uploadTaskByItemID[info.itemID]?.taskIdentifier == taskID {
+                self.uploadTaskByItemID.removeValue(forKey: info.itemID)
+            }
+            self.responseDataByTaskID.removeValue(forKey: taskID)
+            task.cancel()
+            await self.scheduleUpload(itemID: info.itemID)
+        }
+
+        guard !tasks.isEmpty else { return }
+
+        for task in tasks {
+            guard let itemID = task.taskDescription,
+                  !itemID.isEmpty,
+                  task.originalRequest?.url?.port == currentPort,
+                  let info = try? self.reconstructTaskInfo(itemID: itemID)
+            else {
+                task.cancel()
+                continue
+            }
+
+            self.taskInfoByTaskID[task.taskIdentifier] = info
+            self.activeTaskIDByItemID[itemID] = task.taskIdentifier
+            self.uploadTaskByItemID[itemID] = task
+        }
+    }
+
+    func sessionTasks() async -> [URLSessionTask] {
+        await withCheckedContinuation { continuation in
+            self.session.getAllTasks { tasks in
+                continuation.resume(returning: tasks)
+            }
+        }
+    }
+
+    func reconstructTaskInfo(itemID: String) throws -> TaskInfo? {
+        guard self.requiredFilesExist(itemID: itemID, status: .pending) else { return nil }
+
+        let descriptor = try self.loadDescriptor(itemID: itemID, status: .pending)
+        let ledgerStub = try self.loadLedgerStub(itemID: itemID, status: .pending)
+        let itemDirectoryURL = self.pendingItemDirectoryURL(itemID: itemID)
+        let saveResult = try self.loadSaveResultIfPresent(itemID: itemID, status: .pending)
+        let step: TaskStep
+        let bodyURL: URL
+        let taskSaveResult: SaveResult?
+
+        if let saveResult {
+            guard saveResult.recommendedAction == RecommendedAction.start.rawValue else { return nil }
+            step = .start
+            bodyURL = self.startUploadURL(itemID: itemID, status: .pending)
+            taskSaveResult = saveResult
+        } else {
+            step = .save
+            bodyURL = self.saveUploadURL(itemID: itemID, status: .pending)
+            taskSaveResult = nil
+        }
+
+        guard self.fileManager.fileExists(atPath: bodyURL.path) else { return nil }
+        return TaskInfo(
+            itemID: itemID,
+            itemDirectoryURL: itemDirectoryURL,
+            bodyURL: bodyURL,
+            step: step,
+            descriptor: descriptor,
+            ledgerStub: ledgerStub,
+            saveResult: taskSaveResult
+        )
     }
 
     func scheduleUpload(itemID: String) async {
@@ -748,8 +851,12 @@ private extension ImportQueue {
         }
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
         let step = info.step.drainLabel
-        self.activeTaskIDByItemID.removeValue(forKey: info.itemID)
-        self.uploadTaskByItemID.removeValue(forKey: info.itemID)
+        if self.activeTaskIDByItemID[info.itemID] == task.taskIdentifier {
+            self.activeTaskIDByItemID.removeValue(forKey: info.itemID)
+        }
+        if self.uploadTaskByItemID[info.itemID]?.taskIdentifier == task.taskIdentifier {
+            self.uploadTaskByItemID.removeValue(forKey: info.itemID)
+        }
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
 
         if let error {
@@ -758,8 +865,10 @@ private extension ImportQueue {
                 // Defensive parity: this only fires if loopback teardown surfaces -999.
                 // Re-enqueue correctness assumes a SAVE that reached the server before reconnect
                 // re-uploads to 2xx via client_item_id. This branch owns a delayed,
-                // un-counted re-drive. START cancels are intentionally not benign because
-                // /start replay-safety is unresolved.
+                // un-counted re-drive. START cancels are intentionally not given this
+                // benign path; they recover through normal retry, where a re-issued
+                // START already imported by the server maps HTTP 400
+                // invalid_operation_for_state to terminal success in the non-2xx tail.
                 importQueueLog.info("import save cancelled by reconnect; awaiting resume \(info.itemID, privacy: .public)")
                 let requeueDelay = self.retryDelays.first ?? 0
                 self.retryTasksByItemID[info.itemID]?.cancel()
@@ -767,6 +876,7 @@ private extension ImportQueue {
                     guard let self else { return }
                     await self.sleep(requeueDelay)
                     guard !Task.isCancelled else { return }
+                    self.retryTasksByItemID.removeValue(forKey: info.itemID)
                     await self.scheduleUpload(itemID: info.itemID)
                 }
                 self.refreshCounts()
@@ -810,6 +920,28 @@ private extension ImportQueue {
         }
 
         let body = String(data: responseData, encoding: .utf8) ?? ""
+        if info.step == .start,
+           statusCode == 400,
+           let errorResponse = try? self.decoder.decode(StartErrorResponse.self, from: responseData),
+           errorResponse.reasonCode == "invalid_operation_for_state",
+           let saveResult = info.saveResult {
+            await self.finalizeDelivery(
+                info: info,
+                serverPath: saveResult.path,
+                serverTimestamp: saveResult.timestamp
+            )
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .share,
+                fields: DrainFields(
+                    status: "success",
+                    error: .none,
+                    durationMs: DrainSignpost.durationMs(since: start),
+                    step: step
+                )
+            )
+            return
+        }
         await self.handleUploadFailure(
             itemID: info.itemID,
             reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)"
@@ -943,12 +1075,13 @@ private extension ImportQueue {
 
         let delayIndex = min(nextAttempt - 1, max(self.retryDelays.count - 1, 0))
         let delay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
-        importQueueLog.error("import item upload failed \(itemID, privacy: .public): \(reason, privacy: .public)")
+        importQueueLog.error("import item upload failed \(itemID, privacy: .public): \(reason, privacy: .private)")
         self.retryTasksByItemID[itemID]?.cancel()
         self.retryTasksByItemID[itemID] = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
+            self.retryTasksByItemID.removeValue(forKey: itemID)
             await self.scheduleUpload(itemID: itemID)
         }
         self.refreshCounts()
@@ -966,7 +1099,7 @@ private extension ImportQueue {
             try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
             try self.fileManager.moveItem(at: pendingURL, to: failedURL)
         }
-        importQueueLog.error("import item moved to failed \(itemID, privacy: .public): \(reason, privacy: .public)")
+        importQueueLog.error("import item moved to failed \(itemID, privacy: .public): \(reason, privacy: .private)")
         self.lastError = reason
     }
 
