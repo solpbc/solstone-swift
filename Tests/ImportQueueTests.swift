@@ -168,6 +168,50 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testSaveResponseBodyBufferedAcrossDelegateBoundary() async throws {
+        ImportQueueURLProtocol.respondsAsynchronously = true
+        ImportQueueURLProtocol.responseChunkSizes = [7, 11]
+        ImportQueueURLProtocol.handler = { request, body in
+            switch request.url?.path {
+            case "/app/import/api/save":
+                let clientItemID = Self.clientItemID(fromSaveBody: body)
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"client_item_id":"\#(clientItemID)","recommended_action":"start","path":"/imports/chunked","timestamp":"2026-04-20T12:34:56Z","source":"audio"}"#.utf8)
+                )
+            case "/app/import/api/start":
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Self.validStartResponse
+                )
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "nil")")
+                return (Self.response(for: request, statusCode: 404), Data())
+            }
+        }
+        let queue = self.makeQueue()
+        let source = try self.makeSourceFile(named: "chunked.m4a", data: Data("audio".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "audio",
+            targetJournal: "home",
+            contentType: "public.m4a-audio",
+            originalFilename: "chunked.m4a",
+            originApp: "com.example.files"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("buffered save/start delivery") {
+            queue.pendingCount == 0 && queue.lastDeliveredAt != nil
+        }
+
+        let ledgerEntry = try XCTUnwrap(self.readLedger()[itemID])
+        XCTAssertEqual(ledgerEntry.serverPath, "/imports/chunked")
+        XCTAssertEqual(ledgerEntry.serverTimestamp, "2026-04-20T12:34:56Z")
+        XCTAssertEqual(ImportQueueURLProtocol.capturedPaths, ["/app/import/api/save", "/app/import/api/start"])
+    }
+
+    @MainActor
     func testSaveCancelledRequeuesWithoutConsumingAttempt() async throws {
         let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
         ImportQueueURLProtocol.handler = { request, body in
@@ -2084,6 +2128,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     private static let heldRequestPredicateBox = OSAllocatedUnfairLock<RequestPredicate?>(initialState: nil)
     private static let onHeldRequestBox = OSAllocatedUnfairLock<RequestObserver?>(initialState: nil)
     private static let respondsAsynchronouslyBox = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private static let responseChunkSizesBox = OSAllocatedUnfairLock<[Int]?>(initialState: nil)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
     private static let pathsBox = OSAllocatedUnfairLock<[String]>(initialState: [])
@@ -2105,6 +2150,10 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
     static var respondsAsynchronously: Bool {
         get { self.respondsAsynchronouslyBox.withLock { $0 } }
         set { self.respondsAsynchronouslyBox.withLock { $0 = newValue } }
+    }
+    static var responseChunkSizes: [Int]? {
+        get { self.responseChunkSizesBox.withLock { $0 } }
+        set { self.responseChunkSizesBox.withLock { $0 = newValue } }
     }
     static var callCount: Int {
         get { self.callCountBox.withLock { $0 } }
@@ -2132,6 +2181,7 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         self.heldRequestPredicate = nil
         self.onHeldRequest = nil
         self.respondsAsynchronously = false
+        self.responseChunkSizes = nil
         self.callCount = 0
         self.capturedBodies = []
         self.capturedPaths = []
@@ -2182,7 +2232,21 @@ private final class ImportQueueURLProtocol: URLProtocol, @unchecked Sendable {
         do {
             let (response, data) = try handler(request, body)
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            self.client?.urlProtocol(self, didLoad: data)
+            if let responseChunkSizes = Self.responseChunkSizes {
+                var offset = 0
+                for chunkSize in responseChunkSizes {
+                    guard offset < data.count else { break }
+                    let count = min(max(chunkSize, 0), data.count - offset)
+                    guard count > 0 else { continue }
+                    self.client?.urlProtocol(self, didLoad: data.subdata(in: offset..<(offset + count)))
+                    offset += count
+                }
+                if offset < data.count {
+                    self.client?.urlProtocol(self, didLoad: data.subdata(in: offset..<data.count))
+                }
+            } else {
+                self.client?.urlProtocol(self, didLoad: data)
+            }
             self.client?.urlProtocolDidFinishLoading(self)
         } catch {
             self.client?.urlProtocol(self, didFailWithError: error)

@@ -15,22 +15,21 @@ final class ImportQueueSessionDelegate: NSObject, URLSessionDelegate, URLSession
     }
 
     private let ownerBox = OSAllocatedUnfairLock<WeakOwner>(initialState: WeakOwner())
+    private let responseBufferLock = OSAllocatedUnfairLock<[Int: Data]>(initialState: [:])
 
     func setOwner(_ owner: ImportQueue?) {
         self.ownerBox.withLock { $0.value = owner }
     }
 
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        Task { @MainActor [weak self] in
-            guard let owner = self?.ownerBox.withLock({ $0.value }) else { return }
-            owner.appendResponseData(data, for: dataTask.taskIdentifier)
-        }
+        self.responseBufferLock.withLock { $0[dataTask.taskIdentifier, default: Data()].append(data) }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        let responseData = self.responseBufferLock.withLock { $0.removeValue(forKey: task.taskIdentifier) ?? Data() }
         Task { @MainActor [weak self] in
             guard let owner = self?.ownerBox.withLock({ $0.value }) else { return }
-            await owner.handleCompletion(for: task, error: error)
+            await owner.handleCompletion(for: task, responseData: responseData, error: error)
         }
     }
 
@@ -80,7 +79,6 @@ final class ImportQueue {
     @ObservationIgnored private let encoder = JSONEncoder()
     @ObservationIgnored private let decoder = JSONDecoder()
     @ObservationIgnored private var backgroundCompletionHandler: (@MainActor @Sendable () -> Void)?
-    @ObservationIgnored private var responseDataByTaskID: [Int: Data] = [:]
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
     @ObservationIgnored private var activeTaskIDByItemID: [String: Int] = [:]
     @ObservationIgnored private var uploadTaskByItemID: [String: URLSessionTask] = [:]
@@ -309,7 +307,6 @@ final class ImportQueue {
         self.attemptCountByItemID.removeValue(forKey: itemIDString)
         if let taskID = self.activeTaskIDByItemID.removeValue(forKey: itemIDString) {
             self.taskInfoByTaskID.removeValue(forKey: taskID)
-            self.responseDataByTaskID.removeValue(forKey: taskID)
         }
         try? self.fileManager.removeItem(at: self.pendingItemDirectoryURL(itemID: itemIDString))
         try? self.fileManager.removeItem(at: self.failedItemDirectoryURL(itemID: itemIDString))
@@ -628,7 +625,6 @@ private extension ImportQueue {
             if self.uploadTaskByItemID[info.itemID]?.taskIdentifier == taskID {
                 self.uploadTaskByItemID.removeValue(forKey: info.itemID)
             }
-            self.responseDataByTaskID.removeValue(forKey: taskID)
             task.cancel()
             await self.scheduleUpload(itemID: info.itemID)
         }
@@ -830,11 +826,7 @@ private extension ImportQueue {
         }
     }
 
-    func appendResponseData(_ data: Data, for taskIdentifier: Int) {
-        self.responseDataByTaskID[taskIdentifier, default: Data()].append(data)
-    }
-
-    func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
+    func handleCompletion(for task: URLSessionTask, responseData: Data, error: (any Error)?) async {
         let start = DispatchTime.now().uptimeNanoseconds
         let resolvedItemID = task.taskDescription ?? self.taskInfoByTaskID[task.taskIdentifier]?.itemID
         if let resolvedItemID, self.droppedItemIDs.remove(resolvedItemID) != nil {
@@ -843,7 +835,6 @@ private extension ImportQueue {
                 self.activeTaskIDByItemID.removeValue(forKey: resolvedItemID)
             }
             self.uploadTaskByItemID.removeValue(forKey: resolvedItemID)
-            self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier)
             try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: resolvedItemID, status: .pending))
             try? self.fileManager.removeItem(at: self.startUploadURL(itemID: resolvedItemID, status: .pending))
             importQueueLog.info("import dropped-item completion ignored \(resolvedItemID, privacy: .public)")
@@ -857,7 +848,6 @@ private extension ImportQueue {
         if self.uploadTaskByItemID[info.itemID]?.taskIdentifier == task.taskIdentifier {
             self.uploadTaskByItemID.removeValue(forKey: info.itemID)
         }
-        let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
 
         if let error {
             let ns = error as NSError
