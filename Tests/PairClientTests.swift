@@ -261,6 +261,39 @@ nonisolated final class PairClientTests: XCTestCase {
         XCTAssertTrue(candidates.contains(.relay(endpoint: Self.relayEndpoint, instanceID: "instance-123", deviceToken: "relay-token")))
     }
 
+    func testTransportCandidatesSkipInvalidRelayURLAndKeepLAN() async throws {
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData(deviceToken: "relay-token")),
+            lanTransport: Self.successfulLANTransport()
+        )
+        let pairing = try await client.pair(
+            pairURL: try PairURL.parse(Self.canonicalURL()),
+            deviceLabel: "test phone",
+            relayEndpoint: Self.relayEndpoint
+        )
+        let badRelayEndpoint = "http://bad host:7070"
+        XCTAssertNil(URL(string: badRelayEndpoint))
+        let badRelayPairing = StoredPairing(
+            instanceID: pairing.instanceID,
+            homeLabel: pairing.homeLabel,
+            relayEndpoint: badRelayEndpoint,
+            fingerprint: pairing.fingerprint,
+            clientCertPEM: pairing.clientCertPEM,
+            clientKeyPEM: pairing.clientKeyPEM,
+            caChainPEM: pairing.caChainPEM,
+            relayEnrollment: pairing.relayEnrollment,
+            localEndpoints: pairing.localEndpoints,
+            pairedAt: pairing.pairedAt
+        )
+
+        let candidates = try TransportEndpoint.candidates(for: badRelayPairing)
+
+        XCTAssertEqual(candidates, [
+            .lan(host: "192.0.2.42", port: 7070, scope: ""),
+            .lan(host: "10.0.0.2", port: 9443, scope: "wifi"),
+        ])
+    }
+
     func testRelayFinalizeEnrollmentFailureCompletesPairingAsUnavailable() async throws {
         let client = PairClient(
             session: Self.relaySession(error: URLError(.cannotConnectToHost)),

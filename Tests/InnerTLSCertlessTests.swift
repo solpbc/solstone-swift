@@ -3,11 +3,24 @@
 
 import Crypto
 import Foundation
+import Network
 import Security
 @testable import SPLTunnel
 import XCTest
 
 nonisolated final class InnerTLSCertlessTests: XCTestCase {
+    func testBridgeListenerParametersBindLoopback() throws {
+        let parameters = InnerTLS.makeBridgeListenerParameters()
+        let endpoint = try XCTUnwrap(parameters.requiredLocalEndpoint)
+        guard case .hostPort(let host, let port) = endpoint else {
+            XCTFail("expected hostPort endpoint")
+            return
+        }
+
+        XCTAssertEqual(host, NWEndpoint.Host("127.0.0.1"))
+        XCTAssertEqual(port, .any)
+    }
+
     func testCertlessTrustAcceptsMatchingCAAndRejectsWrongCA() throws {
         let chain = try CertChain.certificates(fromPEM: CertlessTrustFixtures.chainPEM)
         let wrongChain = try CertChain.certificates(fromPEM: CertlessTrustFixtures.wrongChainPEM)

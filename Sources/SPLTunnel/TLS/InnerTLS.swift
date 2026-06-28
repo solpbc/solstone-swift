@@ -56,6 +56,13 @@ public actor InnerTLS {
         self.inboundContinuation = continuation
     }
 
+    /// Bind bridge listeners to loopback only to close needless LAN attack surface.
+    static func makeBridgeListenerParameters() -> NWParameters {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        return parameters
+    }
+
     public static func connectLAN(host: String, port: Int, pairing: StoredPairing) async throws -> InnerTLS {
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)), 1...65535 ~= port else {
             throw InnerTLSError.invalidPort(port)
@@ -127,7 +134,7 @@ public actor InnerTLS {
     public static func connectViaTransport(transport: any ByteTransport, pairing: StoredPairing) async throws -> InnerTLS {
         let verifyFailure = TLSVerifyFailure()
         let options = try makeTLSOptions(pairing: pairing, verifyFailure: verifyFailure)
-        let listener = try NWListener(using: .tcp, on: .any)
+        let listener = try NWListener(using: makeBridgeListenerParameters())
         let acceptor = OneShotConnectionAcceptor()
         listener.newConnectionHandler = { connection in
             acceptor.complete(connection)
@@ -200,7 +207,7 @@ public actor InnerTLS {
     public static func connectPairingViaTransport(transport: any ByteTransport, caPin: PairingCAPin) async throws -> InnerTLS {
         let verifyFailure = TLSVerifyFailure()
         let options = makePairingTLSOptions(caPin: caPin, verifyFailure: verifyFailure)
-        let listener = try NWListener(using: .tcp, on: .any)
+        let listener = try NWListener(using: makeBridgeListenerParameters())
         let acceptor = OneShotConnectionAcceptor()
         listener.newConnectionHandler = { connection in
             acceptor.complete(connection)

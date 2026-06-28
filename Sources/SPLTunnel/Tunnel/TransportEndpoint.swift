@@ -2,6 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "app.solstone.observer.spl", category: "transport")
 
 public enum TransportEndpoint: Sendable, Equatable {
     case lan(host: String, port: Int, scope: String)
@@ -15,7 +18,8 @@ public enum TransportEndpoint: Sendable, Equatable {
             return local
         }
         guard let relayEndpoint = URL(string: pairing.relayEndpoint) else {
-            throw SessionError.invalidRelayURL(pairing.relayEndpoint)
+            logger.debug("skipping relay candidate: invalid relay URL")
+            return local
         }
         guard !deviceToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return local

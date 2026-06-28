@@ -44,6 +44,22 @@ nonisolated final class PathMonitorTests: XCTestCase {
     }
 
     @MainActor
+    func testPathChangeEnqueuedBeforeStopDoesNotFireAfterStop() async {
+        let source = TestPathSource()
+        let monitor = PathMonitor(source: source)
+        let count = OSAllocatedUnfairLock(initialState: 0)
+
+        monitor.start { _ in
+            count.withLock { $0 += 1 }
+        }
+        source.trigger()
+        monitor.stop()
+        try? await Task.sleep(for: .milliseconds(260))
+
+        XCTAssertEqual(count.withLock { $0 }, 0)
+    }
+
+    @MainActor
     func testPathChangeDeliversLatestFacts() async {
         let source = TestPathSource()
         let monitor = PathMonitor(source: source)
