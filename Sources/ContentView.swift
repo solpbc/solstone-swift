@@ -79,6 +79,8 @@ struct ContentView: View {
             let message: String? = switch newState {
             case .connecting:
                 "connecting…"
+            case .waitingForHome:
+                "waiting for your home…"
             case .connected(_, let via):
                 via == .lan ? "connected via local network" : "connected via remote journal"
             case .error(let error):
@@ -101,7 +103,7 @@ struct ContentView: View {
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
-            default:
+            case .connecting, .waitingForHome, .disconnected:
                 break
             }
         }
@@ -299,7 +301,7 @@ private extension ContentView {
             Task {
                 await self.tunnelManager.connect()
             }
-        case .connecting, .connected, .error:
+        case .connecting, .waitingForHome, .connected, .error:
             break
         }
     }
@@ -426,7 +428,7 @@ struct ConnectingView: View {
             Button("try again", action: self.onRetry)
                 .buttonStyle(.borderedProminent)
                 .accessibilityHint("attempts to reconnect to your journal")
-        case .connecting, .connected, .error:
+        case .connecting, .waitingForHome, .connected, .error:
             EmptyView()
         }
     }
@@ -435,6 +437,9 @@ struct ConnectingView: View {
         switch self.state {
         case .connecting:
             "connecting…"
+        case .waitingForHome:
+            // VPX: copy pass before ship.
+            "waiting for your home…"
         case .connected:
             "connected"
         case .disconnected:

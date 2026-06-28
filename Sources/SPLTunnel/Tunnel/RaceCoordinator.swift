@@ -8,6 +8,41 @@ struct RaceResult<Value: Sendable>: Sendable {
     let value: Value
 }
 
+struct RaceAttemptProgress: Sendable {
+    static let none = RaceAttemptProgress(onWaiting: {})
+
+    private let onWaiting: @Sendable () -> Void
+
+    init(onWaiting: @escaping @Sendable () -> Void) {
+        self.onWaiting = onWaiting
+    }
+
+    func reportWaiting() {
+        onWaiting()
+    }
+}
+
+private final class RaceWaitingTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waitingOrders = Set<Int>()
+
+    var hasWaiting: Bool {
+        lock.withLock { !waitingOrders.isEmpty }
+    }
+
+    func markWaiting(order: Int) {
+        lock.withLock {
+            waitingOrders.insert(order)
+        }
+    }
+
+    func clearWaiting(order: Int) {
+        lock.withLock {
+            waitingOrders.remove(order)
+        }
+    }
+}
+
 struct RaceCoordinator<Value: Sendable>: Sendable {
     private enum Event: Sendable {
         case success(order: Int, endpoint: TransportEndpoint, value: Value)
@@ -20,14 +55,14 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
     private let loserGrace: Duration
     private let budget: Duration
     private let close: @Sendable (Value) async -> Void
-    private let dial: @Sendable (TransportEndpoint) async throws -> Value
+    private let dial: @Sendable (TransportEndpoint, RaceAttemptProgress) async throws -> Value
 
     init(
         stagger: Duration = .milliseconds(50),
         loserGrace: Duration = .milliseconds(250),
         budget: Duration = .seconds(8),
         close: @escaping @Sendable (Value) async -> Void = { _ in },
-        dial: @escaping @Sendable (TransportEndpoint) async throws -> Value
+        dial: @escaping @Sendable (TransportEndpoint, RaceAttemptProgress) async throws -> Value
     ) {
         self.stagger = stagger
         self.loserGrace = loserGrace
@@ -45,12 +80,13 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
         guard sorted.count > 1 else {
             do {
                 let endpoint = sorted[0]
-                return RaceResult(endpoint: endpoint, value: try await dial(endpoint))
+                return RaceResult(endpoint: endpoint, value: try await dial(endpoint, .none))
             } catch {
                 throw Self.sessionError(from: error)
             }
         }
 
+        let waitingTracker = RaceWaitingTracker()
         return try await withThrowingTaskGroup(of: Event.self, returning: RaceResult<Value>.self) { group in
             for (order, endpoint) in sorted.enumerated() {
                 group.addTask {
@@ -63,7 +99,10 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
                     }
 
                     do {
-                        let value = try await dial(endpoint)
+                        let progress = RaceAttemptProgress {
+                            waitingTracker.markWaiting(order: order)
+                        }
+                        let value = try await dial(endpoint, progress)
                         return .success(order: order, endpoint: endpoint, value: value)
                     } catch {
                         return .failure(order: order, error: Self.sessionError(from: error))
@@ -89,6 +128,7 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
             while let event = try await group.next() {
                 switch event {
                 case .success(let order, let endpoint, let value):
+                    waitingTracker.clearWaiting(order: order)
                     successes.append((order, endpoint, value))
                     if !graceStarted {
                         graceStarted = true
@@ -102,7 +142,8 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
                         }
                     }
 
-                case .failure(_, let error):
+                case .failure(let order, let error):
+                    waitingTracker.clearWaiting(order: order)
                     failures += 1
                     if error == .revoked {
                         sawRevocation = true
@@ -116,6 +157,9 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
                     }
 
                 case .budgetExpired:
+                    if waitingTracker.hasWaiting {
+                        continue
+                    }
                     if successes.isEmpty {
                         group.cancelAll()
                         throw Self.aggregateFailure(sawRevocation: sawRevocation, sawTokenExpired: sawTokenExpired)

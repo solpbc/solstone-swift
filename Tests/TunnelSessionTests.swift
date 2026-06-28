@@ -7,10 +7,72 @@ import os
 import XCTest
 
 nonisolated final class TunnelSessionTests: XCTestCase {
+    func testRelayAwaitingBrokerCanHoldThenConnectAtSessionLayer() async throws {
+        let relay = URL(string: "wss://relay.example.com")!
+        let fakeTLS = FakeTLS()
+        let gate = ConnectorGate()
+        let session = TunnelSession(pairing: Self.fixturePairing()) { endpoint, _, onAwaitingBroker in
+            switch endpoint {
+            case .lan:
+                throw SessionError.unreachable
+            case .relay:
+                await onAwaitingBroker(endpoint.connectedVia)
+                try await gate.wait()
+                return fakeTLS
+            }
+        }
+        let observedStates = OSAllocatedUnfairLock(initialState: [TunnelState]())
+        let stateTask = Task {
+            for await state in session.stateUpdates {
+                observedStates.withLock { $0.append(state) }
+            }
+        }
+        defer { stateTask.cancel() }
+
+        let connectTask = Task {
+            try await session.connect(endpoints: [
+                .lan(host: "127.0.0.1", port: 8676, scope: ""),
+                .relay(endpoint: relay, instanceID: "instance-123", deviceToken: "device-token")
+            ])
+        }
+
+        let didAwaitBroker = await Self.waitUntil {
+            observedStates.withLock { states in
+                states.contains(.awaitingBroker(via: .relay(endpoint: relay)))
+            }
+        }
+        XCTAssertTrue(didAwaitBroker)
+
+        let didFailWhileHeld = await Self.waitUntil({
+            observedStates.withLock { states in
+                states.contains { state in
+                    if case .failed = state { return true }
+                    return false
+                }
+            }
+        }, timeout: .milliseconds(200))
+        XCTAssertFalse(didFailWhileHeld)
+
+        await gate.resume()
+        let via = try await connectTask.value
+        XCTAssertEqual(via, .relay(endpoint: relay))
+
+        let didConnect = await Self.waitUntil {
+            observedStates.withLock { states in
+                states.contains(.connected(via: .relay(endpoint: relay)))
+            }
+        }
+        XCTAssertTrue(didConnect)
+
+        await session.disconnect()
+    }
+
+    // NOTE: defaultTLSConnector's concrete RelayWSTransport + InnerTLS path has no cheap fake-relay harness here; the held-wait contract is covered behaviorally by this injected-connector session test plus RaceCoordinatorTests.
+
     func testPumpEndPublishesTerminalFailureAndDoesNotReconnect() async throws {
         let fakeTLS = FakeTLS()
         let connectCount = OSAllocatedUnfairLock(initialState: 0)
-        let session = TunnelSession(pairing: Self.fixturePairing()) { _, _ in
+        let session = TunnelSession(pairing: Self.fixturePairing()) { _, _, _ in
             connectCount.withLock { $0 += 1 }
             return fakeTLS
         }
@@ -97,5 +159,28 @@ private final class FakeTLS: TunnelTLSIO, @unchecked Sendable {
 
     func finishInbound() {
         inboundContinuation.finish()
+    }
+}
+
+private actor ConnectorGate {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var isOpen = false
+
+    func wait() async throws {
+        if isOpen {
+            return
+        }
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func resume() {
+        guard !isOpen else {
+            return
+        }
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
     }
 }

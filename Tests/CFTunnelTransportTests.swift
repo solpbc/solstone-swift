@@ -87,6 +87,33 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
     }
 
     @MainActor
+    func testAwaitingBrokerDuringConnectIsForwardedAndNonTerminal() async throws {
+        let fakeSession = FakeTunnelSession(
+            connectedVia: .relay(endpoint: URL(string: "wss://relay.example.com")!),
+            connectedMode: .plViaSpl,
+            yieldAwaitingBrokerDuringConnect: true
+        )
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession }
+        )
+        let stages = OSAllocatedUnfairLock(initialState: [TransportStage]())
+        let disconnects = OSAllocatedUnfairLock(initialState: [DisconnectEvent]())
+
+        _ = try await transport.connect(
+            candidates: [.relay(endpoint: URL(string: "wss://relay.example.com")!, instanceID: "instance-123", deviceToken: "device-token")],
+            onDisconnect: { error in
+                disconnects.withLock { $0.append(DisconnectEvent(error)) }
+            },
+            onStageChange: { stage in stages.withLock { $0.append(stage) } }
+        )
+
+        XCTAssertTrue(stages.withLock { $0.contains(.awaitingBroker) })
+        XCTAssertTrue(disconnects.withLock { $0.isEmpty })
+        await transport.disconnect()
+    }
+
+    @MainActor
     func testFailedSessionStateRoutesToOnDisconnectError() async throws {
         let fakeSession = FakeTunnelSession()
         let transport = CFTunnelTransport(

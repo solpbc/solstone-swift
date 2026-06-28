@@ -22,6 +22,8 @@ final class MockCFTunnelTransport: Transporting {
     var stageEvents: [TransportStage] = []
     var connectDelay: Duration?
     var suspendConnectUntilDisconnect = false
+    var emitAwaitingBrokerBeforeResult = false
+    var suspendAfterAwaitingBroker = false
     var returnedPort: Int?
     var onDisconnectInvoked: (() -> Void)?
     var inboundActivitySnapshotValue: UInt64 = 0
@@ -37,9 +39,30 @@ final class MockCFTunnelTransport: Transporting {
         capturedCandidates = candidates
         capturedCandidateBatches.append(candidates)
         onDisconnectCallback = onDisconnect
-        for stage in [TransportStage.preparingCandidates, .racing, .tlsHandshaking, .muxReady] {
+        let initialStages: [TransportStage] = emitAwaitingBrokerBeforeResult
+            ? [.preparingCandidates, .racing]
+            : [.preparingCandidates, .racing, .tlsHandshaking, .muxReady]
+        for stage in initialStages {
             stageEvents.append(stage)
             onStageChange(stage)
+        }
+        if emitAwaitingBrokerBeforeResult {
+            stageEvents.append(.awaitingBroker)
+            onStageChange(.awaitingBroker)
+        }
+        if suspendAfterAwaitingBroker {
+            let port = try await withCheckedThrowingContinuation { continuation in
+                suspendedConnect = continuation
+            }
+            for stage in [TransportStage.tlsHandshaking, .muxReady] {
+                stageEvents.append(stage)
+                onStageChange(stage)
+            }
+            let ready = TransportStage.loopbackReady(port: port)
+            stageEvents.append(ready)
+            onStageChange(ready)
+            returnedPort = port
+            return port
         }
         if suspendConnectUntilDisconnect {
             return try await withCheckedThrowingContinuation { continuation in
@@ -96,5 +119,21 @@ final class MockCFTunnelTransport: Transporting {
 
     func simulateDisconnect(error: Error? = nil) {
         onDisconnectCallback?(error)
+    }
+
+    func completeSuspendedConnect(port: Int) {
+        guard let continuation = suspendedConnect else {
+            return
+        }
+        suspendedConnect = nil
+        continuation.resume(returning: port)
+    }
+
+    func failSuspendedConnect(error: any Error) {
+        guard let continuation = suspendedConnect else {
+            return
+        }
+        suspendedConnect = nil
+        continuation.resume(throwing: error)
     }
 }

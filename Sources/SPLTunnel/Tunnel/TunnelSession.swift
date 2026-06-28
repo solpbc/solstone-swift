@@ -31,6 +31,7 @@ public enum TunnelState: Sendable, Equatable {
     case disconnected
     case connecting(attempt: Int, candidates: [TransportEndpoint])
     case tlsHandshaking(via: ConnectedVia)
+    case awaitingBroker(via: ConnectedVia)
     case connected(via: ConnectedVia)
     case failed(SessionError)
 }
@@ -56,7 +57,11 @@ protocol TunnelTLSIO: Sendable {
 
 extension InnerTLS: TunnelTLSIO {}
 
-typealias TunnelTLSConnector = @Sendable (TransportEndpoint, StoredPairing) async throws -> any TunnelTLSIO
+typealias TunnelTLSConnector = @Sendable (
+    TransportEndpoint,
+    StoredPairing,
+    @Sendable (ConnectedVia) async -> Void
+) async throws -> any TunnelTLSIO
 
 public actor TunnelSession: TunnelSessioning {
     public nonisolated var stateUpdates: AsyncStream<TunnelState> {
@@ -142,8 +147,8 @@ public actor TunnelSession: TunnelSessioning {
         publish(.connecting(attempt: attempt, candidates: endpoints))
 
         do {
-            let result = try await RaceCoordinator<ConnectedAttempt>(close: { await $0.tls.close() }) { endpoint in
-                try await self.connectEndpoint(endpoint, attempt: attempt)
+            let result = try await RaceCoordinator<ConnectedAttempt>(close: { await $0.tls.close() }) { endpoint, progress in
+                try await self.connectEndpoint(endpoint, attempt: attempt, progress: progress)
             }.connect(endpoints: endpoints)
             publishConnected(result.value, endpoint: result.endpoint)
             return result.value
@@ -160,12 +165,19 @@ public actor TunnelSession: TunnelSessioning {
         }
     }
 
-    private func connectEndpoint(_ endpoint: TransportEndpoint, attempt: Int) async throws -> ConnectedAttempt {
+    private func connectEndpoint(
+        _ endpoint: TransportEndpoint,
+        attempt: Int,
+        progress: RaceAttemptProgress
+    ) async throws -> ConnectedAttempt {
         let via = endpoint.connectedVia
         publish(.tlsHandshaking(via: via))
         let startedAt = ContinuousClock.now
 
-        let tls = try await tlsConnector(endpoint, pairing)
+        let tls = try await tlsConnector(endpoint, pairing) { waitingVia in
+            progress.reportWaiting()
+            await self.publishAwaitingBroker(via: waitingVia)
+        }
         let transport = endpoint.isDirect ? "lan" : "relay"
         logger.debug("connected transport=\(transport, privacy: .public) attempt=\(attempt, privacy: .public) duration_ms=\(startedAt.duration(to: .now).milliseconds, privacy: .public)")
         return ConnectedAttempt(via: via, tls: tls)
@@ -246,6 +258,10 @@ public actor TunnelSession: TunnelSessioning {
         stateContinuation.yield(newState)
     }
 
+    private func publishAwaitingBroker(via: ConnectedVia) {
+        publish(.awaitingBroker(via: via))
+    }
+
     private func setConnectionMode(_ newMode: ConnectionMode?) {
         connectionMode = newMode
         connectionModeContinuation.yield(newMode)
@@ -253,7 +269,8 @@ public actor TunnelSession: TunnelSessioning {
 
     private static func defaultTLSConnector(
         endpoint: TransportEndpoint,
-        pairing: StoredPairing
+        pairing: StoredPairing,
+        onAwaitingBroker: @Sendable (ConnectedVia) async -> Void
     ) async throws -> any TunnelTLSIO {
         switch endpoint {
         case .lan(let host, let port, _):
@@ -262,9 +279,8 @@ public actor TunnelSession: TunnelSessioning {
             }
         case .relay:
             let transport = try await DialClient.dial(endpoint, timeout: .seconds(5))
-            return try await withSessionTimeout(.seconds(5)) {
-                try await InnerTLS.connectViaTransport(transport: transport, pairing: pairing)
-            }
+            await onAwaitingBroker(endpoint.connectedVia)
+            return try await InnerTLS.connectViaTransport(transport: transport, pairing: pairing)
         }
     }
 }

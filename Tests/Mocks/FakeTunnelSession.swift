@@ -11,6 +11,7 @@ actor FakeTunnelSession: TunnelSessioning {
     private let connectionModeContinuation: AsyncStream<ConnectionMode?>.Continuation
     private let connectedVia: ConnectedVia
     private let connectedMode: ConnectionMode
+    private let yieldAwaitingBrokerDuringConnect: Bool
     private var failureDuringConnect: SessionError?
     private var inboundActivitySnapshotValue: UInt64 = 0
     private(set) var connectionMode: ConnectionMode?
@@ -20,7 +21,8 @@ actor FakeTunnelSession: TunnelSessioning {
     init(
         connectedVia: ConnectedVia = .lanDirect(host: "127.0.0.1", port: 8676),
         connectedMode: ConnectionMode = .plDirect,
-        failureDuringConnect: SessionError? = nil
+        failureDuringConnect: SessionError? = nil,
+        yieldAwaitingBrokerDuringConnect: Bool = false
     ) {
         let state = AsyncStream<TunnelState>.makeStream()
         self.stateUpdates = state.stream
@@ -30,6 +32,7 @@ actor FakeTunnelSession: TunnelSessioning {
         self.connectionModeContinuation = mode.continuation
         self.connectedVia = connectedVia
         self.connectedMode = connectedMode
+        self.yieldAwaitingBrokerDuringConnect = yieldAwaitingBrokerDuringConnect
         self.failureDuringConnect = failureDuringConnect
     }
 
@@ -40,6 +43,9 @@ actor FakeTunnelSession: TunnelSessioning {
         if let failureDuringConnect {
             stateContinuation.yield(.failed(failureDuringConnect))
             try await Task.sleep(for: .milliseconds(200))
+        }
+        if yieldAwaitingBrokerDuringConnect {
+            stateContinuation.yield(.awaitingBroker(via: connectedVia))
         }
         connectionMode = connectedMode
         connectionModeContinuation.yield(connectedMode)

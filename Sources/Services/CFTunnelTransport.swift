@@ -41,7 +41,7 @@ private actor ConnectWindowTerminalSignal {
             return true
         case .openUnarmed:
             switch state {
-            case .connecting, .tlsHandshaking, .connected:
+            case .connecting, .tlsHandshaking, .awaitingBroker, .connected:
                 phase = .openArmed
                 return false
             case .disconnected, .failed:
@@ -55,7 +55,7 @@ private actor ConnectWindowTerminalSignal {
             case .failed(let error):
                 resolve(error)
                 return true
-            case .connecting, .tlsHandshaking, .connected:
+            case .connecting, .tlsHandshaking, .awaitingBroker, .connected:
                 return false
             }
         }
@@ -130,7 +130,12 @@ final class CFTunnelTransport: Transporting {
         let session = makeSession(pairing)
         self.session = session
         let connectWindow = ConnectWindowTerminalSignal()
-        observe(session: session, onDisconnect: onDisconnect, connectWindow: connectWindow)
+        observe(
+            session: session,
+            onDisconnect: onDisconnect,
+            onStageChange: onStageChange,
+            connectWindow: connectWindow
+        )
         observeConnectionModeUpdates(session.connectionModeUpdates)
 
         do {
@@ -233,6 +238,7 @@ final class CFTunnelTransport: Transporting {
     private func observe(
         session: any TunnelSessioning,
         onDisconnect: @Sendable @escaping (Error?) -> Void,
+        onStageChange: @Sendable @escaping (TransportStage) -> Void,
         connectWindow: ConnectWindowTerminalSignal? = nil
     ) {
         stateTask?.cancel()
@@ -246,6 +252,8 @@ final class CFTunnelTransport: Transporting {
                     onDisconnect(nil)
                 case .failed(let error):
                     onDisconnect(error)
+                case .awaitingBroker:
+                    onStageChange(.awaitingBroker)
                 case .connecting, .tlsHandshaking, .connected:
                     break
                 }

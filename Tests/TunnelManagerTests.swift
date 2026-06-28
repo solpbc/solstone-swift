@@ -38,6 +38,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(),
         initialRetryDelay: TimeInterval = 10,
         connectDeadline: Duration = .seconds(15),
+        waitingDeadline: Duration = .seconds(600),
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
@@ -56,6 +57,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             deviceTokenRefresher: deviceTokenRefresher,
             initialRetryDelay: initialRetryDelay,
             connectDeadline: connectDeadline,
+            waitingDeadline: waitingDeadline,
             probeSession: probeSession,
             probeURLBuilder: probeURLBuilder,
             probeInterval: probeInterval,
@@ -448,6 +450,99 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertNil(manager.reconnectCountdown)
         XCTAssertEqual(transport.returnedPort, 6060)
         XCTAssertFalse(diagnosticLog.events.contains { $0.message == "connection timed out" })
+    }
+
+    @MainActor
+    func testAwaitingBrokerDisarmsConnectWatchdogAndCanLaterConnect() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(
+            transport: transport,
+            connectDeadline: .milliseconds(100),
+            waitingDeadline: .seconds(1)
+        )
+
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didEnterWait = await Self.waitUntil {
+            manager.state == .waitingForHome
+        }
+        XCTAssertTrue(didEnterWait)
+        try? await Task.sleep(for: .milliseconds(180))
+        await Self.settle()
+
+        XCTAssertEqual(manager.state, .waitingForHome)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+
+        transport.completeSuspendedConnect(port: 4242)
+        await connectTask.value
+
+        XCTAssertEqual(manager.state, .connected(localPort: 4242, via: .remote))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testAwaitingBrokerTimeoutKeepsWaitingAndSchedulesFixedRedial() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(
+            transport: transport,
+            initialRetryDelay: 10,
+            connectDeadline: .seconds(1),
+            waitingDeadline: .milliseconds(100)
+        )
+
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didEnterWait = await Self.waitUntil {
+            manager.state == .waitingForHome
+        }
+        XCTAssertTrue(didEnterWait)
+        let didScheduleRelaxedRedial = await Self.waitUntil({
+            manager.state == .waitingForHome
+                && manager.reconnectCountdown == 60
+                && transport.disconnectCallCount == 1
+        }, timeout: .seconds(2))
+        XCTAssertTrue(didScheduleRelaxedRedial)
+        await connectTask.value
+
+        XCTAssertEqual(manager.state, .waitingForHome)
+        XCTAssertEqual(manager.reconnectCountdown, 60)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testAwaitingBrokerDropRoutesToBackoffReconnect() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(
+            transport: transport,
+            initialRetryDelay: 1,
+            connectDeadline: .seconds(1),
+            waitingDeadline: .seconds(1)
+        )
+
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didEnterWait = await Self.waitUntil {
+            manager.state == .waitingForHome
+        }
+        XCTAssertTrue(didEnterWait)
+
+        transport.failSuspendedConnect(error: SessionError.tlsFailed("relay closed"))
+        await connectTask.value
+
+        XCTAssertEqual(manager.state, .error(.tlsHandshakeFailed))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        XCTAssertNotEqual(manager.reconnectCountdown, 60)
+        await manager.disconnect()
     }
 
     @MainActor

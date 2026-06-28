@@ -7,6 +7,7 @@ import SPLTunnel
 import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
+private let waitingRedialDelaySeconds = 60
 
 private enum PathInterfaceBucket: String, Sendable {
     case wifi
@@ -69,10 +70,12 @@ final class TunnelManager {
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var connectWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var waitingTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var livenessProbeTask: Task<Void, Never>?
     @ObservationIgnored private var retryDelay: TimeInterval
     @ObservationIgnored private let initialRetryDelay: TimeInterval
     @ObservationIgnored private let connectDeadline: Duration
+    @ObservationIgnored private let waitingDeadline: Duration
     @ObservationIgnored private let jitterRange: ClosedRange<Double>
     @ObservationIgnored private let probeInterval: Duration
     @ObservationIgnored private let probeFailureThreshold: Int
@@ -100,6 +103,7 @@ final class TunnelManager {
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(),
         initialRetryDelay: TimeInterval = 2.0,
         connectDeadline: Duration = .seconds(15),
+        waitingDeadline: Duration = .seconds(600),
         jitterRange: ClosedRange<Double> = 0.75...1.25,
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
@@ -120,6 +124,7 @@ final class TunnelManager {
         self.probeURLBuilder = probeURLBuilder
         self.initialRetryDelay = initialRetryDelay
         self.connectDeadline = connectDeadline
+        self.waitingDeadline = waitingDeadline
         self.retryDelay = initialRetryDelay
         self.jitterRange = jitterRange
         self.probeInterval = probeInterval
@@ -131,7 +136,7 @@ final class TunnelManager {
         switch self.state {
         case .connected:
             return self.consecutiveProbeFailures >= 2 ? .degraded : .healthy
-        default:
+        case .disconnected, .connecting, .waitingForHome, .error:
             return .unknown
         }
     }
@@ -179,7 +184,7 @@ final class TunnelManager {
         case .connecting, .connected:
             log.info("[solstone-swift] connect() skipped — already \(self.state)")
             return
-        case .disconnected, .error:
+        case .disconnected, .waitingForHome, .error:
             break
         }
 
@@ -203,6 +208,7 @@ final class TunnelManager {
                 }
 
                 self.cancelConnectWatchdog()
+                self.cancelWaitingTimeout()
                 await Task.yield()
                 let endpoint = self.endpoint(for: self.transport.connectionMode)
                 self.state = .connected(localPort: localPort, via: endpoint)
@@ -234,6 +240,7 @@ final class TunnelManager {
             } catch {
                 if Task.isCancelled { return }
                 self.cancelConnectWatchdog()
+                self.cancelWaitingTimeout()
                 log.error("[solstone-swift] connect() failed: \(String(describing: error), privacy: .public)")
                 await self.transport.disconnect()
                 await Task.yield()
@@ -350,6 +357,7 @@ final class TunnelManager {
     func disconnect() async {
         self.cancelReconnect()
         self.cancelConnectWatchdog()
+        self.cancelWaitingTimeout()
         self.stopLivenessProbe()
         self.state = .disconnected
         self.consecutiveWiFiFailures = 0
@@ -366,10 +374,14 @@ final class TunnelManager {
 
     func cancelConnect() {
         self.cancelConnectWatchdog()
+        self.cancelWaitingTimeout()
         self.stopLivenessProbe()
         self.connectTask?.cancel()
         self.connectTask = nil
         if case .connecting = self.state {
+            self.state = .disconnected
+        }
+        if case .waitingForHome = self.state {
             self.state = .disconnected
         }
     }
@@ -412,6 +424,27 @@ final class TunnelManager {
     private func cancelConnectWatchdog() {
         self.connectWatchdogTask?.cancel()
         self.connectWatchdogTask = nil
+    }
+
+    private func startWaitingTimeout() {
+        self.cancelWaitingTimeout()
+        self.waitingTimeoutTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: self.waitingDeadline)
+            guard !Task.isCancelled else { return }
+            guard case .waitingForHome = self.state else { return }
+            self.connectTask?.cancel()
+            await self.transport.disconnect()
+            guard !Task.isCancelled else { return }
+            guard case .waitingForHome = self.state else { return }
+            self.waitingTimeoutTask = nil
+            self.scheduleWaitingRedial()
+        }
+    }
+
+    private func cancelWaitingTimeout() {
+        self.waitingTimeoutTask?.cancel()
+        self.waitingTimeoutTask = nil
     }
 
     private func startLivenessProbe() {
@@ -512,7 +545,7 @@ final class TunnelManager {
                     if status.isSatisfied {
                         self.scheduleReconnect(for: .muxTeardown)
                     }
-                case .connecting, .error:
+                case .connecting, .waitingForHome, .error:
                     break
                 }
             }
@@ -586,6 +619,23 @@ final class TunnelManager {
             guard let self else { return }
             self.reconnectCountdown = nil
             self.retryDelay = min(self.retryDelay * 2, 60)
+            await self.connect()
+        }
+    }
+
+    private func scheduleWaitingRedial() {
+        self.cancelReconnect()
+        self.reconnectCountdown = waitingRedialDelaySeconds
+        self.retryTask = Task { [weak self] in
+            for remaining in stride(from: waitingRedialDelaySeconds, through: 1, by: -1) {
+                guard let self else { return }
+                self.reconnectCountdown = remaining
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+            }
+            guard let self else { return }
+            self.reconnectCountdown = nil
+            guard case .waitingForHome = self.state else { return }
             await self.connect()
         }
     }
@@ -692,6 +742,11 @@ final class TunnelManager {
             break
         case .racing:
             self.appendStage(.raceCandidates)
+        case .awaitingBroker:
+            self.completeStage(.raceCandidates)
+            self.state = .waitingForHome
+            self.cancelConnectWatchdog()
+            self.startWaitingTimeout()
         case .tlsHandshaking:
             self.completeStage(.raceCandidates)
             self.appendStage(.tlsHandshake)

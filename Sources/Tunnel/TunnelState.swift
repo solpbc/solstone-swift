@@ -11,6 +11,7 @@ nonisolated enum ConnectionEndpoint: Sendable {
 enum TunnelState: Sendable, Equatable, CustomStringConvertible {
     case disconnected
     case connecting
+    case waitingForHome
     case connected(localPort: Int, via: ConnectionEndpoint)
     case error(TunnelError)
 
@@ -18,6 +19,7 @@ enum TunnelState: Sendable, Equatable, CustomStringConvertible {
         switch self {
         case .disconnected: "disconnected"
         case .connecting: "connecting"
+        case .waitingForHome: "waitingForHome"
         case .connected(let port, let ep): "connected(port:\(port), \(ep))"
         case .error(let err): "error(\(err))"
         }

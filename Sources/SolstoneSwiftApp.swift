@@ -573,6 +573,8 @@ struct SolstoneSwiftApp: App {
                 switch self.tunnelManager.state {
                 case .connected, .connecting:
                     break
+                case .waitingForHome:
+                    break
                 case .disconnected:
                     Task {
                         await self.tunnelManager.retryNow()
@@ -685,7 +687,7 @@ struct SolstoneSwiftApp: App {
                         await self.observerManager.startSession(mode: .meeting)
                     }
                 }
-            case .connecting, .disconnected, .error:
+            case .connecting, .waitingForHome, .disconnected, .error:
                 self.observerRegistration.activeLocalPort = nil
                 self.omiRegistration.activeLocalPort = nil
                 self.watchRegistration.activeLocalPort = nil

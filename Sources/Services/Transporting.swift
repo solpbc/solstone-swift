@@ -21,6 +21,7 @@ public protocol Transporting: Sendable {
 public enum TransportStage: Sendable, Equatable {
     case preparingCandidates
     case racing
+    case awaitingBroker
     case tlsHandshaking
     case muxReady
     case loopbackReady(port: Int)

@@ -16,7 +16,7 @@ nonisolated final class RaceCoordinatorTests: XCTestCase {
             close: { connection in
                 await closeLog.close(connection.id)
             }
-        ) { endpoint in
+        ) { endpoint, _ in
             switch endpoint {
             case .lan(let host, _, _):
                 if host == "fd00::1" {
@@ -52,7 +52,7 @@ nonisolated final class RaceCoordinatorTests: XCTestCase {
             stagger: .milliseconds(1),
             loserGrace: .milliseconds(1),
             budget: .milliseconds(50)
-        ) { endpoint in
+        ) { endpoint, _ in
             if case .relay = endpoint {
                 throw DialError.relayTokenExpired
             }
@@ -67,6 +67,58 @@ nonisolated final class RaceCoordinatorTests: XCTestCase {
             XCTFail("expected tokenExpired")
         } catch let error as SessionError {
             XCTAssertEqual(error, .tokenExpired)
+        }
+    }
+
+    func testBudgetDoesNotAbortAfterRelayReportsWaiting() async throws {
+        let relay = URL(string: "wss://relay.example.com")!
+        let coordinator = RaceCoordinator<Int>(
+            stagger: .milliseconds(1),
+            loserGrace: .milliseconds(1),
+            budget: .milliseconds(30)
+        ) { endpoint, progress in
+            switch endpoint {
+            case .lan:
+                throw SessionError.unreachable
+            case .relay:
+                progress.reportWaiting()
+                try await Task.sleep(for: .milliseconds(80))
+                return 42
+            }
+        }
+
+        let result = try await coordinator.connect(endpoints: [
+            .lan(host: "127.0.0.1", port: 1234, scope: ""),
+            .relay(endpoint: relay, instanceID: "instance", deviceToken: "token")
+        ])
+
+        XCTAssertEqual(result.value, 42)
+        XCTAssertEqual(result.endpoint, .relay(endpoint: relay, instanceID: "instance", deviceToken: "token"))
+    }
+
+    func testWaitingCandidateFailureStillAggregatesWhenAllCandidatesFail() async throws {
+        let coordinator = RaceCoordinator<Int>(
+            stagger: .milliseconds(1),
+            loserGrace: .milliseconds(1),
+            budget: .seconds(1)
+        ) { endpoint, progress in
+            switch endpoint {
+            case .lan:
+                throw SessionError.unreachable
+            case .relay:
+                progress.reportWaiting()
+                throw SessionError.transportFailed("relay closed")
+            }
+        }
+
+        do {
+            _ = try await coordinator.connect(endpoints: [
+                .lan(host: "127.0.0.1", port: 1234, scope: ""),
+                .relay(endpoint: URL(string: "wss://relay.example.com")!, instanceID: "instance", deviceToken: "token")
+            ])
+            XCTFail("expected unreachable")
+        } catch let error as SessionError {
+            XCTAssertEqual(error, .unreachable)
         }
     }
 }
