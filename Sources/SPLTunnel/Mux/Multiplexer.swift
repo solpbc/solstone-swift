@@ -48,6 +48,7 @@ public actor Multiplexer {
     private var pendingPingNonce: Data?
     private var missedPings = 0
     private var lastInboundActivity: ContinuousClock.Instant?
+    private var inboundActivityCounter: UInt64 = 0
 
     public init(sink: @escaping @Sendable (Data) async throws -> Void, role: Role = .dialer) {
         let incoming = AsyncStream<MuxStream>.makeStream()
@@ -126,6 +127,7 @@ public actor Multiplexer {
     private func dispatch(_ frame: Frame) async throws {
         // Mark any successfully decoded inbound frame as proof-of-life for the idle keepalive gate.
         lastInboundActivity = ContinuousClock.now
+        inboundActivityCounter &+= 1
 
         let isOpen = frame.flags & FrameFlags.open.rawValue != 0
         let isData = frame.flags & FrameFlags.data.rawValue != 0
@@ -296,6 +298,10 @@ public actor Multiplexer {
 
     func streamCountForTesting() -> Int {
         streams.count
+    }
+
+    public func inboundActivitySnapshot() -> UInt64 {
+        inboundActivityCounter
     }
 
     func setLastInboundActivityForTesting(_ instant: ContinuousClock.Instant?) {

@@ -54,6 +54,39 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDuringConnectThrowsBeforeLoopbackReady() async throws {
+        let fakeSession = FakeTunnelSession(failureDuringConnect: .transportFailed("pump ended during connect"))
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession }
+        )
+        let stages = OSAllocatedUnfairLock(initialState: [TransportStage]())
+
+        do {
+            _ = try await transport.connect(
+                candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in },
+                onStageChange: { stage in stages.withLock { $0.append(stage) } }
+            )
+            XCTFail("expected connect-window terminal failure")
+        } catch let error as SessionError {
+            XCTAssertEqual(error, .transportFailed("pump ended during connect"))
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        XCTAssertFalse(stages.withLock { events in
+            events.contains { event in
+                if case .loopbackReady = event {
+                    return true
+                }
+                return false
+            }
+        })
+        await transport.disconnect()
+    }
+
+    @MainActor
     func testFailedSessionStateRoutesToOnDisconnectError() async throws {
         let fakeSession = FakeTunnelSession()
         let transport = CFTunnelTransport(

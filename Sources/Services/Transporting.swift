@@ -15,6 +15,7 @@ public protocol Transporting: Sendable {
     ) async throws -> Int
 
     func disconnect() async
+    func inboundActivitySnapshot() async -> UInt64
 }
 
 public enum TransportStage: Sendable, Equatable {

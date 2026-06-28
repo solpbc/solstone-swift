@@ -9,6 +9,83 @@ enum CFTunnelTransportError: Error, Sendable, Equatable {
     case missingPairing
 }
 
+private enum ConnectStartupRaceResult: Sendable {
+    case port(Int)
+    case terminal(SessionError)
+    case windowClosed
+}
+
+private actor ConnectWindowTerminalSignal {
+    private enum Phase: Equatable {
+        case openUnarmed
+        case openArmed
+        case resolved
+        case closed
+    }
+
+    private var phase: Phase = .openUnarmed
+    private let stream: AsyncStream<SessionError>
+    private let continuation: AsyncStream<SessionError>.Continuation
+
+    init() {
+        let terminal = AsyncStream<SessionError>.makeStream()
+        self.stream = terminal.stream
+        self.continuation = terminal.continuation
+    }
+
+    func observe(_ state: SPLTunnel.TunnelState) -> Bool {
+        switch phase {
+        case .closed:
+            return false
+        case .resolved:
+            return true
+        case .openUnarmed:
+            switch state {
+            case .connecting, .tlsHandshaking, .connected:
+                phase = .openArmed
+                return false
+            case .disconnected, .failed:
+                return true
+            }
+        case .openArmed:
+            switch state {
+            case .disconnected:
+                resolve(.transportFailed("session disconnected during connect"))
+                return true
+            case .failed(let error):
+                resolve(error)
+                return true
+            case .connecting, .tlsHandshaking, .connected:
+                return false
+            }
+        }
+    }
+
+    func waitForTerminal() async -> SessionError? {
+        for await error in stream {
+            return error
+        }
+        return nil
+    }
+
+    func close() {
+        guard phase != .closed else {
+            return
+        }
+        phase = .closed
+        continuation.finish()
+    }
+
+    private func resolve(_ error: SessionError) {
+        guard phase != .resolved, phase != .closed else {
+            return
+        }
+        phase = .resolved
+        continuation.yield(error)
+        continuation.finish()
+    }
+}
+
 @MainActor
 @Observable
 final class CFTunnelTransport: Transporting {
@@ -52,9 +129,82 @@ final class CFTunnelTransport: Transporting {
 
         let session = makeSession(pairing)
         self.session = session
-        observe(session: session, onDisconnect: onDisconnect)
+        let connectWindow = ConnectWindowTerminalSignal()
+        observe(session: session, onDisconnect: onDisconnect, connectWindow: connectWindow)
         observeConnectionModeUpdates(session.connectionModeUpdates)
 
+        do {
+            let port = try await raceStartupAgainstConnectWindow(
+                session: session,
+                candidates: candidates,
+                onStageChange: onStageChange,
+                connectWindow: connectWindow
+            )
+            await connectWindow.close()
+            return port
+        } catch {
+            await connectWindow.close()
+            throw error
+        }
+    }
+
+    private func raceStartupAgainstConnectWindow(
+        session: any TunnelSessioning,
+        candidates: [TransportEndpoint],
+        onStageChange: @Sendable @escaping (TransportStage) -> Void,
+        connectWindow: ConnectWindowTerminalSignal
+    ) async throws -> Int {
+        let startupTask = Task { @MainActor in
+            try await self.startSessionAndProxy(
+                session: session,
+                candidates: candidates,
+                onStageChange: onStageChange
+            )
+        }
+        let terminalTask = Task {
+            await connectWindow.waitForTerminal()
+        }
+        defer {
+            startupTask.cancel()
+            terminalTask.cancel()
+        }
+
+        return try await withThrowingTaskGroup(of: ConnectStartupRaceResult.self) { group in
+            group.addTask {
+                .port(try await startupTask.value)
+            }
+            group.addTask {
+                guard let error = await terminalTask.value else {
+                    return .windowClosed
+                }
+                return .terminal(error)
+            }
+
+            while let result = try await group.next() {
+                switch result {
+                case .port(let port):
+                    await connectWindow.close()
+                    terminalTask.cancel()
+                    group.cancelAll()
+                    return port
+                case .terminal(let error):
+                    startupTask.cancel()
+                    await connectWindow.close()
+                    group.cancelAll()
+                    throw error
+                case .windowClosed:
+                    continue
+                }
+            }
+            throw CancellationError()
+        }
+    }
+
+    private func startSessionAndProxy(
+        session: any TunnelSessioning,
+        candidates: [TransportEndpoint],
+        onStageChange: @Sendable @escaping (TransportStage) -> Void
+    ) async throws -> Int {
         onStageChange(.racing)
         _ = try await session.connect(endpoints: candidates)
         self.connectionMode = await session.connectionMode
@@ -82,11 +232,15 @@ final class CFTunnelTransport: Transporting {
 
     private func observe(
         session: any TunnelSessioning,
-        onDisconnect: @Sendable @escaping (Error?) -> Void
+        onDisconnect: @Sendable @escaping (Error?) -> Void,
+        connectWindow: ConnectWindowTerminalSignal? = nil
     ) {
         stateTask?.cancel()
-        stateTask = Task {
+        stateTask = Task { @MainActor in
             for await state in session.stateUpdates {
+                if let connectWindow, await connectWindow.observe(state) {
+                    continue
+                }
                 switch state {
                 case .disconnected:
                     onDisconnect(nil)
@@ -97,6 +251,13 @@ final class CFTunnelTransport: Transporting {
                 }
             }
         }
+    }
+
+    public func inboundActivitySnapshot() async -> UInt64 {
+        guard let session else {
+            return 0
+        }
+        return await session.inboundActivitySnapshot()
     }
 
     func observeConnectionModeUpdates(_ updates: AsyncStream<ConnectionMode?>) {

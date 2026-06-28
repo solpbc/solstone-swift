@@ -24,6 +24,8 @@ final class MockCFTunnelTransport: Transporting {
     var suspendConnectUntilDisconnect = false
     var returnedPort: Int?
     var onDisconnectInvoked: (() -> Void)?
+    var inboundActivitySnapshotValue: UInt64 = 0
+    var inboundActivitySnapshots: [UInt64] = []
     private var suspendedConnect: CheckedContinuation<Int, Error>?
 
     func connect(
@@ -82,6 +84,14 @@ final class MockCFTunnelTransport: Transporting {
         }
         suspendedConnect = nil
         continuation.resume(throwing: SessionError.transportFailed("watchdog test"))
+    }
+
+    func inboundActivitySnapshot() async -> UInt64 {
+        guard !inboundActivitySnapshots.isEmpty else {
+            return inboundActivitySnapshotValue
+        }
+        inboundActivitySnapshotValue = inboundActivitySnapshots.removeFirst()
+        return inboundActivitySnapshotValue
     }
 
     func simulateDisconnect(error: Error? = nil) {

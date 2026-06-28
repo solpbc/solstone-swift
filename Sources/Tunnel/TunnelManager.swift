@@ -431,11 +431,18 @@ final class TunnelManager {
                 guard case .connected = self.state else {
                     return
                 }
+                let inboundBeforeProbe = await self.transport.inboundActivitySnapshot()
                 let result = await self.probeConnection()
-                if result?.alive == false,
-                   self.consecutiveProbeFailures >= self.probeFailureThreshold {
-                    await self.forceReconnect(reason: .probeFailed)
-                    return
+                if result?.alive == false {
+                    let inboundAfterProbe = await self.transport.inboundActivitySnapshot()
+                    if inboundAfterProbe > inboundBeforeProbe {
+                        self.consecutiveProbeFailures = 0
+                        continue
+                    }
+                    if self.consecutiveProbeFailures >= self.probeFailureThreshold {
+                        await self.forceReconnect(reason: .probeFailed)
+                        return
+                    }
                 }
             }
         }

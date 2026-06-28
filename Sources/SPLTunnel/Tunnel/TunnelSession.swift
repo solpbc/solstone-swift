@@ -44,6 +44,7 @@ public protocol TunnelSessioning: Sendable {
     func connect(endpoints: [TransportEndpoint]) async throws -> ConnectedVia
     func disconnect() async
     func openStream() async throws -> MuxStream
+    func inboundActivitySnapshot() async -> UInt64
 }
 
 protocol TunnelTLSIO: Sendable {
@@ -130,11 +131,18 @@ public actor TunnelSession: TunnelSessioning {
         return try await multiplexer.openStream()
     }
 
+    public func inboundActivitySnapshot() async -> UInt64 {
+        guard let multiplexer else {
+            return 0
+        }
+        return await multiplexer.inboundActivitySnapshot()
+    }
+
     private func connectOnce(attempt: Int, endpoints: [TransportEndpoint]) async throws -> ConnectedAttempt {
         publish(.connecting(attempt: attempt, candidates: endpoints))
 
         do {
-            let result = try await RaceCoordinator<ConnectedAttempt> { endpoint in
+            let result = try await RaceCoordinator<ConnectedAttempt>(close: { await $0.tls.close() }) { endpoint in
                 try await self.connectEndpoint(endpoint, attempt: attempt)
             }.connect(endpoints: endpoints)
             publishConnected(result.value, endpoint: result.endpoint)

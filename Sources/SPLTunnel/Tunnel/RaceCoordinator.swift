@@ -19,17 +19,20 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
     private let stagger: Duration
     private let loserGrace: Duration
     private let budget: Duration
+    private let close: @Sendable (Value) async -> Void
     private let dial: @Sendable (TransportEndpoint) async throws -> Value
 
     init(
         stagger: Duration = .milliseconds(50),
         loserGrace: Duration = .milliseconds(250),
         budget: Duration = .seconds(8),
+        close: @escaping @Sendable (Value) async -> Void = { _ in },
         dial: @escaping @Sendable (TransportEndpoint) async throws -> Value
     ) {
         self.stagger = stagger
         self.loserGrace = loserGrace
         self.budget = budget
+        self.close = close
         self.dial = dial
     }
 
@@ -124,6 +127,22 @@ struct RaceCoordinator<Value: Sendable>: Sendable {
                         throw Self.aggregateFailure(sawRevocation: sawRevocation, sawTokenExpired: sawTokenExpired)
                     }
                     group.cancelAll()
+                    var closedOrders = Set<Int>()
+                    for success in successes where success.order != winner.order {
+                        if closedOrders.insert(success.order).inserted {
+                            await close(success.value)
+                        }
+                    }
+                    while let event = try? await group.next() {
+                        switch event {
+                        case .success(let order, _, let value):
+                            if order != winner.order, closedOrders.insert(order).inserted {
+                                await close(value)
+                            }
+                        case .failure, .budgetExpired, .graceExpired:
+                            break
+                        }
+                    }
                     return RaceResult(endpoint: winner.endpoint, value: winner.value)
                 }
             }

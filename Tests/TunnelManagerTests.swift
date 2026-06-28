@@ -322,6 +322,26 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDuringConnectSchedulesReconnectWithoutPublishingConnected() async {
+        let pairing = Self.fixturePairing()
+        let fakeSession = FakeTunnelSession(failureDuringConnect: .transportFailed("pump ended during connect"))
+        let transport = CFTunnelTransport(
+            loadPairing: { pairing },
+            makeSession: { _ in fakeSession }
+        )
+        let manager = makeManager(transport: transport, pairing: pairing)
+
+        await manager.connect()
+
+        if case .connected = manager.state {
+            XCTFail("manager must not publish connected after a connect-window terminal")
+        }
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
+    @MainActor
     func testConnectingWatchdogDisconnectsWhileStillConnecting() async {
         let transport = MockCFTunnelTransport()
         transport.suspendConnectUntilDisconnect = true
@@ -812,6 +832,101 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(140))
         await Self.settle()
         XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, requestCount)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testLivenessProbeDoesNotEscalateWhenInboundAdvancesDuringFailedProbes() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        transport.inboundActivitySnapshots = Array(0...100)
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            probeFailureThreshold: 2
+        )
+
+        await manager.connect()
+        let didRunRepeatedFailedProbes = await Self.waitUntil({
+            TunnelProbeURLProtocol.capturedRequests.count >= 3
+        }, timeout: .seconds(2))
+
+        XCTAssertTrue(didRunRepeatedFailedProbes)
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
+        XCTAssertNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testLivenessProbeEscalatesBusyButStuckWithoutInboundDelta() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        transport.inboundActivitySnapshotValue = 42
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            probeFailureThreshold: 2
+        )
+
+        await manager.connect()
+        let didForceReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(2))
+
+        XCTAssertTrue(didForceReconnect)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testLivenessProbeEscalatesIdleUnresponsiveWithoutInboundDelta() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            probeFailureThreshold: 1
+        )
+
+        await manager.connect()
+        let didForceReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(2))
+
+        XCTAssertTrue(didForceReconnect)
         await manager.disconnect()
     }
 
