@@ -383,6 +383,136 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testScheduleReservationDeduplicatesConcurrentResume() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let gate = ObserverUploaderRegistrationGate()
+        let uploader = self.makeUploader(ensureRegistered: {
+            try await gate.ensureRegistered()
+        })
+        let sessionID = UUID()
+        let chunkID = "chunk-resume-dedupe"
+        try self.writePendingChunk(sessionID: sessionID, chunkID: chunkID)
+
+        let firstResume = Task { @MainActor in
+            await uploader.resumeFromDisk()
+        }
+        await gate.waitUntilParked()
+        XCTAssertEqual(uploader.inFlightCount, 1)
+
+        let secondResume = Task { @MainActor in
+            await uploader.resumeFromDisk()
+        }
+        try await self.waitFor("second resume skipped scheduling") {
+            uploader.inFlightCount == 1 && ObserverUploaderURLProtocol.callCount == 0
+        }
+
+        gate.release()
+        await firstResume.value
+        await secondResume.value
+
+        try await self.waitFor("deduplicated resume upload") {
+            ObserverUploaderURLProtocol.callCount == 1
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(uploader.inFlightCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testRetryTaskTrackingClearsAfterRetrySuccess() async throws {
+        let responseCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            let count = responseCount.withLock { value in
+                value += 1
+                return value
+            }
+            let statusCode = count == 1 ? 503 : 200
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!,
+                Data(statusCode == 200 ? "ok".utf8 : "service unavailable".utf8)
+            )
+        }
+
+        let uploader = self.makeUploader(retryDelays: [0], maxAttempts: 3)
+        let sessionID = UUID()
+        let sourceURL = try self.makeChunkFile(named: "chunk-retry-clears")
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("retry success cleanup") {
+            ObserverUploaderURLProtocol.callCount == 2
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(uploader.retryTaskCountForTesting(), 0)
+        XCTAssertEqual(uploader.inFlightCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testReplacementRetryStaysTrackedAfterPriorRetryCancelled() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("service unavailable".utf8)
+            )
+        }
+        let firstRetrySleep = ObserverUploaderRetrySleepGate()
+        let secondRetrySleep = ObserverUploaderRetrySleepGate()
+        let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let uploader = self.makeUploader(
+            retryDelays: [0, 0],
+            maxAttempts: 3,
+            sleep: { _ in
+                let call = sleepCalls.withLock { value in
+                    value += 1
+                    return value
+                }
+                if call == 1 {
+                    await firstRetrySleep.sleep()
+                } else {
+                    await secondRetrySleep.sleep()
+                }
+            }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-retry-replacement"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        try await self.waitFor("first retry armed") {
+            ObserverUploaderURLProtocol.callCount == 1 && uploader.retryTaskCountForTesting() == 1
+        }
+        await firstRetrySleep.waitUntilParked()
+
+        await uploader.resumeFromDisk()
+        try await self.waitFor("replacement retry armed") {
+            ObserverUploaderURLProtocol.callCount == 2 && uploader.retryTaskCountForTesting() == 1
+        }
+        await secondRetrySleep.waitUntilParked()
+        XCTAssertEqual(uploader.retryTaskCountForTesting(), 1)
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        XCTAssertEqual(uploader.retryTaskCountForTesting(), 0)
+        firstRetrySleep.release()
+        secondRetrySleep.release()
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 2)
+        XCTAssertEqual(uploader.inFlightCount, 0)
+    }
+
+    @MainActor
     func testJournalUnconfiguredLeavesPendingChunkWithoutAttemptsOrRetry() async throws {
         let sleepCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
         let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
@@ -676,6 +806,124 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(uploader.failedCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
         XCTAssertEqual(try self.directoryEntries(at: self.failedDirectoryURL(sessionID: sessionID)), [])
+    }
+
+    @MainActor
+    func testDroppedChunkSurvivesRelaunchViaFileGate() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        let deliveredCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        ObserverUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(onSegmentDelivered: { _ in
+            deliveredCount.withLock { $0 += 1 }
+        })
+        let sessionID = UUID()
+        let chunkID = "chunk-relaunch-drop"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        uploadRelease.signal()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(deliveredCount.withLock { $0 }, 0)
+        XCTAssertNil(uploader.lastUploadAt)
+        XCTAssertNil(uploader.lastError)
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
+    @MainActor
+    func testDropItemCancelsBackgroundTaskAfterInMemoryStateCleared() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/observer/ingest"
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held upload should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader()
+        let sessionID = UUID()
+        let chunkID = "chunk-background-cancel"
+        let sourceURL = try self.makeChunkFile(named: chunkID)
+
+        await uploader.enqueue(
+            chunkURL: sourceURL,
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+
+        try await self.waitFor("background task cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.path == "/app/observer/ingest" }
+        }
+        XCTAssertFalse(uploader.hasInFlightTrackingForTesting(chunkID: chunkID))
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertNil(uploader.lastError)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+    }
+
+    @MainActor
+    func testDropMidReservationSuppressesCompletion() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("drop during registration should not create an upload task")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let gate = ObserverUploaderRegistrationGate()
+        let uploader = self.makeUploader(ensureRegistered: {
+            try await gate.ensureRegistered()
+        })
+        let sessionID = UUID()
+        let chunkID = "chunk-drop-mid-reservation"
+        try self.writePendingChunk(sessionID: sessionID, chunkID: chunkID)
+
+        let resume = Task { @MainActor in
+            await uploader.resumeFromDisk()
+        }
+        await gate.waitUntilParked()
+        XCTAssertTrue(uploader.hasInFlightTrackingForTesting(chunkID: chunkID))
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        XCTAssertTrue(uploader.isDropTombstonedForTesting(chunkID: chunkID))
+        gate.release()
+        await resume.value
+
+        try await self.waitFor("mid-reservation drop cleanup") {
+            uploader.inFlightCount == 0 && !uploader.isDropTombstonedForTesting(chunkID: chunkID)
+        }
+        XCTAssertEqual(ObserverUploaderURLProtocol.callCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertNil(uploader.lastError)
     }
 
     @MainActor
@@ -1604,6 +1852,14 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
     }
 
+    private func writePendingChunk(sessionID: UUID, chunkID: String) throws {
+        let audioURL = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
+        try FileManager.default.createDirectory(at: audioURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: audioURL)
+        try self.makeEncoder().encode(self.makeSidecar(sessionID: sessionID, chunkIndex: 0))
+            .write(to: self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID))
+    }
+
     private func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -1730,6 +1986,102 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(label)")
+    }
+}
+
+@MainActor
+private final class ObserverUploaderRegistrationGate {
+    private var parkedContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<String, any Error>?
+    private var isParked = false
+    private var releasedResult: Result<String, any Error>?
+
+    func ensureRegistered() async throws -> String {
+        guard !self.isParked else {
+            return try self.releasedResult?.get() ?? "test-observer-key-abc"
+        }
+        self.isParked = true
+        self.parkedContinuation?.resume()
+        self.parkedContinuation = nil
+        return try await withCheckedThrowingContinuation { continuation in
+            self.releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilParked() async {
+        guard !self.isParked else { return }
+        await withCheckedContinuation { continuation in
+            self.parkedContinuation = continuation
+        }
+    }
+
+    func release(handle: String = "test-observer-key-abc") {
+        self.releasedResult = .success(handle)
+        self.releaseContinuation?.resume(returning: handle)
+        self.releaseContinuation = nil
+    }
+
+    func release(throwing error: any Error) {
+        self.releasedResult = .failure(error)
+        self.releaseContinuation?.resume(throwing: error)
+        self.releaseContinuation = nil
+    }
+}
+
+private final class ObserverUploaderRetrySleepGate: @unchecked Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Void, Never>?
+        var parkedContinuation: CheckedContinuation<Void, Never>?
+        var isParked = false
+        var released = false
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    func sleep() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.lock.withLock {
+                if self.state.released {
+                    return true
+                }
+                self.state.continuation = continuation
+                self.state.isParked = true
+                self.state.parkedContinuation?.resume()
+                self.state.parkedContinuation = nil
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func waitUntilParked() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.lock.withLock {
+                if self.state.isParked || self.state.released {
+                    return true
+                }
+                self.state.parkedContinuation = continuation
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = self.lock.withLock {
+            self.state.released = true
+            let continuation = self.state.continuation
+            self.state.continuation = nil
+            self.state.parkedContinuation?.resume()
+            self.state.parkedContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
     }
 }
 

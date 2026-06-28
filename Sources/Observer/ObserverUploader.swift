@@ -93,7 +93,7 @@ final class ObserverUploader {
     private let throughputMeter = ThroughputMeter()
 
     var inFlightCount: Int {
-        self.activeTasksByTaskID.count + self.retryTasksByChunkID.count
+        self.activeTasksByTaskID.count + self.retryTasksByChunkID.count + self.schedulingChunkIDs.count
     }
 
     @ObservationIgnored private(set) var fullRecountCount = 0
@@ -120,6 +120,7 @@ final class ObserverUploader {
     @ObservationIgnored private var taskInfoByTaskID: [Int: TaskInfo] = [:]
     @ObservationIgnored private var activeTasksByTaskID: [Int: URLSessionTask] = [:]
     @ObservationIgnored private var activeTaskIDByChunkID: [String: Int] = [:]
+    @ObservationIgnored private var schedulingChunkIDs: Set<String> = []
     @ObservationIgnored private var droppedChunkIDs: Set<String> = []
     @ObservationIgnored private var attemptCountByChunkID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
@@ -444,10 +445,23 @@ final class ObserverUploader {
     }
 
     func dropItem(sessionID: UUID, chunkID: String) {
-        if self.activeTaskIDByChunkID[chunkID] != nil {
+        let hadLiveWork = self.activeTaskIDByChunkID[chunkID] != nil
+            || self.schedulingChunkIDs.contains(chunkID)
+        if hadLiveWork {
             self.droppedChunkIDs.insert(chunkID)
         }
         self.clearUploadState(chunkID: chunkID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let tasks = await self.sessionTasks()
+            for task in tasks {
+                guard let descriptor = self.uploadTaskDescriptor(from: task.taskDescription),
+                      descriptor.chunkID == chunkID,
+                      descriptor.sessionID == sessionID
+                else { continue }
+                task.cancel()
+            }
+        }
 
         let pendingDirectory = self.pendingDirectoryURL(sessionID: sessionID)
         let pendingAudioURL = pendingDirectory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
@@ -476,10 +490,21 @@ final class ObserverUploader {
         self.taskInfoByTaskID.removeAll()
         self.activeTasksByTaskID.removeAll()
         self.activeTaskIDByChunkID.removeAll()
+        self.droppedChunkIDs.removeAll()
+        self.schedulingChunkIDs.removeAll()
+        self.attemptCountByChunkID.removeAll()
+        for task in self.retryTasksByChunkID.values {
+            task.cancel()
+        }
+        self.retryTasksByChunkID.removeAll()
     }
 
     func attemptCountForTesting(chunkID: String) -> Int {
         self.attemptCountByChunkID[chunkID, default: 0]
+    }
+
+    func retryTaskCountForTesting() -> Int {
+        self.retryTasksByChunkID.count
     }
 
     func plantDropTombstoneForTesting(chunkID: String) {
@@ -491,6 +516,7 @@ final class ObserverUploader {
     }
 
     func hasInFlightTrackingForTesting(chunkID: String) -> Bool {
+        if self.schedulingChunkIDs.contains(chunkID) { return true }
         guard let taskID = self.activeTaskIDByChunkID[chunkID] else { return false }
         return self.taskInfoByTaskID[taskID] != nil || self.activeTasksByTaskID[taskID] != nil
     }
@@ -798,6 +824,9 @@ private extension ObserverUploader {
 
             do {
                 _ = try self.loadSidecar(from: sidecarURL)
+                guard self.activeTaskIDByChunkID[chunkID] == nil,
+                      !self.schedulingChunkIDs.contains(chunkID)
+                else { continue }
                 await self.scheduleUpload(chunkID: chunkID, sessionID: sessionID)
             } catch {
                 try self.movePendingPairToFailed(
@@ -813,6 +842,9 @@ private extension ObserverUploader {
 
     func scheduleUpload(chunkID: String, sessionID: UUID) async {
         guard self.activeTaskIDByChunkID[chunkID] == nil else { return }
+        guard !self.schedulingChunkIDs.contains(chunkID) else { return }
+        self.schedulingChunkIDs.insert(chunkID)
+        defer { self.schedulingChunkIDs.remove(chunkID) }
 
         let audioURL = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
         let sidecarURL = self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID)
@@ -838,6 +870,11 @@ private extension ObserverUploader {
         do {
             handle = try await self.ensureRegistered()
         } catch {
+            if self.droppedChunkIDs.remove(chunkID) != nil {
+                uploaderLog.info("observer drop consumed during registration window (throw) \(chunkID, privacy: .public)")
+                self.lastError = nil
+                return
+            }
             await self.handleUploadFailure(
                 chunkID: chunkID,
                 sessionID: sessionID,
@@ -854,6 +891,11 @@ private extension ObserverUploader {
                     transportError: nil
                 )
             )
+            return
+        }
+        if self.droppedChunkIDs.remove(chunkID) != nil {
+            uploaderLog.info("observer drop consumed during registration window (success) \(chunkID, privacy: .public)")
+            self.lastError = nil
             return
         }
         let prefix = self.registrationPrefixProvider()
@@ -888,6 +930,11 @@ private extension ObserverUploader {
             var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: chunkID))", forHTTPHeaderField: "Content-Type")
 
+            guard self.droppedChunkIDs.remove(chunkID) == nil else {
+                try? self.fileManager.removeItem(at: requestBodyURL)
+                self.lastError = nil
+                return
+            }
             let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
             task.taskDescription = self.taskDescription(for: UploadTaskDescriptor(
                 sourceType: self.sourceType,
@@ -990,6 +1037,8 @@ private extension ObserverUploader {
                     guard let self else { return }
                     await self.sleep(requeueDelay)
                     guard !Task.isCancelled else { return }
+                    // Every reassignment cancels the previous retry first, so a non-cancelled retry is the current tracked entry; removing by key cannot delete a successor.
+                    self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
                     await self.scheduleUpload(chunkID: info.chunkID, sessionID: info.sessionID)
                 }
                 return
@@ -1046,6 +1095,7 @@ private extension ObserverUploader {
             try? self.fileManager.removeItem(at: info.requestBodyURL)
             self.onSegmentDelivered?(info.sessionID)
             self.attemptCountByChunkID.removeValue(forKey: info.chunkID)
+            self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
             self.lastUploadAt = Date()
             self.lastError = nil
             uploaderLog.info("observer chunk uploaded \(info.chunkID, privacy: .public)")
@@ -1227,6 +1277,8 @@ private extension ObserverUploader {
             guard let self else { return }
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
+            // Every reassignment cancels the previous retry first, so a non-cancelled retry is the current tracked entry; removing by key cannot delete a successor.
+            self.retryTasksByChunkID.removeValue(forKey: chunkID)
             await self.scheduleUpload(chunkID: chunkID, sessionID: sessionID)
         }
     }
