@@ -10,6 +10,7 @@ private let logger = Logger(subsystem: "app.solstone.observer.spl", category: "l
 public enum LoopbackProxyError: Error, Sendable, Equatable {
     case listenerMissingPort
     case listenerFailed(String)
+    case listenerCancelled
 }
 
 public actor LoopbackProxy {
@@ -43,7 +44,7 @@ public actor LoopbackProxy {
             case .failed(let error):
                 waiter.complete(.failure(LoopbackProxyError.listenerFailed(error.localizedDescription)))
             case .cancelled:
-                break
+                waiter.complete(.failure(LoopbackProxyError.listenerCancelled))
             case .setup, .waiting:
                 break
             @unknown default:
@@ -67,7 +68,11 @@ public actor LoopbackProxy {
 
         self.listener = listener
         listener.start(queue: .global(qos: .utility))
-        return try await waiter.wait()
+        return try await withTaskCancellationHandler {
+            try await waiter.wait()
+        } onCancel: {
+            listener.cancel()
+        }
     }
 
     public func stop() async {
@@ -217,7 +222,7 @@ private struct LoopbackPumpStats: Sendable {
     var bytesOut: Int
 }
 
-private final class LoopbackListenerReadyWaiter: @unchecked Sendable {
+final class LoopbackListenerReadyWaiter: @unchecked Sendable {
     // why: NWListener invokes state callbacks on a dispatch queue while start() awaits; NSLock guards one-shot result delivery.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<UInt16, Error>?

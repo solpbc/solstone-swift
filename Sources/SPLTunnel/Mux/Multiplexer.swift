@@ -80,8 +80,13 @@ public actor Multiplexer {
             }
         )
         let frame = try encodeFrame(buildOpen(streamID: id))
-        try await sink(frame)
         streams[id] = stream
+        do {
+            try await sink(frame)
+        } catch {
+            streams.removeValue(forKey: id)
+            throw error
+        }
         return stream
     }
 
@@ -285,7 +290,7 @@ public actor Multiplexer {
         var count = 0
         for stream in streams.values {
             let state = await stream.state
-            if state == .open || state == .halfClosedRemote {
+            if state != .closed && state != .resetLocal && state != .resetRemote {
                 count += 1
             }
         }
