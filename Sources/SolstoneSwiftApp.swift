@@ -17,11 +17,14 @@ struct SolstoneSwiftApp: App {
     @State private var diagnosticLog: DiagnosticLog
     @State private var observerRegistration: ObserverRegistration
     @State private var observerUploader: ObserverUploader
+    @State private var mobileHealthBeacon: ObserverHealthBeacon
     @State private var omiRegistration: ObserverRegistration
     @State private var omiUploader: ObserverUploader
+    @State private var omiHealthBeacon: ObserverHealthBeacon
     @State private var omiUploaderHolder: OmiUploaderHolder
     @State private var watchRegistration: ObserverRegistration
     @State private var watchUploader: ObserverUploader
+    @State private var watchHealthBeacon: ObserverHealthBeacon
     @State private var watchUploaderHolder: WatchUploaderHolder
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
@@ -140,6 +143,8 @@ struct SolstoneSwiftApp: App {
         }
         let log = DiagnosticLog()
         let appConfig = AppConfig()
+        let observerClock = SystemObserverClock()
+        let healthSession = URLSession(configuration: .default)
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig)
         let tunnel = TunnelManager(
@@ -173,6 +178,15 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.registrationPrefix
             },
             diagnosticLog: log
+        )
+        let mobileHealthBeacon = ObserverHealthBeacon(
+            registration: observerRegistration,
+            uploader: observerUploader,
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
+            session: healthSession,
+            clock: observerClock
         )
         let omiRegistration = ObserverRegistration(
             hostname: UIDevice.current.name,
@@ -221,6 +235,15 @@ struct SolstoneSwiftApp: App {
             },
             diagnosticLog: log,
             sourceType: "omi-audio"
+        )
+        let omiHealthBeacon = ObserverHealthBeacon(
+            registration: omiRegistration,
+            uploader: omiUploader,
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
+            session: healthSession,
+            clock: observerClock
         )
         let omiUploaderHolder = OmiUploaderHolder(omiUploader)
         let watchRegistration = ObserverRegistration(
@@ -272,6 +295,15 @@ struct SolstoneSwiftApp: App {
             sourceType: "watch-audio",
             platform: "watchos"
         )
+        let watchHealthBeacon = ObserverHealthBeacon(
+            registration: watchRegistration,
+            uploader: watchUploader,
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
+            session: healthSession,
+            clock: observerClock
+        )
         let watchUploaderHolder = WatchUploaderHolder(watchUploader)
         let watchSegmentDrain: WatchSegmentDrain?
         do {
@@ -314,7 +346,11 @@ struct SolstoneSwiftApp: App {
         )
         let locationManager = LocationManager(uploader: locationUploader)
         let observerRecorder = Self.makeObserverRecorder()
-        let observerManager = ObserverManager(recorder: observerRecorder, uploader: observerUploader)
+        let observerManager = ObserverManager(
+            recorder: observerRecorder,
+            uploader: observerUploader,
+            clock: observerClock
+        )
         let watchConnectivitySession = LiveWatchConnectivitySession()
         let watchRelayReceiver: WatchRelayReceiver?
         do {
@@ -349,7 +385,7 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
-        let omiSegmentWriter = OmiSegmentWriter(uploader: omiUploader)
+        let omiSegmentWriter = OmiSegmentWriter(uploader: omiUploader, clock: observerClock)
         let omiSource = OmiSourceManager()
         let omiHeardTally = omiSource.heardTally
         omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
@@ -417,11 +453,14 @@ struct SolstoneSwiftApp: App {
         self._tunnelManager = State(initialValue: tunnel)
         self._observerRegistration = State(initialValue: observerRegistration)
         self._observerUploader = State(initialValue: observerUploader)
+        self._mobileHealthBeacon = State(initialValue: mobileHealthBeacon)
         self._omiRegistration = State(initialValue: omiRegistration)
         self._omiUploader = State(initialValue: omiUploader)
+        self._omiHealthBeacon = State(initialValue: omiHealthBeacon)
         self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
         self._watchRegistration = State(initialValue: watchRegistration)
         self._watchUploader = State(initialValue: watchUploader)
+        self._watchHealthBeacon = State(initialValue: watchHealthBeacon)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
@@ -485,6 +524,11 @@ struct SolstoneSwiftApp: App {
                     Task {
                         await self.observerManager.stopSession()
                     }
+                }
+                .task {
+                    self.mobileHealthBeacon.start()
+                    self.omiHealthBeacon.start()
+                    self.watchHealthBeacon.start()
                 }
                 .task {
                     await self.importQueue.resumeFromDisk()

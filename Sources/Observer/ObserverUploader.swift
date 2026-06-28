@@ -90,6 +90,7 @@ final class ObserverUploader {
     var failedCount = 0
     var lastUploadAt: Date?
     var lastError: String?
+    private(set) var recentErrorCount = 0
     private let throughputMeter = ThroughputMeter()
 
     var inFlightCount: Int {
@@ -1098,6 +1099,7 @@ private extension ObserverUploader {
             self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
             self.lastUploadAt = Date()
             self.lastError = nil
+            self.recentErrorCount = 0
             uploaderLog.info("observer chunk uploaded \(info.chunkID, privacy: .public)")
             if removedAudio {
                 self.applyCountDelta(pending: -1, failed: 0, step: "completion")
@@ -1181,7 +1183,7 @@ private extension ObserverUploader {
             while end < redacted.endIndex, !redacted[end].isWhitespace {
                 end = redacted.index(after: end)
             }
-            redacted.replaceSubrange(bearerRange.lowerBound..<end, with: "Bearer [redacted]")
+            redacted.replaceSubrange(bearerRange.lowerBound..<end, with: "[redacted bearer]")
         }
         return redacted
     }
@@ -1197,6 +1199,7 @@ private extension ObserverUploader {
         let nextAttempt = self.attemptCountByChunkID[chunkID, default: 0] + 1
         self.attemptCountByChunkID[chunkID] = nextAttempt
         self.lastError = self.redactedFailureDetail(reason)
+        self.recentErrorCount = min(self.recentErrorCount + 1, 99)
         self.appendUploadDiagnostic(
             stage: context.stage,
             severity: context.severity,

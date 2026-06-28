@@ -141,6 +141,71 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testRecentErrorCountIncrementsCapsAndResetsOnSuccess() async throws {
+        let shouldFail = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldFail.withLock({ $0 }) {
+                return (
+                    HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                    Data("service unavailable".utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        let uploader = self.makeUploader(retryDelays: [0], maxAttempts: 100)
+        let failedSessionID = UUID()
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-recent-error-cap"),
+            sidecar: self.makeSidecar(sessionID: failedSessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("recent error cap", timeout: .seconds(5)) {
+            uploader.failedCount == 1
+        }
+        XCTAssertEqual(uploader.recentErrorCount, 99)
+
+        shouldFail.withLock { $0 = false }
+        let successSessionID = UUID()
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-recent-error-reset"),
+            sidecar: self.makeSidecar(sessionID: successSessionID, chunkIndex: 1)
+        )
+
+        try await self.waitFor("recent error reset") {
+            uploader.lastUploadAt != nil && uploader.recentErrorCount == 0
+        }
+    }
+
+    @MainActor
+    func testUploadFailureRedactsBareBearerTokenWithoutLoop() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("transport failed Bearer persisted-secret-token\nretrying".utf8)
+            )
+        }
+        let uploader = self.makeUploader(maxAttempts: 1)
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: "chunk-bare-bearer"),
+            sidecar: self.makeSidecar(sessionID: UUID(), chunkIndex: 0)
+        )
+        try await self.waitFor("bare bearer redaction") {
+            uploader.failedCount == 1
+        }
+
+        let detail = try XCTUnwrap(uploader.lastError)
+        XCTAssertTrue(detail.contains("[redacted bearer]"))
+        XCTAssertFalse(detail.contains("persisted-secret-token"))
+        XCTAssertFalse(detail.contains("Bearer persisted-secret-token"))
+        XCTAssertFalse(detail.contains("\n"))
+    }
+
+    @MainActor
     func testCurrentPortTransportErrorMovesChunkToFailedDirectory() async throws {
         ObserverUploaderURLProtocol.handler = { _ in
             throw URLError(.timedOut)

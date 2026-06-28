@@ -16,6 +16,10 @@ nonisolated enum ObserverServerURL {
         self.url(localPort: localPort, path: "/app/observer/ingest")
     }
 
+    static func healthURL(localPort: Int) -> URL? {
+        self.url(localPort: localPort, path: "/app/observer/health")
+    }
+
     static func segmentsURL(localPort: Int, day: String) -> URL? {
         self.url(localPort: localPort, path: "/app/observer/ingest/segments/\(day)")
     }

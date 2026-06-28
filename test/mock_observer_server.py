@@ -129,6 +129,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
             return
 
+        if self.path == "/app/observer/health":
+            if not self._require_observer_auth():
+                return
+            self._read_bytes()
+            self._send_json(200, {"ok": True})
+            return
+
         if self.path == "/app/observer/ingest":
             if not self._require_observer_auth():
                 return

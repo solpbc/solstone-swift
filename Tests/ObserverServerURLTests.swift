@@ -26,6 +26,13 @@ nonisolated final class ObserverServerURLTests: XCTestCase {
         XCTAssertEqual(url.path, "/app/observer/source/location")
     }
 
+    func testHealthURLBuildsObserverHealthRoute() throws {
+        let url = try XCTUnwrap(ObserverServerURL.healthURL(localPort: 7071))
+
+        XCTAssertEqual(url.host, "127.0.0.1")
+        XCTAssertEqual(url.path, "/app/observer/health")
+    }
+
     func testImporterURLsBuildKeylessRoutes() throws {
         let saveURL = try XCTUnwrap(ImporterServerURL.saveURL(localPort: 7071))
         let startURL = try XCTUnwrap(ImporterServerURL.startURL(localPort: 7071))

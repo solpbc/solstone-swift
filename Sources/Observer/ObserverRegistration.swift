@@ -50,8 +50,8 @@ final class ObserverRegistration {
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let hostname: String
-    @ObservationIgnored private let version: String
-    @ObservationIgnored private let streamType: String
+    @ObservationIgnored let version: String
+    @ObservationIgnored let streamType: String
     @ObservationIgnored private let label: String?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
@@ -128,6 +128,16 @@ final class ObserverRegistration {
             self.registrationTask = nil
             throw error
         }
+    }
+
+    func registeredHandle() -> String? {
+        guard case .registered = self.state,
+              let existing = try? self.loadKey(),
+              !existing.isEmpty
+        else {
+            return nil
+        }
+        return existing
     }
 
     private func registerWithServer() async throws -> String {
