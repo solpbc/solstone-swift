@@ -53,7 +53,7 @@ final class LocationUploader: LocationUploading {
     private let throughputMeter = ThroughputMeter()
 
     var inFlightCount: Int {
-        self.uploadTaskByFileID.count + self.retryTasksByFileID.count
+        self.uploadTaskByFileID.count + self.retryTasksByFileID.count + self.schedulingFileIDs.count
     }
 
     @ObservationIgnored private let fileManager: FileManager
@@ -77,6 +77,8 @@ final class LocationUploader: LocationUploading {
     @ObservationIgnored private var uploadTaskByFileID: [String: URLSessionUploadTask] = [:]
     @ObservationIgnored private var attemptCountByFileID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByFileID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var schedulingFileIDs: Set<String> = []
+    @ObservationIgnored private var droppedFileIDs: Set<String> = []
     @ObservationIgnored private var isDeleting = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.location-uploader")
@@ -185,6 +187,7 @@ final class LocationUploader: LocationUploading {
 
         do {
             try self.ensureRootDirectories()
+            await self.reconcilePortIfNeeded()
             let entries = try self.fileManager.contentsOfDirectory(
                 at: self.pendingDirectoryURL(),
                 includingPropertiesForKeys: nil,
@@ -196,6 +199,9 @@ final class LocationUploader: LocationUploading {
                 let fileID = entry.deletingPathExtension().lastPathComponent
                 do {
                     _ = try self.parseFrozenFileName(entry.lastPathComponent)
+                    guard self.activeTaskIDByFileID[fileID] == nil,
+                          !self.schedulingFileIDs.contains(fileID)
+                    else { continue }
                     await self.scheduleUpload(fileID: fileID)
                 } catch {
                     try self.movePendingFileToFailed(
@@ -286,15 +292,52 @@ final class LocationUploader: LocationUploading {
         self.attemptCountByFileID[fileID, default: 0]
     }
 
+    func clearInMemoryUploadStateForTesting() {
+        self.responseDataByTaskID.removeAll()
+        self.taskInfoByTaskID.removeAll()
+        self.activeTaskIDByFileID.removeAll()
+        self.uploadTaskByFileID.removeAll()
+        self.schedulingFileIDs.removeAll()
+        self.droppedFileIDs.removeAll()
+        self.attemptCountByFileID.removeAll()
+        for task in self.retryTasksByFileID.values {
+            task.cancel()
+        }
+        self.retryTasksByFileID.removeAll()
+    }
+
+    func plantDropTombstoneForTesting(fileID: String) {
+        self.droppedFileIDs.insert(fileID)
+    }
+
+    func isDropTombstonedForTesting(fileID: String) -> Bool {
+        self.droppedFileIDs.contains(fileID)
+    }
+
+    func hasInFlightTrackingForTesting(fileID: String) -> Bool {
+        if self.schedulingFileIDs.contains(fileID) { return true }
+        if self.uploadTaskByFileID[fileID] != nil { return true }
+        if self.retryTasksByFileID[fileID] != nil { return true }
+        guard let taskID = self.activeTaskIDByFileID[fileID] else { return false }
+        return self.taskInfoByTaskID[taskID] != nil
+    }
+
     func dropItem(fileID: String) {
+        let hadLiveWork = self.uploadTaskByFileID[fileID] != nil
+            || self.schedulingFileIDs.contains(fileID)
+        if hadLiveWork {
+            self.droppedFileIDs.insert(fileID)
+        }
         self.uploadTaskByFileID[fileID]?.cancel()
-        self.uploadTaskByFileID.removeValue(forKey: fileID)
         self.retryTasksByFileID[fileID]?.cancel()
         self.retryTasksByFileID.removeValue(forKey: fileID)
         self.attemptCountByFileID.removeValue(forKey: fileID)
-        if let taskID = self.activeTaskIDByFileID.removeValue(forKey: fileID) {
-            self.taskInfoByTaskID.removeValue(forKey: taskID)
-            self.responseDataByTaskID.removeValue(forKey: taskID)
+        self.schedulingFileIDs.remove(fileID)
+        self.clearTaskState(taskID: self.activeTaskIDByFileID[fileID], fileID: fileID)
+        self.uploadTaskByFileID.removeValue(forKey: fileID)
+
+        Task { @MainActor [weak self] in
+            await self?.cancelSessionTasks(fileID: fileID)
         }
 
         try? self.fileManager.removeItem(at: self.pendingFileURL(fileID: fileID))
@@ -319,6 +362,7 @@ final class LocationUploader: LocationUploading {
     func deleteLocationSource() async -> DeleteShareSourceResult {
         self.isDeleting = true
         self.cancelLocationWorkForDelete()
+        await self.cancelLocationSessionTasksForDelete()
 
         let handle: String
         do {
@@ -405,6 +449,12 @@ private extension LocationUploader {
         let fileID: String
         let segmentURL: URL
         let requestBodyURL: URL
+        let localPort: Int
+    }
+
+    struct UploadTaskDescriptor: Codable {
+        let fileID: String
+        let localPort: Int
     }
 
     struct IngestResponse: Decodable {
@@ -663,6 +713,7 @@ private extension LocationUploader {
         self.responseDataByTaskID.removeAll()
         self.retryTasksByFileID.removeAll()
         self.attemptCountByFileID.removeAll()
+        self.schedulingFileIDs.removeAll()
     }
 
     func clearLocationLocalState() -> [DeleteSourceReceipt.Issue] {
@@ -721,12 +772,145 @@ private extension LocationUploader {
         return FrozenSegment(fileID: fileID, data: data)
     }
 
+    func reconcilePortIfNeeded() async {
+        guard let currentPort = self.localPortProvider() else { return }
+
+        let staleInMemoryTasks = self.taskInfoByTaskID.compactMap { taskID, info -> (Int, TaskInfo, URLSessionUploadTask?)? in
+            guard info.localPort != currentPort else { return nil }
+            return (taskID, info, self.uploadTaskByFileID[info.fileID])
+        }
+        for (taskID, info, task) in staleInMemoryTasks {
+            self.clearTaskState(taskID: taskID, fileID: info.fileID)
+            task?.cancel()
+            guard !self.schedulingFileIDs.contains(info.fileID) else { continue }
+            await self.scheduleUpload(fileID: info.fileID)
+        }
+
+        let tasks = await self.sessionTasks()
+        guard !tasks.isEmpty else { return }
+
+        for task in tasks {
+            let descriptor = self.uploadTaskDescriptor(from: task.taskDescription)
+            let requestPort = task.originalRequest?.url?.port
+            let isCurrentPort = descriptor?.localPort == currentPort
+                && (requestPort == nil || requestPort == currentPort)
+
+            guard isCurrentPort, let descriptor else {
+                self.clearTaskState(taskID: task.taskIdentifier, fileID: descriptor?.fileID)
+                task.cancel()
+                continue
+            }
+
+            let segmentURL = self.pendingFileURL(fileID: descriptor.fileID)
+            guard self.fileManager.fileExists(atPath: segmentURL.path) else {
+                self.clearTaskState(taskID: task.taskIdentifier, fileID: descriptor.fileID)
+                task.cancel()
+                continue
+            }
+
+            guard self.activeTaskIDByFileID[descriptor.fileID] == nil,
+                  !self.schedulingFileIDs.contains(descriptor.fileID)
+            else { continue }
+
+            guard let uploadTask = task as? URLSessionUploadTask else {
+                self.clearTaskState(taskID: task.taskIdentifier, fileID: descriptor.fileID)
+                task.cancel()
+                continue
+            }
+
+            let requestBodyURL = self.pendingDirectoryURL()
+                .appendingPathComponent("\(descriptor.fileID).upload", isDirectory: false)
+            self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
+                fileID: descriptor.fileID,
+                segmentURL: segmentURL,
+                requestBodyURL: requestBodyURL,
+                localPort: descriptor.localPort
+            )
+            self.activeTaskIDByFileID[descriptor.fileID] = task.taskIdentifier
+            self.uploadTaskByFileID[descriptor.fileID] = uploadTask
+        }
+    }
+
+    func sessionTasks() async -> [URLSessionTask] {
+        await withCheckedContinuation { continuation in
+            self.session.getAllTasks { tasks in
+                continuation.resume(returning: tasks)
+            }
+        }
+    }
+
+    func taskDescription(for descriptor: UploadTaskDescriptor) -> String? {
+        guard let data = try? JSONEncoder().encode(descriptor) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func uploadTaskDescriptor(from taskDescription: String?) -> UploadTaskDescriptor? {
+        guard let taskDescription,
+              let data = taskDescription.data(using: .utf8)
+        else {
+            return nil
+        }
+        return try? JSONDecoder().decode(UploadTaskDescriptor.self, from: data)
+    }
+
+    func clearTaskState(taskID: Int?, fileID: String?) {
+        let resolvedFileID = fileID ?? taskID.flatMap { self.taskInfoByTaskID[$0]?.fileID }
+        if let taskID {
+            self.taskInfoByTaskID.removeValue(forKey: taskID)
+            self.responseDataByTaskID.removeValue(forKey: taskID)
+        }
+        guard let resolvedFileID else { return }
+
+        guard let taskID else { return }
+        if self.activeTaskIDByFileID[resolvedFileID] == taskID {
+            self.activeTaskIDByFileID.removeValue(forKey: resolvedFileID)
+        }
+        if self.uploadTaskByFileID[resolvedFileID]?.taskIdentifier == taskID {
+            self.uploadTaskByFileID.removeValue(forKey: resolvedFileID)
+        }
+    }
+
+    func resolveTaskInfo(for task: URLSessionTask) -> TaskInfo? {
+        if let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) {
+            return info
+        }
+        guard let descriptor = self.uploadTaskDescriptor(from: task.taskDescription) else { return nil }
+        let segmentURL = self.pendingFileURL(fileID: descriptor.fileID)
+        guard self.fileManager.fileExists(atPath: segmentURL.path) else { return nil }
+        let requestBodyURL = self.pendingDirectoryURL()
+            .appendingPathComponent("\(descriptor.fileID).upload", isDirectory: false)
+        return TaskInfo(
+            fileID: descriptor.fileID,
+            segmentURL: segmentURL,
+            requestBodyURL: requestBodyURL,
+            localPort: descriptor.localPort
+        )
+    }
+
+    func cancelSessionTasks(fileID: String) async {
+        let tasks = await self.sessionTasks()
+        for task in tasks {
+            guard self.uploadTaskDescriptor(from: task.taskDescription)?.fileID == fileID else { continue }
+            task.cancel()
+        }
+    }
+
+    func cancelLocationSessionTasksForDelete() async {
+        let tasks = await self.sessionTasks()
+        for task in tasks {
+            task.cancel()
+        }
+    }
+
     func scheduleUpload(fileID: String) async {
         guard !self.isDeleting else {
             locationUploadLog.debug("location upload schedule skipped during source delete")
             return
         }
         guard self.activeTaskIDByFileID[fileID] == nil else { return }
+        guard !self.schedulingFileIDs.contains(fileID) else { return }
+        self.schedulingFileIDs.insert(fileID)
+        defer { self.schedulingFileIDs.remove(fileID) }
 
         let segmentURL = self.pendingFileURL(fileID: fileID)
         guard self.fileManager.fileExists(atPath: segmentURL.path) else { return }
@@ -766,11 +950,23 @@ private extension LocationUploader {
         do {
             handle = try await self.ensureRegistered()
         } catch {
+            if self.droppedFileIDs.remove(fileID) != nil {
+                locationUploadLog.info("location drop consumed during registration window (throw) \(fileID, privacy: .public)")
+                self.lastError = nil
+                self.refreshCounts()
+                return
+            }
             await self.handleUploadFailure(
                 fileID: fileID,
                 segmentURL: segmentURL,
                 reason: String(describing: error)
             )
+            return
+        }
+        if self.droppedFileIDs.remove(fileID) != nil {
+            locationUploadLog.info("location drop consumed during registration window (success) \(fileID, privacy: .public)")
+            self.lastError = nil
+            self.refreshCounts()
             return
         }
 
@@ -794,10 +990,15 @@ private extension LocationUploader {
             request.setValue("multipart/form-data; boundary=\(self.boundary(for: fileID))", forHTTPHeaderField: "Content-Type")
 
             let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
+            task.taskDescription = self.taskDescription(for: UploadTaskDescriptor(
+                fileID: fileID,
+                localPort: localPort
+            ))
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
                 fileID: fileID,
                 segmentURL: segmentURL,
-                requestBodyURL: requestBodyURL
+                requestBodyURL: requestBodyURL,
+                localPort: localPort
             )
             self.activeTaskIDByFileID[fileID] = task.taskIdentifier
             self.uploadTaskByFileID[fileID] = task
@@ -825,10 +1026,22 @@ private extension LocationUploader {
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         let start = DispatchTime.now().uptimeNanoseconds
-        guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
-        self.activeTaskIDByFileID.removeValue(forKey: info.fileID)
-        self.uploadTaskByFileID.removeValue(forKey: info.fileID)
+        let descriptor = self.uploadTaskDescriptor(from: task.taskDescription)
+        let resolvedFileID = descriptor?.fileID ?? self.taskInfoByTaskID[task.taskIdentifier]?.fileID
+        if let resolvedFileID, self.droppedFileIDs.remove(resolvedFileID) != nil {
+            self.clearTaskState(taskID: task.taskIdentifier, fileID: resolvedFileID)
+            locationUploadLog.info("location dropped-segment completion ignored \(resolvedFileID, privacy: .public)")
+            self.refreshCounts()
+            return
+        }
+
+        guard let info = self.resolveTaskInfo(for: task) else {
+            self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier)
+            locationUploadLog.error("location completion could not be reconciled to a known segment (task \(task.taskIdentifier, privacy: .public))")
+            return
+        }
         let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
+        self.clearTaskState(taskID: task.taskIdentifier, fileID: info.fileID)
 
         if self.isDeleting {
             locationUploadLog.debug("location upload completion dropped during source delete")
@@ -852,6 +1065,8 @@ private extension LocationUploader {
                 // reconnect re-uploads to 2xx (status==duplicate is success). This branch
                 // owns a delayed, un-counted re-drive; revisit if ingest ever returns 4xx
                 // for duplicates.
+                // Unlike ObserverUploader, stale ports are reconciled proactively in
+                // reconcilePortIfNeeded rather than re-driven from this error branch.
                 locationUploadLog.info("location upload cancelled by reconnect; awaiting resume \(info.fileID, privacy: .public)")
                 let requeueDelay = self.retryDelays.first ?? 0
                 self.retryTasksByFileID[info.fileID]?.cancel()
@@ -860,6 +1075,7 @@ private extension LocationUploader {
                     await self.sleep(requeueDelay)
                     guard !Task.isCancelled else { return }
                     guard !self.isDeleting else { return }
+                    self.retryTasksByFileID.removeValue(forKey: info.fileID)
                     await self.scheduleUpload(fileID: info.fileID)
                 }
                 self.refreshCounts()
@@ -914,11 +1130,11 @@ private extension LocationUploader {
             return
         }
 
-        let body = String(data: responseData, encoding: .utf8) ?? ""
+        let body = self.httpFailureBodySnippet(from: responseData)
         await self.handleUploadFailure(
             fileID: info.fileID,
             segmentURL: info.segmentURL,
-            reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)"
+            reason: body.map { "HTTP \(statusCode): \($0)" } ?? "HTTP \(statusCode)"
         )
         try? self.fileManager.removeItem(at: info.requestBodyURL)
         DrainSignpost.event(
@@ -933,20 +1149,56 @@ private extension LocationUploader {
         )
     }
 
+    func httpFailureBodySnippet(from data: Data) -> String? {
+        guard !data.isEmpty,
+              let body = String(data: data, encoding: .utf8),
+              !body.isEmpty
+        else {
+            return nil
+        }
+        return String(body.prefix(200))
+    }
+
+    func redactedFailureDetail(_ detail: String) -> String {
+        var redacted = detail.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        if let authorizationRange = redacted.range(of: "Authorization:", options: [.caseInsensitive]) {
+            redacted = String(redacted[..<authorizationRange.lowerBound]) + "Authorization: [redacted]"
+        }
+
+        var searchStart = redacted.startIndex
+        while let bearerRange = redacted.range(of: "Bearer ", range: searchStart..<redacted.endIndex) {
+            let lowerDistance = redacted.distance(from: redacted.startIndex, to: bearerRange.lowerBound)
+            var end = bearerRange.upperBound
+            while end < redacted.endIndex, !redacted[end].isWhitespace {
+                end = redacted.index(after: end)
+            }
+            redacted.replaceSubrange(bearerRange.lowerBound..<end, with: "Bearer [redacted]")
+            let replacementStart = redacted.index(redacted.startIndex, offsetBy: lowerDistance)
+            searchStart = redacted.index(
+                replacementStart,
+                offsetBy: "Bearer [redacted]".count,
+                limitedBy: redacted.endIndex
+            ) ?? redacted.endIndex
+        }
+        return redacted
+    }
+
     func handleUploadFailure(fileID: String, segmentURL: URL, reason: String) async {
+        let safeReason = self.redactedFailureDetail(reason)
         let nextAttempt = self.attemptCountByFileID[fileID, default: 0] + 1
         self.attemptCountByFileID[fileID] = nextAttempt
-        self.lastError = reason
+        self.lastError = safeReason
 
         if nextAttempt >= self.maxAttempts {
             do {
                 try self.movePendingFileToFailed(
                     fileID: fileID,
                     fileURL: segmentURL,
-                    reason: reason
+                    reason: safeReason
                 )
             } catch {
-                self.lastError = String(describing: error)
+                self.lastError = self.redactedFailureDetail(String(describing: error))
             }
             self.retryTasksByFileID[fileID]?.cancel()
             self.retryTasksByFileID.removeValue(forKey: fileID)
@@ -957,13 +1209,14 @@ private extension LocationUploader {
 
         let delayIndex = min(nextAttempt - 1, max(self.retryDelays.count - 1, 0))
         let delay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
-        locationUploadLog.error("location segment upload failed \(fileID, privacy: .public): \(reason, privacy: .public)")
+        locationUploadLog.error("location segment upload failed \(fileID, privacy: .public): \(safeReason)")
         self.retryTasksByFileID[fileID]?.cancel()
         self.retryTasksByFileID[fileID] = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
             guard !self.isDeleting else { return }
+            self.retryTasksByFileID.removeValue(forKey: fileID)
             await self.scheduleUpload(fileID: fileID)
         }
         self.refreshCounts()
@@ -980,8 +1233,9 @@ private extension LocationUploader {
             try self.fileManager.moveItem(at: fileURL, to: target)
         }
 
-        locationUploadLog.error("location segment moved to failed \(fileID, privacy: .public): \(reason, privacy: .public)")
-        self.lastError = reason
+        let safeReason = self.redactedFailureDetail(reason)
+        locationUploadLog.error("location segment moved to failed \(fileID, privacy: .public): \(safeReason)")
+        self.lastError = safeReason
     }
 
     func buildMultipartRequestBody(segmentURL: URL, fileID: String, parsed: ParsedFileName) throws -> URL {

@@ -318,6 +318,219 @@ nonisolated final class LocationUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testCompletionAfterInMemoryStateLossResolvesFromTaskDescriptor() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader()
+        let fileID = "20240420-094000_300"
+        defer { uploadRelease.signal() }
+
+        await uploader.enqueue(self.makeBatch())
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        uploadRelease.signal()
+
+        try await self.waitFor("descriptor-resolved location completion") {
+            uploader.pendingCount == 0 && uploader.lastUploadAt != nil
+        }
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.tempDirectory
+            .appendingPathComponent("failed", isDirectory: true)
+            .appendingPathComponent("\(fileID).jsonl", isDirectory: false)
+            .path))
+    }
+
+    @MainActor
+    func testStalePortReconcileReuploadsOnCurrentPortOnce() async throws {
+        let localPort = OSAllocatedUnfairLock<Int>(initialState: 7071)
+        let ports = OSAllocatedUnfairLock<[Int]>(initialState: [])
+        let oldUploadStarted = DispatchSemaphore(value: 0)
+        let oldUploadRelease = DispatchSemaphore(value: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            let port = request.url?.port ?? -1
+            ports.withLock { $0.append(port) }
+            if port == 7071 {
+                oldUploadStarted.signal()
+                _ = oldUploadRelease.wait(timeout: .now() + 2)
+            }
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let uploader = self.makeUploader(localPortProvider: { localPort.withLock { $0 } })
+        defer { oldUploadRelease.signal() }
+
+        await uploader.enqueue(self.makeBatch())
+        XCTAssertEqual(oldUploadStarted.wait(timeout: .now() + 2), .success)
+
+        localPort.withLock { $0 = 7072 }
+        await uploader.resumeFromDisk()
+        oldUploadRelease.signal()
+
+        try await self.waitFor("location stale-port reupload") {
+            ports.withLock { $0.filter { $0 == 7072 }.count } == 1
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+        }
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(ports.withLock { $0.filter { $0 == 7072 }.count }, 1)
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testConcurrentResumeSchedulesPendingFileOnce() async throws {
+        let registrationGate = LocationAsyncGate()
+        let registrationCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        try self.writeLocationFile(status: "pending", filename: "20260602-235800_300.jsonl")
+        let uploader = self.makeUploader(ensureRegistered: {
+            registrationCalls.withLock { $0 += 1 }
+            await registrationGate.wait()
+            return "test-location-key-abc"
+        })
+
+        async let firstResume: Void = uploader.resumeFromDisk()
+        async let secondResume: Void = uploader.resumeFromDisk()
+
+        try await self.waitFor("single location scheduling reservation") {
+            registrationCalls.withLock { $0 } == 1 && uploader.inFlightCount == 1
+        }
+        registrationGate.release()
+        _ = await (firstResume, secondResume)
+
+        try await self.waitFor("single location upload after concurrent resume") {
+            LocationUploaderURLProtocol.callCount == 1 && uploader.pendingCount == 0
+        }
+    }
+
+    @MainActor
+    func testDropAndDeleteIgnoreLateCompletionsAndDeleteWaitsForOSTaskCancel() async throws {
+        let dropStarted = DispatchSemaphore(value: 0)
+        let dropRelease = DispatchSemaphore(value: 0)
+        LocationUploaderURLProtocol.handler = { request in
+            XCTAssertNotEqual(request.httpMethod, "DELETE")
+            dropStarted.signal()
+            _ = dropRelease.wait(timeout: .now() + 2)
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let dropUploader = self.makeUploader()
+        let droppedFileID = "20240420-094000_300"
+        defer { dropRelease.signal() }
+
+        await dropUploader.enqueue(self.makeBatch())
+        XCTAssertEqual(dropStarted.wait(timeout: .now() + 2), .success)
+        dropUploader.dropItem(fileID: droppedFileID)
+        dropRelease.signal()
+        try await self.waitFor("location drop cancels OS task") {
+            LocationUploaderURLProtocol.cancelledCount >= 1
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(dropUploader.lastUploadAt)
+        XCTAssertEqual(dropUploader.pendingCount, 0)
+        XCTAssertEqual(dropUploader.failedCount, 0)
+
+        LocationUploaderURLProtocol.handler = nil
+        LocationUploaderURLProtocol.callCount = 0
+        LocationUploaderURLProtocol.capturedBodies = []
+        LocationUploaderURLProtocol.cancelledCount = 0
+
+        let deleteStarted = DispatchSemaphore(value: 0)
+        let deleteRelease = DispatchSemaphore(value: 0)
+        let deleteSawCancelledUpload = OSAllocatedUnfairLock<Bool>(initialState: false)
+        LocationUploaderURLProtocol.handler = { request in
+            if request.httpMethod == "DELETE" {
+                deleteSawCancelledUpload.withLock { $0 = LocationUploaderURLProtocol.cancelledCount > 0 }
+                return (Self.response(for: request, statusCode: 200), Self.deleteReceipt(days: 1))
+            }
+            deleteStarted.signal()
+            _ = deleteRelease.wait(timeout: .now() + 2)
+            return (Self.response(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let deleteUploader = self.makeUploader()
+        defer { deleteRelease.signal() }
+
+        await deleteUploader.enqueue(self.makeBatch(segmentStart: Date(timeIntervalSince1970: 1_713_625_200)))
+        XCTAssertEqual(deleteStarted.wait(timeout: .now() + 2), .success)
+        let result = await deleteUploader.deleteLocationSource()
+
+        XCTAssertTrue(result.shouldFlipOff)
+        XCTAssertTrue(deleteSawCancelledUpload.withLock { $0 })
+        deleteRelease.signal()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(deleteUploader.lastUploadAt)
+        XCTAssertEqual(deleteUploader.pendingCount, 0)
+        XCTAssertEqual(deleteUploader.failedCount, 0)
+        deleteUploader.finishDelete()
+    }
+
+    @MainActor
+    func testRetryTaskSelfRemovalAllowsInFlightToReachZeroAfterHeldUpload() async throws {
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let retrySleepGate = LocationRetrySleepGate()
+        defer { retrySleepGate.release() }
+        LocationUploaderURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let uploader = self.makeUploader(
+            retryDelays: [1],
+            maxAttempts: 3,
+            localPortProvider: { localPort.withLock { $0 } },
+            sleep: { _ in
+                await retrySleepGate.sleep()
+            }
+        )
+        let fileID = "20240420-094000_300"
+
+        await uploader.enqueue(self.makeBatch())
+
+        try await self.waitFor("location retry tracked") {
+            uploader.attemptCountForTesting(fileID: fileID) == 1
+                && uploader.hasInFlightTrackingForTesting(fileID: fileID)
+                && uploader.inFlightCount == 1
+        }
+        localPort.withLock { $0 = nil }
+        retrySleepGate.release()
+
+        try await self.waitFor("location retry self-removal") {
+            uploader.inFlightCount == 0
+        }
+        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertEqual(LocationUploaderURLProtocol.callCount, 1)
+    }
+
+    @MainActor
+    func testHTTPFailureBodyIsBoundedAndRedacted() async throws {
+        LocationUploaderURLProtocol.handler = { request in
+            let body = "Authorization: Bearer secret\nmore \(String(repeating: "x", count: 300))"
+            return (Self.response(for: request, statusCode: 500), Data(body.utf8))
+        }
+        let uploader = self.makeUploader(maxAttempts: 1)
+
+        await uploader.enqueue(self.makeBatch())
+
+        try await self.waitFor("location redacted failure") {
+            uploader.failedCount == 1
+        }
+        let lastError = try XCTUnwrap(uploader.lastError)
+        XCTAssertTrue(lastError.contains("HTTP 500"))
+        XCTAssertTrue(lastError.contains("Authorization: [redacted]"))
+        XCTAssertFalse(lastError.contains("secret"))
+        XCTAssertFalse(lastError.contains("Bearer secret"))
+        XCTAssertFalse(lastError.contains("\n"))
+        XCTAssertLessThanOrEqual(lastError.count, 220)
+    }
+
+    @MainActor
     func testCurrentPortTransportErrorIncrementsAttemptAndCanExhaust() async throws {
         let retrySleepGate = LocationRetrySleepGate()
         defer { retrySleepGate.release() }
@@ -1081,6 +1294,43 @@ private final class LocationRetrySleepGate: @unchecked Sendable {
             return continuation
         }
         continuation?.resume()
+    }
+}
+
+private final class LocationAsyncGate: @unchecked Sendable {
+    private struct State {
+        var continuations: [CheckedContinuation<Void, Never>] = []
+        var released = false
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.lock.withLock {
+                if self.state.released {
+                    return true
+                }
+                self.state.continuations.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuations = self.lock.withLock {
+            self.state.released = true
+            let continuations = self.state.continuations
+            self.state.continuations = []
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }
 
