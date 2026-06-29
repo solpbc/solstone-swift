@@ -120,7 +120,8 @@ extension OnThisPhoneUITestSeeder {
                 observer: cachesRoot.appendingPathComponent(Self.observerRootName, isDirectory: true),
                 omi: cachesRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
                 location: cachesRoot.appendingPathComponent(Self.locationRootName, isDirectory: true),
-                mobileSegment: cachesRoot.appendingPathComponent("MobileSegment", isDirectory: true),
+                mobileSegment: try AppGroupContainer.rootURL(fileManager: fileManager)
+                    .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true),
                 importQueue: try AppGroupContainer.rootURL(fileManager: fileManager)
                     .appendingPathComponent(Self.importQueueRootName, isDirectory: true)
         )
@@ -375,6 +376,18 @@ extension OnThisPhoneUITestSeeder {
                 fixCount: fixCount
             )
             try store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+        case .screencast:
+            let url = store.screenURL(in: directory)
+            try Data("screen".utf8).write(to: url, options: .atomic)
+            let resolution = MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: url.lastPathComponent,
+                bytes: store.fileSize(at: url),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: durationS
+            )
+            try store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: endedAt)
         }
 
         if lifecycle == .failed {

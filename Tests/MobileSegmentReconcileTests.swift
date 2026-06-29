@@ -65,23 +65,85 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(try harness.store.list(.active).count, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(noArtifact.uuidString).json").path))
     }
+
+    func testResumeReconcilesUnresolvedScreencastWithScreenFileToPendingBundle() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .screen)
+
+        await harness.uploader.resumeFromDisk()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.screencast.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.screencast.artifactFilename, "screen.mp4")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: pendingDirectory).path))
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+    }
+
+    func testResumeReconcilesScreencastPartOnlyToFinalizeFailureWithoutUpload() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
+
+        await harness.uploader.resumeFromDisk()
+
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: failedDirectory)
+        XCTAssertEqual(manifest.screencast.state, .failedToFinalize)
+        XCTAssertEqual(manifest.screencast.reason, "screencast_partial_artifact")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+    }
+
+    func testResumeIgnoresUndeclaredStrayScreenFileAndReportsDiagnostic() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: self.clock.now().addingTimeInterval(-60),
+            openedWithSources: [],
+            activeSourceSetVersion: 1
+        )
+        let directory = try harness.store.createActive(manifest: manifest)
+        try Data("stray-screen".utf8).write(to: harness.store.screenURL(in: directory), options: .atomic)
+        manifest = try harness.store.readManifest(in: directory)
+        XCTAssertEqual(manifest.screencast.state, .notDeclared)
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertEqual(harness.uploader.lastError, "ignored undeclared screencast artifact segment=\(segmentID.uuidString) source=screencast")
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: harness.store.tombstoneDirectory(kind: "empty")
+                .appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
+                .path
+        ))
+    }
 }
 
 private extension MobileSegmentReconcileTests {
+    enum ScreencastArtifact {
+        case screen
+        case part
+        case none
+    }
+
     struct Harness {
         let uploader: MobileSegmentUploader
         let store: MobileSegmentStore
     }
 
-    func makeHarness() -> Harness {
+    func makeHarness(connected: Bool = true) -> Harness {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentReconcileURLProtocol.self]
         let transport = ObserverUploader(
             cacheRootURL: self.tempDirectory.appendingPathComponent("transport", isDirectory: true),
             sessionConfiguration: configuration,
             ensureRegistered: { "test-observer-key-abc" },
-            isJournalConfigured: { true },
-            localPortProvider: { 7071 },
+            isJournalConfigured: { connected },
+            localPortProvider: { connected ? 7071 : nil },
             retryDelays: [0],
             sleep: { _ in },
             startPathMonitor: false
@@ -131,6 +193,25 @@ private extension MobileSegmentReconcileTests {
             break
         case .notDeclared, .failedToFinalize, .removed:
             XCTFail("Unsupported reconcile fixture state")
+        }
+    }
+
+    func writeActiveScreencast(segmentID: UUID, store: MobileSegmentStore, artifact: ScreencastArtifact) throws {
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        )
+        let directory = try store.createActive(manifest: manifest)
+        switch artifact {
+        case .screen:
+            try Data("screen-\(segmentID.uuidString)".utf8).write(to: store.screenURL(in: directory), options: .atomic)
+        case .part:
+            try Data("partial-\(segmentID.uuidString)".utf8).write(to: store.screenPartURL(in: directory), options: .atomic)
+        case .none:
+            break
         }
     }
 

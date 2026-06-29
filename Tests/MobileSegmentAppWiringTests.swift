@@ -58,8 +58,9 @@ final class MobileSegmentAppWiringTests: XCTestCase {
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentAppWiringURLProtocol.self]
+        let watchRoot = self.tempDirectory.appendingPathComponent("WatchObserver", isDirectory: true)
         let watchUploader = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("WatchObserver", isDirectory: true),
+            cacheRootURL: watchRoot,
             sessionConfiguration: configuration,
             ensureRegistered: { "test-observer-key-abc" },
             isJournalConfigured: { true },
@@ -84,32 +85,44 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertTrue(watchBody.contains(#"name="platform""#))
         XCTAssertTrue(watchBody.contains("watchos"))
 
+        let mobileTransportRoot = self.tempDirectory.appendingPathComponent("Observer", isDirectory: true)
         let mobileTransport = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("Observer", isDirectory: true),
+            cacheRootURL: mobileTransportRoot,
             sessionConfiguration: .ephemeral,
             sourceType: "observer-audio",
             platform: "ios",
             startPathMonitor: false
         )
+        let appGroupMobileSegmentRoot = self.tempDirectory
+            .appendingPathComponent("AppGroup", isDirectory: true)
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+        let mobileSegmentStore = MobileSegmentStore(rootURL: appGroupMobileSegmentRoot)
         let mobileSegmentUploader = MobileSegmentUploader(
             transport: mobileTransport,
-            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
+            store: mobileSegmentStore,
             clock: MockObserverClock()
         )
         let engine = MobileSegmentEngine(uploader: mobileSegmentUploader, clock: MockObserverClock())
         _ = engine
 
+        let omiRoot = self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true)
         let omiUploader = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true),
+            cacheRootURL: omiRoot,
             sessionConfiguration: .ephemeral,
             sourceType: "omi-audio",
             startPathMonitor: false
         )
+        let importRoot = self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
         let importQueue = ImportQueue(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true),
+            cacheRootURL: importRoot,
             sessionConfiguration: .ephemeral,
             startPathMonitor: false
         )
+        XCTAssertEqual(mobileSegmentStore.rootURL, appGroupMobileSegmentRoot)
+        XCTAssertNotEqual(mobileSegmentStore.rootURL, mobileTransportRoot)
+        XCTAssertNotEqual(mobileSegmentStore.rootURL, omiRoot)
+        XCTAssertNotEqual(mobileSegmentStore.rootURL, watchRoot)
+        XCTAssertNotEqual(mobileSegmentStore.rootURL, importRoot)
         XCTAssertNotEqual(mobileSegmentUploader.pendingCount, omiUploader.pendingCount + 1)
         XCTAssertEqual(importQueue.pendingCount, 0)
     }

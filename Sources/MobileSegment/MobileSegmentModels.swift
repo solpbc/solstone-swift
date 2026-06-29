@@ -6,6 +6,7 @@ import Foundation
 nonisolated enum MobileSegmentSource: String, Codable, CaseIterable, Sendable {
     case audio
     case location
+    case screencast
 }
 
 typealias MobileSegmentFacet = MobileSegmentSource
@@ -114,6 +115,7 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
     var activeSourceSetVersion: Int
     var audio: MobileSegmentSourceResolution
     var location: MobileSegmentSourceResolution
+    var screencast: MobileSegmentSourceResolution
     var upload: MobileSegmentUploadState
     var createdAt: Date
     var updatedAt: Date
@@ -130,6 +132,7 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         case activeSourceSetVersion = "active_source_set_version"
         case audio
         case location
+        case screencast
         case upload
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -152,9 +155,29 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         self.activeSourceSetVersion = activeSourceSetVersion
         self.audio = openedWithSources.contains(.audio) ? .unresolved : .notDeclared
         self.location = openedWithSources.contains(.location) ? .unresolved : .notDeclared
+        self.screencast = openedWithSources.contains(.screencast) ? .unresolved : .notDeclared
         self.upload = .notReady
         self.createdAt = startedAt
         self.updatedAt = startedAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schema = try container.decode(String.self, forKey: .schema)
+        self.segmentID = try container.decode(UUID.self, forKey: .segmentID)
+        self.day = try container.decodeIfPresent(String.self, forKey: .day)
+        self.segment = try container.decodeIfPresent(String.self, forKey: .segment)
+        self.startedAt = try container.decode(Date.self, forKey: .startedAt)
+        self.endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
+        self.durationS = try container.decodeIfPresent(TimeInterval.self, forKey: .durationS)
+        self.openedWithSources = try container.decode([MobileSegmentSource].self, forKey: .openedWithSources)
+        self.activeSourceSetVersion = try container.decode(Int.self, forKey: .activeSourceSetVersion)
+        self.audio = try container.decode(MobileSegmentSourceResolution.self, forKey: .audio)
+        self.location = try container.decode(MobileSegmentSourceResolution.self, forKey: .location)
+        self.screencast = try container.decodeIfPresent(MobileSegmentSourceResolution.self, forKey: .screencast) ?? .notDeclared
+        self.upload = try container.decode(MobileSegmentUploadState.self, forKey: .upload)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 
     func resolution(for source: MobileSegmentSource) -> MobileSegmentSourceResolution {
@@ -163,6 +186,8 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
             self.audio
         case .location:
             self.location
+        case .screencast:
+            self.screencast
         }
     }
 
@@ -172,6 +197,8 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
             self.audio = resolution
         case .location:
             self.location = resolution
+        case .screencast:
+            self.screencast = resolution
         }
         self.updatedAt = now
     }

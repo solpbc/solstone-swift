@@ -28,7 +28,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         super.tearDown()
     }
 
-    func testOwnerSurfacesCountMixedBundleOnceWhileRenderingTwoFacets() async throws {
+    func testOwnerSurfacesCountMixedBundleOnceWhileRenderingThreeFacets() async throws {
         let harness = self.makeHarness()
         let segmentID = UUID()
         try self.writeMixedBundle(store: harness.store, segmentID: segmentID, lifecycle: .pending)
@@ -41,11 +41,12 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
             watchUploader: harness.watchUploader
         )
         let facets = snapshot.items.filter { $0.dropGroupID == "mobile-segment:\(segmentID.uuidString)" }
-        XCTAssertEqual(facets.count, 2)
-        XCTAssertEqual(Set(facets.map(\.sourceKind)), [.audio, .location])
+        XCTAssertEqual(facets.count, 3)
+        XCTAssertEqual(Set(facets.map(\.sourceKind)), [.audio, .location, .screencast])
         XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentUploader.summary(for: .audio).pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentUploader.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentUploader.summary(for: .screencast).pendingCount, 1)
 
         let totals = uploadTotals(
             mobileSegment: harness.mobileSegmentUploader,
@@ -99,6 +100,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: pendingSegmentID).path))
         XCTAssertTrue(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .audio).loadedItems.isEmpty)
         XCTAssertTrue(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .location).loadedItems.isEmpty)
+        XCTAssertTrue(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .screencast).loadedItems.isEmpty)
 
         let failedSegmentID = UUID()
         try self.writeMixedBundle(store: harness.store, segmentID: failedSegmentID, lifecycle: .failed)
@@ -109,8 +111,75 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: pendingDirectory).path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: pendingDirectory).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: pendingDirectory).path))
         XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentUploader.failedCount, 0)
+    }
+
+    func testScreencastRedactionPreservesRemainingFacetsAndTombstonesScreencastOnlyBundle() async throws {
+        let harness = self.makeHarness()
+        let mixedSegmentID = UUID()
+        try self.writeMixedBundle(store: harness.store, segmentID: mixedSegmentID, lifecycle: .pending)
+
+        await harness.mobileSegmentUploader.redactScreencastFacet(segmentID: mixedSegmentID)
+
+        let mixedDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: mixedSegmentID)
+        let mixedManifest = try harness.store.readManifest(in: mixedDirectory)
+        XCTAssertEqual(mixedManifest.audio.state, .finalizedArtifact)
+        XCTAssertEqual(mixedManifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(mixedManifest.screencast.state, .removed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.screenURL(in: mixedDirectory).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: mixedDirectory).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: mixedDirectory).path))
+
+        let requestBodyURL = self.tempDirectory
+            .appendingPathComponent("observer", isDirectory: true)
+            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            .appendingPathComponent("\(mixedSegmentID.uuidString).upload", isDirectory: false)
+        let requestBody = try String(contentsOf: requestBodyURL, encoding: .utf8)
+        XCTAssertTrue(requestBody.contains("filename=\"audio.m4a\""))
+        XCTAssertTrue(requestBody.contains("filename=\"location.jsonl\""))
+        XCTAssertFalse(requestBody.contains("filename=\"screen.mp4\""))
+
+        let screenOnlySegmentID = UUID()
+        try self.writeScreencastBundle(store: harness.store, segmentID: screenOnlySegmentID, lifecycle: .pending)
+        await harness.mobileSegmentUploader.redactScreencastFacet(segmentID: screenOnlySegmentID)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: screenOnlySegmentID).path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: harness.store.tombstoneDirectory(kind: "empty")
+                .appendingPathComponent("\(screenOnlySegmentID.uuidString).json", isDirectory: false)
+                .path
+        ))
+    }
+
+    func testLocationRedactionPreservesFinalizedScreencastAndRebuildsUpload() async throws {
+        let harness = self.makeHarness()
+        let segmentID = try await self.createPublicFinalizedLocationScreencastSegment(
+            uploader: harness.mobileSegmentUploader
+        )
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+
+        await harness.mobileSegmentUploader.redactLocationFacet(segmentID: segmentID)
+        await harness.mobileSegmentUploader.resumeFromDisk()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+        XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentUploader.failedCount, 0)
+
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.audio.state, .notDeclared)
+        XCTAssertEqual(manifest.location.state, .removed)
+        XCTAssertEqual(manifest.screencast.state, .finalizedArtifact)
+
+        let requestBody = try Data(contentsOf: self.requestBodyURL(for: segmentID))
+        let requestBodyString = String(decoding: requestBody, as: UTF8.self)
+        XCTAssertTrue(requestBodyString.contains(#"filename="screen.mp4""#))
+        XCTAssertFalse(requestBodyString.contains(#"filename="location.jsonl""#))
+        XCTAssertEqual((try self.multipartMeta(in: requestBody)["sources"] as? [String])?.sorted(), ["screencast"])
     }
 }
 
@@ -159,7 +228,7 @@ private extension MobileSegmentOwnerSurfaceTests {
         var manifest = MobileSegmentManifest(
             segmentID: segmentID,
             startedAt: startedAt,
-            openedWithSources: [.audio, .location],
+            openedWithSources: [.audio, .location, .screencast],
             activeSourceSetVersion: 1
         )
         manifest.day = "20260628"
@@ -170,6 +239,7 @@ private extension MobileSegmentOwnerSurfaceTests {
         let directory = try store.createActive(manifest: manifest)
         try Data("audio".utf8).write(to: store.audioURL(in: directory), options: .atomic)
         try Data(#"{"schema":"solstone.location.segment/1","fix_count":1}"#.utf8).write(to: store.locationURL(in: directory), options: .atomic)
+        try Data("screen".utf8).write(to: store.screenURL(in: directory), options: .atomic)
         try store.writeOutcome(
             MobileSegmentSourceResolution(
                 state: .finalizedArtifact,
@@ -201,6 +271,21 @@ private extension MobileSegmentOwnerSurfaceTests {
             in: directory,
             now: endedAt
         )
+        manifest = try store.readManifest(in: directory)
+        try store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: "screen.mp4",
+                bytes: store.fileSize(at: store.screenURL(in: directory)),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60
+            ),
+            source: .screencast,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
         if lifecycle == .failed {
             try store.writeFailure(
                 MobileSegmentFailureSidecar(
@@ -215,6 +300,107 @@ private extension MobileSegmentOwnerSurfaceTests {
             )
         }
         _ = try store.move(segmentID: segmentID, from: .active, to: lifecycle)
+    }
+
+    func writeScreencastBundle(store: MobileSegmentStore, segmentID: UUID, lifecycle: MobileSegmentLifecycle) throws {
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = lifecycle == .failed ? .failed : .pending
+        let directory = try store.createActive(manifest: manifest)
+        try Data("screen".utf8).write(to: store.screenURL(in: directory), options: .atomic)
+        try store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: "screen.mp4",
+                bytes: store.fileSize(at: store.screenURL(in: directory)),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60
+            ),
+            source: .screencast,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        _ = try store.move(segmentID: segmentID, from: .active, to: lifecycle)
+    }
+
+    func createPublicFinalizedLocationScreencastSegment(
+        uploader: MobileSegmentUploader
+    ) async throws -> UUID {
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        let segmentID = try uploader.openSegment(sources: [.location, .screencast], startedAt: startedAt, sourceSetVersion: 1)
+
+        let fix = LocationFix(
+            t: startedAt,
+            lat: 0,
+            lon: 0,
+            hAcc: 1,
+            alt: nil,
+            vAcc: nil,
+            speed: nil,
+            course: nil,
+            stationary: false
+        )
+        try uploader.recordLocationFinalized(
+            segmentID: segmentID,
+            batch: LocationSegmentBatch(
+                tier: .balanced,
+                accuracy: .full,
+                segmentStart: startedAt,
+                coveredSeconds: 60,
+                fixes: [fix],
+                visits: [],
+                gap: false
+            ),
+            endedAt: endedAt
+        )
+
+        let screenURL = uploader.activeScreencastURL(segmentID: segmentID)
+        try Data("fake-screen".utf8).write(to: screenURL, options: .atomic)
+        try uploader.recordScreencastFinalized(
+            segmentID: segmentID,
+            artifactURL: screenURL,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationS: 60
+        )
+
+        await uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+        return segmentID
+    }
+
+    func requestBodyURL(for segmentID: UUID) -> URL {
+        self.tempDirectory
+            .appendingPathComponent("observer", isDirectory: true)
+            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            .appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
+    }
+
+    func multipartValue(named name: String, in body: Data) -> String? {
+        let string = String(decoding: body, as: UTF8.self)
+        guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),
+              let separator = string[headerRange.upperBound...].range(of: "\r\n\r\n")
+        else { return nil }
+        let valueStart = separator.upperBound
+        guard let valueEnd = string[valueStart...].range(of: "\r\n--")?.lowerBound else { return nil }
+        return String(string[valueStart..<valueEnd])
+    }
+
+    func multipartMeta(in body: Data) throws -> [String: Any] {
+        let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
     }
 
     func registration() -> ObserverRegistration {

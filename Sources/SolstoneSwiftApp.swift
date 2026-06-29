@@ -180,10 +180,41 @@ struct SolstoneSwiftApp: App {
             },
             diagnosticLog: log
         )
+        let mobileSegmentStore: MobileSegmentStore
+        let mobileSegmentStorageDisabledReason: String?
+        let mobileSegmentMigrationDiagnostics: [String]
+        do {
+            let appGroupMobileSegmentRoot = try AppGroupContainer.rootURL()
+                .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
+            mobileSegmentStore = MobileSegmentStore(rootURL: appGroupMobileSegmentRoot)
+            mobileSegmentStorageDisabledReason = nil
+            let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+                .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
+            if let cachesRoot {
+                mobileSegmentMigrationDiagnostics = mobileSegmentStore.migrateRoot(fromLegacyCachesRoot: cachesRoot)
+            } else {
+                mobileSegmentMigrationDiagnostics = []
+            }
+        } catch {
+            let diagnostic = "mobile segment storage unavailable source=app-group"
+            Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
+                .error("\(diagnostic, privacy: .public)")
+            mobileSegmentStore = MobileSegmentStore(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("mobile-segment-unavailable", isDirectory: true)
+            )
+            mobileSegmentStorageDisabledReason = diagnostic
+            mobileSegmentMigrationDiagnostics = []
+        }
         let mobileSegmentUploader = MobileSegmentUploader(
             transport: observerUploader,
-            clock: observerClock
+            store: mobileSegmentStore,
+            clock: observerClock,
+            storageDisabledReason: mobileSegmentStorageDisabledReason
         )
+        if mobileSegmentUploader.lastError == nil {
+            mobileSegmentUploader.lastError = mobileSegmentMigrationDiagnostics.first
+        }
         let mobileSegmentEngine = MobileSegmentEngine(
             uploader: mobileSegmentUploader,
             clock: observerClock

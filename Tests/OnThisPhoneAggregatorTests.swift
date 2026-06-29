@@ -695,6 +695,18 @@ private extension OnThisPhoneAggregatorTests {
                 fixCount: fixCount
             )
             try store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: startedAt)
+        case .screencast:
+            let screenURL = store.screenURL(in: directory)
+            try Data("screen".utf8).write(to: screenURL, options: .atomic)
+            let resolution = MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: screenURL.lastPathComponent,
+                bytes: store.fileSize(at: screenURL),
+                startedAt: startedAt,
+                endedAt: startedAt.addingTimeInterval(durationS),
+                durationS: durationS
+            )
+            try store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: startedAt)
         }
 
         if lifecycle == .failed {

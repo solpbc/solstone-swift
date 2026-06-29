@@ -22,6 +22,7 @@ enum OnThisPhoneSnapshotAggregator {
                 )
             ),
             OnThisPhoneSourceSnapshot(sourceKind: .location, result: mobileSegmentUploader.onThisPhoneSnapshot(for: .location)),
+            OnThisPhoneSourceSnapshot(sourceKind: .screencast, result: mobileSegmentUploader.onThisPhoneSnapshot(for: .screencast)),
             OnThisPhoneSourceSnapshot(sourceKind: .share, result: importQueue.onThisPhoneSourceSnapshot()),
         ])
     }

@@ -6,6 +6,7 @@ import Foundation
 nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
     case audio
     case location
+    case screencast
     case share
 
     var accessibilityID: String {
@@ -14,6 +15,8 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
             "audio"
         case .location:
             "location"
+        case .screencast:
+            "screencast"
         case .share:
             "share"
         }
@@ -123,6 +126,7 @@ nonisolated enum OnThisPhoneLocation: Equatable, Sendable {
 nonisolated enum OnThisPhoneMobileSegmentFacet: String, Equatable, Sendable {
     case audio
     case location
+    case screencast
 }
 
 nonisolated func onThisPhoneSendState(
@@ -236,6 +240,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             return self.locationFixCount.map {
                 SourceVocabulary.onThisPhoneLocationRowLabel(count: $0)
             } ?? SourceVocabulary.notProvided
+        case .screencast:
+            return self.filename ?? SourceVocabulary.notProvided
         case .share:
             return self.filename ?? SourceVocabulary.notProvided
         }
@@ -259,6 +265,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
                     return self.filename ?? SourceVocabulary.notProvided
                 }
                 return SourceVocabulary.onThisPhoneDropLocationDescriptor(count: locationFixCount)
+            case .screencast:
+                return SourceVocabulary.onThisPhoneDropScreencastDescriptor
             }
         case .audio:
             guard let duration = Self.formattedDuration(self.audioDurationS) else {
@@ -317,6 +325,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             } ?? SourceVocabulary.notProvided
             guard let itemTime else { return countText }
             return "\(countText) · \(itemTime.formatted())"
+        case .screencast:
+            return self.filename ?? SourceVocabulary.notProvided
         case .share:
             return self.filename ?? SourceVocabulary.notProvided
         }
@@ -459,7 +469,7 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
                 return nil
             }
             self = .audio(sessionID: sessionID, chunkID: String(parts[2]), source: source)
-        case .location:
+        case .location, .screencast:
             if let mobile = Self.mobileSegmentID(from: id) {
                 self = mobile
                 return

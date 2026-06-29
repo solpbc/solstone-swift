@@ -8,6 +8,9 @@ private let mobileSegmentStoreLog = Logger(subsystem: "app.solstone.swift", cate
 
 @MainActor
 final class MobileSegmentStore {
+    static let directoryName = "MobileSegment"
+    static let appGroupRootMigrationFlag = "didMigrateMobileSegmentRootToAppGroupV1"
+
     let rootURL: URL
 
     private let fileManager: FileManager
@@ -18,7 +21,7 @@ final class MobileSegmentStore {
         self.fileManager = fileManager
         self.rootURL = rootURL
             ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("MobileSegment", isDirectory: true)
+                .appendingPathComponent(Self.directoryName, isDirectory: true)
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -60,6 +63,25 @@ final class MobileSegmentStore {
 
     func locationURL(in directory: URL) -> URL {
         directory.appendingPathComponent("location.jsonl", isDirectory: false)
+    }
+
+    func screenURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("screen.mp4", isDirectory: false)
+    }
+
+    func screenPartURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("screen.mp4.part", isDirectory: false)
+    }
+
+    func artifactURL(in directory: URL, source: MobileSegmentSource) -> URL {
+        switch source {
+        case .audio:
+            self.audioURL(in: directory)
+        case .location:
+            self.locationURL(in: directory)
+        case .screencast:
+            self.screenURL(in: directory)
+        }
     }
 
     func requestUploadURL(in directory: URL) -> URL {
@@ -239,12 +261,165 @@ final class MobileSegmentStore {
             guard self.fileManager.fileExists(atPath: url.path) else { return }
             try self.fileManager.removeItem(at: url)
         } catch {
-            mobileSegmentStoreLog.error("mobile segment remove failed: \(String(describing: error), privacy: .public)")
+            mobileSegmentStoreLog.error("mobile segment remove failed stage=remove")
         }
+    }
+
+    func migrateRoot(
+        fromLegacyCachesRoot legacyRoot: URL,
+        defaults: UserDefaults? = .standard,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        guard defaults?.bool(forKey: Self.appGroupRootMigrationFlag) != true else { return [] }
+
+        var diagnostics: [String] = []
+        guard fileManager.fileExists(atPath: legacyRoot.path) else {
+            defaults?.set(true, forKey: Self.appGroupRootMigrationFlag)
+            return diagnostics
+        }
+
+        do {
+            try self.ensureRoot()
+        } catch {
+            let diagnostic = "mobile segment root migration failed stage=ensure-root"
+            diagnostics.append(diagnostic)
+            mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
+            return diagnostics
+        }
+
+        for lifecycle in [MobileSegmentLifecycle.active, .pending, .failed] {
+            let sourceRoot = legacyRoot.appendingPathComponent(lifecycle.rawValue, isDirectory: true)
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: sourceRoot,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for sourceURL in entries where self.isDirectory(sourceURL) {
+                guard let segmentID = UUID(uuidString: sourceURL.lastPathComponent) else { continue }
+                let destinationURL = self.segmentDirectoryURL(lifecycle, segmentID: segmentID)
+                diagnostics.append(contentsOf: self.migrateRootItem(
+                    from: sourceURL,
+                    to: destinationURL,
+                    label: "lifecycle=\(lifecycle.rawValue) segment=\(segmentID.uuidString)",
+                    fileManager: fileManager
+                ))
+            }
+        }
+
+        let legacyTombstones = legacyRoot.appendingPathComponent("tombstones", isDirectory: true)
+        if let kinds = try? fileManager.contentsOfDirectory(
+            at: legacyTombstones,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for kindDirectory in kinds where self.isDirectory(kindDirectory) {
+                guard let tombstones = try? fileManager.contentsOfDirectory(
+                    at: kindDirectory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+                for tombstoneURL in tombstones where tombstoneURL.pathExtension == "json" {
+                    let destinationURL = self.tombstoneDirectory(kind: kindDirectory.lastPathComponent)
+                        .appendingPathComponent(tombstoneURL.lastPathComponent, isDirectory: false)
+                    diagnostics.append(contentsOf: self.migrateRootItem(
+                        from: tombstoneURL,
+                        to: destinationURL,
+                        label: "tombstone=\(kindDirectory.lastPathComponent) file=\(tombstoneURL.lastPathComponent)",
+                        fileManager: fileManager
+                    ))
+                }
+            }
+        }
+
+        if diagnostics.isEmpty {
+            defaults?.set(true, forKey: Self.appGroupRootMigrationFlag)
+        }
+        return diagnostics
     }
 
     private func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private func migrateRootItem(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        label: String,
+        fileManager: FileManager
+    ) -> [String] {
+        var diagnostics: [String] = []
+        do {
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                if try self.contentsEqual(sourceURL, destinationURL, fileManager: fileManager) {
+                    try fileManager.removeItem(at: sourceURL)
+                } else {
+                    let diagnostic = "mobile segment root migration collision \(label)"
+                    diagnostics.append(diagnostic)
+                    mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
+                }
+                return diagnostics
+            }
+
+            try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let stagingURL = destinationURL.deletingLastPathComponent()
+                .appendingPathComponent(".\(destinationURL.lastPathComponent).migrating", isDirectory: self.isDirectory(sourceURL))
+            if fileManager.fileExists(atPath: stagingURL.path) {
+                try fileManager.removeItem(at: stagingURL)
+            }
+            try fileManager.copyItem(at: sourceURL, to: stagingURL)
+            guard try self.contentsEqual(sourceURL, stagingURL, fileManager: fileManager) else {
+                let diagnostic = "mobile segment root migration verify-failed \(label)"
+                diagnostics.append(diagnostic)
+                mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
+                return diagnostics
+            }
+            try fileManager.moveItem(at: stagingURL, to: destinationURL)
+            guard try self.contentsEqual(sourceURL, destinationURL, fileManager: fileManager) else {
+                let diagnostic = "mobile segment root migration verify-failed \(label)"
+                diagnostics.append(diagnostic)
+                mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
+                return diagnostics
+            }
+            try fileManager.removeItem(at: sourceURL)
+        } catch {
+            let diagnostic = "mobile segment root migration failed \(label)"
+            diagnostics.append(diagnostic)
+            mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
+        }
+        return diagnostics
+    }
+
+    private struct FileSnapshotEntry: Equatable {
+        let isDirectory: Bool
+        let data: Data?
+    }
+
+    private func contentsEqual(_ lhs: URL, _ rhs: URL, fileManager: FileManager) throws -> Bool {
+        try self.snapshot(lhs, fileManager: fileManager) == self.snapshot(rhs, fileManager: fileManager)
+    }
+
+    private func snapshot(_ url: URL, fileManager: FileManager) throws -> [String: FileSnapshotEntry] {
+        if !self.isDirectory(url) {
+            return [
+                "": FileSnapshotEntry(
+                    isDirectory: false,
+                    data: try Data(contentsOf: url)
+                ),
+            ]
+        }
+
+        var snapshot: [String: FileSnapshotEntry] = ["": FileSnapshotEntry(isDirectory: true, data: nil)]
+        let entries = try fileManager.subpathsOfDirectory(atPath: url.path)
+        for relativePath in entries.sorted() {
+            let entryURL = url.appendingPathComponent(relativePath)
+            let isDirectory = self.isDirectory(entryURL)
+            snapshot[relativePath] = FileSnapshotEntry(
+                isDirectory: isDirectory,
+                data: isDirectory ? nil : try Data(contentsOf: entryURL)
+            )
+        }
+        return snapshot
     }
 }
 

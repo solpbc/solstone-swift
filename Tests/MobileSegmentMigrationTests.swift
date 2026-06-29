@@ -111,6 +111,90 @@ final class MobileSegmentMigrationTests: XCTestCase {
         XCTAssertEqual(preserved.location.state, .finalizedArtifact)
         XCTAssertEqual(preserved.audio.state, .notDeclared)
     }
+
+    func testAppGroupRootMigrationCopiesBundlesAndTombstonesWithDistinctFlag() throws {
+        let legacyRoot = self.tempDirectory.appendingPathComponent("LegacyMobileSegment", isDirectory: true)
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("AppGroup", isDirectory: true)
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+        let defaults = try self.makeDefaults()
+        defaults.set(true, forKey: "didMigrateLegacyMobileSegmentsV1")
+        let activeID = UUID()
+        let pendingID = UUID()
+        let failedID = UUID()
+        let uploadedID = UUID()
+        let legacyStore = MobileSegmentStore(rootURL: legacyRoot)
+        try self.writeBundle(store: legacyStore, segmentID: activeID, lifecycle: .active, source: .audio)
+        try self.writeBundle(store: legacyStore, segmentID: pendingID, lifecycle: .pending, source: .location)
+        try self.writeBundle(store: legacyStore, segmentID: failedID, lifecycle: .failed, source: .screencast)
+        try legacyStore.writeTombstone(segmentID: uploadedID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+        let store = MobileSegmentStore(rootURL: appGroupRoot)
+
+        let diagnostics = store.migrateRoot(fromLegacyCachesRoot: legacyRoot, defaults: defaults)
+
+        XCTAssertEqual(diagnostics, [])
+        XCTAssertTrue(defaults.bool(forKey: MobileSegmentStore.appGroupRootMigrationFlag))
+        XCTAssertTrue(defaults.bool(forKey: "didMigrateLegacyMobileSegmentsV1"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.segmentDirectoryURL(.active, segmentID: activeID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.segmentDirectoryURL(.pending, segmentID: pendingID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.segmentDirectoryURL(.failed, segmentID: failedID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.screenURL(in: store.segmentDirectoryURL(.failed, segmentID: failedID)).path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: store.tombstoneDirectory(kind: "uploaded")
+                .appendingPathComponent("\(uploadedID.uuidString).json", isDirectory: false)
+                .path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyStore.segmentDirectoryURL(.active, segmentID: activeID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyStore.segmentDirectoryURL(.pending, segmentID: pendingID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyStore.segmentDirectoryURL(.failed, segmentID: failedID).path))
+    }
+
+    func testAppGroupRootMigrationCollisionLeavesBothCopiesAndReportsDiagnostic() throws {
+        let legacyRoot = self.tempDirectory.appendingPathComponent("LegacyCollision", isDirectory: true)
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("AppGroupCollision", isDirectory: true)
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+        let defaults = try self.makeDefaults()
+        let segmentID = UUID()
+        let legacyStore = MobileSegmentStore(rootURL: legacyRoot)
+        let appGroupStore = MobileSegmentStore(rootURL: appGroupRoot)
+        try self.writeBundle(store: legacyStore, segmentID: segmentID, lifecycle: .pending, source: .audio, payload: "legacy")
+        try self.writeBundle(store: appGroupStore, segmentID: segmentID, lifecycle: .pending, source: .audio, payload: "app-group")
+
+        let diagnostics = appGroupStore.migrateRoot(fromLegacyCachesRoot: legacyRoot, defaults: defaults)
+
+        XCTAssertEqual(diagnostics, ["mobile segment root migration collision lifecycle=pending segment=\(segmentID.uuidString)"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyStore.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appGroupStore.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertEqual(
+            try String(contentsOf: legacyStore.audioURL(in: legacyStore.segmentDirectoryURL(.pending, segmentID: segmentID)), encoding: .utf8),
+            "legacy"
+        )
+        XCTAssertEqual(
+            try String(contentsOf: appGroupStore.audioURL(in: appGroupStore.segmentDirectoryURL(.pending, segmentID: segmentID)), encoding: .utf8),
+            "app-group"
+        )
+    }
+
+    func testDisabledMobileSegmentUploaderDoesNotTouchStoreWhenStorageUnavailable() async throws {
+        let root = self.tempDirectory.appendingPathComponent("DisabledMobileSegment", isDirectory: true)
+        let store = MobileSegmentStore(rootURL: root)
+        let transport = ObserverUploader(startPathMonitor: false)
+        let uploader = MobileSegmentUploader(
+            transport: transport,
+            store: store,
+            clock: self.clock,
+            storageDisabledReason: "mobile segment storage unavailable source=app-group"
+        )
+
+        XCTAssertThrowsError(try uploader.openSegment(sources: [.screencast], startedAt: self.clock.now(), sourceSetVersion: 1))
+        await uploader.resumeFromDisk()
+        await uploader.retryFailed()
+        await uploader.redactScreencastFacet(segmentID: UUID())
+
+        XCTAssertEqual(uploader.lastError, "mobile segment storage unavailable source=app-group")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
 }
 
 private extension MobileSegmentMigrationTests {
@@ -163,6 +247,52 @@ private extension MobileSegmentMigrationTests {
         let url = directory.appendingPathComponent("\(fileID).jsonl", isDirectory: false)
         try Data(#"{"schema":"solstone.location.segment/1","fix_count":1}"#.utf8).write(to: url, options: .atomic)
         return url
+    }
+
+    func writeBundle(
+        store: MobileSegmentStore,
+        segmentID: UUID,
+        lifecycle: MobileSegmentLifecycle,
+        source: MobileSegmentSource,
+        payload: String = "payload"
+    ) throws {
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [source],
+            activeSourceSetVersion: 0
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = lifecycle == .failed ? .failed : .pending
+        let directory = try store.createActive(manifest: manifest)
+        let artifactURL = store.artifactURL(in: directory, source: source)
+        try Data(payload.utf8).write(to: artifactURL, options: .atomic)
+        let resolution = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: artifactURL.lastPathComponent,
+            bytes: store.fileSize(at: artifactURL),
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationS: 60,
+            mode: source == .audio ? .meeting : nil,
+            fixCount: source == .location ? 1 : nil
+        )
+        try store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
+        if lifecycle != .active {
+            _ = try store.move(segmentID: segmentID, from: .active, to: lifecycle)
+        }
+    }
+
+    func makeDefaults() throws -> UserDefaults {
+        let suiteName = "MobileSegmentMigrationTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
     }
 
     static func legacySegmentID(kind: String, key: String) -> UUID {

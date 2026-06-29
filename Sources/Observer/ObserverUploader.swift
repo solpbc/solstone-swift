@@ -604,7 +604,8 @@ extension ObserverUploader {
         segmentID: UUID,
         metadata: ObserverIngestMultipartMetadata,
         audioURL: URL?,
-        locationJSONL: Data?
+        locationJSONL: Data?,
+        screenURL: URL?
     ) throws -> (requestBodyURL: URL, boundary: String) {
         let directory = self.cacheRootURL.appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
         try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -613,6 +614,7 @@ extension ObserverUploader {
         _ = try self.buildObserverIngestMultipartRequestBody(
             audioURL: audioURL,
             locationJSONL: locationJSONL,
+            screenURL: screenURL,
             metadata: metadata,
             requestBodyURL: requestBodyURL,
             boundary: boundary,
@@ -1938,6 +1940,7 @@ private extension ObserverUploader {
         return try self.buildObserverIngestMultipartRequestBody(
             audioURL: audioURL,
             locationJSONL: sidecar.locationJSONL,
+            screenURL: nil,
             metadata: ObserverIngestMultipartMetadata(
                 segment: sidecar.segment,
                 day: sidecar.day,
@@ -1958,12 +1961,13 @@ private extension ObserverUploader {
     func buildObserverIngestMultipartRequestBody(
         audioURL: URL?,
         locationJSONL: Data?,
+        screenURL: URL?,
         metadata: ObserverIngestMultipartMetadata,
         requestBodyURL: URL,
         boundary: String,
         drainSource source: DrainSource
     ) throws -> URL {
-        guard audioURL != nil || locationJSONL != nil else {
+        guard audioURL != nil || locationJSONL != nil || screenURL != nil else {
             throw ObserverUploaderError.missingUploadArtifact
         }
 
@@ -2014,6 +2018,14 @@ private extension ObserverUploader {
                 body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
                 body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
                 body.append(locationJSONL)
+                body.append("\r\n".data(using: .utf8)!)
+            }
+            if let screenURL {
+                let screenData = try Data(contentsOf: screenURL)
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"screen.mp4\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: video/mp4\r\n\r\n".data(using: .utf8)!)
+                body.append(screenData)
                 body.append("\r\n".data(using: .utf8)!)
             }
             body.append("--\(boundary)--\r\n".data(using: .utf8)!)

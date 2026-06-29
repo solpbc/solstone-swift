@@ -52,6 +52,80 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual((try self.multipartMeta(in: body)["sources"] as? [String])?.sorted(), ["audio", "location"])
     }
 
+    func testOldManifestWithoutScreencastDecodesAsNotDeclared() throws {
+        let segmentID = UUID()
+        let json = """
+        {
+          "active_source_set_version": 1,
+          "audio": { "state": "finalized_artifact", "artifact_filename": "audio.m4a" },
+          "created_at": "2026-06-03T12:00:00Z",
+          "location": { "state": "not_declared" },
+          "opened_with_sources": ["audio"],
+          "schema": "app.solstone.mobile-segment/1",
+          "segment_id": "\(segmentID.uuidString)",
+          "started_at": "2026-06-03T12:00:00Z",
+          "updated_at": "2026-06-03T12:01:00Z",
+          "upload": "pending"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let manifest = try decoder.decode(MobileSegmentManifest.self, from: Data(json.utf8))
+
+        XCTAssertEqual(manifest.screencast.state, .notDeclared)
+    }
+
+    func testPublicScreencastOnlyFinalizeUploadsScreenPartAndSourceMetadata() async throws {
+        let author = self.makeHarness(connected: false)
+        let segmentID = try await self.createPublicFinalizedSegment(uploader: author.uploader, sources: [.screencast])
+        let sender = self.makeHarness(connected: true)
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        await sender.uploader.resumeFromDisk()
+        try await self.waitFor("screencast multipart upload") {
+            MobileSegmentUploaderURLProtocol.callCount == 1
+                && !FileManager.default.fileExists(atPath: sender.store.segmentDirectoryURL(.pending, segmentID: segmentID).path)
+        }
+
+        let body = try XCTUnwrap(MobileSegmentUploaderURLProtocol.capturedBodies.first)
+        let bodyString = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(bodyString.contains(#"name="files"; filename="screen.mp4""#))
+        XCTAssertTrue(bodyString.contains("Content-Type: video/mp4"))
+        XCTAssertFalse(bodyString.contains(#"filename="audio.m4a""#))
+        XCTAssertFalse(bodyString.contains(#"filename="location.jsonl""#))
+        XCTAssertEqual((try self.multipartMeta(in: body)["sources"] as? [String])?.sorted(), ["screencast"])
+    }
+
+    func testPublicMixedFinalizeUploadsAudioLocationAndScreenParts() async throws {
+        let author = self.makeHarness(connected: false)
+        _ = try await self.createPublicFinalizedSegment(uploader: author.uploader, sources: [.audio, .location, .screencast])
+        let sender = self.makeHarness(connected: true)
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        await sender.uploader.resumeFromDisk()
+        try await self.waitFor("mixed screencast multipart upload") {
+            MobileSegmentUploaderURLProtocol.callCount == 1
+        }
+
+        let body = try XCTUnwrap(MobileSegmentUploaderURLProtocol.capturedBodies.first)
+        let bodyString = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(bodyString.contains(#"name="files"; filename="audio.m4a""#))
+        XCTAssertTrue(bodyString.contains(#"name="files"; filename="location.jsonl""#))
+        XCTAssertTrue(bodyString.contains(#"name="files"; filename="screen.mp4""#))
+        XCTAssertEqual((try self.multipartMeta(in: body)["sources"] as? [String])?.sorted(), ["audio", "location", "screencast"])
+    }
+
     func testSingleSourceSegmentsUploadOnlyTheirOwnArtifact() async throws {
         let harness = self.makeHarness(connected: true)
         let audioSegmentID = UUID()
@@ -114,6 +188,65 @@ final class MobileSegmentUploaderTests: XCTestCase {
         let retryBody = String(decoding: try XCTUnwrap(MobileSegmentUploaderURLProtocol.capturedBodies.last), as: UTF8.self)
         XCTAssertTrue(retryBody.contains(#"filename="audio.m4a""#))
         XCTAssertTrue(retryBody.contains(#"filename="location.jsonl""#))
+    }
+
+    func testFailedScreencastRetryResendsScreenPart() async throws {
+        let harness = self.makeHarness(connected: true, maxAttempts: 1)
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("try later".utf8)
+            )
+        }
+
+        let segmentID = try await self.createPublicFinalizedSegment(uploader: harness.uploader, sources: [.screencast])
+        try await self.waitFor("screencast failure") {
+            harness.uploader.failedCount == 1 && MobileSegmentUploaderURLProtocol.callCount == 1
+        }
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: failedDirectory).path))
+
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        await harness.uploader.retryFailed()
+        try await self.waitFor("screencast retry") {
+            MobileSegmentUploaderURLProtocol.callCount == 2
+        }
+
+        let retryBody = String(decoding: try XCTUnwrap(MobileSegmentUploaderURLProtocol.capturedBodies.last), as: UTF8.self)
+        XCTAssertTrue(retryBody.contains(#"filename="screen.mp4""#))
+        XCTAssertTrue(retryBody.contains("Content-Type: video/mp4"))
+    }
+
+    func testMissingFinalizedScreencastFailsWithStatusOnlyScheduleReason() async throws {
+        let harness = self.makeHarness(connected: true)
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.screencast])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        try FileManager.default.removeItem(at: harness.store.screenURL(in: pendingDirectory))
+
+        await harness.uploader.resumeFromDisk()
+        try await self.waitFor("missing screencast schedule failure") {
+            harness.uploader.failedCount == 1
+        }
+
+        XCTAssertEqual(
+            harness.uploader.lastError,
+            "mobile segment schedule failed segment=\(segmentID.uuidString) stage=schedule"
+        )
+        XCTAssertEqual(MobileSegmentUploaderURLProtocol.callCount, 0)
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        let failure = try XCTUnwrap(harness.store.loadFailure(in: failedDirectory))
+        XCTAssertEqual(failure.reason, "schedule_failed")
+        XCTAssertEqual(failure.stage, "schedule")
+        XCTAssertNil(failure.transportError)
+        XCTAssertFalse(failure.reason.contains("/"))
+        XCTAssertFalse(harness.uploader.lastError?.contains("/") ?? true)
     }
 
     func testResumeFailsPendingBundleWithUnresolvedDeclaredSourceBeforeUpload() async throws {
@@ -193,6 +326,68 @@ final class MobileSegmentUploaderTests: XCTestCase {
         let requestBody = try String(contentsOf: requestBodyURL, encoding: .utf8)
         XCTAssertTrue(requestBody.contains("filename=\"audio.m4a\""))
         XCTAssertFalse(requestBody.contains("filename=\"location.jsonl\""))
+    }
+
+    func testRemovedScreencastIsOmittedFromRebuiltMultipart() async throws {
+        let harness = self.makeHarness()
+        let segmentID = try await self.createPublicFinalizedSegment(uploader: harness.uploader, sources: [.audio, .screencast])
+
+        await harness.uploader.redactScreencastFacet(segmentID: segmentID)
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.audio.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.screencast.state, .removed)
+        let requestBodyURL = harness.transportRoot
+            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            .appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
+        let requestBody = try String(contentsOf: requestBodyURL, encoding: .utf8)
+        XCTAssertTrue(requestBody.contains("filename=\"audio.m4a\""))
+        XCTAssertFalse(requestBody.contains("filename=\"screen.mp4\""))
+        let bodyData = try Data(contentsOf: requestBodyURL)
+        XCTAssertEqual((try self.multipartMeta(in: bodyData)["sources"] as? [String])?.sorted(), ["audio"])
+    }
+
+    func testScreencastStatusAndCopyStringsAreStatusOnly() {
+        let strings = [
+            "screencast_removed",
+            "screencast_partial_artifact",
+            "schedule_failed",
+            "ignored undeclared screencast artifact segment=00000000-0000-0000-0000-000000000000 source=screencast",
+            "mobile segment finalize failed segment=00000000-0000-0000-0000-000000000000 stage=segment-finalize",
+            "mobile segment resume failed stage=resume",
+            "mobile segment retry failed stage=retry",
+            "mobile segment location redaction failed segment=00000000-0000-0000-0000-000000000000 source=location",
+            "mobile segment screencast redaction failed segment=00000000-0000-0000-0000-000000000000 source=screencast",
+            "mobile segment schedule failed segment=00000000-0000-0000-0000-000000000000 stage=schedule",
+            "mobile segment delivery cleanup failed segment=00000000-0000-0000-0000-000000000000 stage=cleanup",
+            "mobile segment failure cleanup failed segment=00000000-0000-0000-0000-000000000000 stage=failure-cleanup",
+            SourceVocabulary.onThisPhoneDropScreencastDescriptor,
+            SourceVocabulary.onThisPhoneSourceName(for: .screencast),
+        ]
+        let bannedFragments = [
+            "/",
+            "capture",
+            "record",
+            "recording",
+            "watch",
+            "monitor",
+            "track",
+            "collect",
+            "keeper",
+            "assistant",
+            "server",
+            "service",
+            "transcript",
+            "ocr",
+        ]
+
+        for string in strings {
+            let lowercased = string.lowercased()
+            for banned in bannedFragments {
+                XCTAssertFalse(lowercased.contains(banned), "\(string) contains \(banned)")
+            }
+        }
     }
 }
 
@@ -325,6 +520,21 @@ private extension MobileSegmentUploaderTests {
             try store.writeOutcome(locationResolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
         }
 
+        if sources.contains(.screencast) {
+            manifest = try store.readManifest(in: directory)
+            let screenURL = store.screenURL(in: directory)
+            try Data("fake-screen".utf8).write(to: screenURL, options: .atomic)
+            let screencastResolution = MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: "screen.mp4",
+                bytes: store.fileSize(at: screenURL),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60
+            )
+            try store.writeOutcome(screencastResolution, source: .screencast, manifest: &manifest, in: directory, now: endedAt)
+        }
+
         manifest = try store.readManifest(in: directory)
         manifest.day = Self.dayString(for: startedAt)
         manifest.segment = ChunkSidecar.segmentString(for: startedAt, durationSeconds: 60)
@@ -333,6 +543,70 @@ private extension MobileSegmentUploaderTests {
         manifest.upload = .pending
         try store.writeManifest(manifest, in: directory)
         return directory
+    }
+
+    func createPublicFinalizedSegment(
+        uploader: MobileSegmentUploader,
+        sources: Set<MobileSegmentSource>
+    ) async throws -> UUID {
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        let segmentID = try uploader.openSegment(sources: sources, startedAt: startedAt, sourceSetVersion: 1)
+
+        if sources.contains(.audio) {
+            let audioURL = uploader.activeAudioURL(segmentID: segmentID)
+            try Data("fake-audio".utf8).write(to: audioURL, options: .atomic)
+            try uploader.recordAudioFinalized(
+                segmentID: segmentID,
+                finalized: ObserverRecordedChunk(url: audioURL, duration: 60),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                mode: .meeting,
+                minimumDuration: 0.1
+            )
+        }
+
+        if sources.contains(.location) {
+            let fix = LocationFix(
+                t: startedAt,
+                lat: 0,
+                lon: 0,
+                hAcc: 1,
+                alt: nil,
+                vAcc: nil,
+                speed: nil,
+                course: nil,
+                stationary: false
+            )
+            try uploader.recordLocationFinalized(
+                segmentID: segmentID,
+                batch: LocationSegmentBatch(
+                    tier: .balanced,
+                    accuracy: .full,
+                    segmentStart: startedAt,
+                    coveredSeconds: 60,
+                    fixes: [fix],
+                    visits: [],
+                    gap: false
+                ),
+                endedAt: endedAt
+            )
+        }
+
+        if sources.contains(.screencast) {
+            let screenURL = uploader.activeScreencastURL(segmentID: segmentID)
+            try Data("fake-screen".utf8).write(to: screenURL, options: .atomic)
+            try uploader.recordScreencastFinalized(
+                segmentID: segmentID,
+                artifactURL: screenURL,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60
+            )
+        }
+
+        await uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+        return segmentID
     }
 
     func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {

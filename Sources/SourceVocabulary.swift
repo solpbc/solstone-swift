@@ -399,6 +399,8 @@ nonisolated enum SourceVocabulary {
         "\(count) observations"
     }
 
+    static let onThisPhoneDropScreencastDescriptor = "screen video"
+
     static func onThisPhoneNavigationTitle(source: String, shortTime: String?) -> String {
         guard let shortTime else { return source }
         return "\(source) · \(shortTime)"
@@ -513,6 +515,8 @@ extension SourceVocabulary {
             "audio"
         case .location:
             "location"
+        case .screencast:
+            "screen"
         case .share:
             Self.shareSheetDisplayName
         }
