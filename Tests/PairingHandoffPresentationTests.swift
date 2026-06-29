@@ -27,5 +27,53 @@ nonisolated final class PairingHandoffPresentationTests: XCTestCase {
         XCTAssertFalse(PairingHandoffPresentation.shouldPresent(pairURL: nil, pairURLError: nil))
     }
 
+    @MainActor
+    func testApplyUniversalLinkParsesBeforePresentationDecision() throws {
+        let state = PairingHandoffState()
+        let url = try XCTUnwrap(URL(string: Self.canonicalPairingLink))
+
+        // Parsed-before-presentation proof: applyUniversalLink fills state before shouldPresent is queried.
+        XCTAssertTrue(state.applyUniversalLink(url))
+        XCTAssertNotNil(state.pairURL)
+        XCTAssertNil(state.pairURLError)
+        XCTAssertTrue(
+            PairingHandoffPresentation.shouldPresent(pairURL: state.pairURL, pairURLError: state.pairURLError)
+        )
+    }
+
+    @MainActor
+    func testApplyUniversalLinkInvalidPairLinkProducesPresentableError() throws {
+        let state = PairingHandoffState()
+        let url = try XCTUnwrap(URL(string: "https://go.solstone.app/p#?"))
+
+        XCTAssertTrue(state.applyUniversalLink(url))
+        XCTAssertNotNil(state.pairURLError)
+        XCTAssertNil(state.pairURL)
+        XCTAssertTrue(
+            PairingHandoffPresentation.shouldPresent(pairURL: state.pairURL, pairURLError: state.pairURLError)
+        )
+    }
+
+    @MainActor
+    func testRepeatedApplyAndClearDoesNotReplayConsumedHandoff() throws {
+        let state = PairingHandoffState()
+        let url = try XCTUnwrap(URL(string: Self.canonicalPairingLink))
+
+        XCTAssertTrue(state.applyUniversalLink(url))
+        XCTAssertTrue(state.applyUniversalLink(url))
+        XCTAssertNotNil(state.pairURL)
+        XCTAssertNil(state.pairURLError)
+        XCTAssertTrue(
+            PairingHandoffPresentation.shouldPresent(pairURL: state.pairURL, pairURLError: state.pairURLError)
+        )
+
+        state.pairURL = nil
+        state.pairURLError = nil
+
+        XCTAssertFalse(
+            PairingHandoffPresentation.shouldPresent(pairURL: state.pairURL, pairURLError: state.pairURLError)
+        )
+    }
+
     private static let canonicalPairingLink = "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
 }

@@ -114,10 +114,10 @@ struct ContentView: View {
         .onChange(of: self.tunnelManager.isNetworkSatisfied) { _, _ in
             self.updateOfflineBannerVisibility()
         }
-        .onChange(of: self.pairingHandoff.pairURL) { _, _ in
-            self.presentPairingIfHandoffPending()
-        }
-        .onChange(of: self.pairingHandoff.pairURLError) { _, _ in
+        .task(id: PairingHandoffPresentation.shouldPresent(
+            pairURL: self.pairingHandoff.pairURL,
+            pairURLError: self.pairingHandoff.pairURLError
+        )) {
             self.presentPairingIfHandoffPending()
         }
         .onAppear {
@@ -214,7 +214,6 @@ struct ContentView: View {
                 return
             }
 #endif
-            self.presentPairingIfHandoffPending()
             self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
         }
