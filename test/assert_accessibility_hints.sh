@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 required_hints=(
-  'Sources/Onboarding/WelcomeScreen.swift:opens the first source step'
+  'Sources/Onboarding/WelcomeScreen.swift:finishes setup and opens your day'
   'Sources/Location/LocationSourceDetailView.swift:Opens iOS Settings for location access.'
   'Sources/Location/LocationSourceDetailView.swift:Changes the detail level to what iOS allows.'
   'Sources/Location/LocationSourceDetailView.swift:Resumes location updates to your journal.'

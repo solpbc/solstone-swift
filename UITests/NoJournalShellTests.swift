@@ -38,15 +38,13 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testFreshOnboardingLookAroundLandsInNoJournalShell() {
+    func testFreshOnboardingGetStartedLandsInNoJournalShell() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-test", "--ui-test-onboarding-step=welcome"]
+        app.launchArguments = ["--ui-test", "--ui-test-no-journal", "--ui-test-onboarding-step=welcome"]
         app.launch()
 
         XCTAssertTrue(app.buttons["get started"].waitForExistence(timeout: 10))
         app.buttons["get started"].tap()
-        XCTAssertTrue(app.staticTexts["start with a source"].waitForExistence(timeout: 5))
-        app.buttons["onboarding.lookAround"].tap()
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
     }
@@ -186,7 +184,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(["good morning", "good afternoon", "good evening"].contains(greeting.label))
         let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        XCTAssertEqual(locality.label, "your journal · on this phone")
+        XCTAssertEqual(locality.label, "no journal connected yet")
         XCTAssertFalse(app.navigationBars["on this phone"].exists)
     }
 

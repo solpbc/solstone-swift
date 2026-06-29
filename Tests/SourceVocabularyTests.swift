@@ -57,6 +57,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.transferRateIdle, "idle")
         XCTAssertEqual(SourceVocabulary.details, "details")
         XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
+        XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "no journal connected yet")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
         XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your solstone")
@@ -154,7 +155,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneEmpty,
-            "nothing here yet. turn on a source and solstone starts observing alongside you — kept right here."
+            "nothing here yet. turn on a source and solstone starts experiencing alongside you — it'll wait here and sync to your journal once you connect one."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneAllQuietHeadline, "all quiet")
         XCTAssertEqual(
@@ -657,7 +658,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.removeSeam,
             SourceVocabulary.importerWhatItAdds,
             SourceVocabulary.onThisPhone,
-            SourceVocabulary.dayLocality,
+            SourceVocabulary.dayLocalityNoJournal,
             SourceVocabulary.journalConnected,
             SourceVocabulary.journalOffline,
             SourceVocabulary.yourSolstoneTitle,

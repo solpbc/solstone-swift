@@ -13,24 +13,25 @@ struct WelcomeScreen: View {
     var body: some View {
         OnboardingScaffold(
             title: "welcome to solstone",
-            subtitle: "solstone observes alongside you and keeps it on this phone — yours alone, until you connect a journal.",
-            showsBrandMark: true
+            subtitle: "solstone experiences your day alongside you and syncs it to your journal — private, and yours.",
+            showsBrandMark: true,
+            ground: Color.solCream,
+            alignment: .center
         ) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .center, spacing: 16) {
                 Label("private by design", systemImage: "lock.fill")
                     .font(.headline)
-                Label("no ads, no analytics, no third parties", systemImage: "hand.raised.fill")
-                    .font(.headline)
-                Label("your phone can resume where you left off if onboarding is interrupted", systemImage: "arrow.clockwise")
+                Label("no ads, no analytics", systemImage: "hand.raised.fill")
                     .font(.headline)
 
                 Button("get started", action: self.onGetStarted)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .accessibilityHint("opens the first source step")
                     .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityHint("finishes setup and opens your day")
             }
         }
+        .preferredColorScheme(.light)
         .navigationTitle("")
         .onAppear {
             guard !self.didAutoAdvance else { return }

@@ -12,7 +12,6 @@ private let onboardingFlowLog = Logger(subsystem: "app.solstone.swift", category
 final class OnboardingFlow {
     enum Step: String, Sendable {
         case welcome
-        case firstSource = "first_source"
         case done
     }
 
@@ -23,7 +22,6 @@ final class OnboardingFlow {
 
     var step: Step = .welcome
     var isCompleted = false
-    var choseFirstSource = false
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -41,7 +39,7 @@ final class OnboardingFlow {
 
         if let rawStep = self.defaults.string(forKey: DefaultsKey.step) {
             switch rawStep {
-            case "pair":
+            case "pair", "first_source":
                 self.step = .welcome
                 self.persist()
                 return
@@ -62,20 +60,13 @@ final class OnboardingFlow {
     }
 
     func reset() {
-        self.choseFirstSource = false
         self.isCompleted = false
         self.step = .welcome
         onboardingFlowLog.info("onboarding reset")
         self.persist()
     }
 
-    func advanceFromWelcome() {
-        self.step = .firstSource
-        self.persist()
-    }
-
-    func completeFirstSource(choseSource: Bool) {
-        self.choseFirstSource = choseSource
+    func completeOnboarding() {
         self.step = .done
         self.isCompleted = true
         self.persist()
@@ -83,25 +74,13 @@ final class OnboardingFlow {
     }
 
     func completeViaPairing() {
-        self.choseFirstSource = false
         self.step = .done
         self.isCompleted = true
         onboardingFlowLog.info("onboarding completed via pairing")
         self.persist()
     }
 
-    func goBack() {
-        switch self.step {
-        case .welcome, .done:
-            break
-        case .firstSource:
-            self.step = .welcome
-        }
-        self.persist()
-    }
-
     func markCompletedForUITest() {
-        self.choseFirstSource = false
         self.step = .done
         self.isCompleted = true
         self.persist()
@@ -110,7 +89,6 @@ final class OnboardingFlow {
     func seedUITest(step: Step) {
         self.step = step
         self.isCompleted = step == .done
-        self.choseFirstSource = false
         self.persist()
     }
 

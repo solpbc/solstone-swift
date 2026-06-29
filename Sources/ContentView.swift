@@ -41,8 +41,7 @@ struct ContentView: View {
             } else {
                 RootShellView(
                     localPort: self.effectivePort,
-                    via: self.effectiveVia,
-                    presentSourcesOnFirstAppear: self.onboardingFlow.choseFirstSource
+                    via: self.effectiveVia
                 )
             }
         }

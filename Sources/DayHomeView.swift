@@ -68,6 +68,10 @@ struct DayHomeView: View {
                 .accessibilityIdentifier("dayHome.yourSolstoneEntry")
             }
         }
+        .preferredColorScheme(.light)
+        .background(Color.solCream.ignoresSafeArea())
+        .toolbarBackground(Color.solCream, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
     }
 
     private var header: some View {
@@ -126,7 +130,7 @@ struct DayHomeView: View {
     private var localityText: String {
         switch self.journalState {
         case .noJournal:
-            SourceVocabulary.dayLocality
+            SourceVocabulary.dayLocalityNoJournal
         case .linkedOffline:
             SourceVocabulary.journalOffline
         case .linkedOnline:

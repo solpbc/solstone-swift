@@ -10,13 +10,8 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
     }
 
     @MainActor
-    func testWelcomeAndFirstSourceScreensExposeAccessibilityMetadata() {
-        self.assertWelcomeAndFirstSourceScreens()
-    }
-
-    @MainActor
-    func testFirstSourceSeedExposesAccessibilityMetadata() {
-        self.assertFirstSourceSeed()
+    func testWelcomeScreenExposesAccessibilityMetadata() {
+        self.assertWelcomeScreen()
     }
 
     @MainActor
@@ -28,33 +23,13 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
 
 @MainActor
 private extension OnboardingAccessibilityTests {
-    func assertWelcomeAndFirstSourceScreens() {
+    func assertWelcomeScreen() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-onboarding-step=welcome"]
         app.launch()
 
         let getStarted = app.buttons["get started"]
         self.assertMetadata(for: getStarted, in: app)
-        getStarted.tap()
-
-        self.assertMetadata(for: app.staticTexts["start with a source"], in: app)
-        self.assertMetadata(for: app.buttons["onboarding.firstSource.audio"], in: app)
-        self.assertMetadata(for: app.buttons["onboarding.firstSource.location"], in: app)
-        self.assertMetadata(for: app.buttons["look around first"], in: app)
-        self.assertMetadata(for: app.buttons["back"], in: app)
-    }
-
-    func assertFirstSourceSeed() {
-        let app = XCUIApplication()
-        app.launchArguments = [
-            "--ui-test",
-            "--ui-test-onboarding-step=first_source",
-        ]
-        app.launch()
-
-        self.assertMetadata(for: app.staticTexts["start with a source"], in: app)
-        self.assertMetadata(for: app.buttons["look around first"], in: app)
-        self.assertMetadata(for: app.buttons["back"], in: app)
     }
 
     func assertMoreViewAccessibility() {

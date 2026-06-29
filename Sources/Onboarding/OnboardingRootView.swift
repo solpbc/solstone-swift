@@ -14,10 +14,8 @@ struct OnboardingRootView: View {
             switch self.onboardingFlow.step {
             case .welcome:
                 WelcomeScreen {
-                    self.onboardingFlow.advanceFromWelcome()
+                    self.onboardingFlow.completeOnboarding()
                 }
-            case .firstSource:
-                FirstSourceScreen()
             case .done:
                 Color.clear
             }
@@ -37,6 +35,8 @@ struct OnboardingScaffold<Content: View>: View {
     let subtitle: String
     let titleAccessibilityIdentifier: String?
     let showsBrandMark: Bool
+    let ground: Color
+    let alignment: HorizontalAlignment
     let content: Content
 
     init(
@@ -44,50 +44,84 @@ struct OnboardingScaffold<Content: View>: View {
         subtitle: String,
         titleAccessibilityIdentifier: String? = nil,
         showsBrandMark: Bool = false,
+        ground: Color = Color(.systemGroupedBackground),
+        alignment: HorizontalAlignment = .leading,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.titleAccessibilityIdentifier = titleAccessibilityIdentifier
         self.showsBrandMark = showsBrandMark
+        self.ground = ground
+        self.alignment = alignment
         self.content = content()
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: self.alignment, spacing: 24) {
                 if self.showsBrandMark {
                     Image("SolWordmark")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 72, height: 72)
+                        .frame(width: 104, height: 104)
                         .accessibilityHidden(true)
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: self.alignment, spacing: 12) {
                     self.titleView
-                    Text(self.subtitle)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
+                    self.subtitleView
                 }
 
                 self.content
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: self.frameAlignment)
             .padding(24)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(self.ground)
+    }
+
+    private var isCentered: Bool {
+        self.alignment == .center
+    }
+
+    private var frameAlignment: Alignment {
+        self.isCentered ? .center : .leading
     }
 
     @ViewBuilder
     private var titleView: some View {
         if let titleAccessibilityIdentifier {
+            self.titleText
+                .accessibilityIdentifier(titleAccessibilityIdentifier)
+        } else {
+            self.titleText
+        }
+    }
+
+    @ViewBuilder
+    private var titleText: some View {
+        if self.isCentered {
             Text(self.title)
                 .font(.largeTitle.weight(.bold))
-                .accessibilityIdentifier(titleAccessibilityIdentifier)
+                .multilineTextAlignment(.center)
         } else {
             Text(self.title)
                 .font(.largeTitle.weight(.bold))
+        }
+    }
+
+    @ViewBuilder
+    private var subtitleView: some View {
+        if self.isCentered {
+            Text(self.subtitle)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        } else {
+            Text(self.subtitle)
+                .font(.body)
+                .foregroundStyle(.secondary)
         }
     }
 }

@@ -10,7 +10,6 @@ private let routerLog = Logger(subsystem: "app.solstone.swift", category: "route
 struct RootShellView: View {
     let localPort: Int
     let via: ConnectionEndpoint
-    let presentSourcesOnFirstAppear: Bool
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(VoiceManager.self) private var voiceManager
@@ -23,18 +22,15 @@ struct RootShellView: View {
     @State private var showingChat = false
     @State private var showingJournal = false
     @State private var navigateToDiagnostics = false
-    @State private var didPresentFirstSources = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
 
     init(
         localPort: Int,
-        via: ConnectionEndpoint,
-        presentSourcesOnFirstAppear: Bool
+        via: ConnectionEndpoint
     ) {
         self.localPort = localPort
         self.via = via
-        self.presentSourcesOnFirstAppear = presentSourcesOnFirstAppear
     }
 
     var body: some View {
@@ -90,10 +86,6 @@ struct RootShellView: View {
         .onAppear {
             if let route = self.pendingRoute.route {
                 self.apply(route)
-            }
-            if self.presentSourcesOnFirstAppear && !self.didPresentFirstSources {
-                self.didPresentFirstSources = true
-                self.showingSources = true
             }
             if !self.tunnelManager.state.isConnected {
                 mainTabLog.info("showing disconnected shell state")

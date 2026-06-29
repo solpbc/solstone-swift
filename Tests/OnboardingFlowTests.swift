@@ -27,24 +27,19 @@ nonisolated final class OnboardingFlowTests: XCTestCase {
     func testFlowTransitionsToDone() {
         let flow = OnboardingFlow(defaults: self.defaults)
 
-        flow.advanceFromWelcome()
-        XCTAssertEqual(flow.step, .firstSource)
-
-        flow.completeFirstSource(choseSource: true)
+        flow.completeOnboarding()
         XCTAssertEqual(flow.step, .done)
         XCTAssertTrue(flow.isCompleted)
-        XCTAssertTrue(flow.choseFirstSource)
     }
 
     @MainActor
-    func testCompleteViaPairingPersistsCompletedDoneWithoutFirstSource() {
+    func testCompleteViaPairingPersistsCompletedDone() {
         let flow = OnboardingFlow(defaults: self.defaults)
 
         flow.completeViaPairing()
 
         XCTAssertEqual(flow.step, .done)
         XCTAssertTrue(flow.isCompleted)
-        XCTAssertFalse(flow.choseFirstSource)
 
         let restored = OnboardingFlow(defaults: self.defaults)
         XCTAssertTrue(restored.isCompleted)
@@ -52,19 +47,21 @@ nonisolated final class OnboardingFlowTests: XCTestCase {
     }
 
     @MainActor
-    func testGoBackFromFirstSourceReturnsToWelcome() {
-        let flow = OnboardingFlow(defaults: self.defaults)
+    func testRestoreMigratesPairToWelcomeAndPersists() {
+        self.defaults.set("pair", forKey: "onboarding.step")
+        self.defaults.set(false, forKey: "onboarding.completed")
 
-        flow.advanceFromWelcome()
-        flow.goBack()
+        let flow = OnboardingFlow(defaults: self.defaults)
 
         XCTAssertEqual(flow.step, .welcome)
         XCTAssertFalse(flow.isCompleted)
+        XCTAssertEqual(self.defaults.string(forKey: "onboarding.step"), "welcome")
+        XCTAssertFalse(self.defaults.bool(forKey: "onboarding.completed"))
     }
 
     @MainActor
-    func testRestoreMigratesPairToWelcomeAndPersists() {
-        self.defaults.set("pair", forKey: "onboarding.step")
+    func testRestoreMigratesFirstSourceToWelcomeAndPersists() {
+        self.defaults.set("first_source", forKey: "onboarding.step")
         self.defaults.set(false, forKey: "onboarding.completed")
 
         let flow = OnboardingFlow(defaults: self.defaults)
@@ -115,7 +112,6 @@ nonisolated final class OnboardingFlowTests: XCTestCase {
     @MainActor
     func testConnectCompletionClosureDoesNotMutateOnboardingFlow() {
         let flow = OnboardingFlow(defaults: self.defaults)
-        flow.advanceFromWelcome()
         let stepBefore = flow.step
         let isCompletedBefore = flow.isCompleted
         var didDismiss = false

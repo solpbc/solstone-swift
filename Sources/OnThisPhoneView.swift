@@ -728,8 +728,10 @@ private extension OnThisPhoneMomentsView {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    Button(SourceVocabulary.onThisPhoneTurnOnSourceButton) {
+                    Button {
                         self.onTurnOnSource()
+                    } label: {
+                        Label(SourceVocabulary.onThisPhoneTurnOnSourceButton, systemImage: "square.stack.3d.up")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.regular)
