@@ -11,7 +11,7 @@ enum TunnelError: Error, Sendable, Equatable {
     var userMessage: String {
         switch self {
         case .revoked:
-            return "this solstone has unpaired your phone. tap to re-pair."
+            return "your journal asked this phone to reconnect."
         case .tlsHandshakeFailed:
             return "couldn't verify this solstone."
         case .muxTeardown:

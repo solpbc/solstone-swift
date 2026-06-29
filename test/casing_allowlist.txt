@@ -35,6 +35,17 @@ PairClient.swift|User-Agent
 PairClient.swift|Content-Length
 PairClient.swift|Connection:
 *|Bearer
+
+# SVG path-data + path-command letter literals (not UI copy)
+JournalMark.swift|case "
+JournalMark.swift|d="M
+JournalMark.swift|"MmLlHhVvCcSsQqTtAaZz"
+JournalMark.swift|"CcSs"
+JournalMark.swift|"QqTt"
+JournalMark.swift|== "Z"
+JournalMark.swift|== "E"
+JournalMark.swift|: "L"
+
 *|CFBundleShortVersionString
 *|CFBundleVersion
 *|MOCK_

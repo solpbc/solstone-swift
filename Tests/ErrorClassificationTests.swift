@@ -8,7 +8,7 @@ import XCTest
 nonisolated final class ErrorClassificationTests: XCTestCase {
     @MainActor
     func testUserMessages() {
-        XCTAssertEqual(TunnelError.revoked.userMessage, "this solstone has unpaired your phone. tap to re-pair.")
+        XCTAssertEqual(TunnelError.revoked.userMessage, "your journal asked this phone to reconnect.")
         XCTAssertEqual(TunnelError.tlsHandshakeFailed.userMessage, "couldn't verify this solstone.")
         XCTAssertEqual(TunnelError.muxTeardown.userMessage, "connection lost.")
         XCTAssertEqual(TunnelError.unreachable.userMessage, "can't reach this solstone right now.")
@@ -38,7 +38,7 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         XCTAssertEqual(manager.mapTransportError(SessionError.tokenExpired), .revoked)
         XCTAssertEqual(
             manager.mapTransportError(SessionError.revoked).userMessage,
-            "this solstone has unpaired your phone. tap to re-pair."
+            "your journal asked this phone to reconnect."
         )
     }
 

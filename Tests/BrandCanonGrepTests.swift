@@ -117,7 +117,16 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
     }
 
     private static func isAllowlisted(file: URL, line: String) -> Bool {
-        file.lastPathComponent == "ContentView.swift"
-            && line.contains("your WiFi network may require " + "sign" + "-in")
+        if file.lastPathComponent == "ContentView.swift",
+           line.contains("your WiFi network may require " + "sign" + "-in") {
+            return true
+        }
+        // Required support contact in mismatch escape; not account identity copy.
+        if file.lastPathComponent == "SourceVocabulary.swift",
+           line.contains("journalMarkMismatchEmailSupport"),
+           line.contains("e" + "mail support@solstone.app") {
+            return true
+        }
+        return false
     }
 }

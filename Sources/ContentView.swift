@@ -34,6 +34,13 @@ struct ContentView: View {
         return self.lastVia
     }
 
+    private var isRevoked: Bool {
+        if case .error(.revoked) = self.tunnelManager.state {
+            return true
+        }
+        return false
+    }
+
     var body: some View {
         Group {
             if !self.onboardingFlow.isCompleted {
@@ -46,7 +53,11 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if self.appConfig.isPaired && self.showOfflineBanner {
+            if self.appConfig.isPaired && self.isRevoked {
+                RePairBanner {
+                    self.showPairing = true
+                }
+            } else if self.appConfig.isPaired && self.showOfflineBanner {
                 OfflineBanner()
             }
         }
@@ -95,10 +106,7 @@ struct ContentView: View {
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
-            case .error(let error):
-                if error == .revoked {
-                    self.showPairing = true
-                }
+            case .error:
                 if UserSettings.haptics {
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
                 }
@@ -159,6 +167,43 @@ struct ContentView: View {
                     }
                     self.onboardingFlow.markCompletedForUITest()
                 }
+
+#if DEBUG
+                if arguments.contains("--ui-test-mark-confirm") {
+                    self.appConfig.seedUITestPairing(
+                        journalRoot: journalRoot,
+                        deviceID: deviceID,
+                        sessionKey: sessionKey
+                    )
+                    self.onboardingFlow.markCompletedForUITest()
+                    self.tunnelManager.forceConnected(port: port, via: .lan)
+                    self.tunnelManager.forceNetworkStatus(
+                        isSatisfied: !arguments.contains("--ui-test-network-unsatisfied"),
+                        isWiFi: true
+                    )
+                    self.lastPort = port
+                    self.lastVia = .lan
+                    self.showPairing = true
+                    return
+                }
+                if arguments.contains("--ui-test-revoked") {
+                    self.appConfig.seedUITestPairing(
+                        journalRoot: journalRoot,
+                        deviceID: deviceID,
+                        sessionKey: sessionKey
+                    )
+                    self.onboardingFlow.markCompletedForUITest()
+                    self.tunnelManager.forceDisconnectedForUITest()
+                    self.tunnelManager.forceNetworkStatus(
+                        isSatisfied: !arguments.contains("--ui-test-network-unsatisfied"),
+                        isWiFi: true
+                    )
+                    self.tunnelManager.state = .error(.revoked)
+                    self.lastPort = port
+                    self.lastVia = .lan
+                    return
+                }
+#endif
 
                 if shouldSeedPairing {
                     if arguments.contains("--ui-test-shell-disconnected") {
