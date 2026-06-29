@@ -34,7 +34,9 @@ final class MobileSegmentEngine {
     @ObservationIgnored private var pendingBoundaryAt: Date?
     @ObservationIgnored private var pendingLocationStart: LocationStart?
     @ObservationIgnored private var pendingAudioStartContinuations: [CheckedContinuation<URL, any Error>] = []
+    @ObservationIgnored private var screencastContinuationLease: MobileSegmentScreencastContinuationLease?
     @ObservationIgnored var rotateAudio: (@MainActor @Sendable (URL) async throws -> ObserverRecordedChunk?)?
+    @ObservationIgnored var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Void)?
 
     init(
         uploader: MobileSegmentUploader,
@@ -46,6 +48,136 @@ final class MobileSegmentEngine {
 
     func resumeFromDisk() async {
         await self.uploader.resumeFromDisk()
+    }
+
+    func startScreencast(at startedAt: Date) async throws -> MobileSegmentScreencastHandoffRecord {
+        switch self.state {
+        case .idle:
+            let segmentID = try self.openSegment(sources: [.screencast], startedAt: startedAt)
+            return self.screencastHandoff(segmentID: segmentID, sources: [.screencast], startedAt: startedAt)
+        case .open(let segmentID, let sources, let segmentStartedAt):
+            if sources.contains(.screencast) {
+                return self.screencastHandoff(segmentID: segmentID, sources: sources, startedAt: segmentStartedAt)
+            }
+            let nextSources = sources.union([.screencast])
+            try await self.boundary(to: nextSources, at: startedAt)
+            guard case .open(let activeSegmentID, let activeSources, let activeStartedAt) = self.state,
+                  activeSources.contains(.screencast) else {
+                throw MobileSegmentEngineError.noActiveSegment
+            }
+            return self.screencastHandoff(segmentID: activeSegmentID, sources: activeSources, startedAt: activeStartedAt)
+        case .finalizing(_, let activeSegmentID, let activeSources, let activeStartedAt, let pendingSources):
+            let desiredSources = (pendingSources ?? activeSources).union([.screencast])
+            self.coalesceFinalizingSources(desiredSources, at: startedAt)
+            if activeSources.contains(.screencast),
+               let activeSegmentID,
+               let activeStartedAt {
+                return self.screencastHandoff(segmentID: activeSegmentID, sources: activeSources, startedAt: activeStartedAt)
+            }
+            throw MobileSegmentEngineError.noActiveSegment
+        }
+    }
+
+    func currentScreencastHandoff() -> MobileSegmentScreencastHandoffRecord? {
+        guard self.currentSources.contains(.screencast),
+              let segmentID = self.currentSegmentID,
+              let startedAt = self.currentStartedAt else { return nil }
+        return self.screencastHandoff(segmentID: segmentID, sources: self.currentSources, startedAt: startedAt)
+    }
+
+    func stopScreencast(at endedAt: Date) async throws {
+        if case .finalizing(_, _, let activeSources, _, let pendingSources) = self.state {
+            self.coalesceFinalizingSources((pendingSources ?? activeSources).subtracting([.screencast]), at: endedAt)
+            return
+        }
+        guard case .open(_, let sources, _) = self.state,
+              sources.contains(.screencast) else { return }
+        try await self.boundary(to: sources.subtracting([.screencast]), at: endedAt)
+    }
+
+    func prepareScreencastContinuationLease(
+        rolloverAt: Date,
+        expiresAt: Date
+    ) async throws -> MobileSegmentScreencastContinuationLease? {
+        let sources = self.currentSources
+        guard sources.contains(.screencast),
+              let fromSegmentID = self.currentSegmentID else { return nil }
+        let sourceSet = self.sortedSources(sources)
+        if let existing = self.screencastContinuationLease,
+           existing.fromSegmentID == fromSegmentID,
+           Set(existing.sourceSet) == sources {
+            let refreshed = MobileSegmentScreencastContinuationLease(
+                leaseID: existing.leaseID,
+                revision: Int64(max(self.sourceSetVersion, existing.sourceSetVersion)),
+                fromSegmentID: existing.fromSegmentID,
+                segmentID: existing.segmentID,
+                sourceSetVersion: max(self.sourceSetVersion, existing.sourceSetVersion),
+                sourceSet: sourceSet,
+                notBefore: rolloverAt,
+                startsAt: rolloverAt,
+                rolloverAfter: rolloverAt.addingTimeInterval(300),
+                expiresAt: expiresAt,
+                issuedAt: self.clock.now(),
+                segmentDirectoryRelativePath: existing.segmentDirectoryRelativePath,
+                screenPartRelativePath: existing.screenPartRelativePath,
+                screenFinalRelativePath: existing.screenFinalRelativePath
+            )
+            self.screencastContinuationLease = refreshed
+            return refreshed
+        }
+        let segmentID = try self.createSegment(sources: sources, startedAt: rolloverAt)
+        let lease = MobileSegmentScreencastContinuationLease(
+            leaseID: UUID(),
+            revision: Int64(self.sourceSetVersion),
+            fromSegmentID: fromSegmentID,
+            segmentID: segmentID,
+            sourceSetVersion: self.sourceSetVersion,
+            sourceSet: sourceSet,
+            notBefore: rolloverAt,
+            startsAt: rolloverAt,
+            rolloverAfter: rolloverAt.addingTimeInterval(300),
+            expiresAt: expiresAt,
+            issuedAt: self.clock.now(),
+            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID),
+            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
+            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID)
+        )
+        self.screencastContinuationLease = lease
+        return lease
+    }
+
+    func adoptScreencastContinuationLease(
+        _ lease: MobileSegmentScreencastContinuationLease
+    ) async throws -> MobileSegmentScreencastHandoffRecord {
+        let sources = Set(lease.sourceSet)
+        guard sources.contains(.screencast) else {
+            throw MobileSegmentEngineError.noActiveSegment
+        }
+        if self.currentSegmentID == lease.segmentID,
+           self.currentSources == sources,
+           let startedAt = self.currentStartedAt {
+            return self.screencastHandoff(segmentID: lease.segmentID, sources: sources, startedAt: startedAt)
+        }
+        try self.uploader.adoptActiveSegment(
+            segmentID: lease.segmentID,
+            sources: sources,
+            startedAt: lease.startsAt,
+            sourceSetVersion: lease.sourceSetVersion
+        )
+        self.sourceSetVersion = max(self.sourceSetVersion, lease.sourceSetVersion)
+        if sources.contains(.audio) {
+            self.audioSegmentStartedAt = lease.startsAt
+        }
+        if sources.contains(.location), let buffer = self.locationBuffer {
+            self.locationBuffer = LocationBuffer(
+                tier: buffer.tier,
+                accuracy: buffer.accuracy,
+                startedAt: lease.startsAt
+            )
+        }
+        self.screencastContinuationLease = nil
+        self.activateSegment(segmentID: lease.segmentID, sources: sources, startedAt: lease.startsAt, startTimer: true)
+        return self.screencastHandoff(segmentID: lease.segmentID, sources: sources, startedAt: lease.startsAt)
     }
 
     func startAudio(mode: ObserverMode) async throws -> URL {
@@ -271,6 +403,17 @@ private extension MobileSegmentEngine {
         }
     }
 
+    var currentStartedAt: Date? {
+        switch self.state {
+        case .open(_, _, let startedAt):
+            startedAt
+        case .finalizing(_, _, _, let activeStartedAt, _):
+            activeStartedAt
+        case .idle:
+            nil
+        }
+    }
+
     func openSegment(sources: Set<MobileSegmentSource>, startedAt: Date) throws -> UUID {
         let segmentID = try self.createSegment(sources: sources, startedAt: startedAt)
         self.activateSegment(segmentID: segmentID, sources: sources, startedAt: startedAt, startTimer: true)
@@ -352,7 +495,19 @@ private extension MobileSegmentEngine {
             let oldAudioStartedAt = self.audioSegmentStartedAt
             let oldAudioMode = self.audioMode
             let oldLocationBuffer = oldSources.contains(.location) ? self.locationBuffer : nil
-            let nextSegmentID = nextSources.isEmpty ? nil : try self.createSegment(sources: nextSources, startedAt: now)
+            let preparedLease = self.consumePreparedScreencastLease(
+                fromSegmentID: segmentID,
+                sources: nextSources,
+                at: now
+            )
+            let nextSegmentID: UUID?
+            if nextSources.isEmpty {
+                nextSegmentID = nil
+            } else if let preparedLease {
+                nextSegmentID = preparedLease.segmentID
+            } else {
+                nextSegmentID = try self.createSegment(sources: nextSources, startedAt: now)
+            }
 
             if nextSources.contains(.audio) {
                 self.audioSegmentStartedAt = now
@@ -453,6 +608,11 @@ private extension MobileSegmentEngine {
                 } else {
                     self.startTimer()
                 }
+                if oldSources.contains(.screencast), nextSources.contains(.screencast) {
+                    self.screencastRolloverHandler?(
+                        self.screencastHandoff(segmentID: nextSegmentID, sources: nextSources, startedAt: now)
+                    )
+                }
             } else if let pendingNextSources, !pendingNextSources.isEmpty {
                 let openedID = try self.openSegment(sources: pendingNextSources, startedAt: pendingAt)
                 if pendingNextSources.contains(.audio) {
@@ -497,6 +657,23 @@ private extension MobileSegmentEngine {
         return pendingNextSourceSet
     }
 
+    func consumePreparedScreencastLease(
+        fromSegmentID: UUID,
+        sources: Set<MobileSegmentSource>,
+        at now: Date
+    ) -> MobileSegmentScreencastContinuationLease? {
+        guard sources.contains(.screencast),
+              let lease = self.screencastContinuationLease,
+              lease.fromSegmentID == fromSegmentID,
+              Set(lease.sourceSet) == sources,
+              now >= lease.notBefore,
+              now <= lease.expiresAt
+        else { return nil }
+        self.sourceSetVersion = max(self.sourceSetVersion, lease.sourceSetVersion)
+        self.screencastContinuationLease = nil
+        return lease
+    }
+
     func resolvePendingAudioStarts(with url: URL) {
         let continuations = self.pendingAudioStartContinuations
         self.pendingAudioStartContinuations = []
@@ -536,6 +713,7 @@ private extension MobileSegmentEngine {
             } catch {
                 return
             }
+            guard !Task.isCancelled else { return }
             guard !self.currentSources.isEmpty else { return }
             let sources = self.currentSources
             let now = self.clock.now()
@@ -550,6 +728,32 @@ private extension MobileSegmentEngine {
     func cancelTimer() {
         self.timerTask?.cancel()
         self.timerTask = nil
+    }
+
+    func screencastHandoff(
+        segmentID: UUID,
+        sources: Set<MobileSegmentSource>,
+        startedAt: Date
+    ) -> MobileSegmentScreencastHandoffRecord {
+        MobileSegmentScreencastHandoffRecord(
+            revision: Int64(self.sourceSetVersion),
+            eventID: UUID(),
+            sessionID: UUID(),
+            segmentID: segmentID,
+            sourceSetVersion: self.sourceSetVersion,
+            sourceSet: self.sortedSources(sources),
+            startedAt: startedAt,
+            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID),
+            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
+            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),
+            desiredState: .writing,
+            rolloverAfter: startedAt.addingTimeInterval(300),
+            lastHostUpdateAt: self.clock.now()
+        )
+    }
+
+    func sortedSources(_ sources: Set<MobileSegmentSource>) -> [MobileSegmentSource] {
+        sources.sorted { $0.rawValue < $1.rawValue }
     }
 
     func lastError(_ error: any Error) {

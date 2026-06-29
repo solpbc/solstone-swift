@@ -70,6 +70,28 @@ final class MobileSegmentUploader {
         return manifest.segmentID
     }
 
+    func adoptActiveSegment(
+        segmentID: UUID,
+        sources: Set<MobileSegmentSource>,
+        startedAt: Date,
+        sourceSetVersion: Int
+    ) throws {
+        try self.requireStorageAvailable()
+        let directory = self.activeDirectory(segmentID: segmentID)
+        if self.store.fileExists(directory), (try? self.store.readManifest(in: directory)) != nil {
+            self.refreshCounts()
+            return
+        }
+        let manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: sources,
+            activeSourceSetVersion: sourceSetVersion
+        )
+        _ = try self.store.createActive(manifest: manifest)
+        self.refreshCounts()
+    }
+
     func activeDirectory(segmentID: UUID) -> URL {
         self.store.segmentDirectoryURL(.active, segmentID: segmentID)
     }
@@ -160,6 +182,14 @@ final class MobileSegmentUploader {
         self.store.screenURL(in: self.activeDirectory(segmentID: segmentID))
     }
 
+    func screencastResolution(segmentID: UUID) -> MobileSegmentSourceResolution? {
+        guard let found = self.store.findDirectory(segmentID: segmentID),
+              let manifest = try? self.store.readManifest(in: found.url) else {
+            return nil
+        }
+        return manifest.screencast
+    }
+
     func recordScreencastFinalized(
         segmentID: UUID,
         artifactURL: URL,
@@ -204,6 +234,27 @@ final class MobileSegmentUploader {
             reason: reason,
             stage: "source-finalize",
             lastAttemptAt: endedAt
+        )
+        try self.store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: endedAt)
+    }
+
+    func recordScreencastNoArtifact(
+        segmentID: UUID,
+        startedAt: Date,
+        endedAt: Date,
+        durationS: TimeInterval?,
+        reason: String
+    ) throws {
+        try self.requireStorageAvailable()
+        let directory = self.activeDirectory(segmentID: segmentID)
+        var manifest = try self.store.readManifest(in: directory)
+        guard manifest.openedWithSources.contains(.screencast) else { return }
+        let resolution = MobileSegmentSourceResolution(
+            state: .noArtifact,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationS: durationS,
+            reason: reason
         )
         try self.store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: endedAt)
     }
@@ -278,7 +329,39 @@ final class MobileSegmentUploader {
             manifest.segment = ChunkSidecar.segmentString(for: manifest.startedAt, durationSeconds: manifest.durationS ?? 0)
             manifest.updatedAt = endedAt
 
+            var deferredLiveScreencast = false
             for source in manifest.declaredSources where !manifest.resolution(for: source).state.isTerminal {
+                if source == .screencast {
+                    let screenURL = self.store.screenURL(in: directory)
+                    let screenPartURL = self.store.screenPartURL(in: directory)
+                    if self.store.fileExists(screenURL) {
+                        let resolution = MobileSegmentSourceResolution(
+                            state: .finalizedArtifact,
+                            artifactFilename: screenURL.lastPathComponent,
+                            bytes: self.store.fileSize(at: screenURL),
+                            startedAt: manifest.startedAt,
+                            endedAt: endedAt,
+                            durationS: max(0, endedAt.timeIntervalSince(manifest.startedAt))
+                        )
+                        try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
+                        manifest = try self.store.readManifest(in: directory)
+                        continue
+                    }
+                    if self.store.fileExists(screenPartURL),
+                       self.hasFreshScreencastLiveness(segmentID: segmentID, directory: directory, now: endedAt) {
+                        deferredLiveScreencast = true
+                        continue
+                    }
+                    let resolution = MobileSegmentSourceResolution(
+                        state: .failedToFinalize,
+                        reason: self.store.fileExists(screenPartURL) ? "screencast_partial_artifact" : "missing outcome marker for \(source.rawValue)",
+                        stage: "segment-finalize",
+                        lastAttemptAt: endedAt
+                    )
+                    try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
+                    manifest = try self.store.readManifest(in: directory)
+                    continue
+                }
                 let resolution = MobileSegmentSourceResolution(
                     state: .failedToFinalize,
                     reason: "missing outcome marker for \(source.rawValue)",
@@ -287,6 +370,12 @@ final class MobileSegmentUploader {
                 )
                 try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                 manifest = try self.store.readManifest(in: directory)
+            }
+
+            if deferredLiveScreencast {
+                try self.store.writeManifest(manifest, in: directory)
+                self.refreshCounts()
+                return
             }
 
             if manifest.isEmptyResolved {
@@ -958,9 +1047,13 @@ private extension MobileSegmentUploader {
         let active = try self.store.list(.active)
         for directory in active {
             guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
-            var manifest = try self.store.readManifest(in: directory)
             let now = self.clock.now()
+            if self.isReservedLeasedScreencastSegment(segmentID: segmentID, now: now) {
+                continue
+            }
+            var manifest = try self.store.readManifest(in: directory)
             let screenURL = self.store.screenURL(in: directory)
+            var hasLiveUnresolvedScreencast = false
             if !manifest.openedWithSources.contains(.screencast),
                manifest.screencast.state == .notDeclared,
                self.store.fileExists(screenURL) {
@@ -1030,6 +1123,11 @@ private extension MobileSegmentUploader {
                         )
                         try self.store.writeOutcome(finalized, source: .screencast, manifest: &manifest, in: directory, now: now)
                     } else {
+                        if self.store.fileExists(screenPartURL),
+                           self.hasFreshScreencastLiveness(segmentID: segmentID, directory: directory, now: now) {
+                            hasLiveUnresolvedScreencast = true
+                            continue
+                        }
                         let failed = MobileSegmentSourceResolution(
                             state: .failedToFinalize,
                             reason: self.store.fileExists(screenPartURL) ? "screencast_partial_artifact" : "unclean relaunch unresolved source",
@@ -1041,7 +1139,42 @@ private extension MobileSegmentUploader {
                 }
                 manifest = try self.store.readManifest(in: directory)
             }
-            await self.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
+            if !hasLiveUnresolvedScreencast {
+                await self.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
+            }
+        }
+    }
+
+    private func hasFreshScreencastLiveness(segmentID: UUID, directory: URL, now: Date) -> Bool {
+        let diagnosticURL = MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: directory)
+        guard !self.store.fileExists(diagnosticURL) else { return false }
+        let livenessURL = MobileSegmentScreencastPaths.screenLivenessURL(inSegmentDirectory: directory)
+        guard self.store.fileExists(livenessURL),
+              let liveness = try? MobileSegmentScreencastJSONStore.read(
+                MobileSegmentScreencastSegmentLiveness.self,
+                from: livenessURL
+              ),
+              liveness.segmentID == segmentID else {
+            return false
+        }
+        return MobileSegmentScreencastLivenessPolicy.isFresh(lastSeenAt: liveness.lastSeenAt, now: now)
+    }
+
+    private func isReservedLeasedScreencastSegment(segmentID: UUID, now: Date) -> Bool {
+        let leasesDirectory = self.store.rootURL
+            .appendingPathComponent("screencast", isDirectory: true)
+            .appendingPathComponent("leases", isDirectory: true)
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: leasesDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+        return urls.contains { url in
+            guard let lease = try? MobileSegmentScreencastJSONStore.read(
+                MobileSegmentScreencastContinuationLease.self,
+                from: url
+            ) else { return false }
+            return lease.segmentID == segmentID && now <= lease.expiresAt
         }
     }
 

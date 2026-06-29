@@ -15,6 +15,7 @@ struct RootShellView: View {
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(ObserverManager.self) private var observerManager
     @Environment(LocationManager.self) private var locationManager
+    @Environment(ScreencastManager.self) private var screencastManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @Environment(PendingFoldState.self) private var pendingFold
     @State private var showingSources = false
@@ -111,7 +112,8 @@ struct RootShellView: View {
     private var sourcesBadgeVisible: Bool {
         [
             sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused),
-            self.locationManager.sourceState
+            self.locationManager.sourceState,
+            screencastSourceState(for: self.screencastManager.state),
         ].contains(where: \.showsSourcesBadge)
     }
 

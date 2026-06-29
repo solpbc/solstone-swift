@@ -171,6 +171,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(ObserverSourcePauseState())
                 .environment(importQueue)
                 .environment(locationManager)
+                .environment(ScreencastManager())
                 .environment(mobileSegmentUploader)
                 .environment(omiSourceManager)
                 .environment(watchLink)

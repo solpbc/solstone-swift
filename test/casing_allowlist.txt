@@ -91,6 +91,7 @@ ObserverUploader.swift|Observer
 ObserverUploader.swift|Boundary-
 ObserverUploader.swift|Content-Disposition
 MobileSegmentStore.swift|MobileSegment
+MobileSegmentScreencastShared.swift|MobileSegment
 OnThisPhoneUITestSeeder.swift|MobileSegment
 LocationUploader.swift|Location
 LocationUploader.swift|Boundary-

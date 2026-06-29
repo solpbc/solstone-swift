@@ -32,6 +32,7 @@ struct SolstoneSwiftApp: App {
     @State private var mobileSegmentUploader: MobileSegmentUploader
     @State private var mobileSegmentEngine: MobileSegmentEngine
     @State private var locationManager: LocationManager
+    @State private var screencastManager: ScreencastManager
     @State private var observerManager: ObserverManager
     @State private var watchLink: WatchLink
     @State private var pendingObserverCommand = PendingObserverCommandState()
@@ -374,6 +375,11 @@ struct SolstoneSwiftApp: App {
             }
         )
         let locationManager = LocationManager(mobileSegmentEngine: mobileSegmentEngine)
+        let screencastManager = ScreencastManager(
+            engine: mobileSegmentEngine,
+            uploader: mobileSegmentUploader,
+            clock: observerClock
+        )
         let observerRecorder = Self.makeObserverRecorder()
         let observerManager = ObserverManager(
             recorder: observerRecorder,
@@ -494,6 +500,7 @@ struct SolstoneSwiftApp: App {
         self._mobileSegmentUploader = State(initialValue: mobileSegmentUploader)
         self._mobileSegmentEngine = State(initialValue: mobileSegmentEngine)
         self._locationManager = State(initialValue: locationManager)
+        self._screencastManager = State(initialValue: screencastManager)
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
         self._voiceManager = State(initialValue: voice)
@@ -526,6 +533,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)
                 .environment(self.locationManager)
+                .environment(self.screencastManager)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
@@ -561,12 +569,18 @@ struct SolstoneSwiftApp: App {
                     await self.importQueue.resumeFromDisk()
                 }
                 .task {
+                    self.screencastManager.startObservingDarwin()
+                    await self.screencastManager.reconcileScreencast(reason: .launch)
+                }
+                .task {
                     guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyMobileSegmentsV1") else {
                         await self.mobileSegmentEngine.resumeFromDisk()
+                        await self.screencastManager.reconcileScreencast(reason: .mobileSegmentResume)
                         return
                     }
                     await self.mobileSegmentUploader.migrateLegacyMobileItems()
                     UserDefaults.standard.set(true, forKey: "didMigrateLegacyMobileSegmentsV1")
+                    await self.screencastManager.reconcileScreencast(reason: .mobileSegmentResume)
                 }
                 .task {
                     guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyAudioSegmentKeysV1") else { return }
@@ -596,6 +610,9 @@ struct SolstoneSwiftApp: App {
             case .active:
                 self.backgroundDrainTask?.cancel()
                 self.backgroundDrainTask = nil
+                Task {
+                    await self.screencastManager.reconcileScreencast(reason: .foreground)
+                }
                 if Self.isIntegrationMode || Self.isUITest {
                     return
                 }
@@ -621,6 +638,9 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .background:
+                Task {
+                    await self.screencastManager.prepareForBackground()
+                }
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
                 self.integrationObserverStartTask?.cancel()

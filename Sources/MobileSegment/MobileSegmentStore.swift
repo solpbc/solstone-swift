@@ -66,11 +66,11 @@ final class MobileSegmentStore {
     }
 
     func screenURL(in directory: URL) -> URL {
-        directory.appendingPathComponent("screen.mp4", isDirectory: false)
+        MobileSegmentScreencastPaths.screenURL(inSegmentDirectory: directory)
     }
 
     func screenPartURL(in directory: URL) -> URL {
-        directory.appendingPathComponent("screen.mp4.part", isDirectory: false)
+        MobileSegmentScreencastPaths.screenPartURL(inSegmentDirectory: directory)
     }
 
     func artifactURL(in directory: URL, source: MobileSegmentSource) -> URL {

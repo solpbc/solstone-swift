@@ -10,6 +10,7 @@ struct SourcesView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(LocationManager.self) private var locationManager
+    @Environment(ScreencastManager.self) private var screencastManager
     @Environment(OmiSourceManager.self) private var omiSourceManager
     @Environment(WatchLink.self) private var watchLink
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -40,6 +41,9 @@ struct SourcesView: View {
                         }
                         SourceRowView(source: self.locationSource) {
                             self.selectedSourceRoute = .location
+                        }
+                        SourceRowView(source: self.screencastSource) {
+                            self.selectedSourceRoute = .screencast
                         }
                         SourceRowView(source: self.omiSource) {
                             self.selectedSourceRoute = .omi
@@ -82,6 +86,8 @@ struct SourcesView: View {
                     SourceDetailView()
                 case .location:
                     LocationSourceDetailView()
+                case .screencast:
+                    ScreencastSourceDetailView()
                 case .omi:
                     OmiSourceDetailView()
                 case .watch:
@@ -101,12 +107,13 @@ struct SourcesView: View {
 }
 
 private enum SourceRoute: Hashable, Identifiable {
-    case audio, location, omi, watch, share
+    case audio, location, screencast, omi, watch, share
 
     var id: String {
         switch self {
         case .audio: "audio"
         case .location: "location"
+        case .screencast: "screencast"
         case .omi: "omi"
         case .watch: "watch"
         case .share: "share"
@@ -159,7 +166,14 @@ private extension SourcesView {
     }
 
     var showsZeroActiveSummary: Bool {
-        [self.audioSource.state, self.shareSource.state, self.locationSource.state, self.omiSource.state, self.watchSource.state].allSatisfy(\.isZeroActive)
+        [
+            self.audioSource.state,
+            self.shareSource.state,
+            self.locationSource.state,
+            self.screencastSource.state,
+            self.omiSource.state,
+            self.watchSource.state,
+        ].allSatisfy(\.isZeroActive)
     }
 
     var shareSource: Source {
@@ -186,6 +200,13 @@ private extension SourcesView {
             activeSubtext: LocationVocabulary.activeSubtext,
             attention: self.locationManager.sourceAttention ?? (summary.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil),
             pendingStatus: .nonePending
+        )
+    }
+
+    var screencastSource: Source {
+        screencastSourcePresentation(
+            managerState: self.screencastManager.state,
+            summary: self.mobileSegmentUploader.summary(for: .screencast)
         )
     }
 

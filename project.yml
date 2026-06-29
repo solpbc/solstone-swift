@@ -102,6 +102,8 @@ targets:
         embed: true
       - target: SolstoneShareExtension
         embed: true
+      - target: SolstoneBroadcastExtension
+        embed: true
       - target: SolstoneLiveActivityWidget
         embed: true
       - target: SolstoneWatch
@@ -181,6 +183,43 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
             NSExtensionActivationRule: SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att, (ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" OR ANY $att.registeredTypeIdentifiers == "public.m4a-audio" OR ANY $att.registeredTypeIdentifiers == "public.jpg" OR ANY $att.registeredTypeIdentifiers == "public.webp")).@count == $item.attachments.@count).@count == extensionItems.@count
+  SolstoneBroadcastExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: SolstoneBroadcastExtension
+      - path: Sources/Services/AppGroupContainer.swift
+      - path: Sources/MobileSegment/MobileSegmentModels.swift
+      - path: Sources/Observer/ObserverMode.swift
+      - path: Sources/MobileSegment/MobileSegmentScreencastShared.swift
+    entitlements:
+      path: SolstoneBroadcastExtension/SolstoneBroadcastExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.solstone.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.broadcast
+        PRODUCT_NAME: solstone-broadcast
+        INFOPLIST_KEY_CFBundleDisplayName: screen
+        CODE_SIGN_ENTITLEMENTS: SolstoneBroadcastExtension/SolstoneBroadcastExtension.entitlements
+        DEVELOPMENT_TEAM: 7QCG8V4M6H
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 36
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
+    info:
+      path: SolstoneBroadcastExtension/Info.plist
+      properties:
+        CFBundleDisplayName: screen
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          NSExtensionAttributes:
+            RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
   SolstoneLiveActivityWidget:
     type: app-extension
     platform: iOS
