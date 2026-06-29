@@ -33,6 +33,16 @@
 #   3. Retry is the ONLY thing the flake heuristic buys. The heuristic decides
 #      "retry vs fail", never "pass vs fail".
 #
+# Ephemeral CI simulator model
+# ----------------------------
+# Each run creates its own uniquely-named simulator and self-deletes it on every
+# in-process exit path via a top-level EXIT/INT/TERM trap. Cleanup fires only from
+# the top-level shell; the watchdog subshell never deletes the simulator. A
+# simulator-create failure is treated as a host-side flake: it is retried within
+# CI_MAX_ATTEMPTS and exits 3 only after exhaustion, with no half-created simulator
+# left behind. A SIGKILL or host reboot can still orphan a simulator mid-run; that
+# residual crash gap is swept by the external monthly prune, not this runner.
+#
 # Usage:
 #   bash test/run_ci_tests.sh            # the make ci gate
 #   bash test/run_ci_tests.sh --selftest # validate the classification logic (no sim)
@@ -109,32 +119,25 @@ except Exception:
 
 # --- simulator management --------------------------------------------------------
 
-ensure_ci_sim() {
-    CI_UDID="$(xcrun simctl list devices --json 2>/dev/null | python3 -c '
-import sys, json
-name = sys.argv[1]
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-for runtime, devs in data.get("devices", {}).items():
-    for d in devs:
-        if d.get("name") == name and d.get("isAvailable", False):
-            print(d.get("udid", "")); sys.exit(0)
-' "$CI_SIM_NAME")"
+create_ci_sim() {
+    local sim_name="${CI_SIM_NAME}-$$-$(date +%s)-${RANDOM}"
+
+    CI_UDID="$(xcrun simctl create "$sim_name" "$CI_SIM_DEVICETYPE" "$CI_SIM_RUNTIME" 2>/dev/null)" || {
+        if [ -n "${CI_UDID:-}" ]; then
+            xcrun simctl delete "$CI_UDID" >/dev/null 2>&1 || true
+        fi
+        CI_UDID=""
+    }
 
     if [ -z "${CI_UDID:-}" ]; then
-        log "creating dedicated CI sim '$CI_SIM_NAME' ($CI_SIM_DEVICETYPE / $CI_SIM_RUNTIME)"
-        CI_UDID="$(xcrun simctl create "$CI_SIM_NAME" "$CI_SIM_DEVICETYPE" "$CI_SIM_RUNTIME" 2>/dev/null)" || CI_UDID=""
-    fi
-
-    if [ -z "${CI_UDID:-}" ]; then
-        log "FATAL: could not find or create the CI simulator"
+        log "host-side flake: could not create ephemeral CI simulator"
         log "       devicetype=$CI_SIM_DEVICETYPE runtime=$CI_SIM_RUNTIME"
         log "       check: xcrun simctl list devicetypes | grep '17 Pro' ; xcrun simctl list runtimes"
-        exit 3
+        return 1
     fi
-    log "CI sim: $CI_SIM_NAME ($CI_UDID)"
+
+    log "CI sim: $sim_name ($CI_UDID)"
+    return 0
 }
 
 # Bring the sim to a clean state before an attempt. On a retry we ERASE it, which
@@ -167,10 +170,12 @@ run_attempt() {
         -resultBundlePath "$bundle" \
         >"$logf" 2>&1 &
     local xb_pid=$!
+    LAST_XB_PID="$xb_pid"
 
     # Watchdog: if the run is still alive at the deadline, it is wedged — kill the
     # whole tree and mark the attempt as timed out so it classifies as a flake.
     (
+        trap - EXIT INT TERM
         local waited=0
         while [ "$waited" -lt "$CI_ATTEMPT_TIMEOUT" ]; do
             kill -0 "$xb_pid" 2>/dev/null || exit 0
@@ -189,10 +194,13 @@ run_attempt() {
         fi
     ) &
     local killer=$!
+    LAST_KILLER_PID="$killer"
 
     wait "$xb_pid"; local rc=$?
     kill "$killer" 2>/dev/null || true
     wait "$killer" 2>/dev/null || true
+    LAST_XB_PID=""
+    LAST_KILLER_PID=""
 
     LAST_BUNDLE="$bundle"
     LAST_LOG="$logf"
@@ -228,16 +236,39 @@ selftest() {
     echo "[ci-test] selftest: $fails check(s) FAILED"; return 1
 }
 
+cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+    [ -n "${LAST_KILLER_PID:-}" ] && kill "$LAST_KILLER_PID" 2>/dev/null || true
+    [ -n "${LAST_XB_PID:-}" ] && kill -TERM "$LAST_XB_PID" 2>/dev/null || true
+    if [ -n "${CI_UDID:-}" ]; then
+        xcrun simctl shutdown "$CI_UDID" >/dev/null 2>&1 || true
+        xcrun simctl delete "$CI_UDID" >/dev/null 2>&1 || true
+    fi
+    exit "$status"
+}
+
 # --- main ------------------------------------------------------------------------
 
 if [ "${1:-}" = "--selftest" ]; then
     selftest; exit $?
 fi
 
-ensure_ci_sim
-
 attempt=1
 while [ "$attempt" -le "$CI_MAX_ATTEMPTS" ]; do
+    if [ -z "${CI_UDID:-}" ]; then
+        if ! create_ci_sim; then
+            log "sim create failed (host-side flake) on attempt $attempt/$CI_MAX_ATTEMPTS"
+            if [ "$attempt" -ge "$CI_MAX_ATTEMPTS" ]; then
+                log "could not create a CI sim across $CI_MAX_ATTEMPTS attempts — failing"
+                exit 3
+            fi
+            attempt=$((attempt + 1))
+            continue
+        fi
+        trap cleanup EXIT INT TERM
+    fi
+
     prepare_sim "$attempt"
     run_attempt "$attempt"
     read_summary "$LAST_BUNDLE"
