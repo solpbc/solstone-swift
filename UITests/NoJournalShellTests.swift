@@ -96,7 +96,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertFalse(app.buttons["connectJournal.hostedJournal"].exists)
 
         app.buttons["connectJournal.ownJournal"].tap()
-        XCTAssertTrue(app.staticTexts["pair your solstone"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["scan your pairing code"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -225,7 +225,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
         app.buttons["journalLives.ownJournal"].tap()
 
-        XCTAssertTrue(app.staticTexts["pair your solstone"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["scan your pairing code"].waitForExistence(timeout: 5))
     }
 
     @MainActor

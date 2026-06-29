@@ -103,11 +103,17 @@ struct PairFlowView: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "pair your solstone",
-            subtitle: "scan the pairing code, or paste the pairing link from your solstone."
+            title: "scan your pairing code",
+            subtitle: self.subtitleForMode
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("pairing method", selection: self.$mode) {
+                Picker(
+                    "pairing method",
+                    selection: Binding(
+                        get: { self.mode },
+                        set: { self.selectMode($0) }
+                    )
+                ) {
                     Text("scan").tag(EntryMode.scan)
                     Text("paste").tag(EntryMode.paste)
                 }
@@ -142,12 +148,17 @@ struct PairFlowView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.coordinator.state.isPairingInputInProgress)
                     .frame(maxWidth: .infinity, minHeight: 44)
+                    Button("scan a code instead") {
+                        self.selectMode(.scan)
+                    }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
 
                 if self.fallbackTimer.shouldShowPasteFallback, self.mode != .paste {
                     Button("paste a link instead") {
                         self.fallbackTimer.cancel()
-                        self.mode = .paste
+                        self.selectMode(.paste)
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -220,7 +231,13 @@ struct PairFlowView: View {
         }
     }
 
+    private func selectMode(_ newMode: EntryMode) {
+        self.errorMessage = nil
+        self.mode = newMode
+    }
+
     private func handlePastedURL() async {
+        self.errorMessage = nil
         self.fallbackTimer.cancel()
         switch Self.classifyPastedLink(self.pastedURL) {
         case .loopback:
@@ -231,6 +248,15 @@ struct PairFlowView: View {
             await self.handle(pairURL)
         case .routeFailure(let error):
             self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
+        }
+    }
+
+    private var subtitleForMode: String {
+        switch self.mode {
+        case .scan:
+            return "on your computer, open your journal's dashboard and go to the network app — it shows your pairing code."
+        case .paste:
+            return "copy the pairing link from your journal's network app and paste it here."
         }
     }
 
@@ -246,6 +272,7 @@ struct PairFlowView: View {
     }
 
     private func handle(_ url: URL) async {
+        self.errorMessage = nil
         self.fallbackTimer.cancel()
         guard let result = UniversalLinkRouter.route(url) else {
             self.errorMessage = "enter a valid pairing link."
@@ -260,6 +287,7 @@ struct PairFlowView: View {
     }
 
     private func handle(_ pairURL: PairURL) async {
+        self.errorMessage = nil
         self.fallbackTimer.cancel()
         if isLoopbackHost(pairURL.addressString) {
             self.errorMessage = PairFailureReason.loopbackAddress.message

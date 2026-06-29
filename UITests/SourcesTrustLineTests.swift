@@ -20,7 +20,7 @@ nonisolated final class SourcesTrustLineTests: XCTestCase {
 
         let footer = app.staticTexts["sources.trustLine"]
         XCTAssertTrue(footer.waitForExistence(timeout: 5))
-        XCTAssertEqual(footer.label, "feeds only your journal — nowhere else")
+        XCTAssertEqual(footer.label, "syncs only to your journal — nowhere else")
         XCTAssertFalse(app.buttons["sources.connectBanner"].exists)
     }
 }

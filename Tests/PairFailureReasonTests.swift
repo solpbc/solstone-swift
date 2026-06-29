@@ -283,7 +283,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
                 candidateAddresses: ["10.0.0.5"],
                 interfaces: []
             ),
-            .hostUnreachable(targetAddress: "10.0.0.5")
+            .journalUnreachableOffLAN
         )
     }
 
@@ -300,6 +300,10 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(
             PairFailureReason.hostUnreachable(targetAddress: "192.168.1.99").message,
             "couldn't reach your solstone at 192.168.1.99. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly."
+        )
+        XCTAssertEqual(
+            PairFailureReason.journalUnreachableOffLAN.message,
+            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
         )
         XCTAssertEqual(
             PairFailureReason.wrongSolstone.message,

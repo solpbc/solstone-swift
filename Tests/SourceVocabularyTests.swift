@@ -32,7 +32,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.trustLineUnpaired,
             "kept on this phone, only — nowhere else, until you connect a journal"
         )
-        XCTAssertEqual(SourceVocabulary.trustLineConfigured, "feeds only your journal — nowhere else")
+        XCTAssertEqual(SourceVocabulary.trustLineConfigured, "syncs only to your journal — nowhere else")
         XCTAssertEqual(SourceVocabulary.trustLine(isPaired: false), SourceVocabulary.trustLineUnpaired)
         XCTAssertEqual(SourceVocabulary.trustLine(isPaired: true), SourceVocabulary.trustLineConfigured)
         XCTAssertEqual(SourceVocabulary.sourcesConnectBanner, "kept here until you connect a journal · connect →")

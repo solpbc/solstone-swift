@@ -13,6 +13,7 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
     case differentNetwork(phoneAddress: String, targetAddress: String)
     case hostUnreachable(targetAddress: String?)
     case loopbackAddress
+    case journalUnreachableOffLAN
     case codeExpired
     case wrongSolstone
     case generic
@@ -46,7 +47,7 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
 
         let usableInterfaces = usableIPv4Interfaces(from: interfaces)
         guard let firstUsable = usableInterfaces.first else {
-            return .hostUnreachable(targetAddress: candidateAddresses.first)
+            return .journalUnreachableOffLAN
         }
 
         for address in candidateAddresses {
@@ -84,6 +85,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             }
         case .loopbackAddress:
             "that address points back at this phone. paste the pairing link shown on your solstone instead."
+        case .journalUnreachableOffLAN:
+            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
         case .codeExpired:
             "the pairing window closed. show a new pairing code on your solstone, then try again."
         case .wrongSolstone:

@@ -4,7 +4,21 @@
 import SwiftUI
 import VisionKit
 
-struct QRScannerView: UIViewControllerRepresentable {
+struct QRScannerView: View {
+    let onURL: @MainActor (URL) -> Void
+    let onUnavailable: @MainActor () -> Void
+
+    var body: some View {
+        ZStack {
+            DataScannerRepresentable(onURL: self.onURL, onUnavailable: self.onUnavailable)
+
+            QRScannerOverlay()
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct DataScannerRepresentable: UIViewControllerRepresentable {
     let onURL: @MainActor (URL) -> Void
     let onUnavailable: @MainActor () -> Void
 
@@ -15,7 +29,7 @@ struct QRScannerView: UIViewControllerRepresentable {
             recognizesMultipleItems: false,
             isHighFrameRateTrackingEnabled: false,
             isPinchToZoomEnabled: true,
-            isGuidanceEnabled: true,
+            isGuidanceEnabled: false,
             isHighlightingEnabled: true
         )
         controller.delegate = context.coordinator
@@ -66,5 +80,57 @@ struct QRScannerView: UIViewControllerRepresentable {
                 return
             }
         }
+    }
+}
+
+private struct QRScannerOverlay: View {
+    var body: some View {
+        ZStack {
+            GeometryReader { geometry in
+                let side = min(260, min(geometry.size.width, geometry.size.height) * 0.64)
+
+                QRScannerReticle()
+                    .stroke(
+                        .white.opacity(0.9),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+                    )
+                    .frame(width: side, height: side)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            }
+
+            VStack {
+                Spacer()
+                Text("point your phone at the code")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)
+                    .padding(.bottom, 32)
+            }
+        }
+    }
+}
+
+private struct QRScannerReticle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let length = min(rect.width, rect.height) * 0.24
+
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + length))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + length, y: rect.minY))
+
+        path.move(to: CGPoint(x: rect.maxX - length, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + length))
+
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - length))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - length, y: rect.maxY))
+
+        path.move(to: CGPoint(x: rect.minX + length, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - length))
+
+        return path
     }
 }

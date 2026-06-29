@@ -103,7 +103,7 @@ nonisolated enum SourceVocabulary {
     static let experiencingAlongsideYouHeader = "experiencing alongside you"
     static let bringingInYourselfHeader = "bringing in yourself"
     static let trustLineUnpaired = "kept on this phone, only — nowhere else, until you connect a journal"
-    static let trustLineConfigured = "feeds only your journal — nowhere else"
+    static let trustLineConfigured = "syncs only to your journal — nowhere else"
     static let watchHeadlineOff = "off"
     static let watchHeadlineEnrolling = "setting up"
     static let watchHeadlineListening = "listening"
