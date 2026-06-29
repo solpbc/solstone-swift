@@ -1440,6 +1440,60 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testPerSourceCapBoundsResumeAndStartsExactlyOneOnRelease() async throws {
+        ImportQueueURLProtocol.heldRequestPredicate = { request in
+            request.url?.path == "/app/import/api/save"
+        }
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTFail("held save upload should not complete normally")
+            return (Self.response(for: request, statusCode: 500), Data())
+        }
+        let queue = self.makeQueue()
+        let itemCount = ImportQueue.maxInFlightPerSource + 3
+        var itemIDs: [UUID] = []
+        defer {
+            for itemID in itemIDs {
+                queue.dropItem(itemID: itemID)
+            }
+        }
+
+        for index in 0..<itemCount {
+            let source = try self.makeSourceFile(
+                named: "omi-\(index).pdf",
+                data: Data("omi-\(index)".utf8)
+            )
+            let itemID = try await queue.enqueue(
+                fileURL: source,
+                source: "omi",
+                targetJournal: "home",
+                contentType: "com.adobe.pdf",
+                originalFilename: "omi-\(index).pdf"
+            )
+            itemIDs.append(itemID)
+        }
+
+        // The source cap is intentionally small; TF35 saw storm-scale reconnect fan-out.
+        try await self.waitFor("initial per-source cap") {
+            ImportQueueURLProtocol.capturedPaths.filter { $0 == "/app/import/api/save" }.count >= ImportQueue.maxInFlightPerSource
+        }
+        let initialSaveCount = ImportQueueURLProtocol.capturedPaths.filter { $0 == "/app/import/api/save" }.count
+        XCTAssertEqual(initialSaveCount, ImportQueue.maxInFlightPerSource)
+        XCTAssertLessThanOrEqual(initialSaveCount, ImportQueue.maxInFlightPerSource)
+        XCTAssertEqual(ImportQueueURLProtocol.capturedBodies.count, ImportQueue.maxInFlightPerSource)
+
+        let firstInFlightItemIDString = Self.clientItemID(fromSaveBody: try XCTUnwrap(ImportQueueURLProtocol.capturedBodies.first))
+        let firstInFlightItemID = try XCTUnwrap(UUID(uuidString: firstInFlightItemIDString))
+        queue.dropItem(itemID: firstInFlightItemID)
+
+        // Exactly one released slot must pull exactly one waiting item.
+        try await self.waitFor("one waiter starts after one release") {
+            ImportQueueURLProtocol.capturedPaths.filter { $0 == "/app/import/api/save" }.count == initialSaveCount + 1
+        }
+        let afterReleaseSaveCount = ImportQueueURLProtocol.capturedPaths.filter { $0 == "/app/import/api/save" }.count
+        XCTAssertEqual(afterReleaseSaveCount, initialSaveCount + 1)
+    }
+
+    @MainActor
     func testDropDuringRegistrationSuccessWindowIsTerminal() async throws {
         let itemID = try self.writeLocalItem(status: "pending")
         let itemUUID = try XCTUnwrap(UUID(uuidString: itemID))

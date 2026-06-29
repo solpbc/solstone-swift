@@ -8,6 +8,13 @@ import os
 import XCTest
 
 nonisolated final class SPLTunnelCancellationTests: XCTestCase {
+    private static let canonicalProtocolErrorResetBytes = Data([
+        0x00, 0x00, 0x00, 0x01,
+        FrameFlags.reset.rawValue,
+        0x00, 0x00, 0x01,
+        ResetReason.protocolError.rawValue
+    ])
+
     func testAcceptorCancelResolvesSuspendedWaiter() async {
         let acceptor = OneShotConnectionAcceptor()
         let outcome = OSAllocatedUnfairLock(initialState: WaitOutcome?.none)
@@ -297,12 +304,164 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         let didEnterSink = await Self.waitUntil { sink.didEnterFirstCall }
         XCTAssertTrue(didEnterSink)
 
-        try await mux.feedInbound(try encodeFrame(buildReset(streamID: 1, reason: .normal)))
+        try await mux.feedInbound(try encodeFrame(buildReset(streamID: 1, reason: .cancel)))
         sink.release()
 
         let stream = try await task.value
         let streamState = await stream.state
         XCTAssertEqual(streamState, .resetRemote)
+    }
+
+    func testResetFrameUsesOneByteWirePayload() throws {
+        let encoded = try encodeFrame(buildReset(streamID: 1, reason: .protocolError))
+        XCTAssertEqual(encoded, Self.canonicalProtocolErrorResetBytes)
+
+        var decoder = FrameDecoder()
+        decoder.feed(Self.canonicalProtocolErrorResetBytes)
+        let frame = try XCTUnwrap(try decoder.next())
+        XCTAssertNil(try decoder.next())
+        XCTAssertEqual(frame.streamID, 1)
+        XCTAssertEqual(frame.flags, FrameFlags.reset.rawValue)
+        XCTAssertEqual(frame.payload, Data([0x01]))
+        let parsed = try parseResetReason(from: frame.payload)
+        XCTAssertEqual(parsed.reason, .protocolError)
+        XCTAssertEqual(parsed.rawByte, 0x01)
+
+        let cancelPayload = buildReset(streamID: 1, reason: .cancel).payload
+        XCTAssertEqual(cancelPayload, Data([0x05]))
+        let cancel = try parseResetReason(from: cancelPayload)
+        XCTAssertEqual(cancel.reason, .cancel)
+        XCTAssertEqual(cancel.rawByte, 0x05)
+
+        let unspecifiedPayload = buildReset(streamID: 1, reason: .unspecified).payload
+        XCTAssertEqual(unspecifiedPayload, Data([0xff]))
+        let unspecified = try parseResetReason(from: unspecifiedPayload)
+        XCTAssertEqual(unspecified.reason, .unspecified)
+        XCTAssertEqual(unspecified.rawByte, 0xff)
+    }
+
+    func testParseResetReasonNormalizesUnknownByteToUnspecified() throws {
+        let parsed = try parseResetReason(from: Data([0x7e]))
+        XCTAssertEqual(parsed.reason, .unspecified)
+        XCTAssertEqual(parsed.rawByte, 0x7e)
+    }
+
+    func testParseResetReasonRejectsWrongLength() {
+        for payload in [Data(), Data([0x00, 0x00, 0x00, 0x01]), Data([0x01, 0x02])] {
+            do {
+                _ = try parseResetReason(from: payload)
+                XCTFail("expected RESET length mismatch for \(payload.count) bytes")
+            } catch FramingError.lengthMismatch {
+            } catch {
+                XCTFail("unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testInboundResetSurfacesTypedStreamResetThroughInbound() async throws {
+        let mux = Multiplexer(sink: { _ in }, role: .dialer)
+        let stream = try await mux.openStream()
+
+        try await mux.feedInbound(Self.canonicalProtocolErrorResetBytes)
+
+        await Self.assertInboundThrowsStreamReset(
+            stream,
+            streamID: 1,
+            reason: .protocolError,
+            rawByte: 0x01
+        )
+        let streamState = await stream.state
+        XCTAssertEqual(streamState, .resetRemote)
+    }
+
+    func testValidInboundResetTerminatesOnlyTargetStreamSiblingSurvives() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(
+            sink: { data in
+                try sink.send(data)
+            },
+            role: .dialer
+        )
+        let stream1 = try await mux.openStream()
+        let stream3 = try await mux.openStream()
+        let stream1ID = await stream1.id
+        let stream3ID = await stream3.id
+        XCTAssertEqual(stream1ID, 1)
+        XCTAssertEqual(stream3ID, 3)
+
+        try await mux.feedInbound(Self.canonicalProtocolErrorResetBytes)
+        await Self.assertInboundThrowsStreamReset(
+            stream1,
+            streamID: 1,
+            reason: .protocolError,
+            rawByte: 0x01
+        )
+
+        let siblingPayload = Data("sibling".utf8)
+        try await stream3.write(siblingPayload)
+        let didWriteSiblingData = await Self.waitUntil {
+            sink.frames.contains {
+                $0.streamID == 3 &&
+                    $0.flags == FrameFlags.data.rawValue &&
+                    $0.payload == siblingPayload
+            }
+        }
+        XCTAssertTrue(didWriteSiblingData)
+
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 3, credit: 1)))
+    }
+
+    func testMalformedResetLengthIsStreamScopedNotTunnelFatal() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(
+            sink: { data in
+                try sink.send(data)
+            },
+            role: .dialer
+        )
+        let stream1 = try await mux.openStream()
+        let stream3 = try await mux.openStream()
+        let malformedReset = Data([
+            0x00, 0x00, 0x00, 0x01,
+            FrameFlags.reset.rawValue,
+            0x00, 0x00, 0x04,
+            0x00, 0x00, 0x00, 0x01
+        ])
+
+        try await mux.feedInbound(malformedReset)
+
+        await Self.assertInboundThrowsStreamReset(
+            stream1,
+            streamID: 1,
+            reason: .protocolError,
+            rawByte: 0x01
+        )
+        let resetState = await stream1.state
+        XCTAssertEqual(resetState, .resetLocal)
+
+        let siblingPayload = Data("after-malformed-reset".utf8)
+        try await stream3.write(siblingPayload)
+        let didWriteSiblingData = await Self.waitUntil {
+            sink.frames.contains {
+                $0.streamID == 3 &&
+                    $0.flags == FrameFlags.data.rawValue &&
+                    $0.payload == siblingPayload
+            }
+        }
+        XCTAssertTrue(didWriteSiblingData)
+
+        let malformedPing = try encodeFrame(Frame(
+            streamID: 0,
+            flags: FrameFlags.ping.rawValue,
+            payload: Data([0x01, 0x02, 0x03, 0x04])
+        ))
+        do {
+            try await mux.feedInbound(malformedPing)
+            XCTFail("expected control-stream length violation to throw")
+        } catch FramingError.lengthMismatch {
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
     }
 
     func testOpenStreamSendFailureRollsBackRegisteredStreamOnly() async throws {
@@ -376,7 +535,7 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         var streamCount = await mux.streamCountForTesting()
         XCTAssertEqual(streamCount, 1)
 
-        await stream.reset(reason: .normal)
+        await stream.reset(reason: .cancel)
 
         let streamState = await stream.state
         streamCount = await mux.streamCountForTesting()
@@ -389,7 +548,7 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
 
         for _ in 0..<(MuxConstants.maxConcurrentStreams + 16) {
             let stream = try await mux.openStream()
-            await stream.reset(reason: .normal)
+            await stream.reset(reason: .cancel)
             let streamCount = await mux.streamCountForTesting()
             XCTAssertEqual(streamCount, 0)
         }
@@ -423,7 +582,7 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
 
-        await streams[0].reset(reason: .normal)
+        await streams[0].reset(reason: .cancel)
         _ = try await mux.openStream()
         let streamCount = await mux.streamCountForTesting()
         XCTAssertEqual(streamCount, MuxConstants.maxConcurrentStreams)
@@ -504,6 +663,30 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         }
         return condition()
     }
+
+    private static func assertInboundThrowsStreamReset(
+        _ stream: MuxStream,
+        streamID: UInt32,
+        reason: ResetReason,
+        rawByte: UInt8,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let inbound = await stream.inbound
+        do {
+            for try await _ in inbound {}
+            XCTFail("expected stream reset", file: file, line: line)
+        } catch let error as MuxError {
+            XCTAssertEqual(
+                error,
+                .streamReset(streamID: streamID, reason: reason, rawByte: rawByte),
+                file: file,
+                line: line
+            )
+        } catch {
+            XCTFail("unexpected inbound error: \(error)", file: file, line: line)
+        }
+    }
 }
 
 private enum WaitOutcome: Sendable, Equatable {
@@ -573,6 +756,28 @@ private final class BlockingFirstMuxSink: @unchecked Sendable {
             if shouldResume {
                 continuation.resume()
             }
+        }
+    }
+}
+
+private final class CapturingMuxSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var decoder = FrameDecoder()
+    private var capturedFrames: [Frame] = []
+
+    var frames: [Frame] {
+        lock.withLock {
+            capturedFrames
+        }
+    }
+
+    func send(_ data: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        decoder.feed(data)
+        while let frame = try decoder.next() {
+            capturedFrames.append(frame)
         }
     }
 }

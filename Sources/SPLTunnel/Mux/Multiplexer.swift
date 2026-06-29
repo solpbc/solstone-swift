@@ -16,6 +16,7 @@ public enum MuxError: Error, Equatable {
     case writeAfterClose
     case payloadTooLarge
     case protocolError
+    case streamReset(streamID: UInt32, reason: ResetReason, rawByte: UInt8)
 }
 
 public enum TearDownReason: Sendable, Equatable {
@@ -174,8 +175,17 @@ public actor Multiplexer {
             await stream.deliverInboundClose()
         }
         if isReset {
-            let reason = try parseResetReason(from: frame.payload)
-            await stream.deliverInboundReset(reason: reason)
+            do {
+                let reset = try parseResetReason(from: frame.payload)
+                await stream.deliverInboundReset(reason: reset.reason, rawByte: reset.rawByte)
+            } catch FramingError.lengthMismatch {
+                logger.error(
+                    "malformed RESET length id=\(frame.streamID, privacy: .public) flags=\(frame.flags, privacy: .public) length=\(frame.payload.count, privacy: .public)"
+                )
+                await stream.reset(reason: .protocolError)
+            } catch {
+                throw error
+            }
         }
     }
 

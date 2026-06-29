@@ -159,26 +159,132 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testRelayAlreadyConnectedShortCircuitsWithoutPairingOrSaving() async throws {
+    func testRelayAlreadyConnectedRunsPairingAndPreservesSameFingerprintPairing() async throws {
         try SPLKeychain.delete()
         defer { try? SPLKeychain.delete() }
         let prior = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "prior")
         try SPLKeychain.save(prior)
+        let returned = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "returned")
         let pairCalls = OSAllocatedUnfairLock(initialState: 0)
         let coordinator = PairFlowCoordinator(
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             networkReader: CoordinatorStubNetworkReader(value: []),
             pairOperation: { _, _, _, _ in
                 pairCalls.withLock { $0 += 1 }
-                return Self.pairing(instanceID: "should-not-run")
+                return returned
             }
         )
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
 
         XCTAssertEqual(coordinator.state, .alreadyConnected)
-        XCTAssertEqual(pairCalls.withLock { $0 }, 0)
+        XCTAssertEqual(pairCalls.withLock { $0 }, 1)
         XCTAssertEqual(try SPLKeychain.load(), prior)
+    }
+
+    @MainActor
+    func testDirectSameInstanceNewFingerprintSavesAndReconnects() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        let oldFingerprint = "sha256:\(String(repeating: "1", count: 64))"
+        let newFingerprint = "sha256:\(String(repeating: "2", count: 64))"
+        let prior = Self.pairing(
+            instanceID: "instance-123",
+            homeLabel: "prior",
+            fingerprint: oldFingerprint
+        )
+        try SPLKeychain.save(prior)
+        let returned = Self.pairing(
+            instanceID: "instance-123",
+            homeLabel: "returned",
+            fingerprint: newFingerprint
+        )
+        let pairCalls = OSAllocatedUnfairLock(initialState: 0)
+        let coordinator = PairFlowCoordinator(
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in
+                pairCalls.withLock { $0 += 1 }
+                return returned
+            }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        XCTAssertEqual(coordinator.state, .reconnected)
+        XCTAssertEqual(try SPLKeychain.load(), returned)
+        XCTAssertEqual(pairCalls.withLock { $0 }, 1)
+    }
+
+    @MainActor
+    func testRelaySameInstanceNewFingerprintSavesAndReconnects() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        let instanceID = "12345678-1234-5678-1234-567812345678"
+        let oldFingerprint = "sha256:\(String(repeating: "1", count: 64))"
+        let newFingerprint = "sha256:\(String(repeating: "2", count: 64))"
+        let prior = Self.pairing(
+            instanceID: instanceID,
+            homeLabel: "prior",
+            fingerprint: oldFingerprint
+        )
+        try SPLKeychain.save(prior)
+        let returned = Self.pairing(
+            instanceID: instanceID,
+            homeLabel: "returned",
+            fingerprint: newFingerprint
+        )
+        let pairCalls = OSAllocatedUnfairLock(initialState: 0)
+        let coordinator = PairFlowCoordinator(
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in
+                pairCalls.withLock { $0 += 1 }
+                return returned
+            }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
+
+        XCTAssertEqual(coordinator.state, .reconnected)
+        XCTAssertEqual(try SPLKeychain.load(), returned)
+        XCTAssertEqual(pairCalls.withLock { $0 }, 1)
+    }
+
+    @MainActor
+    func testRePairBootstrapRemovesStaleEndpoints() async throws {
+        try SPLKeychain.delete()
+        defer { try? SPLKeychain.delete() }
+        let oldFingerprint = "sha256:\(String(repeating: "1", count: 64))"
+        let newFingerprint = "sha256:\(String(repeating: "2", count: 64))"
+        let staleEndpoint = LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+        let freshEndpoint = LocalEndpoint(host: "10.0.0.9", port: 9444, scope: "wifi")
+        let prior = Self.pairing(
+            instanceID: "instance-123",
+            homeLabel: "prior",
+            fingerprint: oldFingerprint,
+            localEndpoints: [staleEndpoint]
+        )
+        try SPLKeychain.save(prior)
+        let endpointCache = EndpointCache(fileURL: Self.tempFileURL())
+        await endpointCache.bootstrap(from: prior)
+        let returned = Self.pairing(
+            instanceID: "instance-123",
+            homeLabel: "returned",
+            fingerprint: newFingerprint,
+            localEndpoints: [freshEndpoint]
+        )
+        let coordinator = PairFlowCoordinator(
+            endpointCache: endpointCache,
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in returned }
+        )
+
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        let endpoints = await endpointCache.endpoints()
+        XCTAssertTrue(endpoints.contains(.lan(host: freshEndpoint.host, port: freshEndpoint.port, scope: freshEndpoint.scope)))
+        XCTAssertFalse(endpoints.contains(.lan(host: staleEndpoint.host, port: staleEndpoint.port, scope: staleEndpoint.scope)))
     }
 
     @MainActor
@@ -272,17 +378,22 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         ))
     }
 
-    private static func pairing(instanceID: String, homeLabel: String = "sol") -> StoredPairing {
+    private static func pairing(
+        instanceID: String,
+        homeLabel: String = "sol",
+        fingerprint: String = "sha256:\(String(repeating: "a", count: 64))",
+        localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")]
+    ) -> StoredPairing {
         StoredPairing(
             instanceID: instanceID,
             homeLabel: homeLabel,
             relayEndpoint: "wss://relay.example.com",
-            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+            fingerprint: fingerprint,
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
-            localEndpoints: [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")],
+            localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
     }

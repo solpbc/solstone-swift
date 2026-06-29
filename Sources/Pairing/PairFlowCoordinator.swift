@@ -81,14 +81,8 @@ final class PairFlowCoordinator {
     }
 
     func handlePairURL(_ pairURL: PairURL) async throws {
-        let priorInstance = (try? SPLKeychain.load())?.instanceID
-        if pairURL.kind == .relay,
-           let scannedInstance = pairURL.instanceID,
-           Self.sameInstance(priorInstance, scannedInstance) {
-            state = .alreadyConnected
-            pairFlowLog.info("pairing skipped: already connected")
-            return
-        }
+        let priorPairing = try? SPLKeychain.load()
+        let priorInstance = priorPairing?.instanceID
 
         state = priorInstance == nil ? .pairing : .reconnecting
         let interfaces = networkReader.interfaces()
@@ -99,8 +93,9 @@ final class PairFlowCoordinator {
                 SPLPairingConstants.relayEndpoint,
                 { orderCandidatesBySubnet($0, interfaces: interfaces) }
             )
-            if let priorInstance,
-               Self.sameInstance(priorInstance, pairing.instanceID) {
+            if let priorPairing,
+               Self.sameInstance(priorPairing.instanceID, pairing.instanceID),
+               priorPairing.fingerprint == pairing.fingerprint {
                 state = .alreadyConnected
                 pairFlowLog.info("pairing completed against existing journal")
                 return

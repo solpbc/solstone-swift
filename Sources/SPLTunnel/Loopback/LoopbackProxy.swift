@@ -145,7 +145,7 @@ public actor LoopbackProxy {
                 return bytes
             }
         }
-        await stream.reset(reason: .normal)
+        await stream.reset(reason: .cancel)
         return bytes
     }
 

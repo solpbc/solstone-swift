@@ -45,6 +45,8 @@ final class ImportQueueSessionDelegate: NSObject, URLSessionDelegate, URLSession
 @Observable
 final class ImportQueue {
     nonisolated static let backgroundSessionIdentifier = "app.solstone.swift.share-upload"
+    // Keep one reconnecting source from launching storm-scale concurrency; TF35 saw 160 concurrent uploads.
+    nonisolated static let maxInFlightPerSource = 3
 
     nonisolated static func makeBackgroundConfiguration() -> URLSessionConfiguration {
         let config = URLSessionConfiguration.background(withIdentifier: Self.backgroundSessionIdentifier)
@@ -85,6 +87,9 @@ final class ImportQueue {
     @ObservationIgnored private var attemptCountByItemID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByItemID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var schedulingItemIDs: Set<String> = []
+    @ObservationIgnored private var inFlightItemIDsBySource: [String: Set<String>] = [:]
+    @ObservationIgnored private var waitingItemIDsBySource: [String: [String]] = [:]
+    @ObservationIgnored private var sourceByItemID: [String: String] = [:]
     @ObservationIgnored private var droppedItemIDs: Set<String> = []
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.import-queue")
@@ -295,6 +300,12 @@ final class ImportQueue {
 
     func dropItem(itemID: UUID) {
         let itemIDString = Self.itemIDString(itemID)
+        self.removeWaitingSlot(itemID: itemIDString)
+        if self.sourceByItemID[itemIDString] != nil {
+            Task { @MainActor [weak self] in
+                await self?.releaseInFlightSlot(itemID: itemIDString)
+            }
+        }
         let hadLiveWork = self.uploadTaskByItemID[itemIDString] != nil
             || self.activeTaskIDByItemID[itemIDString] != nil
             || self.schedulingItemIDs.contains(itemIDString)
@@ -689,6 +700,54 @@ private extension ImportQueue {
         )
     }
 
+    func reserveInFlightSlot(itemID: String, source: String) -> Bool {
+        if self.inFlightItemIDsBySource[source]?.contains(itemID) == true {
+            return true
+        }
+
+        let inFlightCount = self.inFlightItemIDsBySource[source]?.count ?? 0
+        guard inFlightCount < Self.maxInFlightPerSource else {
+            var waiting = self.waitingItemIDsBySource[source, default: []]
+            if !waiting.contains(itemID) {
+                waiting.append(itemID)
+                self.waitingItemIDsBySource[source] = waiting
+            }
+            importQueueLog.debug("import upload held: per-source cap")
+            return false
+        }
+
+        self.inFlightItemIDsBySource[source, default: []].insert(itemID)
+        self.sourceByItemID[itemID] = source
+        return true
+    }
+
+    func releaseInFlightSlot(itemID: String) async {
+        guard let source = self.sourceByItemID.removeValue(forKey: itemID) else { return }
+
+        self.inFlightItemIDsBySource[source]?.remove(itemID)
+        if self.inFlightItemIDsBySource[source]?.isEmpty == true {
+            self.inFlightItemIDsBySource.removeValue(forKey: source)
+        }
+
+        guard var waiting = self.waitingItemIDsBySource[source], !waiting.isEmpty else { return }
+        let next = waiting.removeFirst()
+        if waiting.isEmpty {
+            self.waitingItemIDsBySource.removeValue(forKey: source)
+        } else {
+            self.waitingItemIDsBySource[source] = waiting
+        }
+        await self.scheduleUpload(itemID: next)
+    }
+
+    func removeWaitingSlot(itemID: String) {
+        for source in Array(self.waitingItemIDsBySource.keys) {
+            self.waitingItemIDsBySource[source]?.removeAll { $0 == itemID }
+            if self.waitingItemIDsBySource[source]?.isEmpty == true {
+                self.waitingItemIDsBySource.removeValue(forKey: source)
+            }
+        }
+    }
+
     func scheduleUpload(itemID: String) async {
         guard self.activeTaskIDByItemID[itemID] == nil else { return }
         guard !self.schedulingItemIDs.contains(itemID) else { return }
@@ -710,8 +769,21 @@ private extension ImportQueue {
             return
         }
 
+        let cachedSource = self.sourceByItemID[itemID]
+        let preloadedDescriptor = cachedSource == nil ? try? self.loadDescriptor(itemID: itemID, status: .pending) : nil
+        let source = cachedSource ?? preloadedDescriptor?.source ?? "unknown"
+        guard self.reserveInFlightSlot(itemID: itemID, source: source) else {
+            self.refreshCounts()
+            return
+        }
+
         do {
-            let descriptor = try self.loadDescriptor(itemID: itemID, status: .pending)
+            let descriptor: RequestDescriptor
+            if let preloadedDescriptor {
+                descriptor = preloadedDescriptor
+            } else {
+                descriptor = try self.loadDescriptor(itemID: itemID, status: .pending)
+            }
             let ledgerStub = try self.loadLedgerStub(itemID: itemID, status: .pending)
             let itemDirectoryURL = self.pendingItemDirectoryURL(itemID: itemID)
             let saveResult = try self.loadSaveResultIfPresent(itemID: itemID, status: .pending)
@@ -732,6 +804,7 @@ private extension ImportQueue {
                     let detail = "import start unavailable: invalid url"
                     importQueueLog.error("\(detail, privacy: .public)")
                     self.lastError = detail
+                    await self.releaseInFlightSlot(itemID: itemID)
                     self.refreshCounts()
                     return
                 }
@@ -755,10 +828,12 @@ private extension ImportQueue {
                     if self.droppedItemIDs.contains(itemID) {
                         self.droppedItemIDs.remove(itemID)
                         importQueueLog.info("import drop consumed during registration window (throw) \(itemID, privacy: .public)")
+                        await self.releaseInFlightSlot(itemID: itemID)
                         self.refreshCounts()
                         return
                     }
                     self.lastError = detail
+                    await self.releaseInFlightSlot(itemID: itemID)
                     self.refreshCounts()
                     return
                 }
@@ -766,6 +841,7 @@ private extension ImportQueue {
                 if self.droppedItemIDs.contains(itemID) {
                     self.droppedItemIDs.remove(itemID)
                     importQueueLog.info("import drop consumed during registration window (success) \(itemID, privacy: .public)")
+                    await self.releaseInFlightSlot(itemID: itemID)
                     self.refreshCounts()
                     return
                 }
@@ -774,6 +850,7 @@ private extension ImportQueue {
                     let detail = "import save unavailable: invalid url"
                     importQueueLog.error("\(detail, privacy: .public)")
                     self.lastError = detail
+                    await self.releaseInFlightSlot(itemID: itemID)
                     self.refreshCounts()
                     return
                 }
@@ -794,6 +871,8 @@ private extension ImportQueue {
             guard !self.droppedItemIDs.contains(itemID) else {
                 self.droppedItemIDs.remove(itemID)
                 try? self.fileManager.removeItem(at: bodyURL)
+                await self.releaseInFlightSlot(itemID: itemID)
+                self.refreshCounts()
                 return
             }
             let task = self.session.uploadTask(with: request, fromFile: bodyURL)
@@ -838,6 +917,7 @@ private extension ImportQueue {
             try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: resolvedItemID, status: .pending))
             try? self.fileManager.removeItem(at: self.startUploadURL(itemID: resolvedItemID, status: .pending))
             importQueueLog.info("import dropped-item completion ignored \(resolvedItemID, privacy: .public)")
+            await self.releaseInFlightSlot(itemID: resolvedItemID)
             return
         }
         guard let info = self.taskInfoByTaskID.removeValue(forKey: task.taskIdentifier) else { return }
@@ -869,6 +949,7 @@ private extension ImportQueue {
                     self.retryTasksByItemID.removeValue(forKey: info.itemID)
                     await self.scheduleUpload(itemID: info.itemID)
                 }
+                await self.releaseInFlightSlot(itemID: info.itemID)
                 self.refreshCounts()
                 return
             }
@@ -1042,6 +1123,7 @@ private extension ImportQueue {
             importQueueLog.error("import ledger write failed \(info.itemID, privacy: .public): \(detail, privacy: .public)")
             try? self.fileManager.removeItem(at: info.bodyURL)
         }
+        await self.releaseInFlightSlot(itemID: info.itemID)
         self.refreshCounts()
     }
 
@@ -1060,6 +1142,7 @@ private extension ImportQueue {
             self.retryTasksByItemID.removeValue(forKey: itemID)
             self.attemptCountByItemID.removeValue(forKey: itemID)
             self.refreshCounts()
+            await self.releaseInFlightSlot(itemID: itemID)
             return
         }
 
@@ -1075,6 +1158,7 @@ private extension ImportQueue {
             await self.scheduleUpload(itemID: itemID)
         }
         self.refreshCounts()
+        await self.releaseInFlightSlot(itemID: itemID)
     }
 
     func movePendingItemToFailed(itemID: String, reason: String) throws {

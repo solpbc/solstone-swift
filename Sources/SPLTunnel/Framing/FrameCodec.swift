@@ -15,7 +15,6 @@ public enum FramingError: Error, Equatable {
     case unknownControlFrame
     case lengthMismatch
     case bufferUnderflow
-    case unknownResetReason(UInt32)
 }
 
 public func encodeFrame(_ frame: Frame) throws -> Data {
@@ -131,7 +130,7 @@ public func buildClose(streamID: UInt32) -> Frame {
 }
 
 public func buildReset(streamID: UInt32, reason: ResetReason) -> Frame {
-    Frame(streamID: streamID, flags: FrameFlags.reset.rawValue, payload: encodeUInt32(reason.rawValue))
+    Frame(streamID: streamID, flags: FrameFlags.reset.rawValue, payload: encodeUInt8(reason.rawValue))
 }
 
 public func buildWindow(streamID: UInt32, credit: UInt32) -> Frame {
@@ -152,12 +151,13 @@ public func buildPong(nonce: Data) throws -> Frame {
     return Frame(streamID: 0, flags: FrameFlags.pong.rawValue, payload: nonce)
 }
 
-public func parseResetReason(from payload: Data) throws -> ResetReason {
-    let raw = try parseUInt32(from: payload)
-    guard let reason = ResetReason(rawValue: raw) else {
-        throw FramingError.unknownResetReason(raw)
+public func parseResetReason(from payload: Data) throws -> (reason: ResetReason, rawByte: UInt8) {
+    guard payload.count == 1 else {
+        throw FramingError.lengthMismatch
     }
-    return reason
+    let rawByte = payload.first!
+    let reason = ResetReason.normalized(fromRawByte: rawByte)
+    return (reason, rawByte)
 }
 
 public func parseWindowCredit(from payload: Data) throws -> UInt32 {
@@ -169,6 +169,10 @@ public func parseControlNonce(from payload: Data) throws -> Data {
         throw FramingError.lengthMismatch
     }
     return payload
+}
+
+private func encodeUInt8(_ value: UInt8) -> Data {
+    Data([value])
 }
 
 private func encodeUInt32(_ value: UInt32) -> Data {
