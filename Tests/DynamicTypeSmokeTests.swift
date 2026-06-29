@@ -25,6 +25,19 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             ensureRegistered: { "observer-key" },
             localPortProvider: { 7071 }
         )
+        let mobileSegmentRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-MobileSegment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: mobileSegmentRoot) }
+        let mobileSegmentClock = MockObserverClock()
+        let mobileSegmentUploader = MobileSegmentUploader(
+            transport: observerUploader,
+            store: MobileSegmentStore(rootURL: mobileSegmentRoot),
+            clock: mobileSegmentClock
+        )
+        let mobileSegmentEngine = MobileSegmentEngine(
+            uploader: mobileSegmentUploader,
+            clock: mobileSegmentClock
+        )
         let omiUploaderRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-OmiUploader-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: omiUploaderRoot) }
@@ -52,23 +65,14 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: watchRelayRoot) }
         let watchRelayReceiver = try WatchRelayReceiver(session: watchSession, stagingRootURL: watchRelayRoot)
         let watchLink = WatchLink(session: watchSession, receiver: watchRelayReceiver)
-        let locationUploaderRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DynamicTypeSmokeTests-LocationUploader-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: locationUploaderRoot) }
-        let locationUploader = LocationUploader(
-            cacheRootURL: locationUploaderRoot,
-            sessionConfiguration: .ephemeral,
-            ensureRegistered: { "location-key" },
-            localPortProvider: { 7071 },
-            startPathMonitor: false
-        )
         let observerManager = ObserverManager(
             recorder: MockObserverRecorder(),
-            uploader: observerUploader
+            uploader: observerUploader,
+            mobileSegmentEngine: mobileSegmentEngine
         )
         let locationManager = LocationManager(
             provider: MockLocationProvider(),
-            uploader: locationUploader,
+            mobileSegmentEngine: mobileSegmentEngine,
             clock: MockObserverClock(),
             defaults: nil
         )
@@ -87,7 +91,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         activeLocationProvider.capability = .always(accuracy: .full)
         let activeLocationManager = LocationManager(
             provider: activeLocationProvider,
-            uploader: locationUploader,
+            mobileSegmentEngine: mobileSegmentEngine,
             clock: MockObserverClock(),
             defaults: nil
         )
@@ -97,7 +101,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         needsAttentionLocationProvider.capability = .denied
         let needsAttentionLocationManager = LocationManager(
             provider: needsAttentionLocationProvider,
-            uploader: locationUploader,
+            mobileSegmentEngine: mobileSegmentEngine,
             clock: MockObserverClock(),
             defaults: nil
         )
@@ -154,7 +158,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(watchUploaderHolder)
             .environment(importQueue)
             .environment(locationManager)
-            .environment(locationUploader)
+            .environment(mobileSegmentUploader)
+            .environment(mobileSegmentEngine)
             .environment(observerManager)
         }
 
@@ -166,6 +171,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(ObserverSourcePauseState())
                 .environment(importQueue)
                 .environment(locationManager)
+                .environment(mobileSegmentUploader)
                 .environment(omiSourceManager)
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
@@ -174,7 +180,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
                 .environment(locationManager)
-                .environment(locationUploader)
+                .environment(mobileSegmentUploader)
                 .environment(observerRegistration)
         }
         let omiSourceDetailView = NavigationStack {
@@ -190,13 +196,13 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let activeLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
                 .environment(activeLocationManager)
-                .environment(locationUploader)
+                .environment(mobileSegmentUploader)
                 .environment(observerRegistration)
         }
         let needsAttentionLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
                 .environment(needsAttentionLocationManager)
-                .environment(locationUploader)
+                .environment(mobileSegmentUploader)
                 .environment(observerRegistration)
         }
         let importerSourceDetailView = NavigationStack {
@@ -209,7 +215,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchUploaderHolder)
                 .environment(tunnelManager)
                 .environment(finishSyncingCoordinator)
-                .environment(locationUploader)
+                .environment(mobileSegmentUploader)
                 .environment(observerRegistration)
                 .environment(observerManager)
         }
@@ -224,7 +230,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(tunnelManager)
                 .environment(finishSyncingCoordinator)
                 .environment(locationManager)
-                .environment(locationUploader)
+                .environment(mobileSegmentUploader)
                 .environment(observerRegistration)
         }
         let onThisPhoneItemDetailView = NavigationStack {
@@ -234,7 +240,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerUploader)
                 .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
-                .environment(locationUploader)
+                .environment(mobileSegmentUploader)
                 .environment(observerRegistration)
         }
         let chatView = ChatView()

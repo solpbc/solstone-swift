@@ -7,11 +7,11 @@ struct DiagnosticsView: View {
     @Environment(DiagnosticLog.self) private var log
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
-    @Environment(LocationUploader.self) private var locationUploader
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
 
@@ -31,11 +31,10 @@ struct DiagnosticsView: View {
 
     private var failedTotal: Int {
         uploadFailedTotal(
-            observer: self.observerUploader,
+            mobileSegment: self.mobileSegmentUploader,
             omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
-            importQueue: self.importQueue,
-            location: self.locationUploader
+            importQueue: self.importQueue
         )
     }
 
@@ -265,10 +264,10 @@ struct DiagnosticsView: View {
         if UserSettings.haptics {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
-        await self.observerUploader.retryFailed()
+        await self.mobileSegmentUploader.retryFailed()
         await self.omiUploaderHolder.uploader.retryFailed()
+        await self.watchUploaderHolder.uploader.retryFailed()
         await self.importQueue.retryFailed()
-        await self.locationUploader.retryFailed()
     }
 
     private func copySnapshot() {
@@ -307,17 +306,15 @@ struct DiagnosticsView: View {
         while !Task.isCancelled {
             let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
                 importQueue: self.importQueue,
-                observerUploader: self.observerUploader,
+                mobileSegmentUploader: self.mobileSegmentUploader,
                 omiUploader: self.omiUploaderHolder.uploader,
-                watchUploader: self.watchUploaderHolder.uploader,
-                locationUploader: self.locationUploader
+                watchUploader: self.watchUploaderHolder.uploader
             )
             self.lifecycleMigration = onThisPhoneMigration(snapshot: snapshot)
             self.lastSynced = lastSyncedAt(
-                observer: self.observerUploader,
+                mobileSegment: self.mobileSegmentUploader,
                 omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder,
-                location: self.locationUploader,
                 importQueue: self.importQueue
             )
             try? await Task.sleep(for: .seconds(1))

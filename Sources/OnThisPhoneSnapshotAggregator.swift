@@ -7,22 +7,21 @@ import Foundation
 enum OnThisPhoneSnapshotAggregator {
     static func snapshot(
         importQueue: ImportQueue,
-        observerUploader: ObserverUploader,
+        mobileSegmentUploader: MobileSegmentUploader,
         omiUploader: ObserverUploader,
-        watchUploader: ObserverUploader,
-        locationUploader: LocationUploader
+        watchUploader: ObserverUploader
     ) -> OnThisPhoneAggregateSnapshot {
         // Share includes delivered ledger entries; audio and location only have local pending/failed files.
         self.snapshot(sources: [
             OnThisPhoneSourceSnapshot(
                 sourceKind: .audio,
                 result: self.combinedAudioResult(
-                    observerUploader.onThisPhoneSnapshot(),
+                    mobileSegmentUploader.onThisPhoneSnapshot(for: .audio),
                     omiUploader.onThisPhoneSnapshot(),
                     watchUploader.onThisPhoneSnapshot()
                 )
             ),
-            OnThisPhoneSourceSnapshot(sourceKind: .location, result: locationUploader.onThisPhoneSnapshot()),
+            OnThisPhoneSourceSnapshot(sourceKind: .location, result: mobileSegmentUploader.onThisPhoneSnapshot(for: .location)),
             OnThisPhoneSourceSnapshot(sourceKind: .share, result: importQueue.onThisPhoneSourceSnapshot()),
         ])
     }

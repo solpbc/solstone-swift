@@ -30,17 +30,22 @@ nonisolated final class LocationAppWiringSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testLocationManagerConstructibleWithObserverRegistrationBackedUploaderClosures() {
-        let uploader = LocationUploader(
-            cacheRootURL: self.tempDirectory,
+    func testLocationManagerConstructibleWithMobileSegmentEngine() {
+        let transport = ObserverUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("Observer", isDirectory: true),
             sessionConfiguration: .ephemeral,
-            ensureRegistered: { "test-location-key" },
+            ensureRegistered: { "test-observer-key" },
             localPortProvider: { 7071 },
             startPathMonitor: false
         )
+        let mobileSegmentUploader = MobileSegmentUploader(
+            transport: transport,
+            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
+            clock: MockObserverClock()
+        )
         let manager = LocationManager(
             provider: MockLocationProvider(),
-            uploader: uploader,
+            mobileSegmentEngine: MobileSegmentEngine(uploader: mobileSegmentUploader, clock: MockObserverClock()),
             clock: MockObserverClock(),
             defaults: self.defaults
         )

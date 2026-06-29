@@ -89,12 +89,13 @@ extension OnThisPhoneUITestSeeder {
     static let locationRootName = "location".capitalized
     static let importQueueRootName = ["import", "queue"].map { $0.capitalized }.joined()
 
-    struct Roots {
-        let observer: URL
-        let omi: URL
-        let location: URL
-        let importQueue: URL
-    }
+        struct Roots {
+            let observer: URL
+            let omi: URL
+            let location: URL
+            let mobileSegment: URL
+            let importQueue: URL
+        }
 
     struct LargeBacklogSeedSummary: Equatable {
         let observer: Int
@@ -116,18 +117,20 @@ extension OnThisPhoneUITestSeeder {
     static func roots(fileManager: FileManager) throws -> Roots {
         let cachesRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return Roots(
-            observer: cachesRoot.appendingPathComponent(Self.observerRootName, isDirectory: true),
-            omi: cachesRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
-            location: cachesRoot.appendingPathComponent(Self.locationRootName, isDirectory: true),
-            importQueue: try AppGroupContainer.rootURL(fileManager: fileManager)
-                .appendingPathComponent(Self.importQueueRootName, isDirectory: true)
+                observer: cachesRoot.appendingPathComponent(Self.observerRootName, isDirectory: true),
+                omi: cachesRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+                location: cachesRoot.appendingPathComponent(Self.locationRootName, isDirectory: true),
+                mobileSegment: cachesRoot.appendingPathComponent("MobileSegment", isDirectory: true),
+                importQueue: try AppGroupContainer.rootURL(fileManager: fileManager)
+                    .appendingPathComponent(Self.importQueueRootName, isDirectory: true)
         )
     }
 
     static func reset(roots: Roots, fileManager: FileManager) throws {
-        for root in [roots.observer, roots.omi, roots.location, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
+        for root in [roots.observer, roots.omi, roots.location, roots.mobileSegment, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
             try fileManager.removeItem(at: root)
         }
+        UserDefaults.standard.removeObject(forKey: "didMigrateLegacyMobileSegmentsV1")
         Self.resetAudioL5State()
     }
 
@@ -187,42 +190,54 @@ extension OnThisPhoneUITestSeeder {
     }
 
     static func seedDefault(roots: Roots, fileManager: FileManager) throws {
-        let sessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        try Self.writeObserverChunk(
-            root: roots.observer,
-            sessionID: sessionID,
-            chunkID: "seed-audio-1",
+        try Self.writeMobileSegment(
+            root: roots.mobileSegment,
+            segmentID: UUID(uuidString: "edb611fc-5f2c-5218-98bf-7d8006dd36ef")!,
+            source: .audio,
+            lifecycle: .pending,
             startedAt: Date(timeIntervalSince1970: 1_780_480_800),
             durationS: 75,
+            fixCount: nil,
             fileManager: fileManager
         )
-        try Self.writeObserverChunk(
-            root: roots.observer,
-            sessionID: sessionID,
-            chunkID: "seed-audio-2",
+        try Self.writeMobileSegment(
+            root: roots.mobileSegment,
+            segmentID: UUID(uuidString: "c8f5cc35-4783-54d2-9b70-8f6677e8e37d")!,
+            source: .audio,
+            lifecycle: .pending,
             startedAt: Date(timeIntervalSince1970: 1_780_480_500),
             durationS: 142,
+            fixCount: nil,
             fileManager: fileManager
         )
 
-        try Self.writeLocationSegment(
-            root: roots.location,
-            status: "pending",
-            fileID: "20260603-110000_300",
+        try Self.writeMobileSegment(
+            root: roots.mobileSegment,
+            segmentID: UUID(uuidString: "9f4e02bb-2b23-5fc5-90f7-c291755e44f2")!,
+            source: .location,
+            lifecycle: .pending,
+            startedAt: Date(timeIntervalSince1970: 1_780_477_200),
+            durationS: 300,
             fixCount: 2,
             fileManager: fileManager
         )
-        try Self.writeLocationSegment(
-            root: roots.location,
-            status: "pending",
-            fileID: "20260603-111000_300",
+        try Self.writeMobileSegment(
+            root: roots.mobileSegment,
+            segmentID: UUID(uuidString: "6725b42c-a9d9-5960-8a2c-b73e704170e9")!,
+            source: .location,
+            lifecycle: .pending,
+            startedAt: Date(timeIntervalSince1970: 1_780_477_800),
+            durationS: 300,
             fixCount: 4,
             fileManager: fileManager
         )
-        try Self.writeLocationSegment(
-            root: roots.location,
-            status: "failed",
-            fileID: "20260603-112000_300",
+        try Self.writeMobileSegment(
+            root: roots.mobileSegment,
+            segmentID: UUID(uuidString: "763c6f54-286b-545a-b4f3-3b90f47782f1")!,
+            source: .location,
+            lifecycle: .failed,
+            startedAt: Date(timeIntervalSince1970: 1_780_478_400),
+            durationS: 300,
             fixCount: 5,
             fileManager: fileManager
         )
@@ -251,13 +266,14 @@ extension OnThisPhoneUITestSeeder {
     }
 
     static func seedAudioMagic(roots: Roots, durationS: TimeInterval, fileManager: FileManager) throws {
-        let sessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
-        try Self.writeObserverChunk(
-            root: roots.observer,
-            sessionID: sessionID,
-            chunkID: "seed-audio-magic",
+        try Self.writeMobileSegment(
+            root: roots.mobileSegment,
+            segmentID: UUID(uuidString: "a4c3e712-809a-578f-83ed-c903935d5b14")!,
+            source: .audio,
+            lifecycle: .pending,
             startedAt: Date(timeIntervalSince1970: 1_780_480_900),
             durationS: durationS,
+            fixCount: nil,
             fileManager: fileManager
         )
         UserDefaults.standard.set(true, forKey: AudioStorageKey.enrolled)
@@ -307,6 +323,76 @@ extension OnThisPhoneUITestSeeder {
         try encoder.encode(sidecar).write(to: directory.appendingPathComponent("\(chunkID).json"), options: .atomic)
     }
 
+    static func writeMobileSegment(
+        root: URL,
+        segmentID: UUID,
+        source: MobileSegmentSource,
+        lifecycle: MobileSegmentLifecycle,
+        startedAt: Date,
+        durationS: TimeInterval,
+        fixCount: Int?,
+        fileManager: FileManager
+    ) throws {
+        let store = MobileSegmentStore(rootURL: root, fileManager: fileManager)
+        let endedAt = startedAt.addingTimeInterval(durationS)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: Set([source]),
+            activeSourceSetVersion: 0
+        )
+        manifest.day = Self.dayString(for: startedAt)
+        manifest.segment = ChunkSidecar.segmentString(for: startedAt, durationSeconds: durationS)
+        manifest.endedAt = endedAt
+        manifest.durationS = durationS
+        manifest.upload = lifecycle == .failed ? .failed : .pending
+        let directory = try store.createActive(manifest: manifest)
+
+        switch source {
+        case .audio:
+            let url = store.audioURL(in: directory)
+            try Data("audio".utf8).write(to: url, options: .atomic)
+            let resolution = MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: url.lastPathComponent,
+                bytes: store.fileSize(at: url),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: durationS,
+                mode: .meeting
+            )
+            try store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: endedAt)
+        case .location:
+            let url = store.locationURL(in: directory)
+            try Self.locationPayload(fixCount: fixCount ?? 0).write(to: url, options: .atomic)
+            let resolution = MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: url.lastPathComponent,
+                bytes: store.fileSize(at: url),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: durationS,
+                fixCount: fixCount
+            )
+            try store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+        }
+
+        if lifecycle == .failed {
+            try store.writeFailure(
+                MobileSegmentFailureSidecar(
+                    reason: "ui test seed failure",
+                    httpStatus: nil,
+                    transportError: nil,
+                    attemptCount: 1,
+                    stage: "ui-test-seed",
+                    lastAttemptAt: endedAt
+                ),
+                in: directory
+            )
+        }
+        _ = try store.move(segmentID: segmentID, from: .active, to: lifecycle)
+    }
+
     static func writeLocationSegment(
         root: URL,
         status: String,
@@ -329,6 +415,22 @@ extension OnThisPhoneUITestSeeder {
         var data = try JSONSerialization.data(withJSONObject: header, options: [.sortedKeys])
         data.append(0x0A)
         try data.write(to: directory.appendingPathComponent("\(fileID).jsonl"), options: .atomic)
+    }
+
+    static func locationPayload(fixCount: Int) throws -> Data {
+        let header = [
+            "accuracy": "full",
+            "fix_count": fixCount,
+            "gap": false,
+            "kind": "location",
+            "platform": "ios",
+            "schema": "solstone.location.segment/1",
+            "source": "location",
+            "tier": "balanced",
+        ] as [String: Any]
+        var data = try JSONSerialization.data(withJSONObject: header, options: [.sortedKeys])
+        data.append(0x0A)
+        return data
     }
 
     static func writeShareItem(
@@ -375,6 +477,14 @@ extension OnThisPhoneUITestSeeder {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    static func dayString(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }
 }

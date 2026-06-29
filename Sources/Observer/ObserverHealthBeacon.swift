@@ -5,6 +5,17 @@ import Foundation
 import os
 
 @MainActor
+protocol ObserverQueueHealthProviding: AnyObject {
+    var pendingCount: Int { get }
+    var recentErrorCount: Int { get }
+    var lastError: String? { get }
+    var lastUploadAt: Date? { get }
+}
+
+extension ObserverUploader: ObserverQueueHealthProviding {}
+extension MobileSegmentUploader: ObserverQueueHealthProviding {}
+
+@MainActor
 final class ObserverHealthBeacon {
     private struct Payload: Encodable {
         let name: String
@@ -49,7 +60,7 @@ final class ObserverHealthBeacon {
     }
 
     private let registration: ObserverRegistration
-    private let uploader: ObserverUploader
+    private let queueHealth: any ObserverQueueHealthProviding
     private let isJournalConfigured: @MainActor @Sendable () -> Bool
     private let urlBuilder: @MainActor @Sendable (Int) -> URL?
     private let session: URLSession
@@ -65,7 +76,7 @@ final class ObserverHealthBeacon {
 
     init(
         registration: ObserverRegistration,
-        uploader: ObserverUploader,
+        uploader: any ObserverQueueHealthProviding,
         isJournalConfigured: @escaping @MainActor @Sendable () -> Bool,
         urlBuilder: @escaping @MainActor @Sendable (Int) -> URL? = { ObserverServerURL.healthURL(localPort: $0) },
         session: URLSession,
@@ -73,7 +84,7 @@ final class ObserverHealthBeacon {
         interval: Duration = .seconds(300)
     ) {
         self.registration = registration
-        self.uploader = uploader
+        self.queueHealth = uploader
         self.isJournalConfigured = isJournalConfigured
         self.urlBuilder = urlBuilder
         self.session = session
@@ -158,9 +169,9 @@ final class ObserverHealthBeacon {
             version: self.registration.version,
             uptime: self.uptime(now: now),
             lastSuccessfulSync: self.lastSuccessfulSync(),
-            pendingQueueDepth: self.uploader.pendingCount,
-            recentErrorCount: self.uploader.recentErrorCount,
-            lastErrorReason: self.sanitized(self.uploader.lastError)
+            pendingQueueDepth: self.queueHealth.pendingCount,
+            recentErrorCount: self.queueHealth.recentErrorCount,
+            lastErrorReason: self.sanitized(self.queueHealth.lastError)
         )
     }
 
@@ -169,7 +180,7 @@ final class ObserverHealthBeacon {
     }
 
     private func lastSuccessfulSync() -> String? {
-        let upload = self.uploader.lastUploadAt
+        let upload = self.queueHealth.lastUploadAt
         let contact = self.lastSuccessfulContact
         let latest: Date?
         switch (upload, contact) {

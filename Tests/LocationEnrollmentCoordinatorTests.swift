@@ -8,7 +8,6 @@ import XCTest
 nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
     @MainActor private lazy var provider = MockLocationProvider()
     @MainActor private lazy var clock = MockObserverClock()
-    private lazy var uploader = RecordingLocationUploader()
     private var suiteName: String!
     private var defaults: UserDefaults!
 
@@ -247,7 +246,6 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
     private func makeManager() -> LocationManager {
         LocationManager(
             provider: self.provider,
-            uploader: self.uploader,
             clock: self.clock,
             defaults: self.defaults
         )

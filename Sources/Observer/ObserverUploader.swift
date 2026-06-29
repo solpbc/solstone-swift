@@ -48,6 +48,33 @@ nonisolated struct ObserverUploadFailureSidecar: Codable, Equatable, Sendable {
     let lastAttemptAt: Date?
 }
 
+nonisolated struct ObserverIngestMultipartMetadata: Equatable, Sendable {
+    let segment: String
+    let day: String
+    let startedAt: Date
+    let durationS: TimeInterval
+    let chunkIndex: Int?
+    let sessionID: UUID?
+    let mode: ObserverMode?
+    let segmentID: UUID?
+    let sources: [String]
+}
+
+nonisolated struct ObserverMobileSegmentTransportFailure: Equatable, Sendable {
+    let reason: String
+    let httpStatus: Int?
+    let transportError: String?
+    let attemptCount: Int
+    let stage: String
+    let lastAttemptAt: Date?
+}
+
+nonisolated enum ObserverMobileSegmentTransportResult: Equatable, Sendable {
+    case delivered
+    case failed(ObserverMobileSegmentTransportFailure)
+    case cancelled
+}
+
 final class ObserverUploaderSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
     private struct WeakOwner: Sendable {
         weak var value: ObserverUploader?
@@ -94,7 +121,12 @@ final class ObserverUploader {
     private let throughputMeter = ThroughputMeter()
 
     var inFlightCount: Int {
-        self.activeTasksByTaskID.count + self.retryTasksByChunkID.count + self.schedulingChunkIDs.count
+        self.activeTasksByTaskID.count
+            + self.retryTasksByChunkID.count
+            + self.schedulingChunkIDs.count
+            + self.mobileSegmentTaskIDBySegmentID.count
+            + self.mobileSegmentRetryTasksBySegmentID.count
+            + self.mobileSegmentSchedulingIDs.count
     }
 
     @ObservationIgnored private(set) var fullRecountCount = 0
@@ -125,6 +157,16 @@ final class ObserverUploader {
     @ObservationIgnored private var droppedChunkIDs: Set<String> = []
     @ObservationIgnored private var attemptCountByChunkID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var mobileSegmentTaskInfoByTaskID: [Int: MobileSegmentTaskInfo] = [:]
+    @ObservationIgnored private var mobileSegmentTaskByTaskID: [Int: URLSessionTask] = [:]
+    @ObservationIgnored private var mobileSegmentTaskIDBySegmentID: [UUID: Int] = [:]
+    @ObservationIgnored private var mobileSegmentAttemptCountBySegmentID: [UUID: Int] = [:]
+    @ObservationIgnored private var mobileSegmentRetryTasksBySegmentID: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var mobileSegmentSchedulingIDs: Set<UUID> = []
+    @ObservationIgnored private var mobileSegmentDroppedIDs: Set<UUID> = []
+    @ObservationIgnored private var mobileSegmentCompletionBySegmentID: [
+        UUID: @MainActor @Sendable (ObserverMobileSegmentTransportResult) -> Void
+    ] = [:]
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private let pathMonitorQueue = DispatchQueue(label: "app.solstone.swift.observer-uploader")
 
@@ -498,6 +540,17 @@ final class ObserverUploader {
             task.cancel()
         }
         self.retryTasksByChunkID.removeAll()
+        self.mobileSegmentTaskInfoByTaskID.removeAll()
+        self.mobileSegmentTaskByTaskID.removeAll()
+        self.mobileSegmentTaskIDBySegmentID.removeAll()
+        self.mobileSegmentDroppedIDs.removeAll()
+        self.mobileSegmentSchedulingIDs.removeAll()
+        self.mobileSegmentAttemptCountBySegmentID.removeAll()
+        self.mobileSegmentCompletionBySegmentID.removeAll()
+        for task in self.mobileSegmentRetryTasksBySegmentID.values {
+            task.cancel()
+        }
+        self.mobileSegmentRetryTasksBySegmentID.removeAll()
     }
 
     func attemptCountForTesting(chunkID: String) -> Int {
@@ -505,7 +558,7 @@ final class ObserverUploader {
     }
 
     func retryTaskCountForTesting() -> Int {
-        self.retryTasksByChunkID.count
+        self.retryTasksByChunkID.count + self.mobileSegmentRetryTasksBySegmentID.count
     }
 
     func plantDropTombstoneForTesting(chunkID: String) {
@@ -520,6 +573,10 @@ final class ObserverUploader {
         if self.schedulingChunkIDs.contains(chunkID) { return true }
         guard let taskID = self.activeTaskIDByChunkID[chunkID] else { return false }
         return self.taskInfoByTaskID[taskID] != nil || self.activeTasksByTaskID[taskID] != nil
+    }
+
+    func mobileSegmentAttemptCountForTesting(segmentID: UUID) -> Int {
+        self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0]
     }
 
     func inProgressChunkURL(sessionID: UUID, chunkID: String) throws -> URL {
@@ -542,6 +599,62 @@ final class ObserverUploader {
     }
 }
 
+extension ObserverUploader {
+    func buildMobileSegmentRequestBody(
+        segmentID: UUID,
+        metadata: ObserverIngestMultipartMetadata,
+        audioURL: URL?,
+        locationJSONL: Data?
+    ) throws -> (requestBodyURL: URL, boundary: String) {
+        let directory = self.cacheRootURL.appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+        try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let requestBodyURL = directory.appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
+        let boundary = self.boundary(for: segmentID.uuidString)
+        _ = try self.buildObserverIngestMultipartRequestBody(
+            audioURL: audioURL,
+            locationJSONL: locationJSONL,
+            metadata: metadata,
+            requestBodyURL: requestBodyURL,
+            boundary: boundary,
+            drainSource: .observer
+        )
+        return (requestBodyURL, boundary)
+    }
+
+    func uploadMobileSegment(
+        segmentID: UUID,
+        requestBodyURL: URL,
+        boundary: String,
+        onComplete: @escaping @MainActor @Sendable (ObserverMobileSegmentTransportResult) -> Void
+    ) async {
+        self.mobileSegmentCompletionBySegmentID[segmentID] = onComplete
+        await self.scheduleMobileSegmentUpload(segmentID: segmentID, requestBodyURL: requestBodyURL, boundary: boundary)
+    }
+
+    func cancelMobileSegmentUpload(segmentID: UUID) {
+        let hadLiveWork = self.mobileSegmentTaskIDBySegmentID[segmentID] != nil
+            || self.mobileSegmentSchedulingIDs.contains(segmentID)
+        if hadLiveWork {
+            self.mobileSegmentDroppedIDs.insert(segmentID)
+        }
+        self.clearMobileSegmentUploadState(segmentID: segmentID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let tasks = await self.sessionTasks()
+            for task in tasks {
+                guard self.mobileSegmentUploadTaskDescriptor(from: task.taskDescription)?.segmentID == segmentID else { continue }
+                task.cancel()
+            }
+        }
+    }
+
+    func isMobileSegmentUploading(segmentID: UUID) -> Bool {
+        self.mobileSegmentTaskIDBySegmentID[segmentID] != nil
+            || self.mobileSegmentSchedulingIDs.contains(segmentID)
+            || self.mobileSegmentRetryTasksBySegmentID[segmentID] != nil
+    }
+}
+
 private extension ObserverUploader {
     struct TaskInfo {
         let chunkID: String
@@ -549,6 +662,15 @@ private extension ObserverUploader {
         let audioURL: URL
         let sidecarURL: URL
         let requestBodyURL: URL
+        let localPort: Int
+        let prefix: String?
+        let sourceType: String
+    }
+
+    struct MobileSegmentTaskInfo {
+        let segmentID: UUID
+        let requestBodyURL: URL
+        let boundary: String
         let localPort: Int
         let prefix: String?
         let sourceType: String
@@ -570,6 +692,22 @@ private extension ObserverUploader {
         let sessionID: UUID
         let localPort: Int
         let prefix: String?
+    }
+
+    struct MobileSegmentUploadTaskDescriptor: Codable {
+        let kind: String
+        let sourceType: String
+        let segmentID: UUID
+        let localPort: Int
+        let prefix: String?
+
+        enum CodingKeys: String, CodingKey {
+            case kind
+            case sourceType = "source_type"
+            case segmentID = "segment_id"
+            case localPort = "local_port"
+            case prefix
+        }
     }
 
     struct CountDelta {
@@ -734,6 +872,11 @@ private extension ObserverUploader {
         return String(data: data, encoding: .utf8)
     }
 
+    func taskDescription(for descriptor: MobileSegmentUploadTaskDescriptor) -> String? {
+        guard let data = try? JSONEncoder().encode(descriptor) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     func uploadTaskDescriptor(from taskDescription: String?) -> UploadTaskDescriptor? {
         guard let taskDescription,
               let data = taskDescription.data(using: .utf8)
@@ -741,6 +884,17 @@ private extension ObserverUploader {
             return nil
         }
         return try? JSONDecoder().decode(UploadTaskDescriptor.self, from: data)
+    }
+
+    func mobileSegmentUploadTaskDescriptor(from taskDescription: String?) -> MobileSegmentUploadTaskDescriptor? {
+        guard let taskDescription,
+              let data = taskDescription.data(using: .utf8),
+              let descriptor = try? JSONDecoder().decode(MobileSegmentUploadTaskDescriptor.self, from: data),
+              descriptor.kind == "mobile-segment"
+        else {
+            return nil
+        }
+        return descriptor
     }
 
     func clearTaskState(taskID: Int, chunkID: String?) {
@@ -752,6 +906,18 @@ private extension ObserverUploader {
             if self.activeTaskIDByChunkID[resolvedChunkID] == taskID {
                 self.activeTaskIDByChunkID.removeValue(forKey: resolvedChunkID)
             }
+        }
+    }
+
+    func clearMobileSegmentTaskState(taskID: Int, segmentID: UUID?) {
+        let resolvedSegmentID = segmentID ?? self.mobileSegmentTaskInfoByTaskID[taskID]?.segmentID
+        self.mobileSegmentTaskInfoByTaskID.removeValue(forKey: taskID)
+        self.mobileSegmentTaskByTaskID.removeValue(forKey: taskID)
+        self.responseDataByTaskID.removeValue(forKey: taskID)
+        if let resolvedSegmentID,
+           self.mobileSegmentTaskIDBySegmentID[resolvedSegmentID] == taskID
+        {
+            self.mobileSegmentTaskIDBySegmentID.removeValue(forKey: resolvedSegmentID)
         }
     }
 
@@ -781,6 +947,25 @@ private extension ObserverUploader {
         )
     }
 
+    func resolveMobileSegmentTaskInfo(for task: URLSessionTask) -> MobileSegmentTaskInfo? {
+        if let info = self.mobileSegmentTaskInfoByTaskID.removeValue(forKey: task.taskIdentifier) {
+            return info
+        }
+        guard let descriptor = self.mobileSegmentUploadTaskDescriptor(from: task.taskDescription) else { return nil }
+        let requestBodyURL = self.cacheRootURL
+            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            .appendingPathComponent("\(descriptor.segmentID.uuidString).upload", isDirectory: false)
+        guard self.fileManager.fileExists(atPath: requestBodyURL.path) else { return nil }
+        return MobileSegmentTaskInfo(
+            segmentID: descriptor.segmentID,
+            requestBodyURL: requestBodyURL,
+            boundary: self.boundary(for: descriptor.segmentID.uuidString),
+            localPort: descriptor.localPort,
+            prefix: descriptor.prefix,
+            sourceType: descriptor.sourceType
+        )
+    }
+
     func clearUploadState(chunkID: String) {
         self.retryTasksByChunkID[chunkID]?.cancel()
         self.retryTasksByChunkID.removeValue(forKey: chunkID)
@@ -789,6 +974,19 @@ private extension ObserverUploader {
             self.activeTasksByTaskID[taskID]?.cancel()
             self.taskInfoByTaskID.removeValue(forKey: taskID)
             self.activeTasksByTaskID.removeValue(forKey: taskID)
+            self.responseDataByTaskID.removeValue(forKey: taskID)
+        }
+    }
+
+    func clearMobileSegmentUploadState(segmentID: UUID) {
+        self.mobileSegmentRetryTasksBySegmentID[segmentID]?.cancel()
+        self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: segmentID)
+        self.mobileSegmentAttemptCountBySegmentID.removeValue(forKey: segmentID)
+        self.mobileSegmentSchedulingIDs.remove(segmentID)
+        if let taskID = self.mobileSegmentTaskIDBySegmentID.removeValue(forKey: segmentID) {
+            self.mobileSegmentTaskByTaskID[taskID]?.cancel()
+            self.mobileSegmentTaskInfoByTaskID.removeValue(forKey: taskID)
+            self.mobileSegmentTaskByTaskID.removeValue(forKey: taskID)
             self.responseDataByTaskID.removeValue(forKey: taskID)
         }
     }
@@ -985,12 +1183,170 @@ private extension ObserverUploader {
         }
     }
 
+    func scheduleMobileSegmentUpload(segmentID: UUID, requestBodyURL: URL, boundary: String) async {
+        guard self.mobileSegmentTaskIDBySegmentID[segmentID] == nil else { return }
+        guard !self.mobileSegmentSchedulingIDs.contains(segmentID) else { return }
+        self.mobileSegmentSchedulingIDs.insert(segmentID)
+        defer { self.mobileSegmentSchedulingIDs.remove(segmentID) }
+
+        guard self.fileManager.fileExists(atPath: requestBodyURL.path) else {
+            await self.handleMobileSegmentUploadFailure(
+                segmentID: segmentID,
+                requestBodyURL: requestBodyURL,
+                boundary: boundary,
+                reason: "mobile segment request body missing",
+                context: UploadFailureContext(
+                    stage: "no-request-created",
+                    severity: .warning,
+                    sourceType: self.sourceType,
+                    localPort: self.localPortProvider(),
+                    prefix: self.registrationPrefixProvider(),
+                    httpStatus: nil,
+                    transportError: nil
+                )
+            )
+            return
+        }
+
+        guard self.isJournalConfigured() else {
+            uploaderLog.debug("mobile segment upload held: journal unavailable")
+            self.lastError = nil
+            return
+        }
+
+        guard let localPort = self.localPortProvider() else {
+            uploaderLog.debug("mobile segment upload held: local port unavailable")
+            self.lastError = nil
+            return
+        }
+
+        let handle: String
+        do {
+            handle = try await self.ensureRegistered()
+        } catch {
+            if self.mobileSegmentDroppedIDs.remove(segmentID) != nil {
+                uploaderLog.info("mobile segment drop consumed during registration window (throw) \(segmentID.uuidString, privacy: .public)")
+                self.lastError = nil
+                self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
+                return
+            }
+            await self.handleMobileSegmentUploadFailure(
+                segmentID: segmentID,
+                requestBodyURL: requestBodyURL,
+                boundary: boundary,
+                reason: String(describing: error),
+                context: UploadFailureContext(
+                    stage: "no-request-created",
+                    severity: .warning,
+                    sourceType: self.sourceType,
+                    localPort: localPort,
+                    prefix: self.registrationPrefixProvider(),
+                    httpStatus: nil,
+                    transportError: nil
+                )
+            )
+            return
+        }
+        if self.mobileSegmentDroppedIDs.remove(segmentID) != nil {
+            uploaderLog.info("mobile segment drop consumed during registration window (success) \(segmentID.uuidString, privacy: .public)")
+            self.lastError = nil
+            self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
+            return
+        }
+        let prefix = self.registrationPrefixProvider()
+
+        guard let url = self.urlBuilder(localPort) else {
+            await self.handleMobileSegmentUploadFailure(
+                segmentID: segmentID,
+                requestBodyURL: requestBodyURL,
+                boundary: boundary,
+                reason: "mobile segment upload unavailable: invalid url",
+                context: UploadFailureContext(
+                    stage: "no-request-created",
+                    severity: .warning,
+                    sourceType: self.sourceType,
+                    localPort: localPort,
+                    prefix: prefix,
+                    httpStatus: nil,
+                    transportError: nil
+                )
+            )
+            return
+        }
+
+        var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        guard self.mobileSegmentDroppedIDs.remove(segmentID) == nil else {
+            self.lastError = nil
+            self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
+            return
+        }
+
+        let createResumeStart = DispatchTime.now().uptimeNanoseconds
+        let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
+        task.taskDescription = self.taskDescription(for: MobileSegmentUploadTaskDescriptor(
+            kind: "mobile-segment",
+            sourceType: self.sourceType,
+            segmentID: segmentID,
+            localPort: localPort,
+            prefix: prefix
+        ))
+        self.mobileSegmentTaskInfoByTaskID[task.taskIdentifier] = MobileSegmentTaskInfo(
+            segmentID: segmentID,
+            requestBodyURL: requestBodyURL,
+            boundary: boundary,
+            localPort: localPort,
+            prefix: prefix,
+            sourceType: self.sourceType
+        )
+        self.mobileSegmentTaskByTaskID[task.taskIdentifier] = task
+        self.mobileSegmentTaskIDBySegmentID[segmentID] = task.taskIdentifier
+        task.resume()
+        DrainSignpost.event(
+            .taskCreateResume,
+            source: .observer,
+            fields: DrainFields(
+                status: "resumed",
+                durationMs: DrainSignpost.durationMs(since: createResumeStart)
+            )
+        )
+    }
+
     func appendResponseData(_ data: Data, for taskIdentifier: Int) {
         self.responseDataByTaskID[taskIdentifier, default: Data()].append(data)
     }
 
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         let start = DispatchTime.now().uptimeNanoseconds
+        if let mobileDescriptor = self.mobileSegmentUploadTaskDescriptor(from: task.taskDescription) {
+            let segmentID = mobileDescriptor.segmentID
+            if self.mobileSegmentDroppedIDs.remove(segmentID) != nil {
+                self.clearMobileSegmentTaskState(taskID: task.taskIdentifier, segmentID: segmentID)
+                uploaderLog.info("mobile segment completion ignored after drop \(segmentID.uuidString, privacy: .public)")
+                self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
+                return
+            }
+
+            guard let info = self.resolveMobileSegmentTaskInfo(for: task) else {
+                uploaderLog.error("mobile segment completion could not be reconciled to a known segment (task \(task.taskIdentifier, privacy: .public))")
+                return
+            }
+            self.mobileSegmentTaskByTaskID.removeValue(forKey: task.taskIdentifier)
+            if self.mobileSegmentTaskIDBySegmentID[info.segmentID] == task.taskIdentifier {
+                self.mobileSegmentTaskIDBySegmentID.removeValue(forKey: info.segmentID)
+            }
+            let responseData = self.responseDataByTaskID.removeValue(forKey: task.taskIdentifier) ?? Data()
+            await self.handleMobileSegmentCompletion(
+                task: task,
+                info: info,
+                responseData: responseData,
+                error: error,
+                start: start
+            )
+            return
+        }
+
         let descriptor = self.uploadTaskDescriptor(from: task.taskDescription)
         let resolvedChunkID = descriptor?.chunkID ?? self.taskInfoByTaskID[task.taskIdentifier]?.chunkID
         if let resolvedChunkID, self.droppedChunkIDs.remove(resolvedChunkID) != nil {
@@ -1148,6 +1504,135 @@ private extension ObserverUploader {
         )
     }
 
+    func handleMobileSegmentCompletion(
+        task: URLSessionTask,
+        info: MobileSegmentTaskInfo,
+        responseData: Data,
+        error: (any Error)?,
+        start: UInt64
+    ) async {
+        if let error {
+            let ns = error as NSError
+            let currentPort = self.localPortProvider()
+            let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+            let isStalePort = currentPort.map { $0 != info.localPort } ?? true
+            if isCancelled || isStalePort {
+                self.appendUploadDiagnostic(
+                    stage: "reconnect-requeued",
+                    severity: .info,
+                    sourceType: info.sourceType,
+                    chunkID: info.segmentID.uuidString,
+                    prefix: info.prefix,
+                    localPort: info.localPort,
+                    httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
+                    transportError: String(describing: error),
+                    attempt: self.mobileSegmentAttemptCountBySegmentID[info.segmentID, default: 0],
+                    reason: "reconnect requeued"
+                )
+                let requeueDelay = self.retryDelays.first ?? 0
+                self.mobileSegmentRetryTasksBySegmentID[info.segmentID]?.cancel()
+                self.mobileSegmentRetryTasksBySegmentID[info.segmentID] = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.sleep(requeueDelay)
+                    guard !Task.isCancelled else { return }
+                    self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
+                    await self.scheduleMobileSegmentUpload(
+                        segmentID: info.segmentID,
+                        requestBodyURL: info.requestBodyURL,
+                        boundary: info.boundary
+                    )
+                }
+                return
+            }
+            await self.handleMobileSegmentUploadFailure(
+                segmentID: info.segmentID,
+                requestBodyURL: info.requestBodyURL,
+                boundary: info.boundary,
+                reason: String(describing: error),
+                context: UploadFailureContext(
+                    stage: "transport-failure",
+                    severity: .warning,
+                    sourceType: info.sourceType,
+                    localPort: info.localPort,
+                    prefix: info.prefix,
+                    httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
+                    transportError: String(describing: error)
+                )
+            )
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .observer,
+                fields: DrainFields(
+                    status: "transportFailure",
+                    error: .transport,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
+            return
+        }
+
+        let statusCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
+        if 200..<300 ~= statusCode {
+            self.appendUploadDiagnostic(
+                stage: "success",
+                severity: .info,
+                sourceType: info.sourceType,
+                chunkID: info.segmentID.uuidString,
+                prefix: info.prefix,
+                localPort: info.localPort,
+                httpStatus: statusCode,
+                transportError: nil,
+                attempt: self.mobileSegmentAttemptCountBySegmentID[info.segmentID, default: 0] + 1,
+                reason: "uploaded"
+            )
+            self.throughputMeter.record(bytes: ThroughputMeter.byteCount(of: info.requestBodyURL))
+            self.mobileSegmentAttemptCountBySegmentID.removeValue(forKey: info.segmentID)
+            self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
+            self.lastUploadAt = Date()
+            self.lastError = nil
+            self.recentErrorCount = 0
+            uploaderLog.info("mobile segment uploaded \(info.segmentID.uuidString, privacy: .public)")
+            self.mobileSegmentCompletionBySegmentID.removeValue(forKey: info.segmentID)?(.delivered)
+            DrainSignpost.event(
+                .uploadCompletion,
+                source: .observer,
+                fields: DrainFields(
+                    status: "success",
+                    error: .none,
+                    durationMs: DrainSignpost.durationMs(since: start)
+                )
+            )
+            return
+        }
+
+        let body = self.httpFailureBodySnippet(from: responseData)
+        await self.handleMobileSegmentUploadFailure(
+            segmentID: info.segmentID,
+            requestBodyURL: info.requestBodyURL,
+            boundary: info.boundary,
+            reason: body.map { "HTTP \(statusCode): \($0)" } ?? "HTTP \(statusCode)",
+            context: UploadFailureContext(
+                stage: "http-failure",
+                severity: .warning,
+                sourceType: info.sourceType,
+                localPort: info.localPort,
+                prefix: info.prefix,
+                httpStatus: statusCode,
+                transportError: nil
+            )
+        )
+        DrainSignpost.event(
+            .uploadCompletion,
+            source: .observer,
+            fields: DrainFields(
+                status: "httpFailure",
+                error: .http,
+                durationMs: DrainSignpost.durationMs(since: start),
+                httpStatusClass: DrainSignpost.httpStatusClass(statusCode)
+            )
+        )
+    }
+
     func httpFailureBodySnippet(from data: Data) -> String? {
         guard !data.isEmpty,
               let body = String(data: data, encoding: .utf8),
@@ -1186,6 +1671,91 @@ private extension ObserverUploader {
             redacted.replaceSubrange(bearerRange.lowerBound..<end, with: "[redacted bearer]")
         }
         return redacted
+    }
+
+    func handleMobileSegmentUploadFailure(
+        segmentID: UUID,
+        requestBodyURL: URL,
+        boundary: String,
+        reason: String,
+        context: UploadFailureContext
+    ) async {
+        let nextAttempt = self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0] + 1
+        self.mobileSegmentAttemptCountBySegmentID[segmentID] = nextAttempt
+        self.lastError = self.redactedFailureDetail(reason)
+        self.recentErrorCount = min(self.recentErrorCount + 1, 99)
+        self.appendUploadDiagnostic(
+            stage: context.stage,
+            severity: context.severity,
+            sourceType: context.sourceType,
+            chunkID: segmentID.uuidString,
+            prefix: context.prefix,
+            localPort: context.localPort,
+            httpStatus: context.httpStatus,
+            transportError: context.transportError,
+            attempt: nextAttempt,
+            reason: reason
+        )
+
+        if nextAttempt >= self.maxAttempts {
+            self.appendUploadDiagnostic(
+                stage: "retry-exhausted",
+                severity: .error,
+                sourceType: context.sourceType,
+                chunkID: segmentID.uuidString,
+                prefix: context.prefix,
+                localPort: context.localPort,
+                httpStatus: context.httpStatus,
+                transportError: context.transportError,
+                attempt: nextAttempt,
+                reason: reason
+            )
+            self.mobileSegmentRetryTasksBySegmentID[segmentID]?.cancel()
+            self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: segmentID)
+            self.mobileSegmentAttemptCountBySegmentID.removeValue(forKey: segmentID)
+            let failure = ObserverMobileSegmentTransportFailure(
+                reason: self.persistedFailureReason(
+                    reason: reason,
+                    context: context,
+                    attemptCount: nextAttempt
+                ),
+                httpStatus: context.httpStatus,
+                transportError: context.transportError.map { self.redactedFailureDetail($0) },
+                attemptCount: nextAttempt,
+                stage: context.stage,
+                lastAttemptAt: Date()
+            )
+            self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.failed(failure))
+            return
+        }
+
+        let delayIndex = min(nextAttempt - 1, max(self.retryDelays.count - 1, 0))
+        let delay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
+        uploaderLog.error("mobile segment upload failed \(segmentID.uuidString, privacy: .public): \(self.redactedFailureDetail(reason), privacy: .public)")
+        self.appendUploadDiagnostic(
+            stage: "retry-scheduled",
+            severity: .info,
+            sourceType: context.sourceType,
+            chunkID: segmentID.uuidString,
+            prefix: context.prefix,
+            localPort: context.localPort,
+            httpStatus: context.httpStatus,
+            transportError: context.transportError,
+            attempt: nextAttempt,
+            reason: reason
+        )
+        self.mobileSegmentRetryTasksBySegmentID[segmentID]?.cancel()
+        self.mobileSegmentRetryTasksBySegmentID[segmentID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.sleep(delay)
+            guard !Task.isCancelled else { return }
+            self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: segmentID)
+            await self.scheduleMobileSegmentUpload(
+                segmentID: segmentID,
+                requestBodyURL: requestBodyURL,
+                boundary: boundary
+            )
+        }
     }
 
     func handleUploadFailure(
@@ -1362,42 +1932,84 @@ private extension ObserverUploader {
     }
 
     func buildMultipartRequestBody(audioURL: URL, sidecar: ChunkSidecar) throws -> URL {
-        let source = DrainSource.audio(self.sourceType)
+        let chunkID = audioURL.deletingPathExtension().lastPathComponent
+        let requestBodyURL = self.pendingDirectoryURL(sessionID: sidecar.sessionID)
+            .appendingPathComponent("\(chunkID).upload", isDirectory: false)
+        return try self.buildObserverIngestMultipartRequestBody(
+            audioURL: audioURL,
+            locationJSONL: sidecar.locationJSONL,
+            metadata: ObserverIngestMultipartMetadata(
+                segment: sidecar.segment,
+                day: sidecar.day,
+                startedAt: sidecar.startedAt,
+                durationS: sidecar.durationS,
+                chunkIndex: sidecar.chunkIndex,
+                sessionID: sidecar.sessionID,
+                mode: sidecar.mode,
+                segmentID: nil,
+                sources: ["audio"]
+            ),
+            requestBodyURL: requestBodyURL,
+            boundary: self.boundary(for: chunkID),
+            drainSource: DrainSource.audio(self.sourceType)
+        )
+    }
+
+    func buildObserverIngestMultipartRequestBody(
+        audioURL: URL?,
+        locationJSONL: Data?,
+        metadata: ObserverIngestMultipartMetadata,
+        requestBodyURL: URL,
+        boundary: String,
+        drainSource source: DrainSource
+    ) throws -> URL {
+        guard audioURL != nil || locationJSONL != nil else {
+            throw ObserverUploaderError.missingUploadArtifact
+        }
+
         let interval = DrainSignpost.begin(.multipartBodyBuild, source: source)
         do {
-            let chunkID = audioURL.deletingPathExtension().lastPathComponent
-            let boundary = self.boundary(for: chunkID)
-            let requestBodyURL = self.pendingDirectoryURL(sessionID: sidecar.sessionID)
-                .appendingPathComponent("\(chunkID).upload", isDirectory: false)
-
             var body = Data()
-            body.append(self.multipartField(named: "segment", value: sidecar.segment, boundary: boundary))
-            body.append(self.multipartField(named: "day", value: sidecar.day, boundary: boundary))
+            body.append(self.multipartField(named: "segment", value: metadata.segment, boundary: boundary))
+            body.append(self.multipartField(named: "day", value: metadata.day, boundary: boundary))
             body.append(self.multipartField(named: "platform", value: self.platform, boundary: boundary))
 
-            let meta = try JSONSerialization.data(withJSONObject: [
-                "segment": sidecar.segment,
-                "day": sidecar.day,
-                "chunk_index": sidecar.chunkIndex,
-                "started_at": ISO8601DateFormatter().string(from: sidecar.startedAt),
-                "duration_s": sidecar.durationS,
-                "session_id": sidecar.sessionID.uuidString,
-                "mode": sidecar.mode.rawValue,
-            ], options: [.sortedKeys])
+            var metaObject: [String: Any] = [
+                "segment": metadata.segment,
+                "day": metadata.day,
+                "started_at": ISO8601DateFormatter().string(from: metadata.startedAt),
+                "duration_s": metadata.durationS,
+                "sources": metadata.sources,
+            ]
+            if let chunkIndex = metadata.chunkIndex {
+                metaObject["chunk_index"] = chunkIndex
+            }
+            if let sessionID = metadata.sessionID {
+                metaObject["session_id"] = sessionID.uuidString
+            }
+            if let mode = metadata.mode {
+                metaObject["mode"] = mode.rawValue
+            }
+            if let segmentID = metadata.segmentID {
+                metaObject["segment_id"] = segmentID.uuidString
+            }
+            let meta = try JSONSerialization.data(withJSONObject: metaObject, options: [.sortedKeys])
             body.append(self.multipartField(
                 named: "meta",
                 value: String(decoding: meta, as: UTF8.self),
                 boundary: boundary
             ))
 
-            let audioData = try Data(contentsOf: audioURL)
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            // audio.m4a filename is a hard server-side invariant — pipeline globs audio.* downstream (observe/transcribe, think/cluster, transcripts, retention)
-            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
-            body.append(audioData)
-            body.append("\r\n".data(using: .utf8)!)
-            if let locationJSONL = sidecar.locationJSONL {
+            if let audioURL {
+                let audioData = try Data(contentsOf: audioURL)
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                // audio.m4a filename is a hard server-side invariant — pipeline globs audio.* downstream (observe/transcribe, think/cluster, transcripts, retention)
+                body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
+                body.append(audioData)
+                body.append("\r\n".data(using: .utf8)!)
+            }
+            if let locationJSONL {
                 body.append("--\(boundary)\r\n".data(using: .utf8)!)
                 body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
                 body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
@@ -1530,4 +2142,5 @@ private extension ObserverUploader {
 enum ObserverUploaderError: Error {
     case registrationUnavailable
     case missingRequiredArtifact(sessionID: UUID, chunkID: String)
+    case missingUploadArtifact
 }

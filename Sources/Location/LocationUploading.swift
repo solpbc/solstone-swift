@@ -37,7 +37,3 @@ nonisolated struct LocationSegmentBatch: Sendable, Equatable {
     let visits: [LocationVisit]
     let gap: Bool
 }
-
-nonisolated protocol LocationUploading: Sendable {
-    func enqueue(_ batch: LocationSegmentBatch) async
-}

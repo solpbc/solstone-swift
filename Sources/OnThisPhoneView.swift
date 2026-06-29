@@ -26,7 +26,7 @@ nonisolated enum LoadTrigger: String, Sendable {
     case omiCounts
     case watchCounts
     case importCounts
-    case locationCounts
+    case mobileSegmentCounts
     case activePort
 }
 
@@ -35,12 +35,12 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
     @Environment(LocationManager.self) private var locationManager
-    @Environment(LocationUploader.self) private var locationUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
@@ -177,11 +177,11 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .onChange(of: self.importQueue.failedCount) { _, _ in
                 self.coalescer.schedule { self.loadSnapshot(trigger: .importCounts) }
             }
-            .onChange(of: self.locationUploader.pendingCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .locationCounts) }
+            .onChange(of: self.mobileSegmentUploader.pendingCount) { _, _ in
+                self.coalescer.schedule { self.loadSnapshot(trigger: .mobileSegmentCounts) }
             }
-            .onChange(of: self.locationUploader.failedCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .locationCounts) }
+            .onChange(of: self.mobileSegmentUploader.failedCount) { _, _ in
+                self.coalescer.schedule { self.loadSnapshot(trigger: .mobileSegmentCounts) }
             }
             .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
                 self.loadSnapshot(trigger: .activePort)
@@ -758,13 +758,13 @@ private extension OnThisPhoneMomentsView {
             observerUploader: self.observerUploader,
             omiUploader: self.omiUploaderHolder.uploader,
             watchUploader: self.watchUploaderHolder.uploader,
-            locationUploader: self.locationUploader,
+            mobileSegmentUploader: self.mobileSegmentUploader,
             removeWatchStaging: self.watchUploaderHolder.removeStaging
         ) else {
             return
         }
         self.dropController.requestDrop(
-            itemID: item.id,
+            itemID: item.dropGroupID ?? item.id,
             descriptor: item.dropDescriptor,
             commit: commit
         )
@@ -778,10 +778,9 @@ private extension OnThisPhoneMomentsView {
         )
         let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: self.importQueue,
-            observerUploader: self.observerUploader,
+            mobileSegmentUploader: self.mobileSegmentUploader,
             omiUploader: self.omiUploaderHolder.uploader,
-            watchUploader: self.watchUploaderHolder.uploader,
-            locationUploader: self.locationUploader
+            watchUploader: self.watchUploaderHolder.uploader
         )
         self.aggregate = aggregate
         let displayAggregate = self.displayAggregate ?? aggregate

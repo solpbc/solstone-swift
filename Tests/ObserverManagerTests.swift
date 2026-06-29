@@ -12,6 +12,21 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     @MainActor private lazy var liveActivity = MockObserverLiveActivity()
     private lazy var tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObserverManagerTests-\(UUID().uuidString)", isDirectory: true)
+    @MainActor private lazy var mobileTransport = ObserverUploader(
+        cacheRootURL: self.tempDirectory.appendingPathComponent("mobile-transport", isDirectory: true),
+        isJournalConfigured: { false },
+        localPortProvider: { nil },
+        startPathMonitor: false
+    )
+    @MainActor private lazy var mobileSegmentUploader = MobileSegmentUploader(
+        transport: self.mobileTransport,
+        store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
+        clock: self.clock
+    )
+    @MainActor private lazy var mobileSegmentEngine = MobileSegmentEngine(
+        uploader: self.mobileSegmentUploader,
+        clock: self.clock
+    )
     @MainActor private lazy var uploader: ObserverUploader = {
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
         let configuration = URLSessionConfiguration.ephemeral
@@ -35,6 +50,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     @MainActor private lazy var manager = ObserverManager(
         recorder: self.recorder,
         uploader: self.uploader,
+        mobileSegmentEngine: self.mobileSegmentEngine,
         clock: self.clock,
         liveActivity: self.liveActivity
     )
@@ -93,9 +109,18 @@ nonisolated final class ObserverManagerTests: XCTestCase {
             sleep: { _ in },
             startPathMonitor: false
         )
+        let mobileRoot = self.tempDirectory.appendingPathComponent("NoPortMobileSegment", isDirectory: true)
         let manager = ObserverManager(
             recorder: self.recorder,
             uploader: uploader,
+            mobileSegmentEngine: MobileSegmentEngine(
+                uploader: MobileSegmentUploader(
+                    transport: uploader,
+                    store: MobileSegmentStore(rootURL: mobileRoot),
+                    clock: self.clock
+                ),
+                clock: self.clock
+            ),
             clock: self.clock,
             liveActivity: self.liveActivity
         )
@@ -104,10 +129,8 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         await manager.stopSession()
 
         XCTAssertEqual(manager.state, .idle)
-        XCTAssertEqual(uploader.pendingCount, 1)
         XCTAssertEqual(registrationCalls.withLock { $0 }, 0)
-        XCTAssertEqual(try self.pendingFileCount(pathExtension: "m4a"), 1)
-        XCTAssertEqual(try self.pendingFileCount(pathExtension: "json"), 1)
+        XCTAssertEqual(try self.mobileSegmentFileCount(root: mobileRoot, pathExtension: "m4a", lifecycle: "pending"), 1)
     }
 
     @MainActor
@@ -177,11 +200,12 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         try? await Task.sleep(for: .milliseconds(40))
 
-        guard case .active(let session) = self.manager.state else {
-            return XCTFail("Expected active state")
-        }
-        XCTAssertEqual(session.currentChunkIndex, 1)
         XCTAssertEqual(self.recorder.rotateCallCount, 1)
+        if case .active(let session) = self.manager.state {
+            XCTAssertEqual(session.currentChunkIndex, 0)
+        } else {
+            XCTFail("Expected active state")
+        }
     }
 
     @MainActor
@@ -216,9 +240,18 @@ nonisolated final class ObserverManagerTests: XCTestCase {
             sleep: { _ in },
             startPathMonitor: false
         )
+        let mobileRoot = self.tempDirectory.appendingPathComponent("AboveThresholdMobileSegment", isDirectory: true)
         let manager = ObserverManager(
             recorder: self.recorder,
             uploader: uploader,
+            mobileSegmentEngine: MobileSegmentEngine(
+                uploader: MobileSegmentUploader(
+                    transport: uploader,
+                    store: MobileSegmentStore(rootURL: mobileRoot),
+                    clock: self.clock
+                ),
+                clock: self.clock
+            ),
             clock: self.clock,
             liveActivity: self.liveActivity
         )
@@ -227,8 +260,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         await manager.startSession(mode: .meeting)
         await manager.stopSession()
 
-        XCTAssertEqual(uploader.pendingCount, 1)
-        XCTAssertEqual(try self.pendingFileCount(pathExtension: "m4a"), 1)
+        XCTAssertEqual(try self.mobileSegmentFileCount(root: mobileRoot, pathExtension: "m4a", lifecycle: "pending"), 1)
     }
 
     @MainActor
@@ -464,6 +496,25 @@ private extension ObserverManagerTests {
             {
                 count += 1
             }
+        }
+        return count
+    }
+
+    func mobileSegmentFileCount(
+        root: URL? = nil,
+        pathExtension: String,
+        lifecycle: String
+    ) throws -> Int {
+        let root = root ?? self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)
+        guard let enumerator = FileManager.default.enumerator(
+            at: root.appendingPathComponent(lifecycle, isDirectory: true),
+            includingPropertiesForKeys: nil
+        ) else {
+            return 0
+        }
+        var count = 0
+        for case let url as URL in enumerator where url.pathExtension == pathExtension {
+            count += 1
         }
         return count
     }

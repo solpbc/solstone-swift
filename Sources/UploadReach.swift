@@ -21,60 +21,54 @@ nonisolated func uploadReach(failedTotal: Int, pendingTotal: Int) -> UploadReach
 
 @MainActor
 func uploadTotals(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentUploader,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue,
-    location: LocationUploader
+    importQueue: ImportQueue
 ) -> (failed: Int, pending: Int) {
     (
-        failed: observer.failedCount + omi.failedCount + watch.failedCount + importQueue.failedCount + location.failedCount,
-        pending: observer.pendingCount + omi.pendingCount + watch.pendingCount + importQueue.pendingCount + location.pendingCount
+        failed: mobileSegment.failedCount + omi.failedCount + watch.failedCount + importQueue.failedCount,
+        pending: mobileSegment.pendingCount + omi.pendingCount + watch.pendingCount + importQueue.pendingCount
     )
 }
 
 @MainActor
 func uploadInFlight(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentUploader,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue,
-    location: LocationUploader
+    importQueue: ImportQueue
 ) -> Int {
-    observer.inFlightCount + omi.inFlightCount + watch.inFlightCount + importQueue.inFlightCount + location.inFlightCount
+    mobileSegment.inFlightCount + omi.inFlightCount + watch.inFlightCount + importQueue.inFlightCount
 }
 
 @MainActor
 func uploadFailedTotal(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentUploader,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue,
-    location: LocationUploader
+    importQueue: ImportQueue
 ) -> Int {
     uploadTotals(
-        observer: observer,
+        mobileSegment: mobileSegment,
         omi: omi,
         watch: watch,
-        importQueue: importQueue,
-        location: location
+        importQueue: importQueue
     ).failed
 }
 
 @MainActor
 func uploadReach(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentUploader,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue,
-    location: LocationUploader
+    importQueue: ImportQueue
 ) -> UploadReach {
     let totals = uploadTotals(
-        observer: observer,
+        mobileSegment: mobileSegment,
         omi: omi,
         watch: watch,
-        importQueue: importQueue,
-        location: location
+        importQueue: importQueue
     )
     return uploadReach(failedTotal: totals.failed, pendingTotal: totals.pending)
 }
@@ -85,17 +79,15 @@ nonisolated func lastSyncedAt(_ dates: [Date?]) -> Date? {
 
 @MainActor
 func lastSyncedAt(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentUploader,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    location: LocationUploader,
     importQueue: ImportQueue
 ) -> Date? {
     lastSyncedAt([
-        observer.lastUploadAt,
+        mobileSegment.lastUploadAt,
         omi.uploader.lastUploadAt,
         watch.lastUploadAt,
-        location.lastUploadAt,
         importQueue.lastDeliveredAt,
     ])
 }

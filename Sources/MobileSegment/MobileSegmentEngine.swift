@@ -1,0 +1,563 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import Foundation
+import Observation
+import os
+
+private let mobileSegmentEngineLog = Logger(subsystem: "app.solstone.swift", category: "mobile-segment-engine")
+
+@MainActor
+@Observable
+final class MobileSegmentEngine {
+    enum EngineState: Equatable, Sendable {
+        case idle
+        case open(segmentID: UUID, sources: Set<MobileSegmentSource>, startedAt: Date)
+        case finalizing(
+            segmentID: UUID,
+            activeSegmentID: UUID?,
+            activeSources: Set<MobileSegmentSource>,
+            activeStartedAt: Date?,
+            pendingNextSourceSet: Set<MobileSegmentSource>?
+        )
+    }
+
+    var state: EngineState = .idle
+
+    @ObservationIgnored private let uploader: MobileSegmentUploader
+    @ObservationIgnored private let clock: any ObserverClock
+    @ObservationIgnored private var timerTask: Task<Void, Never>?
+    @ObservationIgnored private var sourceSetVersion = 0
+    @ObservationIgnored private var audioMode: ObserverMode?
+    @ObservationIgnored private var audioSegmentStartedAt: Date?
+    @ObservationIgnored private var locationBuffer: LocationBuffer?
+    @ObservationIgnored private var pendingBoundaryAt: Date?
+    @ObservationIgnored private var pendingLocationStart: LocationStart?
+    @ObservationIgnored private var pendingAudioStartContinuations: [CheckedContinuation<URL, any Error>] = []
+    @ObservationIgnored var rotateAudio: (@MainActor @Sendable (URL) async throws -> ObserverRecordedChunk?)?
+
+    init(
+        uploader: MobileSegmentUploader,
+        clock: any ObserverClock = SystemObserverClock()
+    ) {
+        self.uploader = uploader
+        self.clock = clock
+    }
+
+    func resumeFromDisk() async {
+        await self.uploader.resumeFromDisk()
+    }
+
+    func startAudio(mode: ObserverMode) async throws -> URL {
+        self.audioMode = mode
+        let now = self.clock.now()
+        switch self.state {
+        case .idle:
+            let segmentID = try self.openSegment(sources: [.audio], startedAt: now)
+            self.audioSegmentStartedAt = now
+            return self.uploader.activeAudioURL(segmentID: segmentID)
+        case .open(_, let sources, _):
+            if sources.contains(.audio), let segmentID = self.currentSegmentID {
+                return self.uploader.activeAudioURL(segmentID: segmentID)
+            }
+            try await self.boundary(to: sources.union([.audio]), at: now)
+            guard let segmentID = self.currentSegmentID else {
+                throw MobileSegmentEngineError.noActiveSegment
+            }
+            self.audioSegmentStartedAt = now
+            return self.uploader.activeAudioURL(segmentID: segmentID)
+        case .finalizing(_, let activeSegmentID, let activeSources, _, let pendingSources):
+            let desiredSources = (pendingSources ?? activeSources).union([.audio])
+            self.coalesceFinalizingSources(desiredSources, at: now)
+            if activeSources.contains(.audio), let activeSegmentID {
+                self.audioSegmentStartedAt = self.audioSegmentStartedAt ?? now
+                return self.uploader.activeAudioURL(segmentID: activeSegmentID)
+            }
+            return try await withCheckedThrowingContinuation { continuation in
+                self.pendingAudioStartContinuations.append(continuation)
+            }
+        }
+    }
+
+    func stopAudio(finalized: ObserverRecordedChunk?, minimumDuration: TimeInterval = 0.1) async {
+        if case .finalizing(_, let activeSegmentID, let activeSources, _, let pendingSources) = self.state {
+            let now = self.clock.now()
+            if activeSources.contains(.audio),
+               let activeSegmentID,
+               let mode = self.audioMode,
+               let startedAt = self.audioSegmentStartedAt {
+                do {
+                    try self.uploader.recordAudioFinalized(
+                        segmentID: activeSegmentID,
+                        finalized: finalized,
+                        startedAt: startedAt,
+                        endedAt: now,
+                        mode: mode,
+                        minimumDuration: minimumDuration
+                    )
+                } catch {
+                    mobileSegmentEngineLog.error("audio stop resolution failed: \(String(describing: error), privacy: .public)")
+                    try? self.uploader.recordAudioFinalizeFailed(
+                        segmentID: activeSegmentID,
+                        startedAt: startedAt,
+                        endedAt: now,
+                        mode: mode,
+                        reason: String(describing: error)
+                    )
+                }
+            }
+            self.audioMode = nil
+            self.audioSegmentStartedAt = nil
+            self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+            self.coalesceFinalizingSources((pendingSources ?? activeSources).subtracting([.audio]), at: now)
+            return
+        }
+
+        guard let segmentID = self.currentSegmentID,
+              let mode = self.audioMode,
+              let startedAt = self.audioSegmentStartedAt
+        else { return }
+        let now = self.clock.now()
+        do {
+            try self.uploader.recordAudioFinalized(
+                segmentID: segmentID,
+                finalized: finalized,
+                startedAt: startedAt,
+                endedAt: now,
+                mode: mode,
+                minimumDuration: minimumDuration
+            )
+            self.audioMode = nil
+            self.audioSegmentStartedAt = nil
+            if case .open(_, let sources, _) = self.state {
+                await self.finishCurrentAndMaybeOpenNext(nextSources: sources.subtracting([.audio]), at: now)
+            }
+        } catch {
+            mobileSegmentEngineLog.error("audio stop resolution failed: \(String(describing: error), privacy: .public)")
+            try? self.uploader.recordAudioFinalizeFailed(
+                segmentID: segmentID,
+                startedAt: startedAt,
+                endedAt: now,
+                mode: mode,
+                reason: String(describing: error)
+            )
+            self.audioMode = nil
+            self.audioSegmentStartedAt = nil
+            await self.finishCurrentAndMaybeOpenNext(nextSources: self.currentSources.subtracting([.audio]), at: now)
+        }
+    }
+
+    func startLocation(tier: LocationTier, accuracy: LocationAccuracy) async {
+        let now = self.clock.now()
+        switch self.state {
+        case .idle:
+            do {
+                _ = try self.openSegment(sources: [.location], startedAt: now)
+                self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+            } catch {
+                self.lastError(error)
+            }
+        case .open(_, let sources, _):
+            guard !sources.contains(.location) else {
+                self.locationBuffer = self.locationBuffer ?? LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+                return
+            }
+            do {
+                try await self.boundary(to: sources.union([.location]), at: now)
+                self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+            } catch {
+                self.lastError(error)
+            }
+        case .finalizing(_, _, let activeSources, _, let pendingSources):
+            let desiredSources = (pendingSources ?? activeSources).union([.location])
+            self.coalesceFinalizingSources(desiredSources, at: now)
+            if activeSources.contains(.location) {
+                self.locationBuffer = self.locationBuffer ?? LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+            } else {
+                self.pendingLocationStart = LocationStart(tier: tier, accuracy: accuracy, startedAt: now)
+                if var buffer = self.locationBuffer {
+                    buffer.tier = tier
+                    buffer.accuracy = accuracy
+                    self.locationBuffer = buffer
+                } else {
+                    self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+                }
+            }
+        }
+    }
+
+    func stopLocation() async {
+        let now = self.clock.now()
+        if case .finalizing(_, _, let activeSources, _, let pendingSources) = self.state {
+            self.coalesceFinalizingSources((pendingSources ?? activeSources).subtracting([.location]), at: now)
+            if !activeSources.contains(.location) {
+                self.pendingLocationStart = nil
+                self.locationBuffer = nil
+            }
+            return
+        }
+        guard case .open(_, let sources, _) = self.state,
+              sources.contains(.location)
+        else {
+            self.locationBuffer = nil
+            return
+        }
+        await self.finishCurrentAndMaybeOpenNext(nextSources: sources.subtracting([.location]), at: now)
+        self.locationBuffer = nil
+    }
+
+    func updateLocation(tier: LocationTier, accuracy: LocationAccuracy) {
+        if var buffer = self.locationBuffer {
+            buffer.tier = tier
+            buffer.accuracy = accuracy
+            self.locationBuffer = buffer
+        }
+    }
+
+    func recordLocationFix(_ fix: LocationFix) {
+        guard var buffer = self.locationBuffer else { return }
+        buffer.fixes.append(fix)
+        self.locationBuffer = buffer
+    }
+
+    func recordLocationVisit(_ visit: LocationVisit) {
+        guard var buffer = self.locationBuffer else { return }
+        buffer.visits.append(visit)
+        self.locationBuffer = buffer
+    }
+
+    func recordLocationGap() {
+        guard var buffer = self.locationBuffer else { return }
+        buffer.gap = true
+        self.locationBuffer = buffer
+    }
+}
+
+private extension MobileSegmentEngine {
+    struct LocationBuffer: Sendable, Equatable {
+        var tier: LocationTier
+        var accuracy: LocationAccuracy
+        let startedAt: Date
+        var fixes: [LocationFix] = []
+        var visits: [LocationVisit] = []
+        var gap = false
+    }
+
+    struct LocationStart: Sendable, Equatable {
+        var tier: LocationTier
+        var accuracy: LocationAccuracy
+        let startedAt: Date
+    }
+
+    var currentSegmentID: UUID? {
+        switch self.state {
+        case .open(let segmentID, _, _):
+            segmentID
+        case .finalizing(_, let activeSegmentID, _, _, _):
+            activeSegmentID
+        case .idle:
+            nil
+        }
+    }
+
+    var currentSources: Set<MobileSegmentSource> {
+        switch self.state {
+        case .open(_, let sources, _):
+            sources
+        case .finalizing(_, _, let activeSources, _, let pendingSources):
+            pendingSources ?? activeSources
+        case .idle:
+            []
+        }
+    }
+
+    func openSegment(sources: Set<MobileSegmentSource>, startedAt: Date) throws -> UUID {
+        let segmentID = try self.createSegment(sources: sources, startedAt: startedAt)
+        self.activateSegment(segmentID: segmentID, sources: sources, startedAt: startedAt, startTimer: true)
+        return segmentID
+    }
+
+    func createSegment(sources: Set<MobileSegmentSource>, startedAt: Date) throws -> UUID {
+        self.sourceSetVersion += 1
+        return try self.uploader.openSegment(
+            sources: sources,
+            startedAt: startedAt,
+            sourceSetVersion: self.sourceSetVersion
+        )
+    }
+
+    func activateSegment(
+        segmentID: UUID,
+        sources: Set<MobileSegmentSource>,
+        startedAt: Date,
+        startTimer shouldStartTimer: Bool,
+        preservePendingAudio: Bool = false,
+        preservePendingLocation: Bool = false
+    ) {
+        self.state = .open(segmentID: segmentID, sources: sources, startedAt: startedAt)
+        if sources.contains(.audio) {
+            self.audioSegmentStartedAt = self.audioSegmentStartedAt ?? startedAt
+            self.resolvePendingAudioStarts(with: self.uploader.activeAudioURL(segmentID: segmentID))
+        } else if !preservePendingAudio {
+            self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+        }
+        if sources.contains(.location), self.locationBuffer == nil, let pendingLocationStart {
+            self.locationBuffer = LocationBuffer(
+                tier: pendingLocationStart.tier,
+                accuracy: pendingLocationStart.accuracy,
+                startedAt: pendingLocationStart.startedAt
+            )
+        }
+        if !sources.contains(.location), !preservePendingLocation {
+            self.locationBuffer = nil
+            self.pendingLocationStart = nil
+        }
+        if shouldStartTimer {
+            self.startTimer()
+        }
+    }
+
+    func boundary(to nextSources: Set<MobileSegmentSource>, at now: Date) async throws {
+        if case .finalizing = self.state {
+            self.coalesceFinalizingSources(nextSources, at: now)
+            return
+        }
+        guard case .open(let segmentID, let oldSources, _) = self.state else { return }
+        await self.performBoundary(segmentID: segmentID, oldSources: oldSources, nextSources: nextSources, at: now, applyPendingFollowUp: true)
+    }
+
+    func rollStableSegment(segmentID: UUID, sources: Set<MobileSegmentSource>, at now: Date) async throws {
+        await self.performBoundary(segmentID: segmentID, oldSources: sources, nextSources: sources, at: now, applyPendingFollowUp: true)
+    }
+
+    func finishCurrentAndMaybeOpenNext(nextSources: Set<MobileSegmentSource>, at now: Date) async {
+        if case .finalizing = self.state {
+            self.coalesceFinalizingSources(nextSources, at: now)
+            return
+        }
+        guard case .open(let segmentID, let oldSources, _) = self.state else { return }
+        await self.performBoundary(segmentID: segmentID, oldSources: oldSources, nextSources: nextSources, at: now, applyPendingFollowUp: true)
+    }
+
+    func performBoundary(
+        segmentID: UUID,
+        oldSources: Set<MobileSegmentSource>,
+        nextSources: Set<MobileSegmentSource>,
+        at now: Date,
+        applyPendingFollowUp: Bool
+    ) async {
+        self.cancelTimer()
+        self.pendingBoundaryAt = nil
+        do {
+            let oldAudioStartedAt = self.audioSegmentStartedAt
+            let oldAudioMode = self.audioMode
+            let oldLocationBuffer = oldSources.contains(.location) ? self.locationBuffer : nil
+            let nextSegmentID = nextSources.isEmpty ? nil : try self.createSegment(sources: nextSources, startedAt: now)
+
+            if nextSources.contains(.audio) {
+                self.audioSegmentStartedAt = now
+            } else if !oldSources.contains(.audio) {
+                self.audioSegmentStartedAt = nil
+                self.audioMode = nil
+            }
+
+            if nextSources.contains(.location) {
+                if oldSources.contains(.location), let oldLocationBuffer {
+                    self.locationBuffer = LocationBuffer(tier: oldLocationBuffer.tier, accuracy: oldLocationBuffer.accuracy, startedAt: now)
+                    self.pendingLocationStart = nil
+                } else if self.locationBuffer == nil, let pendingLocationStart {
+                    self.locationBuffer = LocationBuffer(
+                        tier: pendingLocationStart.tier,
+                        accuracy: pendingLocationStart.accuracy,
+                        startedAt: pendingLocationStart.startedAt
+                    )
+                }
+            } else if !oldSources.contains(.location) {
+                self.locationBuffer = nil
+                self.pendingLocationStart = nil
+            }
+
+            self.state = .finalizing(
+                segmentID: segmentID,
+                activeSegmentID: nextSegmentID,
+                activeSources: nextSources,
+                activeStartedAt: nextSegmentID == nil ? nil : now,
+                pendingNextSourceSet: nil
+            )
+
+            if oldSources.contains(.audio), nextSources.contains(.audio), let nextSegmentID {
+                do {
+                    let nextAudioURL = self.uploader.activeAudioURL(segmentID: nextSegmentID)
+                    let finalized = try await self.rotateAudio?(nextAudioURL)
+                    if let mode = oldAudioMode, let startedAt = oldAudioStartedAt {
+                        try self.uploader.recordAudioFinalized(
+                            segmentID: segmentID,
+                            finalized: finalized,
+                            startedAt: startedAt,
+                            endedAt: now,
+                            mode: mode,
+                            minimumDuration: 0.1
+                        )
+                    }
+                } catch {
+                    if let mode = oldAudioMode, let startedAt = oldAudioStartedAt {
+                        try? self.uploader.recordAudioFinalizeFailed(
+                            segmentID: segmentID,
+                            startedAt: startedAt,
+                            endedAt: now,
+                            mode: mode,
+                            reason: String(describing: error)
+                        )
+                    }
+                    self.lastError(error)
+                }
+            }
+
+            if oldSources.contains(.location) {
+                do {
+                    try self.finalizeLocationIfNeeded(segmentID: segmentID, endedAt: now, buffer: oldLocationBuffer)
+                } catch {
+                    try? self.uploader.recordLocationFinalizeFailed(
+                        segmentID: segmentID,
+                        startedAt: oldLocationBuffer?.startedAt ?? now,
+                        endedAt: now,
+                        reason: String(describing: error)
+                    )
+                    self.lastError(error)
+                }
+            }
+
+            await self.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
+            let pendingNextSources = self.finalizingPendingSources(for: segmentID)
+            let pendingAt = self.pendingBoundaryAt ?? self.clock.now()
+            self.pendingBoundaryAt = nil
+
+            if let nextSegmentID {
+                let shouldFollowUp = applyPendingFollowUp && pendingNextSources != nil && pendingNextSources != nextSources
+                self.activateSegment(
+                    segmentID: nextSegmentID,
+                    sources: nextSources,
+                    startedAt: now,
+                    startTimer: false,
+                    preservePendingAudio: shouldFollowUp && pendingNextSources?.contains(.audio) == true,
+                    preservePendingLocation: shouldFollowUp && pendingNextSources?.contains(.location) == true
+                )
+                if shouldFollowUp, let pendingNextSources {
+                    await self.performBoundary(
+                        segmentID: nextSegmentID,
+                        oldSources: nextSources,
+                        nextSources: pendingNextSources,
+                        at: pendingAt,
+                        applyPendingFollowUp: false
+                    )
+                } else {
+                    self.startTimer()
+                }
+            } else if let pendingNextSources, !pendingNextSources.isEmpty {
+                let openedID = try self.openSegment(sources: pendingNextSources, startedAt: pendingAt)
+                if pendingNextSources.contains(.audio) {
+                    self.resolvePendingAudioStarts(with: self.uploader.activeAudioURL(segmentID: openedID))
+                }
+            } else {
+                self.state = .idle
+                self.locationBuffer = nil
+                self.pendingLocationStart = nil
+                self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+                self.cancelTimer()
+            }
+        } catch {
+            self.lastError(error)
+            if case .finalizing(_, let activeSegmentID?, let activeSources, let activeStartedAt?, _) = self.state {
+                self.activateSegment(segmentID: activeSegmentID, sources: activeSources, startedAt: activeStartedAt, startTimer: true)
+            } else {
+                self.state = .idle
+                self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+            }
+        }
+    }
+
+    func coalesceFinalizingSources(_ sources: Set<MobileSegmentSource>, at now: Date) {
+        guard case .finalizing(let segmentID, let activeSegmentID, let activeSources, let activeStartedAt, _) = self.state else { return }
+        if self.pendingBoundaryAt == nil {
+            self.pendingBoundaryAt = now
+        }
+        self.state = .finalizing(
+            segmentID: segmentID,
+            activeSegmentID: activeSegmentID,
+            activeSources: activeSources,
+            activeStartedAt: activeStartedAt,
+            pendingNextSourceSet: sources
+        )
+    }
+
+    func finalizingPendingSources(for segmentID: UUID) -> Set<MobileSegmentSource>? {
+        guard case .finalizing(let currentSegmentID, _, _, _, let pendingNextSourceSet) = self.state,
+              currentSegmentID == segmentID
+        else { return nil }
+        return pendingNextSourceSet
+    }
+
+    func resolvePendingAudioStarts(with url: URL) {
+        let continuations = self.pendingAudioStartContinuations
+        self.pendingAudioStartContinuations = []
+        for continuation in continuations {
+            continuation.resume(returning: url)
+        }
+    }
+
+    func failPendingAudioStarts(_ error: any Error) {
+        let continuations = self.pendingAudioStartContinuations
+        self.pendingAudioStartContinuations = []
+        for continuation in continuations {
+            continuation.resume(throwing: error)
+        }
+    }
+
+    func finalizeLocationIfNeeded(segmentID: UUID, endedAt: Date, buffer: LocationBuffer?) throws {
+        guard let buffer else { return }
+        let batch = LocationSegmentBatch(
+            tier: buffer.tier,
+            accuracy: buffer.accuracy,
+            segmentStart: buffer.startedAt,
+            coveredSeconds: max(0, Int(endedAt.timeIntervalSince(buffer.startedAt).rounded())),
+            fixes: buffer.fixes,
+            visits: buffer.visits,
+            gap: buffer.gap
+        )
+        try self.uploader.recordLocationFinalized(segmentID: segmentID, batch: batch, endedAt: endedAt)
+    }
+
+    func startTimer() {
+        self.cancelTimer()
+        self.timerTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: .seconds(300))
+            } catch {
+                return
+            }
+            guard !self.currentSources.isEmpty else { return }
+            let sources = self.currentSources
+            let now = self.clock.now()
+            do {
+                try await self.boundary(to: sources, at: now)
+            } catch {
+                self.lastError(error)
+            }
+        }
+    }
+
+    func cancelTimer() {
+        self.timerTask?.cancel()
+        self.timerTask = nil
+    }
+
+    func lastError(_ error: any Error) {
+        mobileSegmentEngineLog.error("mobile segment engine failed: \(String(describing: error), privacy: .public)")
+    }
+}
+
+enum MobileSegmentEngineError: Error {
+    case noActiveSegment
+    case finalizing
+}

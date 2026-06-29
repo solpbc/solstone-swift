@@ -32,13 +32,8 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
             cacheRootURL: self.tempDirectory.appendingPathComponent("queue", isDirectory: true),
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("location", isDirectory: true),
-            startPathMonitor: false
-        )
         appDelegate.observerUploader = observerUploader
         appDelegate.importQueue = importQueue
-        appDelegate.locationUploader = locationUploader
         let completionCounter = CompletionCounter()
 
         appDelegate.application(
@@ -51,8 +46,6 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
         await Task.yield()
         XCTAssertEqual(completionCounter.value(), 0)
         importQueue.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
-        locationUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 0)
         observerUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
@@ -74,14 +67,9 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
             cacheRootURL: self.tempDirectory.appendingPathComponent("queue", isDirectory: true),
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("location", isDirectory: true),
-            startPathMonitor: false
-        )
         appDelegate.observerUploader = observerUploader
         appDelegate.omiUploader = omiUploader
         appDelegate.importQueue = importQueue
-        appDelegate.locationUploader = locationUploader
         let completionCounter = CompletionCounter()
 
         appDelegate.application(
@@ -96,8 +84,6 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
         observerUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 0)
         importQueue.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
-        locationUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 0)
         omiUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
@@ -114,13 +100,8 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
             cacheRootURL: self.tempDirectory.appendingPathComponent("queue", isDirectory: true),
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("location", isDirectory: true),
-            startPathMonitor: false
-        )
         appDelegate.observerUploader = observerUploader
         appDelegate.importQueue = importQueue
-        appDelegate.locationUploader = locationUploader
         let completionCounter = CompletionCounter()
 
         appDelegate.application(
@@ -134,14 +115,12 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
         XCTAssertEqual(completionCounter.value(), 0)
         observerUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 0)
-        locationUploader.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
         importQueue.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
     }
 
     @MainActor
-    func testLocationIdentifierRoutesOnlyToLocationUploader() async {
+    func testRetiredLocationIdentifierCompletesImmediately() async {
         let appDelegate = AppDelegate()
         let observerUploader = ObserverUploader(
             cacheRootURL: self.tempDirectory.appendingPathComponent("observer", isDirectory: true),
@@ -151,29 +130,22 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
             cacheRootURL: self.tempDirectory.appendingPathComponent("queue", isDirectory: true),
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("location", isDirectory: true),
-            startPathMonitor: false
-        )
         appDelegate.observerUploader = observerUploader
         appDelegate.importQueue = importQueue
-        appDelegate.locationUploader = locationUploader
         let completionCounter = CompletionCounter()
 
         appDelegate.application(
             UIApplication.shared,
-            handleEventsForBackgroundURLSession: LocationUploader.backgroundSessionIdentifier
+            handleEventsForBackgroundURLSession: "app.solstone.swift.location-upload"
         ) {
             completionCounter.increment()
         }
 
         await Task.yield()
-        XCTAssertEqual(completionCounter.value(), 0)
+        XCTAssertEqual(completionCounter.value(), 1)
         observerUploader.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
+        XCTAssertEqual(completionCounter.value(), 1)
         importQueue.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
-        locationUploader.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
     }
 

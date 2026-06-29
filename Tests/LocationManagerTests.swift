@@ -8,21 +8,41 @@ import XCTest
 nonisolated final class LocationManagerTests: XCTestCase {
     @MainActor private lazy var provider = MockLocationProvider()
     @MainActor private lazy var clock = MockObserverClock()
-    private lazy var uploader = RecordingLocationUploader()
+    private var tempDirectory: URL!
     private var suiteName: String!
     private var defaults: UserDefaults!
+    @MainActor private lazy var mobileTransport = ObserverUploader(
+        cacheRootURL: self.tempDirectory.appendingPathComponent("mobile-transport", isDirectory: true),
+        isJournalConfigured: { false },
+        localPortProvider: { nil },
+        startPathMonitor: false
+    )
+    @MainActor private lazy var mobileSegmentUploader = MobileSegmentUploader(
+        transport: self.mobileTransport,
+        store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
+        clock: self.clock
+    )
+    @MainActor private lazy var mobileSegmentEngine = MobileSegmentEngine(
+        uploader: self.mobileSegmentUploader,
+        clock: self.clock
+    )
 
     override func setUp() {
         super.setUp()
         self.suiteName = "LocationManagerTests.\(UUID().uuidString)"
         self.defaults = UserDefaults(suiteName: self.suiteName)
         self.defaults.removePersistentDomain(forName: self.suiteName)
+        self.tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LocationManagerTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDown() {
         self.defaults.removePersistentDomain(forName: self.suiteName)
         self.defaults = nil
         self.suiteName = nil
+        try? FileManager.default.removeItem(at: self.tempDirectory)
+        self.tempDirectory = nil
         super.tearDown()
     }
 
@@ -224,7 +244,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testSegmentationEnqueuesEvery300Seconds() async {
+    func testSegmentationCreatesMobileSegmentBundleEvery300Seconds() async throws {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
@@ -234,16 +254,15 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertEqual(batches[0].fixes.count, 1)
-        XCTAssertEqual(batches[0].tier, .balanced)
-        XCTAssertEqual(batches[0].accuracy, .full)
-        XCTAssertEqual(batches[0].coveredSeconds, 300)
+        let summary = self.mobileSegmentUploader.summary(for: .location)
+        XCTAssertEqual(summary.pendingCount, 1)
+        let manifest = try self.pendingLocationManifest()
+        XCTAssertEqual(manifest.location.fixCount, 1)
+        XCTAssertEqual(manifest.location.durationS, 300)
     }
 
     @MainActor
-    func testEmptySegmentSkippedOnTimer() async {
+    func testEmptySegmentSkippedOnTimer() async throws {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
@@ -252,7 +271,8 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        XCTAssertEqual(self.uploader.batchCount(), 0)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
+        XCTAssertEqual(try self.emptyTombstoneCount(), 1)
         guard case .active(let session) = manager.state else {
             return XCTFail("Expected active state")
         }
@@ -260,7 +280,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testGapOnlySegmentIsEnqueued() async {
+    func testGapOnlySegmentCreatesEmptyMobileSegmentTombstone() async throws {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
@@ -271,13 +291,12 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertTrue(batches[0].gap)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
+        XCTAssertEqual(try self.emptyTombstoneCount(), 1)
     }
 
     @MainActor
-    func testSegmentWithFixIsEnqueued() async {
+    func testSegmentWithFixCreatesMobileSegmentBundle() async throws {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
@@ -289,13 +308,15 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertEqual(batches[0].fixes, [fix])
+        let summary = self.mobileSegmentUploader.summary(for: .location)
+        XCTAssertEqual(summary.pendingCount, 1)
+        let payload = try self.pendingLocationPayload()
+        XCTAssertTrue(payload.contains(#""lat""#))
+        XCTAssertTrue(payload.contains(#""lon""#))
     }
 
     @MainActor
-    func testCoveredSecondsNotInflatedAfterSkippedEmptyWindow() async {
+    func testCoveredSecondsNotInflatedAfterSkippedEmptyWindow() async throws {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
@@ -303,20 +324,20 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
-        XCTAssertEqual(self.uploader.batchCount(), 0)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
+        XCTAssertEqual(try self.emptyTombstoneCount(), 1)
 
         self.provider.emitFix(MockLocationProvider.fix())
         await self.yieldToMainActor()
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertEqual(batches[0].coveredSeconds, 300)
+        let manifest = try self.pendingLocationManifest()
+        XCTAssertEqual(manifest.location.durationS, 300)
     }
 
     @MainActor
-    func testStopFlushesFinalPartialSegment() async {
+    func testStopFlushesFinalPartialSegment() async throws {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
@@ -325,13 +346,13 @@ nonisolated final class LocationManagerTests: XCTestCase {
         await self.yieldToMainActor()
         await manager.stop()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertEqual(batches[0].visits.count, 1)
+        let summary = self.mobileSegmentUploader.summary(for: .location)
+        XCTAssertEqual(summary.pendingCount, 1)
+        XCTAssertTrue(try self.pendingLocationPayload().contains("solstone.location.visit"))
     }
 
     @MainActor
-    func testProviderGapSetsBatchGapAndResetsAfterEnqueue() async {
+    func testProviderGapSetsBatchGapAndResetsAfterEnqueue() async throws {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
@@ -343,9 +364,8 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertTrue(batches[0].gap)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
+        XCTAssertEqual(try self.emptyTombstoneCount(), 2)
     }
 
     @MainActor
@@ -361,7 +381,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertTrue(manager.isAuthorizationSufficient(for: .balanced))
         XCTAssertEqual(manager.sourceState, .active)
         XCTAssertNil(manager.sourceAttention)
-        XCTAssertEqual(self.uploader.batchCount(), 0)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
     }
 
     @MainActor
@@ -369,11 +389,11 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
-        let batchesBefore = self.uploader.batches()
+        let pendingBefore = self.mobileSegmentUploader.summary(for: .location).pendingCount
 
         await manager.changeTier(.full)
 
-        XCTAssertEqual(self.uploader.batches(), batchesBefore)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, pendingBefore)
         XCTAssertEqual(manager.tier, .full)
         XCTAssertEqual(self.defaults.string(forKey: "location.tier"), "full")
         XCTAssertEqual(self.provider.currentStartedModes, [.liveUpdates])
@@ -388,7 +408,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
         let nextProvider = MockLocationProvider()
         let nextManager = LocationManager(
             provider: nextProvider,
-            uploader: self.uploader,
+            mobileSegmentEngine: self.mobileSegmentEngine,
             clock: self.clock,
             defaults: self.defaults
         )
@@ -536,7 +556,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testGapOnRevokeMidRunHasOnlyProviderEmittedFixes() async {
+    func testGapOnRevokeMidRunHasOnlyProviderEmittedFixes() async throws {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .balanced)
@@ -548,10 +568,10 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        let batches = self.uploader.batches()
-        XCTAssertEqual(batches.count, 1)
-        XCTAssertTrue(batches[0].gap)
-        XCTAssertEqual(batches[0].fixes, [MockLocationProvider.fix()])
+        let summary = self.mobileSegmentUploader.summary(for: .location)
+        XCTAssertEqual(summary.pendingCount, 1)
+        let payload = try self.pendingLocationPayload()
+        XCTAssertTrue(payload.contains("solstone.location.fix"))
     }
 
     @MainActor
@@ -596,7 +616,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
         XCTAssertEqual(self.provider.stopCallCount, 1)
         XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
-        XCTAssertEqual(self.uploader.batchCount(), 0)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
         XCTAssertEqual(manager.sourceState, .paused)
         XCTAssertNil(manager.sourceAttention)
         XCTAssertTrue(manager.recoveryActions.isEmpty)
@@ -640,7 +660,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     private func makeManager() -> LocationManager {
         LocationManager(
             provider: self.provider,
-            uploader: self.uploader,
+            mobileSegmentEngine: self.mobileSegmentEngine,
             clock: self.clock,
             defaults: self.defaults
         )
@@ -649,6 +669,52 @@ nonisolated final class LocationManagerTests: XCTestCase {
     @MainActor
     private func yieldToMainActor() async {
         try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    @MainActor
+    private func pendingLocationManifest() throws -> MobileSegmentManifest {
+        let directory = try XCTUnwrap(try self.mobileSegmentDirectories(lifecycle: "pending").first)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(
+            MobileSegmentManifest.self,
+            from: Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+        )
+    }
+
+    @MainActor
+    private func pendingLocationPayload() throws -> String {
+        let directory = try XCTUnwrap(try self.mobileSegmentDirectories(lifecycle: "pending").first)
+        return String(
+            decoding: try Data(contentsOf: directory.appendingPathComponent("location.jsonl")),
+            as: UTF8.self
+        )
+    }
+
+    @MainActor
+    private func emptyTombstoneCount() throws -> Int {
+        let directory = self.tempDirectory
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+            .appendingPathComponent("tombstones", isDirectory: true)
+            .appendingPathComponent("empty", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return 0 }
+        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
+            .count
+    }
+
+    @MainActor
+    private func mobileSegmentDirectories(lifecycle: String) throws -> [URL] {
+        let directory = self.tempDirectory
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+            .appendingPathComponent(lifecycle, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ).filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
     }
 }
 

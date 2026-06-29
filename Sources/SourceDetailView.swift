@@ -6,6 +6,7 @@ import UIKit
 
 struct SourceDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
+    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
@@ -61,10 +62,8 @@ private extension SourceDetailView {
             self.recentBlock
         }
 
-        SourceDetailBlock(title: "pending & gaps") {
-            Text(SourceVocabulary.pendingSeam)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        SourceDetailBlock(title: "delivery") {
+            self.deliveryBlock
         }
 
         SourceDetailBlock(title: "remove") {
@@ -231,6 +230,31 @@ private extension SourceDetailView {
             Text(SourceVocabulary.recentFailed)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    var deliveryBlock: some View {
+        let summary = self.mobileSegmentUploader.summary(for: .audio)
+        let presentation = LocationDetailPresentation.deliverySummary(
+            pending: summary.pendingCount,
+            failed: summary.failedCount,
+            lastUploadAt: summary.lastUploadAt
+        )
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(presentation.line)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if presentation.showsRetry {
+                Button(SourceVocabulary.retry) {
+                    Task {
+                        await self.mobileSegmentUploader.retryFailed()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(minWidth: 44, minHeight: 44)
+            }
         }
     }
 

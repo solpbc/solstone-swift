@@ -48,18 +48,13 @@ final class LocationManager {
     var tier: LocationTier
 
     @ObservationIgnored private let provider: any LocationProviding
-    @ObservationIgnored private let uploader: any LocationUploading
+    @ObservationIgnored private let mobileSegmentEngine: MobileSegmentEngine
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let defaults: UserDefaults?
-    @ObservationIgnored private var segmentationTask: Task<Void, Never>?
     @ObservationIgnored private var paused = false
     @ObservationIgnored private var currentSessionID: UUID?
     @ObservationIgnored private var sessionStartedAt: Date?
-    @ObservationIgnored private var segmentStartedAt: Date?
     @ObservationIgnored private var currentSegmentIndex = 0
-    @ObservationIgnored private var segmentFixes: [LocationFix] = []
-    @ObservationIgnored private var segmentVisits: [LocationVisit] = []
-    @ObservationIgnored private var segmentHasGap = false
     @ObservationIgnored private var hasRequestedAlwaysForCurrentStart = false
     private var lastCapability: LocationCapability
 
@@ -71,12 +66,14 @@ final class LocationManager {
 
     init(
         provider: any LocationProviding = LiveLocationProvider(),
-        uploader: any LocationUploading = LocationUploader(),
+        mobileSegmentEngine: MobileSegmentEngine = MobileSegmentEngine(
+            uploader: MobileSegmentUploader(transport: ObserverUploader())
+        ),
         clock: any ObserverClock = SystemObserverClock(),
         defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier)
     ) {
         self.provider = provider
-        self.uploader = uploader
+        self.mobileSegmentEngine = mobileSegmentEngine
         self.clock = clock
         self.defaults = defaults
         self.tier = Self.readTier(defaults: defaults)
@@ -153,7 +150,7 @@ final class LocationManager {
         }
 
         self.cancelTasks()
-        await self.flushSegmentIfNeeded()
+        await self.mobileSegmentEngine.stopLocation()
         await self.provider.stopObservation()
         await self.provider.endBackgroundSustain()
         self.resetRuntime()
@@ -342,11 +339,7 @@ private extension LocationManager {
             let startedAt = self.clock.now()
             self.currentSessionID = sessionID
             self.sessionStartedAt = startedAt
-            self.segmentStartedAt = startedAt
             self.currentSegmentIndex = 0
-            self.segmentFixes = []
-            self.segmentVisits = []
-            self.segmentHasGap = false
             self.state = .active(LocationSession(
                 sessionID: sessionID,
                 startedAt: startedAt,
@@ -355,7 +348,7 @@ private extension LocationManager {
             ))
             self.persistEnabled(true)
             self.persistPaused(false)
-            self.startSegmentationTask()
+            await self.mobileSegmentEngine.startLocation(tier: self.tier, accuracy: self.currentAccuracy())
         } catch {
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
@@ -370,58 +363,10 @@ private extension LocationManager {
         }
         do {
             try await self.provider.startObservation(modes: self.tier.modes)
+            self.mobileSegmentEngine.updateLocation(tier: self.tier, accuracy: self.currentAccuracy())
         } catch {
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
-    }
-
-    func startSegmentationTask() {
-        self.segmentationTask?.cancel()
-        self.segmentationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                do {
-                    try await self.clock.sleep(for: .seconds(300))
-                } catch {
-                    return
-                }
-                guard case .active = self.state else { return }
-                await self.enqueueCurrentSegment()
-            }
-        }
-    }
-
-    func enqueueCurrentSegment() async {
-        guard let segmentStartedAt else { return }
-
-        let now = self.clock.now()
-        if self.segmentFixes.isEmpty && self.segmentVisits.isEmpty && !self.segmentHasGap {
-            locationLog.notice("location: empty segment skipped")
-            self.segmentStartedAt = now
-            return
-        }
-
-        let batch = LocationSegmentBatch(
-            tier: self.tier,
-            accuracy: self.currentAccuracy(),
-            segmentStart: segmentStartedAt,
-            coveredSeconds: max(0, Int(now.timeIntervalSince(segmentStartedAt))),
-            fixes: self.segmentFixes,
-            visits: self.segmentVisits,
-            gap: self.segmentHasGap
-        )
-        await self.uploader.enqueue(batch)
-        self.currentSegmentIndex += 1
-        self.segmentStartedAt = now
-        self.segmentFixes = []
-        self.segmentVisits = []
-        self.segmentHasGap = false
-        await self.updateActiveSessionElapsed(now: now)
-    }
-
-    func flushSegmentIfNeeded() async {
-        // enqueueCurrentSegment self-guards nil and empty segments.
-        await self.enqueueCurrentSegment()
     }
 
     func updateActiveSessionElapsed(now: Date) async {
@@ -436,17 +381,17 @@ private extension LocationManager {
 
     func handleFix(_ fix: LocationFix) {
         guard case .active = self.state else { return }
-        self.segmentFixes.append(fix)
+        self.mobileSegmentEngine.recordLocationFix(fix)
     }
 
     func handleVisit(_ visit: LocationVisit) {
         guard case .active = self.state else { return }
-        self.segmentVisits.append(visit)
+        self.mobileSegmentEngine.recordLocationVisit(visit)
     }
 
     func markGap() {
         if case .active = self.state {
-            self.segmentHasGap = true
+            self.mobileSegmentEngine.recordLocationGap()
         }
     }
 
@@ -481,18 +426,12 @@ private extension LocationManager {
     }
 
     func cancelTasks() {
-        self.segmentationTask?.cancel()
-        self.segmentationTask = nil
     }
 
     func resetRuntime() {
         self.currentSessionID = nil
         self.sessionStartedAt = nil
-        self.segmentStartedAt = nil
         self.currentSegmentIndex = 0
-        self.segmentFixes = []
-        self.segmentVisits = []
-        self.segmentHasGap = false
         self.hasRequestedAlwaysForCurrentStart = false
     }
 }

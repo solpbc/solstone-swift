@@ -66,7 +66,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: "chunk-1").path))
     }
 
-    // ImportQueue and LocationUploader intentionally stay off the audio .m4a delta seam: they count directories and .jsonl files with batch clears/origin-less drops.
+    // ImportQueue intentionally stays off the audio .m4a delta path: it counts directories with batch clears/origin-less drops.
     @MainActor
     func testSuccessfulCompletionsUseDeltasWithoutFullRecountsScalingWithCompletions() async throws {
         ObserverUploaderURLProtocol.handler = { request in
@@ -1466,7 +1466,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             "duration_s",
             "session_id",
             "mode",
+            "sources",
         ])
+        XCTAssertEqual(object["sources"] as? [String], ["audio"])
     }
 
     @MainActor

@@ -113,7 +113,7 @@ func makeDropCommit(
     observerUploader: ObserverUploader,
     omiUploader: ObserverUploader,
     watchUploader: ObserverUploader,
-    locationUploader: LocationUploader,
+    mobileSegmentUploader: MobileSegmentUploader,
     removeWatchStaging: (@MainActor @Sendable (UUID) -> Void)? = nil
 ) -> (@MainActor () -> Void)? {
     guard let itemID = OnThisPhoneItemID(sourceKind: item.sourceKind, id: item.id) else {
@@ -124,6 +124,10 @@ func makeDropCommit(
     case .share(let id):
         return {
             importQueue.dropItem(itemID: id)
+        }
+    case .mobileSegment(let segmentID, _):
+        return {
+            mobileSegmentUploader.dropSegment(segmentID: segmentID)
         }
     case .audio(let sessionID, let chunkID, let source):
         return {
@@ -136,10 +140,6 @@ func makeDropCommit(
                 watchUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
                 removeWatchStaging?(sessionID)
             }
-        }
-    case .location(let fileID):
-        return {
-            locationUploader.dropItem(fileID: fileID)
         }
     }
 }

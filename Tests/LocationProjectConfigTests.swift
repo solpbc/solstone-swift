@@ -52,6 +52,7 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
         ] {
             XCTAssertTrue(appBlock.contains(required), required)
         }
+        XCTAssertFalse(appBlock.contains("Sources/Location/LocationUploader.swift"))
     }
 
     private static func projectYMLURL() -> URL {

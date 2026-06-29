@@ -183,12 +183,10 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             sourceType: "watch-audio",
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: root.appendingPathComponent("Location", isDirectory: true),
-            startPathMonitor: false
-        )
+        let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let sessionID = UUID()
         let shareID = UUID()
+        let segmentID = UUID()
 
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: shareID.uuidString, sourceKind: .share),
@@ -196,7 +194,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: "audio:\(sessionID.uuidString):chunk", sourceKind: .audio),
@@ -204,7 +202,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: "omi:\(sessionID.uuidString):chunk", sourceKind: .audio),
@@ -212,15 +210,15 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
-            for: Self.item(id: "location:20260603-110000_300", sourceKind: .location),
+            for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
             importQueue: importQueue,
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNil(makeDropCommit(
             for: Self.item(id: "audio:not-a-uuid:chunk", sourceKind: .audio),
@@ -228,7 +226,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
     }
 
@@ -254,10 +252,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             sourceType: "watch-audio",
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: root.appendingPathComponent("Location", isDirectory: true),
-            startPathMonitor: false
-        )
+        let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let sessionID = UUID()
         let chunkID = "shared-chunk"
         let observerFailedAudio = try Self.writeFailedPair(root: observerRoot, sessionID: sessionID, chunkID: chunkID)
@@ -269,7 +264,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
         omiCommit()
 
@@ -282,7 +277,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader
+            mobileSegmentUploader: mobileSegmentUploader
         ))
         observerCommit()
 
@@ -312,10 +307,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             sourceType: "watch-audio",
             startPathMonitor: false
         )
-        let locationUploader = LocationUploader(
-            cacheRootURL: root.appendingPathComponent("Location", isDirectory: true),
-            startPathMonitor: false
-        )
+        let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let sessionID = UUID()
         let chunkID = sessionID.uuidString
         let watchFailedAudio = try Self.writeFailedPair(root: watchRoot, sessionID: sessionID, chunkID: chunkID)
@@ -335,7 +327,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             observerUploader: observerUploader,
             omiUploader: omiUploader,
             watchUploader: watchUploader,
-            locationUploader: locationUploader,
+            mobileSegmentUploader: mobileSegmentUploader,
             removeWatchStaging: drain.removeStaged
         ))
         commit()
@@ -361,6 +353,21 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             segment: nil,
             deliveredAt: nil,
             rawFileURL: nil
+        )
+    }
+
+    @MainActor
+    private static func mobileSegmentUploader(root: URL) -> MobileSegmentUploader {
+        let transport = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("MobileSegmentTransport", isDirectory: true),
+            isJournalConfigured: { false },
+            localPortProvider: { nil },
+            startPathMonitor: false
+        )
+        return MobileSegmentUploader(
+            transport: transport,
+            store: MobileSegmentStore(rootURL: root.appendingPathComponent("MobileSegment", isDirectory: true)),
+            clock: MockObserverClock()
         )
     }
 

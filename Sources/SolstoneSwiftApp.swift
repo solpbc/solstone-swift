@@ -29,7 +29,8 @@ struct SolstoneSwiftApp: App {
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var importQueue: ImportQueue
-    @State private var locationUploader: LocationUploader
+    @State private var mobileSegmentUploader: MobileSegmentUploader
+    @State private var mobileSegmentEngine: MobileSegmentEngine
     @State private var locationManager: LocationManager
     @State private var observerManager: ObserverManager
     @State private var watchLink: WatchLink
@@ -179,9 +180,17 @@ struct SolstoneSwiftApp: App {
             },
             diagnosticLog: log
         )
+        let mobileSegmentUploader = MobileSegmentUploader(
+            transport: observerUploader,
+            clock: observerClock
+        )
+        let mobileSegmentEngine = MobileSegmentEngine(
+            uploader: mobileSegmentUploader,
+            clock: observerClock
+        )
         let mobileHealthBeacon = ObserverHealthBeacon(
             registration: observerRegistration,
-            uploader: observerUploader,
+            uploader: mobileSegmentUploader,
             isJournalConfigured: {
                 appConfig.isPaired
             },
@@ -333,22 +342,11 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
-        let locationUploader = LocationUploader(
-            ensureRegistered: {
-                try await observerRegistration.ensureRegistered()
-            },
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            localPortProvider: {
-                observerRegistration.activeLocalPort
-            }
-        )
-        let locationManager = LocationManager(uploader: locationUploader)
+        let locationManager = LocationManager(mobileSegmentEngine: mobileSegmentEngine)
         let observerRecorder = Self.makeObserverRecorder()
         let observerManager = ObserverManager(
             recorder: observerRecorder,
-            uploader: observerUploader,
+            mobileSegmentEngine: mobileSegmentEngine,
             clock: observerClock
         )
         let watchConnectivitySession = LiveWatchConnectivitySession()
@@ -407,29 +405,26 @@ struct SolstoneSwiftApp: App {
         let finishSyncing = FinishSyncingCoordinator(
             totals: {
                 uploadTotals(
-                    observer: observerUploader,
+                    mobileSegment: mobileSegmentUploader,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue,
-                    location: locationUploader
+                    importQueue: importQueue
                 )
             },
             inFlight: {
                 uploadInFlight(
-                    observer: observerUploader,
+                    mobileSegment: mobileSegmentUploader,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue,
-                    location: locationUploader
+                    importQueue: importQueue
                 )
             },
             drive: {
                 await driveUploadDrain(
-                    observer: observerUploader,
+                    mobileSegment: mobileSegmentUploader,
                     omi: omiUploader,
                     watch: watchUploader,
                     importQueue: importQueue,
-                    location: locationUploader,
                     watchDrain: watchSegmentDrain
                 )
             },
@@ -465,7 +460,8 @@ struct SolstoneSwiftApp: App {
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._importQueue = State(initialValue: importQueue)
-        self._locationUploader = State(initialValue: locationUploader)
+        self._mobileSegmentUploader = State(initialValue: mobileSegmentUploader)
+        self._mobileSegmentEngine = State(initialValue: mobileSegmentEngine)
         self._locationManager = State(initialValue: locationManager)
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
@@ -477,7 +473,6 @@ struct SolstoneSwiftApp: App {
         self.appDelegate.omiUploader = omiUploader
         self.appDelegate.watchUploader = watchUploader
         self.appDelegate.importQueue = importQueue
-        self.appDelegate.locationUploader = locationUploader
     }
 
     var body: some Scene {
@@ -497,8 +492,9 @@ struct SolstoneSwiftApp: App {
                 .environment(self.watchLink)
                 .environment(self.watchRelayReceiver)
                 .environment(self.importQueue)
+                .environment(self.mobileSegmentUploader)
+                .environment(self.mobileSegmentEngine)
                 .environment(self.locationManager)
-                .environment(self.locationUploader)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
@@ -534,8 +530,15 @@ struct SolstoneSwiftApp: App {
                     await self.importQueue.resumeFromDisk()
                 }
                 .task {
+                    guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyMobileSegmentsV1") else {
+                        await self.mobileSegmentEngine.resumeFromDisk()
+                        return
+                    }
+                    await self.mobileSegmentUploader.migrateLegacyMobileItems()
+                    UserDefaults.standard.set(true, forKey: "didMigrateLegacyMobileSegmentsV1")
+                }
+                .task {
                     guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyAudioSegmentKeysV1") else { return }
-                    _ = await self.observerUploader.migrateLegacySegmentKeys()
                     _ = await self.omiUploader.migrateLegacySegmentKeys()
                     UserDefaults.standard.set(true, forKey: "didMigrateLegacyAudioSegmentKeysV1")
                 }
@@ -600,31 +603,28 @@ struct SolstoneSwiftApp: App {
                 let coordinator = BackgroundDrainCoordinator(
                     totals: {
                         uploadTotals(
-                            observer: self.observerUploader,
+                            mobileSegment: self.mobileSegmentUploader,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
-                            importQueue: self.importQueue,
-                            location: self.locationUploader
+                            importQueue: self.importQueue
                         )
                     },
                     inFlight: {
                         uploadInFlight(
-                            observer: self.observerUploader,
+                            mobileSegment: self.mobileSegmentUploader,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
-                            importQueue: self.importQueue,
-                            location: self.locationUploader
+                            importQueue: self.importQueue
                         )
                     },
                     isSustaining: { self.locationManager.isSustainingBackground },
                     isConnected: { self.tunnelManager.state.isConnected },
                     drive: {
                         await driveUploadDrain(
-                            observer: self.observerUploader,
+                            mobileSegment: self.mobileSegmentUploader,
                             omi: self.omiUploader,
                             watch: self.watchUploader,
                             importQueue: self.importQueue,
-                            location: self.locationUploader,
                             watchDrain: self.watchSegmentDrain
                         )
                     },
@@ -652,11 +652,10 @@ struct SolstoneSwiftApp: App {
                 self.brainStatusMonitor.startPolling(localPort: port)
                 Task {
                     await driveUploadDrain(
-                        observer: self.observerUploader,
+                        mobileSegment: self.mobileSegmentUploader,
                         omi: self.omiUploader,
                         watch: self.watchUploader,
                         importQueue: self.importQueue,
-                        location: self.locationUploader,
                         watchDrain: self.watchSegmentDrain
                     )
                 }

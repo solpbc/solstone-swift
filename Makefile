@@ -395,6 +395,9 @@ integration-test-observer: sim
 		SENSE_APP_LOG=$$(mktemp -t solstone-swift-observer-sense.XXXXXX); \
 		VOICE_APP_LOG=$$(mktemp -t solstone-swift-observer-voice.XXXXXX); \
 		BOOT_LOG=$$(mktemp -t solstone-swift-observer-boot.XXXXXX); \
+		observer_upload_count() { \
+			curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | python3 -c 'import json,sys; data=sys.stdin.read(); print((json.loads(data).get("upload_count", 0) if data else 0))' 2>/dev/null || echo 0; \
+		}; \
 		cleanup() { \
 			status=$$?; \
 			if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
@@ -465,12 +468,14 @@ integration-test-observer: sim
 			sleep 1; \
 		done; \
 		[ "$$sense_started" -eq 1 ] || { echo "integration-test-observer failed: sense path never started observer"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
-		sense_enqueued=0; \
+		sense_upload_start=$$(observer_upload_count); \
+		sense_uploaded=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "uploader"' 2>/dev/null | grep -q "observer: chunk enqueued"; then sense_enqueued=1; break; fi; \
+			sense_upload_now=$$(observer_upload_count); \
+			if [ "$$sense_upload_now" -gt "$$sense_upload_start" ]; then sense_uploaded=1; break; fi; \
 			sleep 1; \
 		done; \
-		[ "$$sense_enqueued" -eq 1 ] || { echo "integration-test-observer failed: sense path never enqueued chunk"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
+		[ "$$sense_uploaded" -eq 1 ] || { echo "integration-test-observer failed: sense path never uploaded mobile segment"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
 		sleep 10; \
 		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
 			echo "integration-test-observer failed: sense path unexpectedly started voice"; \

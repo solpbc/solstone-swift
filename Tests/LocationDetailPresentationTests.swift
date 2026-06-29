@@ -86,7 +86,6 @@ nonisolated final class LocationDetailPresentationTests: XCTestCase {
         provider.capability = capability
         return LocationManager(
             provider: provider,
-            uploader: RecordingLocationUploader(),
             clock: MockObserverClock(),
             defaults: nil
         )

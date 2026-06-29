@@ -6,7 +6,7 @@ import UIKit
 
 struct LocationSourceDetailView: View {
     @Environment(LocationManager.self) private var locationManager
-    @Environment(LocationUploader.self) private var locationUploader
+    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
@@ -181,10 +181,11 @@ private extension LocationSourceDetailView {
     }
 
     var deliveryBlock: some View {
+        let bundleSummary = self.mobileSegmentUploader.summary(for: .location)
         let summary = LocationDetailPresentation.deliverySummary(
-            pending: self.locationUploader.pendingCount,
-            failed: self.locationUploader.failedCount,
-            lastUploadAt: self.locationUploader.lastUploadAt
+            pending: bundleSummary.pendingCount,
+            failed: bundleSummary.failedCount,
+            lastUploadAt: bundleSummary.lastUploadAt
         )
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -195,7 +196,7 @@ private extension LocationSourceDetailView {
             if summary.showsRetry {
                 Button(SourceVocabulary.retry) {
                     Task {
-                        await self.locationUploader.retryFailed()
+                        await self.mobileSegmentUploader.retryFailed()
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -314,15 +315,51 @@ private extension LocationSourceDetailView {
 
     func runDelete() async {
         self.isDeleting = true
-        let result = await self.locationUploader.deleteLocationSource()
+        let result = await self.deleteLocationSource()
         if result.shouldFlipOff {
-            defer {
-                self.locationUploader.finishDelete()
-            }
+            await self.mobileSegmentUploader.deleteLocationLocalState()
             await self.locationManager.stopForDelete()
         }
         self.deleteResult = result
         self.isDeleting = false
+    }
+
+    func deleteLocationSource() async -> DeleteShareSourceResult {
+        let handle: String
+        do {
+            handle = try await self.observerRegistration.ensureRegistered()
+        } catch {
+            return .unreachable(reason: String(describing: error))
+        }
+
+        guard let localPort = self.observerRegistration.activeLocalPort else {
+            return .unreachable(reason: "location source delete unavailable: missing local port")
+        }
+        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, source: "location") else {
+            return .unreachable(reason: "location source delete unavailable: invalid url")
+        }
+
+        var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "DELETE")
+        request.timeoutInterval = 10
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            return .unreachable(reason: String(describing: error))
+        }
+
+        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            return .unreachable(reason: "HTTP \(status)")
+        }
+        guard !data.isEmpty,
+              let receipt = try? JSONDecoder().decode(DeleteSourceReceipt.self, from: data)
+        else {
+            return .notConfirmed
+        }
+        return .confirmed(receipt: receipt, localNotRemoved: [])
     }
 
     func handleRecovery(_ recovery: LocationRecovery) {

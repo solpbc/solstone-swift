@@ -73,7 +73,7 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
         let roots = self.makeRoots(suffix: "reset")
         let sibling = self.tempDirectory.appendingPathComponent("sibling", isDirectory: true)
 
-        for root in [roots.observer, roots.omi, roots.location, roots.importQueue, sibling] {
+        for root in [roots.observer, roots.omi, roots.location, roots.mobileSegment, roots.importQueue, sibling] {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try Data("data".utf8).write(to: root.appendingPathComponent("item.dat"))
         }
@@ -83,6 +83,7 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.observer.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.omi.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.location.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: roots.mobileSegment.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.importQueue.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sibling.appendingPathComponent("item.dat").path))
     }
@@ -92,6 +93,7 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
             observer: self.tempDirectory.appendingPathComponent("\(suffix)-observer", isDirectory: true),
             omi: self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true),
             location: self.tempDirectory.appendingPathComponent("\(suffix)-location", isDirectory: true),
+            mobileSegment: self.tempDirectory.appendingPathComponent("\(suffix)-mobile-segment", isDirectory: true),
             importQueue: self.tempDirectory.appendingPathComponent("\(suffix)-import", isDirectory: true)
         )
     }

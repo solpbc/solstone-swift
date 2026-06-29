@@ -34,23 +34,20 @@ final class UIBackgroundTaskAsserter: BackgroundTaskAsserting {
 
 @MainActor
 func driveUploadDrain(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentUploader,
     omi: ObserverUploader,
     watch: ObserverUploader,
     importQueue: ImportQueue,
-    location: LocationUploader,
     watchDrain: WatchSegmentDrain?
 ) async {
-    await observer.reconcilePortAndResume()
+    await mobileSegment.resumeFromDisk()
     await omi.reconcilePortAndResume()
     await watch.reconcilePortAndResume()
     await importQueue.resumeFromDisk()
-    await location.resumeFromDisk()
-    await observer.retryFailed()
+    await mobileSegment.retryFailed()
     await omi.retryFailed()
     await watch.retryFailed()
     await importQueue.retryFailed()
-    await location.retryFailed()
     await watchDrain?.drain()
 }
 

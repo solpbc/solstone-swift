@@ -8,6 +8,7 @@ struct SourcesView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @Environment(ImportQueue.self) private var importQueue
+    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(LocationManager.self) private var locationManager
     @Environment(OmiSourceManager.self) private var omiSourceManager
     @Environment(WatchLink.self) private var watchLink
@@ -135,9 +136,12 @@ private extension SourcesView {
 
     var audioSource: Source {
         let state = sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
+        let summary = self.mobileSegmentUploader.summary(for: .audio)
         let attention: SourceAttention?
         if case .error(let error) = self.observerManager.state {
             attention = SourceAttention(message: error.message)
+        } else if summary.failedCount > 0 {
+            attention = SourceAttention(message: SourceVocabulary.needsAttentionSubtext)
         } else {
             attention = nil
         }
@@ -172,14 +176,15 @@ private extension SourcesView {
     }
 
     var locationSource: Source {
-        Source(
+        let summary = self.mobileSegmentUploader.summary(for: .location)
+        return Source(
             id: "location",
             displayName: LocationVocabulary.sourceDisplayName,
             kind: .location,
             group: .experiencingAlongsideYou,
-            state: self.locationManager.sourceState,
+            state: summary.failedCount > 0 ? .needsAttention : self.locationManager.sourceState,
             activeSubtext: LocationVocabulary.activeSubtext,
-            attention: self.locationManager.sourceAttention,
+            attention: self.locationManager.sourceAttention ?? (summary.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil),
             pendingStatus: .nonePending
         )
     }

@@ -28,10 +28,10 @@ struct MoreView: View {
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverUploader.self) private var observerUploader
+    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
-    @Environment(LocationUploader.self) private var locationUploader
     @Environment(LocationManager.self) private var locationManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
@@ -340,16 +340,14 @@ struct MoreView: View {
         while !Task.isCancelled {
             let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
                 importQueue: self.importQueue,
-                observerUploader: self.observerUploader,
+                mobileSegmentUploader: self.mobileSegmentUploader,
                 omiUploader: self.omiUploaderHolder.uploader,
-                watchUploader: self.watchUploaderHolder.uploader,
-                locationUploader: self.locationUploader
+                watchUploader: self.watchUploaderHolder.uploader
             )
             self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
             self.transferRate = self.observerUploader.recentBytesPerSecond
                 + self.omiUploaderHolder.uploader.recentBytesPerSecond
                 + self.watchUploaderHolder.uploader.recentBytesPerSecond
-                + self.locationUploader.recentBytesPerSecond
                 + self.importQueue.recentBytesPerSecond
             try? await Task.sleep(for: .seconds(2))
         }
