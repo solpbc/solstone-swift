@@ -14,7 +14,8 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
     func testBroadcastTargetUsesSampleBufferProcessMode() throws {
         let block = try Self.broadcastTargetBlock()
 
-        XCTAssertTrue(block.contains("RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer"))
+        XCTAssertTrue(block.contains("          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer"))
+        XCTAssertFalse(block.contains("NSExtensionAttributes"))
     }
 
     func testBroadcastTargetUsesSampleHandlerPrincipalClass() throws {
@@ -87,7 +88,7 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "CFBundleVersion: $(CURRENT_PROJECT_VERSION)",
             "DEVELOPMENT_TEAM: 7QCG8V4M6H",
             #"MARKETING_VERSION: "0.1.0""#,
-            "CURRENT_PROJECT_VERSION: 36",
+            "CURRENT_PROJECT_VERSION: 39",
             "SWIFT_STRICT_CONCURRENCY: complete",
             #"SWIFT_VERSION: "6.0""#,
         ] {

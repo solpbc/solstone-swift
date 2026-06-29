@@ -22,15 +22,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSExtension</key>
 	<dict>
-		<key>NSExtensionAttributes</key>
-		<dict>
-			<key>RPBroadcastProcessMode</key>
-			<string>RPBroadcastProcessModeSampleBuffer</string>
-		</dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.broadcast-services-upload</string>
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+		<key>RPBroadcastProcessMode</key>
+		<string>RPBroadcastProcessModeSampleBuffer</string>
 	</dict>
 </dict>
 </plist>
