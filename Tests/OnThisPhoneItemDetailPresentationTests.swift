@@ -221,21 +221,42 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
         XCTAssertEqual(Self.relativeDay(older, now: now), Self.formattedDate(older))
     }
 
-    func testFailureLegibilityGatesToAudioNeedsAttentionWithAttemptData() {
+    func testFailureLegibilityShowsMessageForWaitingAndPermafailed() throws {
         let now = Self.date(year: 2026, month: 6, day: 14, hour: 12, minute: 0)
 
-        XCTAssertNil(OnThisPhoneItemDetailPresentation.failureLegibility(
-            for: Self.item(sourceKind: .share, sendState: .needsAttention, failureAttemptCount: 1),
+        let retryableLocation = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(
+                sourceKind: .location,
+                sendState: .savedOnThisPhone,
+                failureAttemptCount: 2,
+                retryAvailable: true
+            ),
             now: now
         ))
-        XCTAssertNil(OnThisPhoneItemDetailPresentation.failureLegibility(
-            for: Self.item(sourceKind: .audio, sendState: .savedOnThisPhone, failureAttemptCount: 1),
+        XCTAssertEqual(
+            retryableLocation.message,
+            SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 2)
+        )
+
+        let permafailed = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(sourceKind: .audio, sendState: .needsAttention),
             now: now
         ))
+        XCTAssertEqual(
+            permafailed.message,
+            SourceVocabulary.onThisPhoneFailurePermanentMessage(reason: "something got in the way")
+        )
+
         XCTAssertNil(OnThisPhoneItemDetailPresentation.failureLegibility(
-            for: Self.item(sourceKind: .audio, sendState: .needsAttention, failureAttemptCount: nil),
+            for: Self.item(sourceKind: .location, sendState: .savedOnThisPhone),
             now: now
         ))
+
+        let waiting = try XCTUnwrap(OnThisPhoneItemDetailPresentation.failureLegibility(
+            for: Self.item(sourceKind: .location, sendState: .savedOnThisPhone, retryAvailable: true),
+            now: now
+        ))
+        XCTAssertEqual(waiting.message, SourceVocabulary.onThisPhoneWaitingExplain)
     }
 
     func testFailureLegibilityRetryableMessageUsesSingularAndPluralAttempts() throws {

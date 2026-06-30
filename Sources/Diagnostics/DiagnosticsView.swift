@@ -184,7 +184,7 @@ struct DiagnosticsView: View {
         return Section(SourceVocabulary.onThisPhone) {
             LabeledContent(SourceVocabulary.migrationStageOnThisPhone, value: "\(migration.onThisPhone)")
                 .accessibilityIdentifier("diagnostics.lifecycle.onThisPhone")
-            LabeledContent(SourceVocabulary.needsAttention, value: "\(migration.needsAttention)")
+            LabeledContent(SourceVocabulary.waitingToSync, value: "\(migration.needsAttention)")
                 .accessibilityIdentifier("diagnostics.lifecycle.needsAttention")
             LabeledContent(
                 SourceVocabulary.yourJournalSection,
@@ -220,7 +220,7 @@ struct DiagnosticsView: View {
                             await self.retryFailedSegments()
                         }
                     } label: {
-                        Text(self.isRetrying ? "trying…" : "try now")
+                        Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)

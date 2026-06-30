@@ -46,6 +46,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
         XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
         XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, "in your journal")
+        XCTAssertEqual(SourceVocabulary.tryNow, "try now")
+        XCTAssertEqual(SourceVocabulary.waitingToSync, "waiting to sync")
+        XCTAssertFalse(SourceVocabulary.onThisPhoneWaitingExplain.isEmpty)
+        XCTAssertTrue(SourceVocabulary.onThisPhoneWaitingExplain.contains("still on this phone"))
         XCTAssertEqual(
             SourceVocabulary.audioEnrollmentValue,
             "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you."

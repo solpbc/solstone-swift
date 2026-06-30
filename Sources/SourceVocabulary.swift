@@ -99,6 +99,9 @@ nonisolated enum SourceVocabulary {
     static let sendStateCompactSaved = "waiting to sync"
     static let sendStateCompactOnTheWay = "on the way"
     static let sendStateCompactInJournal = "in your journal"
+    static let onThisPhoneWaitingExplain = "still on this phone. solstone keeps trying to sync it to your journal automatically — you don't have to do anything."
+    static let tryNow = "try now"
+    static let waitingToSync = sendStateCompactSaved
     static let screencastDisplayName = "screen"
     static let screencastActiveSubtext = "sharing your screen"
     static let screencastStartingSubtext = "waiting for the system sheet"

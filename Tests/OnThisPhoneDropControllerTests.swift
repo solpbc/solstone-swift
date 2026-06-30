@@ -230,6 +230,83 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         ))
     }
 
+    func testMakeRetryCommitReturnsClosureForValidIDsAndNilForInvalidIDs() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OnThisPhoneRetryControllerTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let importQueue = ImportQueue(
+            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
+            startPathMonitor: false
+        )
+        let observerUploader = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("Observer", isDirectory: true),
+            startPathMonitor: false
+        )
+        let omiUploader = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("OmiObserver", isDirectory: true),
+            sourceType: "omi-audio",
+            startPathMonitor: false
+        )
+        let watchUploader = ObserverUploader(
+            cacheRootURL: root.appendingPathComponent("WatchObserver", isDirectory: true),
+            sourceType: "watch-audio",
+            startPathMonitor: false
+        )
+        let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let sessionID = UUID()
+        let shareID = UUID()
+        let segmentID = UUID()
+
+        XCTAssertNotNil(makeRetryCommit(
+            for: Self.item(id: shareID.uuidString, sourceKind: .share),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        XCTAssertNotNil(makeRetryCommit(
+            for: Self.item(id: "audio:\(sessionID.uuidString):chunk", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        XCTAssertNotNil(makeRetryCommit(
+            for: Self.item(id: "omi:\(sessionID.uuidString):chunk", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        XCTAssertNotNil(makeRetryCommit(
+            for: Self.item(id: "watch:\(sessionID.uuidString):chunk", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        XCTAssertNotNil(makeRetryCommit(
+            for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        XCTAssertNil(makeRetryCommit(
+            for: Self.item(id: "audio:not-a-uuid:chunk", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+    }
+
     func testAudioDropCommitRoutesOnlyToOwningUploader() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneDropRoutingTests-\(UUID().uuidString)", isDirectory: true)
@@ -282,6 +359,66 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         observerCommit()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: observerFailedAudio.path))
+    }
+
+    func testAudioRetryCommitRoutesOnlyToOwningUploader() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OnThisPhoneRetryRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let importQueue = ImportQueue(
+            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
+            startPathMonitor: false
+        )
+        let observerRoot = root.appendingPathComponent("Observer", isDirectory: true)
+        let omiRoot = root.appendingPathComponent("OmiObserver", isDirectory: true)
+        let watchRoot = root.appendingPathComponent("WatchObserver", isDirectory: true)
+        let observerUploader = ObserverUploader(cacheRootURL: observerRoot, startPathMonitor: false)
+        let omiUploader = ObserverUploader(
+            cacheRootURL: omiRoot,
+            sourceType: "omi-audio",
+            startPathMonitor: false
+        )
+        let watchUploader = ObserverUploader(
+            cacheRootURL: watchRoot,
+            sourceType: "watch-audio",
+            startPathMonitor: false
+        )
+        let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let sessionID = UUID()
+        let chunkID = "shared-chunk"
+        let observerFailedAudio = try Self.writeFailedPair(root: observerRoot, sessionID: sessionID, chunkID: chunkID)
+        let omiFailedAudio = try Self.writeFailedPair(root: omiRoot, sessionID: sessionID, chunkID: chunkID)
+
+        let omiCommit = try XCTUnwrap(makeRetryCommit(
+            for: Self.item(id: "omi:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        await omiCommit()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: observerFailedAudio.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: omiFailedAudio.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: Self.pendingAudioURL(root: omiRoot, sessionID: sessionID, chunkID: chunkID).path
+        ))
+
+        let observerCommit = try XCTUnwrap(makeRetryCommit(
+            for: Self.item(id: "audio:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
+            importQueue: importQueue,
+            observerUploader: observerUploader,
+            omiUploader: omiUploader,
+            watchUploader: watchUploader,
+            mobileSegmentUploader: mobileSegmentUploader
+        ))
+        await observerCommit()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: observerFailedAudio.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: Self.pendingAudioURL(root: observerRoot, sessionID: sessionID, chunkID: chunkID).path
+        ))
     }
 
     func testWatchAudioDropAlsoRemovesStagingDirectory() throws {
@@ -380,6 +517,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         try Data("audio".utf8).write(to: audioURL)
         try Data("{}".utf8).write(to: failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false))
         return audioURL
+    }
+
+    private static func pendingAudioURL(root: URL, sessionID: UUID, chunkID: String) -> URL {
+        root
+            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent("\(chunkID).m4a", isDirectory: false)
     }
 
     @MainActor

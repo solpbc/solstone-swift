@@ -143,3 +143,36 @@ func makeDropCommit(
         }
     }
 }
+
+@MainActor
+func makeRetryCommit(
+    for item: OnThisPhoneItem,
+    importQueue: ImportQueue,
+    observerUploader: ObserverUploader,
+    omiUploader: ObserverUploader,
+    watchUploader: ObserverUploader,
+    mobileSegmentUploader: MobileSegmentUploader
+) -> (@MainActor () async -> Void)? {
+    guard let itemID = OnThisPhoneItemID(sourceKind: item.sourceKind, id: item.id) else {
+        return nil
+    }
+
+    switch itemID {
+    case .share(let id):
+        return { try? await importQueue.requeueFailedItem(itemID: id) }
+    case .mobileSegment:
+        // no per-segment requeue exists; retry is source-level
+        return { await mobileSegmentUploader.retryFailed() }
+    case .audio(let sessionID, let chunkID, let source):
+        return {
+            switch source {
+            case .observer:
+                try? await observerUploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+            case .omi:
+                try? await omiUploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+            case .watch:
+                try? await watchUploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+            }
+        }
+    }
+}

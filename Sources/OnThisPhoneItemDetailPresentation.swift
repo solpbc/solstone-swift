@@ -244,16 +244,19 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> OnThisPhoneFailureLegibility? {
-        guard item.sourceKind == .audio,
-              item.sendState == .needsAttention,
-              let failureAttemptCount = item.failureAttemptCount
-        else {
-            return nil
-        }
+        let shouldExplain = item.retryAvailable
+            || item.failureReason != nil
+            || item.failureAttemptCount != nil
+            || item.sendState == .needsAttention
+        guard shouldExplain else { return nil }
 
         let message: String
         if item.retryAvailable {
-            message = SourceVocabulary.onThisPhoneFailureRetryableMessage(count: failureAttemptCount)
+            if let failureAttemptCount = item.failureAttemptCount {
+                message = SourceVocabulary.onThisPhoneFailureRetryableMessage(count: failureAttemptCount)
+            } else {
+                message = SourceVocabulary.onThisPhoneWaitingExplain
+            }
         } else {
             let bucket = self.failureBucket(for: item.failureReason)
             let reason = self.failurePlainReason(for: bucket)

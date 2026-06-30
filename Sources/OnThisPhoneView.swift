@@ -738,6 +738,7 @@ private extension OnThisPhoneMomentsView {
                     SwipeToDropRow(
                         item: item,
                         openRowID: self.$openRowID,
+                        onRequestRetry: { item in await self.requestRetry(item) },
                         onRequestDrop: { item in self.requestDrop(item) },
                         onDrop: { item in self.pendingDropItem = item }
                     )
@@ -763,6 +764,20 @@ private extension OnThisPhoneMomentsView {
             descriptor: item.dropDescriptor,
             commit: commit
         )
+    }
+
+    private func requestRetry(_ item: OnThisPhoneItem) async {
+        guard let commit = makeRetryCommit(
+            for: item,
+            importQueue: self.importQueue,
+            observerUploader: self.observerUploader,
+            omiUploader: self.omiUploaderHolder.uploader,
+            watchUploader: self.watchUploaderHolder.uploader,
+            mobileSegmentUploader: self.mobileSegmentUploader
+        ) else {
+            return
+        }
+        await commit()
     }
 
     func loadSnapshot(trigger: LoadTrigger) {
@@ -828,6 +843,7 @@ private extension OnThisPhoneMomentsView {
 private struct SwipeToDropRow: View {
     let item: OnThisPhoneItem
     @Binding var openRowID: String?
+    let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Void
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
     let onDrop: @MainActor (OnThisPhoneItem) -> Void
     @State private var offset: CGFloat = 0
@@ -875,7 +891,9 @@ private extension SwipeToDropRow {
 
     var foregroundCard: some View {
         NavigationLink {
-            OnThisPhoneItemDetailView(item: self.item) { item in
+            OnThisPhoneItemDetailView(item: self.item, onRequestRetry: { item in
+                await self.onRequestRetry(item)
+            }) { item in
                 self.onRequestDrop(item)
             }
         } label: {

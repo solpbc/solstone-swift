@@ -10,12 +10,19 @@ struct OnThisPhoneItemDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
 
     let item: OnThisPhoneItem
+    let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Void
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
     @State private var showingDropConfirm = false
     @State private var showingJournal = false
+    @State private var isRetrying = false
 
-    init(item: OnThisPhoneItem, onRequestDrop: @escaping @MainActor (OnThisPhoneItem) -> Void) {
+    init(
+        item: OnThisPhoneItem,
+        onRequestRetry: @escaping @MainActor (OnThisPhoneItem) async -> Void,
+        onRequestDrop: @escaping @MainActor (OnThisPhoneItem) -> Void
+    ) {
         self.item = item
+        self.onRequestRetry = onRequestRetry
         self.onRequestDrop = onRequestDrop
     }
 
@@ -171,7 +178,29 @@ private extension OnThisPhoneItemDetailView {
     }
 
     var actionsBlock: some View {
-        self.dropButton
+        VStack(alignment: .leading, spacing: 12) {
+            if self.item.retryAvailable {
+                self.retryButton
+            }
+            self.dropButton
+        }
+    }
+
+    var retryButton: some View {
+        Button {
+            Task { @MainActor in
+                self.isRetrying = true
+                await self.onRequestRetry(self.item)
+                self.isRetrying = false
+            }
+        } label: {
+            Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(self.isRetrying)
+        .accessibilityIdentifier("onThisPhone.retry.button")
+        .accessibilityLabel(SourceVocabulary.tryNow)
     }
 
     var dropButton: some View {
