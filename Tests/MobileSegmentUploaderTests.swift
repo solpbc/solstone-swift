@@ -279,6 +279,71 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: activeDirectory.path))
     }
 
+    func testRecordLocationFinalizeRemovedRemovesLiveLocationFiles() throws {
+        let harness = self.makeHarness()
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(30)
+        let segmentID = try harness.uploader.openSegment(
+            sources: [.location],
+            startedAt: startedAt,
+            sourceSetVersion: 1
+        )
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try harness.uploader.appendLocationLiveState(
+            segmentID: segmentID,
+            segmentStart: startedAt,
+            tier: .balanced,
+            accuracy: .full,
+            gap: false,
+            recordedAt: startedAt
+        )
+        try harness.uploader.writeLocationLiveness(
+            segmentID: segmentID,
+            sourceSetVersion: 1,
+            lastSeenAt: startedAt,
+            fixCount: 0,
+            visitCount: 0,
+            gap: false
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationPartURL(in: directory).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationLivenessURL(in: directory).path))
+
+        try harness.uploader.recordLocationFinalizeRemoved(
+            segmentID: segmentID,
+            endedAt: endedAt,
+            reason: "location finalize failed"
+        )
+
+        let manifest = try harness.store.readManifest(in: directory)
+        XCTAssertEqual(manifest.location.state, .removed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationPartURL(in: directory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationLivenessURL(in: directory).path))
+    }
+
+    func testRecordLocationFinalizeRemovedAllowsAudioSiblingToPending() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        _ = try self.createMixedActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            locationResolution: nil
+        )
+        let endedAt = self.clock.now().addingTimeInterval(60)
+
+        try harness.uploader.recordLocationFinalizeRemoved(
+            segmentID: segmentID,
+            endedAt: endedAt,
+            reason: "location finalize failed"
+        )
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.audio.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.state, .removed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+    }
+
     func testDeleteLocationLocalStateRedactsFailedLocationAndPreservesAudioUpload() async throws {
         let harness = self.makeHarness()
         let segmentID = UUID()

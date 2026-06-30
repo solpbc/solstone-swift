@@ -133,6 +133,47 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(current.startedAt, finalized.startedAt.addingTimeInterval(300))
     }
 
+    func testLocationMutatorsAppendLiveLogAndRefreshLiveness() async throws {
+        let harness = self.makeHarness()
+        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        let activeDirectory = try XCTUnwrap(try harness.store.list(.active).first)
+        let segmentID = try XCTUnwrap(UUID(uuidString: activeDirectory.lastPathComponent))
+
+        self.clock.advance(by: 5)
+        harness.engine.updateLocation(tier: .full, accuracy: .reduced)
+        let fix = Self.fix(at: self.clock.now())
+        harness.engine.recordLocationFix(fix)
+        self.clock.advance(by: 5)
+        let visit = LocationVisit(
+            arrival: self.clock.now().addingTimeInterval(-2),
+            departure: self.clock.now(),
+            lat: 37.5,
+            lon: -122.2,
+            hAcc: 18
+        )
+        harness.engine.recordLocationVisit(visit)
+        harness.engine.recordLocationGap()
+
+        let liveData = try harness.store.readData(at: harness.store.locationPartURL(in: activeDirectory))
+        let recovered = try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: liveData)
+        XCTAssertEqual(recovered.tier, .full)
+        XCTAssertEqual(recovered.accuracy, .reduced)
+        XCTAssertEqual(recovered.fixes, [fix])
+        XCTAssertEqual(recovered.visits, [visit])
+        XCTAssertTrue(recovered.gap)
+
+        let livenessData = try harness.store.readData(at: harness.store.locationLivenessURL(in: activeDirectory))
+        let liveness = try MobileSegmentLocationWriter.decoder().decode(
+            MobileSegmentLocationSegmentLiveness.self,
+            from: livenessData
+        )
+        XCTAssertEqual(liveness.segmentID, segmentID)
+        XCTAssertEqual(liveness.sourceSetVersion, 1)
+        XCTAssertEqual(liveness.fixCount, 1)
+        XCTAssertEqual(liveness.visitCount, 1)
+        XCTAssertTrue(liveness.gap)
+    }
+
     func testAudioFinalizerFailureCreatesFailedMarkerAndNoUploadRequest() async throws {
         let harness = self.makeHarness()
         harness.engine.rotateAudio = { _ in

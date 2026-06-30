@@ -279,6 +279,7 @@ final class MobileSegmentUploader {
                 fixCount: 0
             )
             try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+            self.removeLocationLiveFiles(in: directory)
             return
         }
 
@@ -295,11 +296,80 @@ final class MobileSegmentUploader {
             fixCount: frozen.fixCount
         )
         try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+        self.removeLocationLiveFiles(in: directory)
     }
 
-    func recordLocationFinalizeFailed(
+    func appendLocationLiveState(
         segmentID: UUID,
-        startedAt: Date,
+        segmentStart: Date,
+        tier: LocationTier,
+        accuracy: LocationAccuracy,
+        gap: Bool,
+        recordedAt: Date
+    ) throws {
+        try self.requireStorageAvailable()
+        let directory = self.activeDirectory(segmentID: segmentID)
+        guard self.store.fileExists(directory) else {
+            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+        }
+        let data = try MobileSegmentLocationWriter.liveStateLine(
+            segmentID: segmentID,
+            segmentStart: segmentStart,
+            tier: tier,
+            accuracy: accuracy,
+            gap: gap,
+            recordedAt: recordedAt
+        )
+        try self.store.appendData(data, to: self.store.locationPartURL(in: directory))
+    }
+
+    func appendLocationLiveFix(segmentID: UUID, fix: LocationFix) throws {
+        try self.requireStorageAvailable()
+        let directory = self.activeDirectory(segmentID: segmentID)
+        guard self.store.fileExists(directory) else {
+            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+        }
+        let data = try MobileSegmentLocationWriter.liveFixLine(fix)
+        try self.store.appendData(data, to: self.store.locationPartURL(in: directory))
+    }
+
+    func appendLocationLiveVisit(segmentID: UUID, visit: LocationVisit) throws {
+        try self.requireStorageAvailable()
+        let directory = self.activeDirectory(segmentID: segmentID)
+        guard self.store.fileExists(directory) else {
+            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+        }
+        let data = try MobileSegmentLocationWriter.liveVisitLine(visit)
+        try self.store.appendData(data, to: self.store.locationPartURL(in: directory))
+    }
+
+    func writeLocationLiveness(
+        segmentID: UUID,
+        sourceSetVersion: Int,
+        lastSeenAt: Date,
+        fixCount: Int,
+        visitCount: Int,
+        gap: Bool
+    ) throws {
+        try self.requireStorageAvailable()
+        let directory = self.activeDirectory(segmentID: segmentID)
+        guard self.store.fileExists(directory) else {
+            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+        }
+        let liveness = MobileSegmentLocationSegmentLiveness(
+            segmentID: segmentID,
+            sourceSetVersion: sourceSetVersion,
+            lastSeenAt: lastSeenAt,
+            fixCount: fixCount,
+            visitCount: visitCount,
+            gap: gap
+        )
+        let data = try MobileSegmentLocationWriter.encoder().encode(liveness)
+        try self.store.writeData(data, to: self.store.locationLivenessURL(in: directory))
+    }
+
+    func recordLocationFinalizeRemoved(
+        segmentID: UUID,
         endedAt: Date,
         reason: String
     ) throws {
@@ -307,15 +377,13 @@ final class MobileSegmentUploader {
         let directory = self.activeDirectory(segmentID: segmentID)
         var manifest = try self.store.readManifest(in: directory)
         guard manifest.openedWithSources.contains(.location) else { return }
-        let resolution = MobileSegmentSourceResolution(
-            state: .failedToFinalize,
-            startedAt: startedAt,
-            endedAt: endedAt,
-            reason: reason,
-            stage: "source-finalize",
-            lastAttemptAt: endedAt
+        try self.writeLocationRemoved(
+            segmentID: segmentID,
+            directory: directory,
+            manifest: &manifest,
+            now: endedAt,
+            reason: reason
         )
-        try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
     }
 
     func finalizeActiveSegment(segmentID: UUID, endedAt: Date) async {
@@ -330,6 +398,7 @@ final class MobileSegmentUploader {
             manifest.updatedAt = endedAt
 
             var deferredLiveScreencast = false
+            var deferredLiveLocation = false
             for source in manifest.declaredSources where !manifest.resolution(for: source).state.isTerminal {
                 if source == .screencast {
                     let screenURL = self.store.screenURL(in: directory)
@@ -362,6 +431,43 @@ final class MobileSegmentUploader {
                     manifest = try self.store.readManifest(in: directory)
                     continue
                 }
+                if source == .location {
+                    let locationURL = self.store.locationURL(in: directory)
+                    let locationPartURL = self.store.locationPartURL(in: directory)
+                    if self.store.fileExists(locationURL) {
+                        try self.writeLocationArtifactOutcome(
+                            segmentID: segmentID,
+                            directory: directory,
+                            manifest: &manifest,
+                            now: endedAt
+                        )
+                        manifest = try self.store.readManifest(in: directory)
+                        continue
+                    }
+                    if self.store.fileExists(locationPartURL) {
+                        if self.hasFreshLocationLiveness(segmentID: segmentID, directory: directory, now: endedAt) {
+                            deferredLiveLocation = true
+                            continue
+                        }
+                        try self.recoverLocationLive(
+                            segmentID: segmentID,
+                            directory: directory,
+                            manifest: &manifest,
+                            now: endedAt
+                        )
+                        manifest = try self.store.readManifest(in: directory)
+                        continue
+                    }
+                    try self.writeLocationRemoved(
+                        segmentID: segmentID,
+                        directory: directory,
+                        manifest: &manifest,
+                        now: endedAt,
+                        reason: "location_live_missing"
+                    )
+                    manifest = try self.store.readManifest(in: directory)
+                    continue
+                }
                 let resolution = MobileSegmentSourceResolution(
                     state: .failedToFinalize,
                     reason: "missing outcome marker for \(source.rawValue)",
@@ -372,7 +478,7 @@ final class MobileSegmentUploader {
                 manifest = try self.store.readManifest(in: directory)
             }
 
-            if deferredLiveScreencast {
+            if deferredLiveScreencast || deferredLiveLocation {
                 try self.store.writeManifest(manifest, in: directory)
                 self.refreshCounts()
                 return
@@ -469,13 +575,14 @@ final class MobileSegmentUploader {
         do {
             var manifest = try self.store.readManifest(in: found.url)
             guard manifest.location.state.isLocalFacet else { return }
-            self.store.removeIfExists(self.store.locationURL(in: found.url))
-            let resolution = MobileSegmentSourceResolution(
-                state: .removed,
-                reason: "location_removed",
-                lastAttemptAt: self.clock.now()
+            let now = self.clock.now()
+            try self.writeLocationRemoved(
+                segmentID: segmentID,
+                directory: found.url,
+                manifest: &manifest,
+                now: now,
+                reason: "location_removed"
             )
-            try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: found.url, now: self.clock.now())
             if manifest.audio.state == .finalizedArtifact || manifest.screencast.state == .finalizedArtifact {
                 manifest.upload = .pending
                 try self.store.writeManifest(manifest, in: found.url)
@@ -637,6 +744,108 @@ private extension MobileSegmentUploader {
         guard let storageDisabledReason else { return }
         self.lastError = storageDisabledReason
         throw MobileSegmentUploaderError.storageUnavailable(storageDisabledReason)
+    }
+
+    func removeLocationLiveFiles(in directory: URL) {
+        self.store.removeIfExists(self.store.locationPartURL(in: directory))
+        self.store.removeIfExists(self.store.locationLivenessURL(in: directory))
+    }
+
+    func removeLocationLocalFiles(in directory: URL) {
+        self.store.removeIfExists(self.store.locationURL(in: directory))
+        self.removeLocationLiveFiles(in: directory)
+    }
+
+    func writeLocationRemoved(
+        segmentID: UUID,
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        now: Date,
+        reason: String
+    ) throws {
+        self.removeLocationLocalFiles(in: directory)
+        let resolution = MobileSegmentSourceResolution(
+            state: .removed,
+            reason: reason,
+            lastAttemptAt: now
+        )
+        try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: now)
+        mobileSegmentUploadLog.info("location facet removed segment=\(segmentID.uuidString, privacy: .public) reason=\(reason, privacy: .public)")
+    }
+
+    func writeLocationArtifactOutcome(
+        segmentID: UUID,
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        now: Date
+    ) throws {
+        let locationURL = self.store.locationURL(in: directory)
+        let header = try? MobileSegmentLocationWriter.loadSnapshotHeader(from: self.store.readData(at: locationURL))
+        let resolution = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: locationURL.lastPathComponent,
+            bytes: self.store.fileSize(at: locationURL),
+            startedAt: manifest.startedAt,
+            endedAt: now,
+            durationS: max(0, now.timeIntervalSince(manifest.startedAt)),
+            fixCount: header?.fixCount
+        )
+        try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: now)
+        self.removeLocationLiveFiles(in: directory)
+        mobileSegmentUploadLog.info("location canonical artifact recovered segment=\(segmentID.uuidString, privacy: .public)")
+    }
+
+    func readLocationLiveness(segmentID: UUID, directory: URL) -> MobileSegmentLocationSegmentLiveness? {
+        let livenessURL = self.store.locationLivenessURL(in: directory)
+        guard self.store.fileExists(livenessURL),
+              let data = try? self.store.readData(at: livenessURL),
+              let liveness = try? MobileSegmentLocationWriter.decoder().decode(
+                MobileSegmentLocationSegmentLiveness.self,
+                from: data
+              ),
+              liveness.segmentID == segmentID
+        else {
+            return nil
+        }
+        return liveness
+    }
+
+    func hasFreshLocationLiveness(segmentID: UUID, directory: URL, now: Date) -> Bool {
+        guard let liveness = self.readLocationLiveness(segmentID: segmentID, directory: directory) else {
+            return false
+        }
+        return MobileSegmentLocationLivenessPolicy.isFresh(lastSeenAt: liveness.lastSeenAt, now: now)
+    }
+
+    func recoverLocationLive(
+        segmentID: UUID,
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        now: Date
+    ) throws {
+        let partURL = self.store.locationPartURL(in: directory)
+        let data = try self.store.readData(at: partURL)
+        let recovered: MobileSegmentLocationWriter.RecoveredLiveLocation
+        do {
+            recovered = try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: data)
+        } catch {
+            mobileSegmentUploadLog.error("location live recovery corrupt segment=\(segmentID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
+            try self.writeLocationRemoved(
+                segmentID: segmentID,
+                directory: directory,
+                manifest: &manifest,
+                now: now,
+                reason: "location_live_corrupt"
+            )
+            return
+        }
+
+        let liveness = self.readLocationLiveness(segmentID: segmentID, directory: directory)
+        let endedAt = liveness?.lastSeenAt ?? recovered.latestRecordAt
+        let batch = recovered.batch(endedAt: endedAt)
+        try self.recordLocationFinalized(segmentID: segmentID, batch: batch, endedAt: endedAt)
+        manifest = try self.store.readManifest(in: directory)
+        mobileSegmentUploadLog.info("location live recovered segment=\(segmentID.uuidString, privacy: .public)")
     }
 
     func migrateLegacyObserverItems(root: URL, fileManager: FileManager) async {
@@ -1054,6 +1263,7 @@ private extension MobileSegmentUploader {
             var manifest = try self.store.readManifest(in: directory)
             let screenURL = self.store.screenURL(in: directory)
             var hasLiveUnresolvedScreencast = false
+            var hasLiveUnresolvedLocation = false
             if !manifest.openedWithSources.contains(.screencast),
                manifest.screencast.state == .notDeclared,
                self.store.fileExists(screenURL) {
@@ -1063,6 +1273,20 @@ private extension MobileSegmentUploader {
             }
             for source in manifest.declaredSources {
                 let resolution = manifest.resolution(for: source)
+                if source == .location,
+                   resolution.state == .failedToFinalize,
+                   !self.store.fileExists(self.store.locationURL(in: directory)),
+                   !self.store.fileExists(self.store.locationPartURL(in: directory)) {
+                    try self.writeLocationRemoved(
+                        segmentID: segmentID,
+                        directory: directory,
+                        manifest: &manifest,
+                        now: now,
+                        reason: "location_live_missing"
+                    )
+                    manifest = try self.store.readManifest(in: directory)
+                    continue
+                }
                 guard !resolution.state.isTerminal else { continue }
                 switch source {
                 case .audio:
@@ -1089,26 +1313,33 @@ private extension MobileSegmentUploader {
                     }
                 case .location:
                     let locationURL = self.store.locationURL(in: directory)
+                    let locationPartURL = self.store.locationPartURL(in: directory)
                     if self.store.fileExists(locationURL) {
-                        let header = try? MobileSegmentLocationWriter.loadSnapshotHeader(from: self.store.readData(at: locationURL))
-                        let finalized = MobileSegmentSourceResolution(
-                            state: .finalizedArtifact,
-                            artifactFilename: locationURL.lastPathComponent,
-                            bytes: self.store.fileSize(at: locationURL),
-                            startedAt: manifest.startedAt,
-                            endedAt: now,
-                            durationS: max(0, now.timeIntervalSince(manifest.startedAt)),
-                            fixCount: header?.fixCount
+                        try self.writeLocationArtifactOutcome(
+                            segmentID: segmentID,
+                            directory: directory,
+                            manifest: &manifest,
+                            now: now
                         )
-                        try self.store.writeOutcome(finalized, source: .location, manifest: &manifest, in: directory, now: now)
+                    } else if self.store.fileExists(locationPartURL) {
+                        if self.hasFreshLocationLiveness(segmentID: segmentID, directory: directory, now: now) {
+                            hasLiveUnresolvedLocation = true
+                            continue
+                        }
+                        try self.recoverLocationLive(
+                            segmentID: segmentID,
+                            directory: directory,
+                            manifest: &manifest,
+                            now: now
+                        )
                     } else {
-                        let failed = MobileSegmentSourceResolution(
-                            state: .failedToFinalize,
-                            reason: "unclean relaunch unresolved source",
-                            stage: "reconcile",
-                            lastAttemptAt: now
+                        try self.writeLocationRemoved(
+                            segmentID: segmentID,
+                            directory: directory,
+                            manifest: &manifest,
+                            now: now,
+                            reason: "location_live_missing"
                         )
-                        try self.store.writeOutcome(failed, source: .location, manifest: &manifest, in: directory, now: now)
                     }
                 case .screencast:
                     let screenPartURL = self.store.screenPartURL(in: directory)
@@ -1139,7 +1370,7 @@ private extension MobileSegmentUploader {
                 }
                 manifest = try self.store.readManifest(in: directory)
             }
-            if !hasLiveUnresolvedScreencast {
+            if !hasLiveUnresolvedScreencast && !hasLiveUnresolvedLocation {
                 await self.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
             }
         }

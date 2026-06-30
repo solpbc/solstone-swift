@@ -167,6 +167,237 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: segmentID).path))
     }
 
+    func testFreshLiveLocationPartIsNotFailed() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        try self.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
+        try self.writeLocationLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
+
+        await harness.uploader.resumeFromDisk()
+
+        let activeDirectory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: activeDirectory)
+        XCTAssertEqual(manifest.location.state, .unresolved)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationPartURL(in: activeDirectory).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationLivenessURL(in: activeDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+    }
+
+    func testStaleLiveLocationPartRecoversToCanonicalArtifact() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        try self.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
+        try self.writeLocationLiveness(
+            segmentID: segmentID,
+            store: harness.store,
+            lastSeenAt: self.clock.now().addingTimeInterval(-121)
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.artifactFilename, "location.jsonl")
+        XCTAssertEqual(manifest.location.fixCount, 1)
+        let canonicalData = try harness.store.readData(at: harness.store.locationURL(in: pendingDirectory))
+        let header = try MobileSegmentLocationWriter.loadSnapshotHeader(from: canonicalData)
+        XCTAssertEqual(header.fixCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationPartURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationLivenessURL(in: pendingDirectory).path))
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+    }
+
+    func testFinalizeActiveSegmentDefersFreshLiveLocationPart() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        try self.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
+        try self.writeLocationLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
+
+        let activeDirectory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: activeDirectory)
+        XCTAssertEqual(manifest.location.state, .unresolved)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationPartURL(in: activeDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+    }
+
+    func testFinalizeActiveSegmentRecoversStaleLiveLocationPart() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        try self.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
+        try self.writeLocationLiveness(
+            segmentID: segmentID,
+            store: harness.store,
+            lastSeenAt: self.clock.now().addingTimeInterval(-121)
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.fixCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationPartURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationLivenessURL(in: pendingDirectory).path))
+    }
+
+    func testAudioUploadsWhenUnrecoverableLocationIsRemoved() async throws {
+        let harness = self.makeHarness(connected: true)
+        let segmentID = UUID()
+        let directory = try self.writeActiveLocation(segmentID: segmentID, store: harness.store, sources: [.audio, .location])
+        try Data("audio-\(segmentID.uuidString)".utf8).write(to: harness.store.audioURL(in: directory), options: .atomic)
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+        try await self.waitFor("audio upload after location removal") {
+            MobileSegmentReconcileURLProtocol.callCount == 1
+        }
+
+        let body = String(decoding: try XCTUnwrap(MobileSegmentReconcileURLProtocol.capturedBodies.first), as: UTF8.self)
+        XCTAssertTrue(body.contains(#"filename="audio.m4a""#))
+        XCTAssertFalse(body.contains(#"filename="location.jsonl""#))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+    }
+
+    func testTornTrailingLocationLineRecoversCompleteRecords() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        try self.writeActiveLocationPart(segmentID: segmentID, store: harness.store, appendTornFix: true)
+        try self.writeLocationLiveness(
+            segmentID: segmentID,
+            store: harness.store,
+            lastSeenAt: self.clock.now().addingTimeInterval(-121)
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.fixCount, 1)
+        let canonicalData = try harness.store.readData(at: harness.store.locationURL(in: pendingDirectory))
+        let header = try MobileSegmentLocationWriter.loadSnapshotHeader(from: canonicalData)
+        XCTAssertEqual(header.fixCount, 1)
+    }
+
+    func testLocationLiveStateLastWinsTierAccuracy() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let directory = try self.writeActiveLocation(segmentID: segmentID, store: harness.store, startedAt: startedAt)
+        try self.writeLocationPart(
+            segmentID: segmentID,
+            store: harness.store,
+            directory: directory,
+            startedAt: startedAt,
+            tier: .light,
+            accuracy: .reduced,
+            fixes: [self.locationFix(at: startedAt.addingTimeInterval(60))]
+        )
+        try harness.store.appendData(
+            try MobileSegmentLocationWriter.liveStateLine(
+                segmentID: segmentID,
+                segmentStart: startedAt,
+                tier: .full,
+                accuracy: .full,
+                gap: false,
+                recordedAt: startedAt.addingTimeInterval(90)
+            ),
+            to: harness.store.locationPartURL(in: directory)
+        )
+        try self.writeLocationLiveness(
+            segmentID: segmentID,
+            store: harness.store,
+            lastSeenAt: self.clock.now().addingTimeInterval(-121)
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let canonical = String(decoding: try harness.store.readData(at: harness.store.locationURL(in: pendingDirectory)), as: UTF8.self)
+        let header = try XCTUnwrap(canonical.split(separator: "\n").first)
+        XCTAssertTrue(header.contains(#""tier":"full""#))
+        XCTAssertTrue(header.contains(#""accuracy":"full""#))
+    }
+
+    func testTwoActiveLocationDirsDeferFreshAndRecoverStaleIndependently() async throws {
+        let harness = self.makeHarness(connected: false)
+        let freshSegmentID = UUID()
+        let staleSegmentID = UUID()
+        try self.writeActiveLocationPart(segmentID: freshSegmentID, store: harness.store)
+        try self.writeLocationLiveness(segmentID: freshSegmentID, store: harness.store, lastSeenAt: self.clock.now())
+        try self.writeActiveLocationPart(segmentID: staleSegmentID, store: harness.store)
+        try self.writeLocationLiveness(
+            segmentID: staleSegmentID,
+            store: harness.store,
+            lastSeenAt: self.clock.now().addingTimeInterval(-121)
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: freshSegmentID).path))
+        let freshManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.active, segmentID: freshSegmentID))
+        XCTAssertEqual(freshManifest.location.state, .unresolved)
+        let stalePending = harness.store.segmentDirectoryURL(.pending, segmentID: staleSegmentID)
+        let staleManifest = try harness.store.readManifest(in: stalePending)
+        XCTAssertEqual(staleManifest.location.state, .finalizedArtifact)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: stalePending).path))
+    }
+
+    func testLocationDrainPileRemovesNoLiveLocationAndUnblocksAudio() async throws {
+        let harness = self.makeHarness(connected: true)
+        let unresolvedLocationID = UUID()
+        let failedLocationID = UUID()
+        let mixedID = UUID()
+        _ = try self.writeActiveLocation(segmentID: unresolvedLocationID, store: harness.store)
+        let failedDirectory = try self.writeActiveLocation(segmentID: failedLocationID, store: harness.store)
+        var failedManifest = try harness.store.readManifest(in: failedDirectory)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .failedToFinalize,
+                reason: "unclean relaunch unresolved source",
+                stage: "reconcile",
+                lastAttemptAt: self.clock.now().addingTimeInterval(-60)
+            ),
+            source: .location,
+            manifest: &failedManifest,
+            in: failedDirectory,
+            now: self.clock.now().addingTimeInterval(-60)
+        )
+        let mixedDirectory = try self.writeActiveLocation(segmentID: mixedID, store: harness.store, sources: [.audio, .location])
+        try Data("audio-\(mixedID.uuidString)".utf8).write(to: harness.store.audioURL(in: mixedDirectory), options: .atomic)
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+        try await self.waitFor("drain pile audio upload") {
+            MobileSegmentReconcileURLProtocol.callCount == 1
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(unresolvedLocationID.uuidString).json").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(failedLocationID.uuidString).json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: unresolvedLocationID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: failedLocationID).path))
+        let body = String(decoding: try XCTUnwrap(MobileSegmentReconcileURLProtocol.capturedBodies.first), as: UTF8.self)
+        XCTAssertTrue(body.contains(#"filename="audio.m4a""#))
+        XCTAssertFalse(body.contains(#"filename="location.jsonl""#))
+    }
+
     func testDeclaredScreencastDoesNotUploadUntilTerminal() async throws {
         let harness = self.makeHarness(connected: true)
         let segmentID = UUID()
@@ -338,6 +569,130 @@ private extension MobileSegmentReconcileTests {
         )
     }
 
+    func writeActiveLocation(
+        segmentID: UUID,
+        store: MobileSegmentStore,
+        sources: Set<MobileSegmentSource> = [.location],
+        startedAt: Date? = nil
+    ) throws -> URL {
+        let manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt ?? self.clock.now().addingTimeInterval(-300),
+            openedWithSources: sources,
+            activeSourceSetVersion: 1
+        )
+        return try store.createActive(manifest: manifest)
+    }
+
+    func writeActiveLocationPart(
+        segmentID: UUID,
+        store: MobileSegmentStore,
+        tier: LocationTier = .balanced,
+        accuracy: LocationAccuracy = .full,
+        gap: Bool = false,
+        fixes: [LocationFix]? = nil,
+        visits: [LocationVisit] = [],
+        appendTornFix: Bool = false
+    ) throws -> URL {
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let directory = try self.writeActiveLocation(segmentID: segmentID, store: store, startedAt: startedAt)
+        try self.writeLocationPart(
+            segmentID: segmentID,
+            store: store,
+            directory: directory,
+            startedAt: startedAt,
+            tier: tier,
+            accuracy: accuracy,
+            gap: gap,
+            fixes: fixes ?? [self.locationFix(at: startedAt.addingTimeInterval(60))],
+            visits: visits,
+            appendTornFix: appendTornFix
+        )
+        return directory
+    }
+
+    func writeLocationPart(
+        segmentID: UUID,
+        store: MobileSegmentStore,
+        directory: URL,
+        startedAt: Date,
+        tier: LocationTier = .balanced,
+        accuracy: LocationAccuracy = .full,
+        gap: Bool = false,
+        fixes: [LocationFix],
+        visits: [LocationVisit] = [],
+        appendTornFix: Bool = false
+    ) throws {
+        let partURL = store.locationPartURL(in: directory)
+        try store.appendData(
+            try MobileSegmentLocationWriter.liveStateLine(
+                segmentID: segmentID,
+                segmentStart: startedAt,
+                tier: tier,
+                accuracy: accuracy,
+                gap: gap,
+                recordedAt: startedAt
+            ),
+            to: partURL
+        )
+        for fix in fixes {
+            try store.appendData(try MobileSegmentLocationWriter.liveFixLine(fix), to: partURL)
+        }
+        for visit in visits {
+            try store.appendData(try MobileSegmentLocationWriter.liveVisitLine(visit), to: partURL)
+        }
+        if appendTornFix {
+            let torn = String(decoding: try MobileSegmentLocationWriter.liveFixLine(self.locationFix(at: startedAt.addingTimeInterval(120))), as: UTF8.self)
+                .dropLast(12)
+            try store.appendData(Data(torn.utf8), to: partURL)
+        }
+    }
+
+    func writeLocationLiveness(
+        segmentID: UUID,
+        store: MobileSegmentStore,
+        lastSeenAt: Date,
+        fixCount: Int = 1,
+        visitCount: Int = 0,
+        gap: Bool = false
+    ) throws {
+        let directory = store.segmentDirectoryURL(.active, segmentID: segmentID)
+        let liveness = MobileSegmentLocationSegmentLiveness(
+            segmentID: segmentID,
+            sourceSetVersion: 1,
+            lastSeenAt: lastSeenAt,
+            fixCount: fixCount,
+            visitCount: visitCount,
+            gap: gap
+        )
+        let data = try MobileSegmentLocationWriter.encoder().encode(liveness)
+        try store.writeData(data, to: store.locationLivenessURL(in: directory))
+    }
+
+    func locationFix(at date: Date, lat: Double = 37.3349) -> LocationFix {
+        LocationFix(
+            t: date,
+            lat: lat,
+            lon: -122.0090,
+            hAcc: 12,
+            alt: nil,
+            vAcc: nil,
+            speed: nil,
+            course: nil,
+            stationary: false
+        )
+    }
+
+    func locationVisit(arrival: Date, departure: Date?) -> LocationVisit {
+        LocationVisit(
+            arrival: arrival,
+            departure: departure,
+            lat: 37.3349,
+            lon: -122.0090,
+            hAcc: 24
+        )
+    }
+
     func writeContinuationLease(
         fromSegmentID: UUID,
         nextSegmentID: UUID,
@@ -387,6 +742,7 @@ private final class MobileSegmentReconcileURLProtocol: URLProtocol, @unchecked S
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
 
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
@@ -397,9 +753,14 @@ private final class MobileSegmentReconcileURLProtocol: URLProtocol, @unchecked S
         self.callCountBox.withLock { $0 }
     }
 
+    static var capturedBodies: [Data] {
+        self.bodiesBox.withLock { $0 }
+    }
+
     static func reset() {
         self.handler = nil
         self.callCountBox.withLock { $0 = 0 }
+        self.bodiesBox.withLock { $0 = [] }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -412,6 +773,7 @@ private final class MobileSegmentReconcileURLProtocol: URLProtocol, @unchecked S
 
     override func startLoading() {
         Self.callCountBox.withLock { $0 += 1 }
+        Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
         guard let handler = Self.handler else {
             XCTFail("MobileSegmentReconcileURLProtocol handler not set")
             return
@@ -427,4 +789,22 @@ private final class MobileSegmentReconcileURLProtocol: URLProtocol, @unchecked S
     }
 
     override func stopLoading() {}
+
+    private static func bodyData(from request: URLRequest) -> Data {
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var output = Data()
+        let bufferSize = 4_096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            if read <= 0 {
+                break
+            }
+            output.append(buffer, count: read)
+        }
+        return output
+    }
 }

@@ -27,6 +27,7 @@ final class MobileSegmentEngine {
     @ObservationIgnored private let uploader: MobileSegmentUploader
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private var timerTask: Task<Void, Never>?
+    @ObservationIgnored private var locationLivenessTask: Task<Void, Never>?
     @ObservationIgnored private var sourceSetVersion = 0
     @ObservationIgnored private var audioMode: ObserverMode?
     @ObservationIgnored private var audioSegmentStartedAt: Date?
@@ -286,17 +287,20 @@ final class MobileSegmentEngine {
             do {
                 _ = try self.openSegment(sources: [.location], startedAt: now)
                 self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+                self.syncLocationLiveState(now: now)
             } catch {
                 self.lastError(error)
             }
         case .open(_, let sources, _):
             guard !sources.contains(.location) else {
                 self.locationBuffer = self.locationBuffer ?? LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+                self.syncLocationLiveState(now: now)
                 return
             }
             do {
                 try await self.boundary(to: sources.union([.location]), at: now)
                 self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+                self.syncLocationLiveState(now: now)
             } catch {
                 self.lastError(error)
             }
@@ -315,6 +319,7 @@ final class MobileSegmentEngine {
                     self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
                 }
             }
+            self.syncLocationLiveState(now: now)
         }
     }
 
@@ -326,16 +331,19 @@ final class MobileSegmentEngine {
                 self.pendingLocationStart = nil
                 self.locationBuffer = nil
             }
+            self.syncLocationLivenessTask()
             return
         }
         guard case .open(_, let sources, _) = self.state,
               sources.contains(.location)
         else {
             self.locationBuffer = nil
+            self.syncLocationLivenessTask()
             return
         }
         await self.finishCurrentAndMaybeOpenNext(nextSources: sources.subtracting([.location]), at: now)
         self.locationBuffer = nil
+        self.syncLocationLivenessTask()
     }
 
     func updateLocation(tier: LocationTier, accuracy: LocationAccuracy) {
@@ -343,6 +351,7 @@ final class MobileSegmentEngine {
             buffer.tier = tier
             buffer.accuracy = accuracy
             self.locationBuffer = buffer
+            self.syncLocationLiveState(now: self.clock.now())
         }
     }
 
@@ -350,18 +359,21 @@ final class MobileSegmentEngine {
         guard var buffer = self.locationBuffer else { return }
         buffer.fixes.append(fix)
         self.locationBuffer = buffer
+        self.appendLocationLiveFix(fix, now: self.clock.now())
     }
 
     func recordLocationVisit(_ visit: LocationVisit) {
         guard var buffer = self.locationBuffer else { return }
         buffer.visits.append(visit)
         self.locationBuffer = buffer
+        self.appendLocationLiveVisit(visit, now: self.clock.now())
     }
 
     func recordLocationGap() {
         guard var buffer = self.locationBuffer else { return }
         buffer.gap = true
         self.locationBuffer = buffer
+        self.syncLocationLiveState(now: self.clock.now())
     }
 }
 
@@ -379,6 +391,10 @@ private extension MobileSegmentEngine {
         var tier: LocationTier
         var accuracy: LocationAccuracy
         let startedAt: Date
+    }
+
+    struct LocationLiveTarget: Sendable, Equatable {
+        let segmentID: UUID
     }
 
     var currentSegmentID: UUID? {
@@ -410,6 +426,17 @@ private extension MobileSegmentEngine {
         case .finalizing(_, _, _, let activeStartedAt, _):
             activeStartedAt
         case .idle:
+            nil
+        }
+    }
+
+    var locationLiveTarget: LocationLiveTarget? {
+        switch self.state {
+        case .open(let segmentID, let sources, _) where sources.contains(.location):
+            LocationLiveTarget(segmentID: segmentID)
+        case .finalizing(_, let activeSegmentID?, let activeSources, _?, _) where activeSources.contains(.location):
+            LocationLiveTarget(segmentID: activeSegmentID)
+        default:
             nil
         }
     }
@@ -457,6 +484,11 @@ private extension MobileSegmentEngine {
         }
         if shouldStartTimer {
             self.startTimer()
+        }
+        if sources.contains(.location) {
+            self.syncLocationLiveState(now: self.clock.now())
+        } else {
+            self.syncLocationLivenessTask()
         }
     }
 
@@ -539,6 +571,11 @@ private extension MobileSegmentEngine {
                 activeStartedAt: nextSegmentID == nil ? nil : now,
                 pendingNextSourceSet: nil
             )
+            if nextSources.contains(.location) {
+                self.syncLocationLiveState(now: now)
+            } else {
+                self.syncLocationLivenessTask()
+            }
 
             if oldSources.contains(.audio), nextSources.contains(.audio), let nextSegmentID {
                 do {
@@ -572,9 +609,8 @@ private extension MobileSegmentEngine {
                 do {
                     try self.finalizeLocationIfNeeded(segmentID: segmentID, endedAt: now, buffer: oldLocationBuffer)
                 } catch {
-                    try? self.uploader.recordLocationFinalizeFailed(
+                    try? self.uploader.recordLocationFinalizeRemoved(
                         segmentID: segmentID,
-                        startedAt: oldLocationBuffer?.startedAt ?? now,
                         endedAt: now,
                         reason: String(describing: error)
                     )
@@ -624,6 +660,7 @@ private extension MobileSegmentEngine {
                 self.pendingLocationStart = nil
                 self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
                 self.cancelTimer()
+                self.syncLocationLivenessTask()
             }
         } catch {
             self.lastError(error)
@@ -632,6 +669,7 @@ private extension MobileSegmentEngine {
             } else {
                 self.state = .idle
                 self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+                self.syncLocationLivenessTask()
             }
         }
     }
@@ -728,6 +766,117 @@ private extension MobileSegmentEngine {
     func cancelTimer() {
         self.timerTask?.cancel()
         self.timerTask = nil
+    }
+
+    func syncLocationLiveState(now: Date) {
+        guard let target = self.locationLiveTarget,
+              let buffer = self.locationBuffer
+        else {
+            self.syncLocationLivenessTask()
+            return
+        }
+        do {
+            try self.uploader.appendLocationLiveState(
+                segmentID: target.segmentID,
+                segmentStart: buffer.startedAt,
+                tier: buffer.tier,
+                accuracy: buffer.accuracy,
+                gap: buffer.gap,
+                recordedAt: now
+            )
+            try self.writeLocationLiveness(target: target, buffer: buffer, now: now)
+        } catch {
+            mobileSegmentEngineLog.error("location live state write failed segment=\(target.segmentID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
+        self.syncLocationLivenessTask()
+    }
+
+    func appendLocationLiveFix(_ fix: LocationFix, now: Date) {
+        guard let target = self.locationLiveTarget,
+              let buffer = self.locationBuffer
+        else {
+            self.syncLocationLivenessTask()
+            return
+        }
+        do {
+            try self.uploader.appendLocationLiveFix(segmentID: target.segmentID, fix: fix)
+            try self.writeLocationLiveness(target: target, buffer: buffer, now: now)
+        } catch {
+            mobileSegmentEngineLog.error("location live fix write failed segment=\(target.segmentID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
+        self.syncLocationLivenessTask()
+    }
+
+    func appendLocationLiveVisit(_ visit: LocationVisit, now: Date) {
+        guard let target = self.locationLiveTarget,
+              let buffer = self.locationBuffer
+        else {
+            self.syncLocationLivenessTask()
+            return
+        }
+        do {
+            try self.uploader.appendLocationLiveVisit(segmentID: target.segmentID, visit: visit)
+            try self.writeLocationLiveness(target: target, buffer: buffer, now: now)
+        } catch {
+            mobileSegmentEngineLog.error("location live visit write failed segment=\(target.segmentID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
+        self.syncLocationLivenessTask()
+    }
+
+    func refreshLocationLiveness(now: Date) {
+        guard let target = self.locationLiveTarget,
+              let buffer = self.locationBuffer
+        else {
+            self.syncLocationLivenessTask()
+            return
+        }
+        do {
+            try self.writeLocationLiveness(target: target, buffer: buffer, now: now)
+        } catch {
+            mobileSegmentEngineLog.error("location liveness refresh failed segment=\(target.segmentID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    func writeLocationLiveness(target: LocationLiveTarget, buffer: LocationBuffer, now: Date) throws {
+        try self.uploader.writeLocationLiveness(
+            segmentID: target.segmentID,
+            sourceSetVersion: self.sourceSetVersion,
+            lastSeenAt: now,
+            fixCount: buffer.fixes.count,
+            visitCount: buffer.visits.count,
+            gap: buffer.gap
+        )
+    }
+
+    func syncLocationLivenessTask() {
+        guard self.locationLiveTarget != nil, self.locationBuffer != nil else {
+            self.cancelLocationLivenessTask()
+            return
+        }
+        guard self.locationLivenessTask == nil else { return }
+        self.locationLivenessTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    try await self.clock.sleep(
+                        for: .seconds(Int64(MobileSegmentLocationLivenessPolicy.livenessRefreshIntervalSeconds))
+                    )
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                guard self.locationLiveTarget != nil, self.locationBuffer != nil else {
+                    self.locationLivenessTask = nil
+                    return
+                }
+                self.refreshLocationLiveness(now: self.clock.now())
+            }
+        }
+    }
+
+    func cancelLocationLivenessTask() {
+        self.locationLivenessTask?.cancel()
+        self.locationLivenessTask = nil
     }
 
     func screencastHandoff(

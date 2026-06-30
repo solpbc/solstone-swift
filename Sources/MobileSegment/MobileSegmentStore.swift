@@ -65,6 +65,14 @@ final class MobileSegmentStore {
         directory.appendingPathComponent("location.jsonl", isDirectory: false)
     }
 
+    func locationPartURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("location.part.jsonl", isDirectory: false)
+    }
+
+    func locationLivenessURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("location.live.json", isDirectory: false)
+    }
+
     func screenURL(in directory: URL) -> URL {
         MobileSegmentScreencastPaths.screenURL(inSegmentDirectory: directory)
     }
@@ -254,6 +262,17 @@ final class MobileSegmentStore {
     func writeData(_ data: Data, to url: URL) throws {
         try self.fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
+    }
+
+    func appendData(_ data: Data, to url: URL) throws {
+        try self.fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !self.fileManager.fileExists(atPath: url.path) {
+            self.fileManager.createFile(atPath: url.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
     }
 
     func removeIfExists(_ url: URL) {
