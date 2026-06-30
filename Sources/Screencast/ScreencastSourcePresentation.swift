@@ -4,24 +4,22 @@
 import Foundation
 
 nonisolated func screencastSourcePresentation(
-    managerState: ScreencastManager.State,
-    summary: MobileSegmentSourceSummary
+    managerState: ScreencastManager.State
 ) -> Source {
-    let baseState = screencastSourceState(for: managerState)
-    let state = summary.failedCount > 0 ? SourceState.needsAttention : baseState
+    let state = screencastSourceState(for: managerState)
     let subtextOverride: String
     let attention: SourceAttention?
 
     switch managerState {
     case .off:
         subtextOverride = SourceVocabulary.screencastOffSubtext
-        attention = summary.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil
+        attention = nil
     case .starting:
         subtextOverride = SourceVocabulary.screencastStartingSubtext
-        attention = summary.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil
+        attention = nil
     case .active:
         subtextOverride = SourceVocabulary.screencastActiveSubtext
-        attention = summary.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil
+        attention = nil
     case .needsAttention(let reason):
         subtextOverride = SourceVocabulary.screencastAttentionSubtext
         attention = SourceAttention(message: screencastAttentionMessage(reason))

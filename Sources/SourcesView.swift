@@ -7,8 +7,6 @@ struct SourcesView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
-    @Environment(ImportQueue.self) private var importQueue
-    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(OmiSourceManager.self) private var omiSourceManager
@@ -143,12 +141,9 @@ private extension SourcesView {
 
     var audioSource: Source {
         let state = sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
-        let summary = self.mobileSegmentUploader.summary(for: .audio)
         let attention: SourceAttention?
         if case .error(let error) = self.observerManager.state {
             attention = SourceAttention(message: error.message)
-        } else if summary.failedCount > 0 {
-            attention = SourceAttention(message: SourceVocabulary.needsAttentionSubtext)
         } else {
             attention = nil
         }
@@ -182,32 +177,28 @@ private extension SourcesView {
             displayName: SourceVocabulary.shareSheetDisplayName,
             kind: .importer,
             group: .bringingInYourself,
-            state: importerSourceState(failedCount: self.importQueue.failedCount),
+            state: .active,
             activeSubtext: SourceVocabulary.shareAlwaysOnSubtext,
-            attention: self.importQueue.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil,
+            attention: nil,
             pendingStatus: .nonePending
         )
     }
 
     var locationSource: Source {
-        let summary = self.mobileSegmentUploader.summary(for: .location)
         return Source(
             id: "location",
             displayName: LocationVocabulary.sourceDisplayName,
             kind: .location,
             group: .experiencingAlongsideYou,
-            state: summary.failedCount > 0 ? .needsAttention : self.locationManager.sourceState,
+            state: self.locationManager.sourceState,
             activeSubtext: LocationVocabulary.activeSubtext,
-            attention: self.locationManager.sourceAttention ?? (summary.failedCount > 0 ? SourceAttention(message: SourceVocabulary.needsAttentionSubtext) : nil),
+            attention: self.locationManager.sourceAttention,
             pendingStatus: .nonePending
         )
     }
 
     var screencastSource: Source {
-        screencastSourcePresentation(
-            managerState: self.screencastManager.state,
-            summary: self.mobileSegmentUploader.summary(for: .screencast)
-        )
+        screencastSourcePresentation(managerState: self.screencastManager.state)
     }
 
     var omiSource: Source {

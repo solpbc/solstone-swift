@@ -37,8 +37,7 @@ struct ScreencastSourceDetailView: View {
 private extension ScreencastSourceDetailView {
     var stateBlock: some View {
         let source = screencastSourcePresentation(
-            managerState: self.screencastManager.state,
-            summary: self.mobileSegmentUploader.summary(for: .screencast)
+            managerState: self.screencastManager.state
         )
 
         return VStack(alignment: .leading, spacing: 12) {

@@ -16,11 +16,6 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(sourceState(for: .idle, paused: true), .paused)
     }
 
-    func testImporterSourceStateMapping() {
-        XCTAssertEqual(importerSourceState(failedCount: 0), .active)
-        XCTAssertEqual(importerSourceState(failedCount: 1), .needsAttention)
-    }
-
     func testImporterActiveSubtextMapping() {
         XCTAssertEqual(importerActiveSubtext(pendingCount: 1, lastDeliveredAt: nil), SourceVocabulary.shareSendingProgress)
         XCTAssertEqual(importerActiveSubtext(pendingCount: 0, lastDeliveredAt: Date()), SourceVocabulary.shareDeliveredProgress)

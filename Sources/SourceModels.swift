@@ -105,10 +105,6 @@ final class ObserverSourcePauseState {
     var isPaused = false
 }
 
-nonisolated func importerSourceState(failedCount: Int) -> SourceState {
-    failedCount == 0 ? .active : .needsAttention
-}
-
 nonisolated func importerActiveSubtext(
     pendingCount: Int,
     lastDeliveredAt: Date?

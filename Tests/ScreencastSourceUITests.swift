@@ -7,15 +7,7 @@ import XCTest
 
 nonisolated final class ScreencastSourceUITests: XCTestCase {
     func testScreencastSourcePresentationIsExperiencingAlongsideYou() {
-        let source = screencastSourcePresentation(
-            managerState: .off,
-            summary: MobileSegmentSourceSummary(
-                pendingCount: 0,
-                failedCount: 0,
-                lastUploadAt: nil,
-                lastError: nil
-            )
-        )
+        let source = screencastSourcePresentation(managerState: .off)
 
         XCTAssertEqual(source.id, "screencast")
         XCTAssertEqual(source.displayName, SourceVocabulary.screencastDisplayName)
@@ -35,18 +27,10 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
     }
 
     func testScreencastPresentationMapsManagerStates() {
-        let summary = MobileSegmentSourceSummary(
-            pendingCount: 0,
-            failedCount: 0,
-            lastUploadAt: nil,
-            lastError: nil
-        )
-
-        XCTAssertEqual(screencastSourcePresentation(managerState: .off, summary: summary).state, .off)
+        XCTAssertEqual(screencastSourcePresentation(managerState: .off).state, .off)
         XCTAssertEqual(
             screencastSourcePresentation(
-                managerState: .starting(startedAt: Date(timeIntervalSince1970: 1), deadline: Date(timeIntervalSince1970: 21)),
-                summary: summary
+                managerState: .starting(startedAt: Date(timeIntervalSince1970: 1), deadline: Date(timeIntervalSince1970: 21))
             ).state,
             .enrolling
         )
@@ -56,19 +40,37 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
                     sessionID: UUID(),
                     segmentID: UUID(),
                     startedAt: Date(timeIntervalSince1970: 1)
-                ),
-                summary: summary
+                )
             ).state,
             .active
         )
         XCTAssertEqual(
-            screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed), summary: summary).state,
+            screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed)).state,
             .needsAttention
         )
         XCTAssertEqual(
-            screencastSourcePresentation(managerState: .unavailable(.extensionUnavailable), summary: summary).state,
+            screencastSourcePresentation(managerState: .unavailable(.extensionUnavailable)).state,
             .needsAttention
         )
+    }
+
+    func testScreencastBacklogNeverDrivesNeedsAttention() {
+        let offSource = screencastSourcePresentation(managerState: .off)
+        XCTAssertNil(offSource.attention)
+        XCTAssertNotEqual(offSource.state, .needsAttention)
+
+        let activeSource = screencastSourcePresentation(
+            managerState: .active(
+                sessionID: UUID(),
+                segmentID: UUID(),
+                startedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        XCTAssertNil(activeSource.attention)
+
+        let faultSource = screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed))
+        XCTAssertEqual(faultSource.state, .needsAttention)
+        XCTAssertEqual(faultSource.attention?.message, screencastAttentionMessage(.finalizeFailed))
     }
 
     private static func sourcesViewURL() -> URL {
