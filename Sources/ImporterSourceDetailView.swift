@@ -60,23 +60,13 @@ struct ImporterSourceDetailView: View {
 private extension ImporterSourceDetailView {
     @ViewBuilder
     var recentBlock: some View {
-        if self.importQueue.pendingCount > 0 {
-            Text(SourceVocabulary.shareSendingProgress)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        } else if self.importQueue.lastDeliveredAt != nil {
-            Text(SourceVocabulary.shareDeliveredProgress)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        } else if self.importQueue.failedCount > 0 {
-            Text(SourceVocabulary.needsAttentionSubtext)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        } else {
-            Text(SourceVocabulary.recentEmpty)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
+        Text(ImporterSourceDetailPresentation.recentText(
+            pendingCount: self.importQueue.pendingCount,
+            lastDeliveredAt: self.importQueue.lastDeliveredAt,
+            failedCount: self.importQueue.failedCount
+        ))
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
     }
 
 }
