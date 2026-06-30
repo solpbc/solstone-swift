@@ -110,7 +110,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                             snapshot: displayAggregate
                         )
                         if !displayAggregate.items.isEmpty,
-                           self.appConfig.isPaired || migration.needsAttention > 0 {
+                           self.appConfig.isPaired {
                             self.statusBlock(
                                 migration: migration
                             )
@@ -295,60 +295,53 @@ private extension OnThisPhoneMomentsView {
             isConnected: self.tunnelManager.state.isConnected
         )
 
-        VStack(alignment: .leading, spacing: 12) {
-            switch headline.role {
-            case .syncing:
-                self.statusHero(count: headline.onThisPhone)
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Color("SendState/Sending/Foreground"))
-                    Text(SourceVocabulary.syncingPulse)
-                        .font(.subheadline.weight(.semibold))
+        NavigationLink {
+            DiagnosticsView()
+        } label: {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
+                    switch headline.role {
+                    case .syncing:
+                        self.statusHero(count: headline.onThisPhone)
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(Color("SendState/Sending/Foreground"))
+                            Text(SourceVocabulary.syncingPulse)
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .foregroundStyle(Color("SendState/Sending/Foreground"))
+                        .accessibilityElement(children: .combine)
+                    case .offline:
+                        self.statusHero(count: headline.onThisPhone)
+                        Text(SourceVocabulary.offlineSafeLine)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    case .upToDate:
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(SourceVocabulary.syncedHeadline)
+                                .font(.headline)
+                            Text(SourceVocabulary.syncedBody)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("onThisPhone.status.headline")
+                    case .needsAttentionOnly, .none:
+                        EmptyView()
+                    }
                 }
-                .foregroundStyle(Color("SendState/Sending/Foreground"))
-                .accessibilityElement(children: .combine)
-            case .offline:
-                self.statusHero(count: headline.onThisPhone)
-                Text(SourceVocabulary.offlineSafeLine)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            case .upToDate:
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(SourceVocabulary.syncedHeadline)
-                        .font(.headline)
-                    Text(SourceVocabulary.syncedBody)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("onThisPhone.status.headline")
-            case .needsAttentionOnly, .none:
-                EmptyView()
-            }
-
-            if headline.needsAttention > 0 {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                    Text(SourceVocabulary.needsAttentionRow(count: headline.needsAttention))
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color("SendState/NeedsAttention/Foreground"))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    Color("SendState/NeedsAttention/Foreground").opacity(0.12),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                )
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(SourceVocabulary.needsAttentionRow(count: headline.needsAttention))
-                .accessibilityIdentifier("onThisPhone.status.needsAttention")
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("onThisPhone.status")
+        .accessibilityHint("opens diagnostics")
     }
 
     func statusHero(count: Int) -> some View {

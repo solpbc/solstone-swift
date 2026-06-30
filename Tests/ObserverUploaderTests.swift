@@ -1092,7 +1092,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertEqual(item.lastAttemptAt, lastAttemptAt)
         XCTAssertEqual(item.sourceLabel, SourceVocabulary.onThisPhoneObserverAudioSourceLabel)
         XCTAssertEqual(item.retryAvailable, true)
-        XCTAssertEqual(item.sendState, .needsAttention)
+        XCTAssertEqual(item.sendState, .savedOnThisPhone)
     }
 
     @MainActor

@@ -287,12 +287,12 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSeededOnThisPhoneSummaryShowsNeedsAttentionRow() {
+    func testSeededOnThisPhoneSummaryHidesNeedsAttentionBanner() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         let needsAttention = app.descendants(matching: .any)["onThisPhone.status.needsAttention"]
 
-        XCTAssertTrue(needsAttention.waitForExistence(timeout: 10))
-        XCTAssertEqual(needsAttention.label, "1 needs attention")
+        XCTAssertFalse(needsAttention.waitForExistence(timeout: 2))
     }
 
     @MainActor

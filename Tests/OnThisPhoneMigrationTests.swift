@@ -54,6 +54,61 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         XCTAssertEqual(migration.needsAttention, 2)
         XCTAssertEqual(migration.total, 2)
     }
+
+    @MainActor
+    func testRetryableFailedItemsCountAsOnThisPhone() {
+        let items = (0..<3).map { index in
+            Self.item(
+                id: "retryable-\(index)",
+                location: .failed,
+                canRetry: true,
+                isActivelyUploading: false
+            )
+        }
+        let migration = onThisPhoneMigration(snapshot: Self.snapshot(items: items))
+
+        XCTAssertEqual(migration.onThisPhone, 3)
+        XCTAssertEqual(migration.needsAttention, 0)
+    }
+
+    @MainActor
+    func testPermanentFailedItemsStillCountAsNeedsAttention() {
+        let migration = onThisPhoneMigration(
+            snapshot: Self.snapshot(items: [
+                Self.item(
+                    id: "permanent-failure",
+                    location: .failed,
+                    canRetry: false,
+                    isActivelyUploading: false
+                ),
+            ])
+        )
+
+        XCTAssertEqual(migration.onThisPhone, 0)
+        XCTAssertEqual(migration.needsAttention, 1)
+    }
+
+    @MainActor
+    func testRetryableFailedItemsProduceSyncingHeadlineWhenPairedAndConnected() {
+        let items = (0..<2).map { index in
+            Self.item(
+                id: "retryable-headline-\(index)",
+                location: .failed,
+                canRetry: true,
+                isActivelyUploading: false
+            )
+        }
+        let migration = onThisPhoneMigration(snapshot: Self.snapshot(items: items))
+        let headline = onThisPhoneHeadline(
+            migration: migration,
+            isPaired: true,
+            isConnected: true
+        )
+
+        XCTAssertEqual(headline.role, .syncing)
+        XCTAssertEqual(headline.onThisPhone, 2)
+        XCTAssertEqual(headline.needsAttention, 0)
+    }
 }
 
 private extension OnThisPhoneMigrationTests {
@@ -61,11 +116,31 @@ private extension OnThisPhoneMigrationTests {
         let items = states.enumerated().map { index, state in
             Self.item(id: "item-\(index)", sendState: state)
         }
+        return Self.snapshot(items: items)
+    }
+
+    static func snapshot(items: [OnThisPhoneItem]) -> OnThisPhoneAggregateSnapshot {
         return OnThisPhoneAggregateSnapshot(
             sources: [
                 OnThisPhoneSourceSnapshot(sourceKind: .share, result: .loaded(items: items)),
             ],
             items: items
+        )
+    }
+
+    static func item(
+        id: String,
+        location: OnThisPhoneLocation,
+        canRetry: Bool,
+        isActivelyUploading: Bool
+    ) -> OnThisPhoneItem {
+        Self.item(
+            id: id,
+            sendState: onThisPhoneSendState(
+                location: location,
+                canRetry: canRetry,
+                isActivelyUploading: isActivelyUploading
+            )
         )
     }
 

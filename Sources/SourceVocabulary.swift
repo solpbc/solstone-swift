@@ -96,7 +96,7 @@ nonisolated enum SourceVocabulary {
     static let shareDeliveredProgress = "saved to your journal"
     static let sendStateSaved = "saved on this phone"
     static let sendStateSending = "sending"
-    static let sendStateCompactSaved = "on this phone"
+    static let sendStateCompactSaved = "waiting to sync"
     static let sendStateCompactOnTheWay = "on the way"
     static let sendStateCompactInJournal = "in your journal"
     static let screencastDisplayName = "screen"
@@ -510,10 +510,6 @@ nonisolated enum SourceVocabulary {
 
     static func migrationStageCount(_ count: Int, stage: String) -> String {
         "\(count) \(stage)"
-    }
-
-    static func needsAttentionRow(count: Int) -> String {
-        count == 1 ? "1 needs attention" : "\(count) need attention"
     }
 
     private static func onThisPhoneDatePhrase(relativeDay: String?, shortTime: String?) -> String? {

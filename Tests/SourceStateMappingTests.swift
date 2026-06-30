@@ -28,19 +28,19 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
     }
 
     func testOnThisPhoneSendStateMapping() {
-        XCTAssertEqual(onThisPhoneSendState(location: .delivered, isActivelyUploading: false), .inYourJournal)
-        XCTAssertEqual(onThisPhoneSendState(location: .delivered, isActivelyUploading: true), .inYourJournal)
-        XCTAssertEqual(onThisPhoneSendState(location: .failed, isActivelyUploading: false), .needsAttention)
-        XCTAssertEqual(onThisPhoneSendState(location: .failed, isActivelyUploading: true), .needsAttention)
-        XCTAssertEqual(onThisPhoneSendState(location: .pending, isActivelyUploading: true), .sending)
-        XCTAssertEqual(onThisPhoneSendState(location: .pending, isActivelyUploading: false), .savedOnThisPhone)
+        XCTAssertEqual(onThisPhoneSendState(location: .delivered, canRetry: false, isActivelyUploading: false), .inYourJournal)
+        XCTAssertEqual(onThisPhoneSendState(location: .delivered, canRetry: true, isActivelyUploading: true), .inYourJournal)
+        XCTAssertEqual(onThisPhoneSendState(location: .failed, canRetry: true, isActivelyUploading: false), .savedOnThisPhone)
+        XCTAssertEqual(onThisPhoneSendState(location: .failed, canRetry: false, isActivelyUploading: true), .needsAttention)
+        XCTAssertEqual(onThisPhoneSendState(location: .pending, canRetry: false, isActivelyUploading: true), .sending)
+        XCTAssertEqual(onThisPhoneSendState(location: .pending, canRetry: false, isActivelyUploading: false), .savedOnThisPhone)
     }
 
     func testFailureDetailDoesNotChangeOnThisPhoneSendState() {
         let failedAudio = OnThisPhoneItem(
             id: "audio:\(UUID().uuidString):chunk",
             sourceKind: .audio,
-            sendState: onThisPhoneSendState(location: .failed, isActivelyUploading: false),
+            sendState: onThisPhoneSendState(location: .failed, canRetry: false, isActivelyUploading: false),
             contentType: "audio/mp4",
             filename: "chunk.m4a",
             bytes: 42,

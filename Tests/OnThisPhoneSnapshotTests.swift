@@ -94,7 +94,7 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
         XCTAssertEqual(pending.hasLocalRaw, true)
 
         let failed = try XCTUnwrap(items.first { $0.id == failedID })
-        XCTAssertEqual(failed.sendState, .needsAttention)
+        XCTAssertEqual(failed.sendState, .savedOnThisPhone)
 
         let delivered = try XCTUnwrap(items.first { $0.id == deliveredID })
         XCTAssertEqual(delivered.sendState, .inYourJournal)

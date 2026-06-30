@@ -1217,7 +1217,7 @@ private extension MobileSegmentUploader {
                 id: "mobile-segment:\(segmentID.uuidString):\(source.rawValue)",
                 dropGroupID: "mobile-segment:\(segmentID.uuidString)",
                 sourceKind: sourceKind,
-                sendState: onThisPhoneSendState(location: lifecycle == .failed ? .failed : .pending, isActivelyUploading: isUploading),
+                sendState: onThisPhoneSendState(location: lifecycle == .failed ? .failed : .pending, canRetry: lifecycle == .failed, isActivelyUploading: isUploading),
                 contentType: contentType,
                 filename: filename,
                 bytes: bytes,

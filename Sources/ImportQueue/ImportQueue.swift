@@ -1285,11 +1285,12 @@ private extension ImportQueue {
         let object = self.readNoteObject(itemID: itemID, status: status)
         let rawURL = self.rawURL(itemID: itemID, status: status)
         let rawFileURL = self.fileManager.fileExists(atPath: rawURL.path) ? rawURL : nil
+        let canRetry = location == .failed
 
         return OnThisPhoneItem(
             id: itemID,
             sourceKind: .share,
-            sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
+            sendState: onThisPhoneSendState(location: location, canRetry: canRetry, isActivelyUploading: isActivelyUploading),
             contentType: object?["content_type"] as? String,
             filename: object?["filename"] as? String,
             bytes: (object?["bytes"] as? NSNumber)?.int64Value,
@@ -1301,7 +1302,8 @@ private extension ImportQueue {
             day: nil,
             segment: nil,
             deliveredAt: nil,
-            rawFileURL: rawFileURL
+            rawFileURL: rawFileURL,
+            retryAvailable: canRetry
         )
     }
 

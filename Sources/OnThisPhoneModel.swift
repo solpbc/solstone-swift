@@ -131,13 +131,14 @@ nonisolated enum OnThisPhoneMobileSegmentFacet: String, Equatable, Sendable {
 
 nonisolated func onThisPhoneSendState(
     location: OnThisPhoneLocation,
+    canRetry: Bool,
     isActivelyUploading: Bool
 ) -> OnThisPhoneSendState {
     switch location {
     case .delivered:
         .inYourJournal
     case .failed:
-        .needsAttention
+        canRetry ? .savedOnThisPhone : .needsAttention
     case .pending:
         isActivelyUploading ? .sending : .savedOnThisPhone
     }

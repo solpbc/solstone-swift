@@ -67,7 +67,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(try self.count(for: .share, in: snapshot), 1)
         XCTAssertEqual(snapshot.items.map(\.sourceKind), [.audio, .location, .share])
         XCTAssertEqual(snapshot.items.first { $0.id == audioID }?.sendState, .savedOnThisPhone)
-        XCTAssertEqual(snapshot.items.first { $0.id == locationID }?.sendState, .needsAttention)
+        XCTAssertEqual(snapshot.items.first { $0.id == locationID }?.sendState, .savedOnThisPhone)
         XCTAssertEqual(snapshot.items.first { $0.id == shareID }?.sendState, .inYourJournal)
         XCTAssertEqual(snapshot.items.first { $0.id == audioID }?.audioDurationS, 42)
         XCTAssertEqual(snapshot.items.first { $0.id == locationID }?.locationFixCount, 7)

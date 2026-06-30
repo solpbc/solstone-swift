@@ -757,7 +757,7 @@ private extension ObserverUploader {
                 items.append(OnThisPhoneItem(
                     id: "\(audioSource.idPrefix):\(sessionID.uuidString):\(chunkID)",
                     sourceKind: .audio,
-                    sendState: onThisPhoneSendState(location: location, isActivelyUploading: isActivelyUploading),
+                    sendState: onThisPhoneSendState(location: location, canRetry: location == .failed, isActivelyUploading: isActivelyUploading),
                     contentType: "audio/mp4",
                     filename: audioURL.lastPathComponent,
                     bytes: self.byteCountIfAvailable(at: audioURL),

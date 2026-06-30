@@ -43,7 +43,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.shareAlwaysOnExplainer,
             "share is always on. anything you send from the share sheet comes into your journal here."
         )
-        XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "on this phone")
+        XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
         XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
         XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, "in your journal")
         XCTAssertEqual(
@@ -175,8 +175,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.syncedHeadline, "all caught up")
         XCTAssertEqual(SourceVocabulary.syncedBody, "everything's in your journal")
         XCTAssertEqual(SourceVocabulary.offlineSafeLine, "safe here · your journal will catch up")
-        XCTAssertEqual(SourceVocabulary.needsAttentionRow(count: 1), "1 needs attention")
-        XCTAssertEqual(SourceVocabulary.needsAttentionRow(count: 3), "3 need attention")
         XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 1), "syncing 1 segment to your journal")
         XCTAssertEqual(SourceVocabulary.migrationHeadlineSyncing(count: 2), "syncing 2 segments to your journal")
         XCTAssertEqual(SourceVocabulary.lastActiveLine(relative: "just now"), "last active · just now")
@@ -595,7 +593,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.syncedHeadline,
             SourceVocabulary.syncedBody,
             SourceVocabulary.offlineSafeLine,
-            SourceVocabulary.needsAttentionRow(count: 2),
             SourceVocabulary.migrationHeadlineSyncing(count: 1),
             SourceVocabulary.migrationHeadlineSyncing(count: 2),
             SourceVocabulary.lastActiveLine(relative: "just now"),
@@ -717,7 +714,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.syncedHeadline,
             SourceVocabulary.syncedBody,
             SourceVocabulary.offlineSafeLine,
-            SourceVocabulary.needsAttentionRow(count: 2),
             SourceVocabulary.migrationHeadlineSyncing(count: 1),
             SourceVocabulary.migrationHeadlineSyncing(count: 2),
             SourceVocabulary.lastActiveLine(relative: "just now"),
