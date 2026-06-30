@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import Foundation
 @testable import solstone_swift
 import SPLTunnel
 import XCTest
@@ -29,9 +30,13 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
         }
 
         XCTAssertEqual(pairURL.kind, .relay)
-        XCTAssertEqual(pairURL.instanceID, "12345678-1234-5678-1234-567812345678")
-        XCTAssertEqual(pairURL.totp, "123456")
+        XCTAssertEqual(pairURL.s, Data([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]))
+        XCTAssertEqual(pairURL.caFingerprintBytes, [
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+        ])
         XCTAssertEqual(pairURL.caFingerprintKind, .spkiSHA256)
+        XCTAssertEqual(pairURL.relayOrigin?.absoluteString, "https://link.solstone.app")
     }
 
     @MainActor
@@ -57,7 +62,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testInvalidVersionReturnsFailure() throws {
-        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x06]))))
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x07]))))
 
         guard case .failure(.invalidVersion(_)) = result else {
             return XCTFail("expected invalidVersion failure, got \(result)")
@@ -88,7 +93,7 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
     }
 
     private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
-    private static let wellKnownRelayBlob = "0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY00"
+    private static let wellKnownRelayBlob = "0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXW00"
     private static let canonicalBytes: [UInt8] = [
         0x04, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
         0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,

@@ -7,6 +7,18 @@ import Network
 import XCTest
 
 nonisolated final class DialClientTests: XCTestCase {
+    func testRelayDialRequestUsesBearerAndInstance() throws {
+        let request = try RelayWSTransport.makeRequest(
+            endpoint: URL(string: "https://link.solstone.app")!,
+            path: "session/dial",
+            authorization: .bearer(token: "token", instanceID: "instance")
+        )
+
+        XCTAssertEqual(request.url?.absoluteString, "wss://link.solstone.app/session/dial?instance=instance")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Sec-Pair-Key"))
+    }
+
     func testRelayHTTP503FailsBeforeTransportOpen() async throws {
         let server = try await OneShotHTTPServer.start(status: 503)
         defer { server.stop() }

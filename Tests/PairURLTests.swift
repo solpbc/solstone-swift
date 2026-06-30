@@ -24,37 +24,29 @@ nonisolated final class PairURLTests: XCTestCase {
         ])
         XCTAssertEqual(pairURL.caFingerprintKind, .certificateSHA256)
         XCTAssertEqual(pairURL.candidates, [PairCandidate(address: "192.0.2.42", port: 0x1B9E)])
-        XCTAssertNil(pairURL.instanceID)
-        XCTAssertNil(pairURL.totp)
+        XCTAssertNil(pairURL.s)
         XCTAssertNil(pairURL.relayOrigin)
     }
 
     func testWellKnownRelayReferenceVectorParses() throws {
         let pairURL = try PairURL.parse(Self.url(fragment: Self.wellKnownRelayBlob))
 
-        XCTAssertEqual(pairURL.version, 0x03)
+        XCTAssertEqual(pairURL.version, 0x06)
         XCTAssertEqual(pairURL.kind, .relay)
-        XCTAssertEqual(pairURL.instanceID, "12345678-1234-5678-1234-567812345678")
-        XCTAssertEqual(pairURL.totp, "123456")
-        XCTAssertEqual(pairURL.nonceBytes, [
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
-        ])
+        XCTAssertEqual(pairURL.s, Data(Self.relaySBytes))
+        XCTAssertEqual(pairURL.nonceBytes, [])
         XCTAssertEqual(pairURL.caFingerprintKind, .spkiSHA256)
-        XCTAssertEqual(pairURL.caFingerprintBytes, [
-            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
-        ])
+        XCTAssertEqual(pairURL.caFingerprintBytes, Self.relayCAFingerprintBytes)
         XCTAssertEqual(pairURL.candidates, [])
-        XCTAssertNil(pairURL.relayOrigin)
+        XCTAssertEqual(pairURL.relayOrigin?.absoluteString, "https://link.solstone.app")
     }
 
     func testCustomRelayReferenceVectorParses() throws {
         let pairURL = try PairURL.parse(Self.url(fragment: Self.customRelayBlob))
 
         XCTAssertEqual(pairURL.kind, .relay)
-        XCTAssertEqual(pairURL.instanceID, "12345678-1234-5678-1234-567812345678")
-        XCTAssertEqual(pairURL.totp, "123456")
+        XCTAssertEqual(pairURL.s, Data(Self.relaySBytes))
+        XCTAssertEqual(pairURL.caFingerprintBytes, Self.relayCAFingerprintBytes)
         XCTAssertEqual(pairURL.relayOrigin?.absoluteString, "https://relay.example")
     }
 
@@ -73,8 +65,7 @@ nonisolated final class PairURLTests: XCTestCase {
         XCTAssertEqual(pairURL.nonceBytes, (0x00...0x0F).map(UInt8.init))
         XCTAssertEqual(pairURL.caFingerprintBytes, (0xA0...0xAF).map(UInt8.init))
         XCTAssertEqual(pairURL.caFingerprintKind, .certificateSHA256)
-        XCTAssertNil(pairURL.instanceID)
-        XCTAssertNil(pairURL.totp)
+        XCTAssertNil(pairURL.s)
         XCTAssertNil(pairURL.relayOrigin)
     }
 
@@ -183,7 +174,7 @@ nonisolated final class PairURLTests: XCTestCase {
 
     func testRelayUnsupportedFingerprintTagThrows() {
         var bytes = Self.relayBytes()
-        bytes[36] = 0x02
+        bytes[9] = 0x02
 
         XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
             XCTAssertEqual($0 as? PairURLError, .unsupportedCAFingerprintTag(0x02))
@@ -192,15 +183,15 @@ nonisolated final class PairURLTests: XCTestCase {
 
     func testRelaySelectorLengthMismatchThrowsInvalidLength() {
         var bytes = Self.relayBytes()
-        bytes[53] = 0x04
+        bytes[26] = 0x04
 
         XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidLength(54))
+            XCTAssertEqual($0 as? PairURLError, .invalidLength(27))
         }
     }
 
     func testRelayInvalidOriginThrows() {
-        let bytes = Self.relayBytes(selector: "ftp://relay.example")
+        let bytes = Self.relayBytes(origin: "ftp://relay.example")
 
         XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
             XCTAssertEqual($0 as? PairURLError, .invalidRelayOrigin)
@@ -245,10 +236,10 @@ nonisolated final class PairURLTests: XCTestCase {
 
     func testFutureVersionThrowsInvalidVersion() {
         var bytes = Self.multiAddressBytes
-        bytes[0] = 0x06
+        bytes[0] = 0x07
 
         XCTAssertThrowsError(try PairURL.parse(Self.url(fragment: Self.encode(bytes)))) {
-            XCTAssertEqual($0 as? PairURLError, .invalidVersion(0x06))
+            XCTAssertEqual($0 as? PairURLError, .invalidVersion(0x07))
         }
     }
 
@@ -256,8 +247,15 @@ nonisolated final class PairURLTests: XCTestCase {
     private static let alternateDirectBlob = "0G0W000218EYJ001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF"
     private static let multiAddressBlob = "0M0G47F9R00042P66DJ18001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF"
     private static let multiAddressHex = "0501021de9c000020ac6336414000102030405060708090a0b0c0d0e0fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
-    private static let wellKnownRelayBlob = "0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY00"
-    private static let customRelayBlob = "0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY5B8EHT70WST5WQQ4SBCC5WJWSBRC5PQ0V35"
+    private static let wellKnownRelayBlob = "0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXW00"
+    private static let customRelayBlob = "0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXWAPGX3ME1SKMBSFE9JPRRBS5SJQGRBDE1P6A"
+    private static let relaySBytes: [UInt8] = [
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+    ]
+    private static let relayCAFingerprintBytes: [UInt8] = [
+        0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+    ]
     private static let canonicalBytes: [UInt8] = [
         0x04, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
         0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,
@@ -279,20 +277,16 @@ nonisolated final class PairURLTests: XCTestCase {
         URL(string: "https://go.solstone.app/p#\(fragment)")!
     }
 
-    private static func relayBytes(selector: String = "") -> [UInt8] {
-        let selectorBytes = Array(selector.utf8)
+    private static func relayBytes(origin: String? = nil) -> [UInt8] {
+        let originBytes = origin.map { Array($0.utf8) } ?? []
+        let selector = origin.map { _ in UInt8(originBytes.count) } ?? 0
         return [
-            0x03,
-            0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78,
-            0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78,
-            0x01, 0xE2, 0x40,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x06,
+        ] + relaySBytes + [
             0x01,
-            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
-            UInt8(selectorBytes.count)
-        ] + selectorBytes
+        ] + relayCAFingerprintBytes + [
+            selector,
+        ] + originBytes
     }
 
     private static func reconstructedMultiBytes(from pairURL: PairURL) -> [UInt8] {

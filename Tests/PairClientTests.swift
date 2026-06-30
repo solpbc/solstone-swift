@@ -2,6 +2,8 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import Crypto
+import Network
 @testable import SPLTunnel
 import XCTest
 import os
@@ -78,33 +80,46 @@ private final class RelayURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 nonisolated final class PairClientTests: XCTestCase {
-    func testPairTicketRequestTargetsProductionRelayContract() throws {
-        let request = try PairClient.makePairTicketRequest(
-            relayEndpoint: URL(string: "https://link.solstone.app")!,
-            instanceID: "12345678-1234-5678-1234-567812345678",
-            totp: "123456",
-            userAgent: "test-agent"
-        )
+    func testRelayKeyDerivationMatchesPairWindowVector() throws {
+        let s = Self.data(hex: "0123456789abcdef")
 
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.absoluteString, "https://link.solstone.app/session/pair-ticket?instance=12345678-1234-5678-1234-567812345678")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "test-agent")
-
-        let body = try XCTUnwrap(request.httpBody)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
-        XCTAssertEqual(json["instance_id"], "12345678-1234-5678-1234-567812345678")
-        XCTAssertEqual(json["totp"], "123456")
+        XCTAssertEqual(CertChain.hex(PairWindowCrypto.deriveRelayKey(s: s)), "e34481a4cde647ba9c9fb29a59e18271")
     }
 
-    func testRelayPairDialURLConvertsProductionHTTPSOriginToWSS() throws {
-        let url = try RelayWSTransport.webSocketURL(
+    func testJIDDerivationMatchesReferenceVector() throws {
+        let spki = Self.data(hex: Self.referenceSPKIHex)
+
+        let jid = try PairWindowCrypto.jid(fromSPKIDER: spki)
+
+        XCTAssertEqual(jid.uuidString.lowercased(), "f30ed159-ef46-8e9c-913f-e49f0fe7d201")
+    }
+
+    func testCertExtractedJIDMatchesFixtureVector() throws {
+        let ca = try XCTUnwrap(CertChain.certificates(fromPEM: CertlessTrustFixtures.caPEM).first)
+        let spki = try XCTUnwrap(CertChain.subjectPublicKeyInfoDER(certificate: ca))
+
+        let jid = try PairWindowCrypto.jid(fromSPKIDER: Data(spki))
+
+        XCTAssertEqual(jid.uuidString.lowercased(), Self.fixtureCAJID)
+    }
+
+    func testRelayPairDialRequestUsesPairKeyWithoutInstanceOrBearer() throws {
+        let request = try RelayWSTransport.makeRequest(
             endpoint: URL(string: "https://link.solstone.app")!,
             path: "session/pair-dial",
-            instanceID: "instance-123"
+            authorization: .pairKey(rkHex: "e34481a4cde647ba9c9fb29a59e18271")
         )
 
-        XCTAssertEqual(url.absoluteString, "wss://link.solstone.app/session/pair-dial?instance=instance-123")
+        XCTAssertEqual(request.url?.absoluteString, "wss://link.solstone.app/session/pair-dial")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Sec-Pair-Key"), "e34481a4cde647ba9c9fb29a59e18271")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testPairWindowInnerPathUsesLowercaseSHexToken() {
+        XCTAssertEqual(
+            PairClient.pairWindowInnerPath(s: Self.data(hex: "0123456789abcdef")),
+            "/app/network/pair?token=0123456789abcdef"
+        )
     }
 
     func testTunnelPairHTTPRequestUsesRelativeMuxPath() throws {
@@ -299,11 +314,11 @@ nonisolated final class PairClientTests: XCTestCase {
             session: Self.relaySession(error: URLError(.cannotConnectToHost)),
             lanTransport: Self.successfulLANTransport()
         )
-        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData())
+        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData(instanceID: Self.fixtureCAJID))
 
         let pairing = try await client.finalizeRelayPairing(
             lanResponse: lanResponse,
-            instanceID: "instance-123",
+            caPin: try Self.caPinForFixture(),
             generated: PairingMaterial(csrPEM: "unused", privateKeyPEM: "private-key"),
             relayEndpoint: Self.relayEndpoint
         )
@@ -320,12 +335,12 @@ nonisolated final class PairClientTests: XCTestCase {
             session: Self.relaySession(responseData: Self.relaySuccessData()),
             lanTransport: Self.successfulLANTransport()
         )
-        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData())
+        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData(instanceID: "different-instance"))
 
         do {
             _ = try await client.finalizeRelayPairing(
                 lanResponse: lanResponse,
-                instanceID: "different-instance",
+                caPin: try Self.caPinForFixture(),
                 generated: PairingMaterial(csrPEM: "unused", privateKeyPEM: "private-key"),
                 relayEndpoint: Self.relayEndpoint
             )
@@ -334,6 +349,40 @@ nonisolated final class PairClientTests: XCTestCase {
             XCTAssertEqual(error, .relayInstanceMismatch)
         }
         XCTAssertFalse(RelayURLProtocol.requestURLs().contains { $0.contains("/enroll/device") })
+    }
+
+    func testRelayVerifyInstanceIDMatchesFixtureCA() throws {
+        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData(instanceID: Self.fixtureCAJID))
+
+        XCTAssertNoThrow(try PairClient.verifyRelayInstanceID(lanResponse: lanResponse, caPin: try Self.caPinForFixture()))
+    }
+
+    func testRelayVerifyInstanceIDRejectsMismatch() throws {
+        let lanResponse = try PairClient.decodeLANResponse(data: Self.lanSuccessData(instanceID: "different-instance"))
+
+        XCTAssertThrowsError(try PairClient.verifyRelayInstanceID(lanResponse: lanResponse, caPin: try Self.caPinForFixture())) {
+            XCTAssertEqual($0 as? PairError, .relayInstanceMismatch)
+        }
+    }
+
+    func testRelayPairDialUnauthorizedMapsToPairingWindowClosed() async throws {
+        let server = try await PairDialHTTPServer.start(status: 401)
+        defer { server.stop() }
+        let client = PairClient(
+            session: Self.relaySession(responseData: Self.relaySuccessData()),
+            lanTransport: Self.successfulLANTransport()
+        )
+
+        do {
+            _ = try await client.pair(
+                pairURL: try PairURL.parse(Self.relayURL(origin: "http://127.0.0.1:\(server.port)")),
+                deviceLabel: "test phone",
+                relayEndpoint: Self.relayEndpoint
+            )
+            XCTFail("expected pairing window closed")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .pairingWindowClosed)
+        }
     }
 
     func testDirectPairHonorsInjectedCandidateOrderAndStopsOnSuccess() async throws {
@@ -516,7 +565,7 @@ nonisolated final class PairClientTests: XCTestCase {
                 XCTAssertFalse(literal.contains("https://") && literal.contains("/app/network/pair"))
             }
         }
-        let postDirectPair = try Self.slice(text, from: "private func postDirectPair", to: "private func postPairTicket")
+        let postDirectPair = try Self.slice(text, from: "private func postDirectPair", to: "private func postRelay")
         XCTAssertFalse(postDirectPair.contains("URLSession"))
         XCTAssertFalse(postDirectPair.contains("data(for:"))
     }
@@ -525,9 +574,9 @@ nonisolated final class PairClientTests: XCTestCase {
         let root = StringLiteralGrepSupport.worktreeRoot()
         let file = root.appendingPathComponent("Sources/SPLTunnel/Pair/PairClient.swift")
         let text = try String(contentsOf: file, encoding: .utf8)
-        let pairViaRelay = try Self.slice(text, from: "private func pairViaRelay", to: "private func postDirectPair")
+        let pairViaRelay = try Self.slice(text, from: "private func pairViaRelay", to: "func finalizeRelayPairing")
 
-        XCTAssertTrue(pairViaRelay.contains("let lanResponse = try await Self.postPairThroughTunnel"))
+        XCTAssertTrue(pairViaRelay.contains("lanResponse = try await Self.postPairThroughTunnel"))
         XCTAssertFalse(pairViaRelay.contains("try? await Self.postPairThroughTunnel"))
         let tunnelPost = try XCTUnwrap(pairViaRelay.range(of: "try await Self.postPairThroughTunnel"))
         let finalize = try XCTUnwrap(pairViaRelay.range(of: "return try await finalizeRelayPairing"))
@@ -585,10 +634,11 @@ nonisolated final class PairClientTests: XCTestCase {
     }
 
     private static func lanSuccessData(
+        instanceID: String = "instance-123",
         localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")]
     ) throws -> Data {
         try JSONEncoder().encode(LANResponsePayload(
-            instanceID: "instance-123",
+            instanceID: instanceID,
             homeLabel: "sol",
             clientCert: CertlessTrustFixtures.leafPEM,
             caChain: [CertlessTrustFixtures.caPEM],
@@ -613,6 +663,65 @@ nonisolated final class PairClientTests: XCTestCase {
         URL(string: "https://go.solstone.app/p#0M0G47F9R00042P66DJ18001081G81860W40J2GB1G6GW3X0M6HA7955MTKTHADANEPAVBNF")!
     }
 
+    private static func relayURL(origin: String) -> URL {
+        let originBytes = Array(origin.utf8)
+        let bytes: [UInt8] = [
+            0x06,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x01,
+            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            UInt8(originBytes.count),
+        ] + originBytes
+        return URL(string: "https://go.solstone.app/p#\(encode(bytes))")!
+    }
+
+    private static func caPinForFixture() throws -> PairingCAPin {
+        let ca = try XCTUnwrap(CertChain.certificates(fromPEM: CertlessTrustFixtures.caPEM).first)
+        let spki = try XCTUnwrap(CertChain.subjectPublicKeyInfoDER(certificate: ca))
+        return PairingCAPin(kind: .spkiSHA256, prefixBytes: Array(SHA256.hash(data: Data(spki))))
+    }
+
+    private static func data(hex: String) -> Data {
+        precondition(hex.count.isMultiple(of: 2))
+        var bytes: [UInt8] = []
+        var cursor = hex.startIndex
+        while cursor < hex.endIndex {
+            let next = hex.index(cursor, offsetBy: 2)
+            bytes.append(UInt8(hex[cursor..<next], radix: 16)!)
+            cursor = next
+        }
+        return Data(bytes)
+    }
+
+    private static func encode(_ bytes: [UInt8]) -> String {
+        let alphabet = Array("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
+        var accumulator: UInt64 = 0
+        var bitCount = 0
+        var output = ""
+
+        for byte in bytes {
+            accumulator = (accumulator << 8) | UInt64(byte)
+            bitCount += 8
+
+            while bitCount >= 5 {
+                bitCount -= 5
+                let index = Int((accumulator >> UInt64(bitCount)) & 0x1f)
+                output.append(alphabet[index])
+                accumulator &= (1 << UInt64(bitCount)) - 1
+            }
+        }
+
+        if bitCount > 0 {
+            let index = Int((accumulator << UInt64(5 - bitCount)) & 0x1f)
+            output.append(alphabet[index])
+        }
+
+        return output
+    }
+
+    private static let referenceSPKIHex = "3059301306072a8648ce3d020106082a8648ce3d03010703420004471c3e758c4904285bba7e53118ed0f524adeb0757d25bd2f8e7b0d76dfa714cdd520f7aca8a8b917acc37f51de8f0c9bbe3ad858382e702dc25a12d09f7a858"
+    private static let fixtureCAJID = "4b03f493-0aae-88bc-936a-d13a350109f4"
     private static let relayEndpoint = URL(string: "https://relay.example.com")!
 
     private static func slice(_ text: String, from start: String, to end: String) throws -> String {
@@ -637,5 +746,89 @@ private struct LANResponsePayload: Encodable {
         case caChain = "ca_chain"
         case homeAttestation = "home_attestation"
         case localEndpoints = "local_endpoints"
+    }
+}
+
+private final class PairDialHTTPServer: @unchecked Sendable {
+    let port: UInt16
+
+    private let listener: NWListener
+
+    private init(listener: NWListener, port: UInt16) {
+        self.listener = listener
+        self.port = port
+    }
+
+    static func start(status: Int) async throws -> PairDialHTTPServer {
+        let listener = try NWListener(using: .tcp, on: .any)
+        let ready = PairDialServerReadyWaiter()
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global(qos: .utility))
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, _, _ in
+                let body = "HTTP/1.1 \(status) Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                connection.send(content: Data(body.utf8), completion: .contentProcessed { _ in
+                    connection.cancel()
+                })
+            }
+        }
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                ready.complete(.success(()))
+            case .failed(let error):
+                ready.complete(.failure(error))
+            case .cancelled:
+                ready.complete(.failure(CancellationError()))
+            case .setup, .waiting:
+                break
+            @unknown default:
+                break
+            }
+        }
+        listener.start(queue: .global(qos: .utility))
+        try await ready.wait()
+        guard let port = listener.port?.rawValue else {
+            listener.cancel()
+            throw URLError(.cannotConnectToHost)
+        }
+        return PairDialHTTPServer(listener: listener, port: port)
+    }
+
+    func stop() {
+        listener.cancel()
+    }
+}
+
+private final class PairDialServerReadyWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var result: Result<Void, Error>?
+
+    func wait() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let result: Result<Void, Error>? = lock.withLock {
+                if let existing = self.result {
+                    return existing
+                }
+                self.continuation = continuation
+                return nil as Result<Void, Error>?
+            }
+            if let result {
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    func complete(_ result: Result<Void, Error>) {
+        let continuation = lock.withLock {
+            guard self.result == nil else {
+                return nil as CheckedContinuation<Void, Error>?
+            }
+            self.result = result
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume(with: result)
     }
 }

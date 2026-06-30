@@ -358,7 +358,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
     }
 
     private static func canonicalRelayURL() -> URL {
-        URL(string: "https://go.solstone.app/p#0C938NKR28T5CY0J6HB7G4HMASW03RJ004HMASW9NF6YY0938NKRKAYDXW0XXBDYXZ5FXENY04HMASW9NF6YY00")!
+        URL(string: "https://go.solstone.app/p#0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXW00")!
     }
 
     private static func tempFileURL() -> URL {

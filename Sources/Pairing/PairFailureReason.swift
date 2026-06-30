@@ -16,6 +16,7 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
     case journalUnreachableOffLAN
     case codeExpired
     case wrongSolstone
+    case relayInstanceMismatch
     case generic
 
     static func classify(error: Error, targetAddress: String?, interfaces: [IPv4Interface]) -> PairFailureReason {
@@ -25,6 +26,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             return .codeExpired
         case PairError.lanCAFingerprintMismatch:
             return .wrongSolstone
+        case PairError.relayInstanceMismatch:
+            return .relayInstanceMismatch
         case PairError.lanResponseInvalid:
             return .generic
         case PairError.lanRequestFailed(underlying: nil):
@@ -91,6 +94,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             "the pairing window closed. show a new pairing code on your solstone, then try again."
         case .wrongSolstone:
             "this solstone's identity doesn't match the pairing code. double-check which solstone you're pairing, then try again with a new code."
+        case .relayInstanceMismatch:
+            "the relay connected to the wrong solstone."
         case .generic:
             "pairing didn't go through. show a new pairing code on your solstone and try again."
         }

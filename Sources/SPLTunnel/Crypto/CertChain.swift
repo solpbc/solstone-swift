@@ -93,7 +93,7 @@ public enum CertChain {
         bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func subjectPublicKeyInfoDER(certificate: SecCertificate) -> [UInt8]? {
+    static func subjectPublicKeyInfoDER(certificate: SecCertificate) -> [UInt8]? {
         guard let key = SecCertificateCopyKey(certificate) else {
             return nil
         }

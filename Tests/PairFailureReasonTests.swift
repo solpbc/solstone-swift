@@ -38,6 +38,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(self.classify(PairError.nonceExpired), .codeExpired)
         XCTAssertEqual(self.classify(PairError.pairingWindowClosed), .codeExpired)
         XCTAssertEqual(self.classify(PairError.lanCAFingerprintMismatch), .wrongSolstone)
+        XCTAssertEqual(self.classify(PairError.relayInstanceMismatch), .relayInstanceMismatch)
         XCTAssertEqual(self.classify(PairError.lanResponseInvalid(status: 400)), .generic)
         XCTAssertEqual(self.classify(PairError.lanResponseInvalid(status: nil)), .generic)
         XCTAssertEqual(self.classify(PairError.lanRequestFailed(underlying: nil)), .generic)

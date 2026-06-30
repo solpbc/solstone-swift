@@ -170,9 +170,6 @@ final class PairFlowCoordinator {
         case PairURLError.invalidRelayOrigin:
             "this pairing link is damaged."
 
-        case PairError.relayInstanceMismatch:
-            "the relay connected to the wrong solstone."
-
         default:
             PairFailureReason.classify(error: error, targetAddress: targetAddress, interfaces: interfaces).message
         }

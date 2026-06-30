@@ -21,7 +21,7 @@ public struct PairCandidate: Sendable, Equatable, Hashable {
 public struct PairURL: Sendable, Equatable, Hashable {
     private static let directVersion: UInt8 = 0x04
     private static let multiVersion: UInt8 = 0x05
-    private static let relayVersion: UInt8 = 0x03
+    private static let relayVersion: UInt8 = 0x06
 
     public let version: UInt8
     public let kind: PairLinkKind
@@ -29,10 +29,9 @@ public struct PairURL: Sendable, Equatable, Hashable {
     public let port: UInt16
     public let candidates: [PairCandidate]
     public let nonceBytes: [UInt8]
+    public let s: Data?
     public let caFingerprintBytes: [UInt8]
     public let caFingerprintKind: PairingCAPinKind
-    public let instanceID: String?
-    public let totp: String?
     public let relayOrigin: URL?
 
     public var addressString: String {
@@ -113,10 +112,9 @@ public struct PairURL: Sendable, Equatable, Hashable {
         port = parsedPort
         candidates = [PairCandidate(address: parsedAddressBytes.map(String.init).joined(separator: "."), port: parsedPort)]
         nonceBytes = Array(bytes[8..<24])
+        s = nil
         caFingerprintBytes = Array(bytes[24..<40])
         caFingerprintKind = .certificateSHA256
-        instanceID = nil
-        totp = nil
         relayOrigin = nil
     }
 
@@ -153,41 +151,34 @@ public struct PairURL: Sendable, Equatable, Hashable {
         port = parsedPort
         candidates = parsedCandidates
         nonceBytes = Array(bytes[nonceStart..<fingerprintStart])
+        s = nil
         caFingerprintBytes = Array(bytes[fingerprintStart..<bytes.endIndex])
         caFingerprintKind = .certificateSHA256
-        instanceID = nil
-        totp = nil
         relayOrigin = nil
     }
 
     private init(relayBytes bytes: [UInt8]) throws {
-        guard bytes.count >= 54 else {
+        guard bytes.count >= 27 else {
             throw PairURLError.invalidLength(bytes.count)
         }
-        guard bytes[36] == 0x01 else {
-            throw PairURLError.unsupportedCAFingerprintTag(bytes[36])
+        guard bytes[9] == 0x01 else {
+            throw PairURLError.unsupportedCAFingerprintTag(bytes[9])
         }
-        let selectorLength = Int(bytes[53])
-        guard bytes.count == 54 + selectorLength else {
-            throw PairURLError.invalidLength(bytes.count)
-        }
-
-        let instanceBytes = Array(bytes[1..<17])
-        let uuid = UUID(uuid: (
-            instanceBytes[0], instanceBytes[1], instanceBytes[2], instanceBytes[3],
-            instanceBytes[4], instanceBytes[5], instanceBytes[6], instanceBytes[7],
-            instanceBytes[8], instanceBytes[9], instanceBytes[10], instanceBytes[11],
-            instanceBytes[12], instanceBytes[13], instanceBytes[14], instanceBytes[15]
-        ))
-        let totpValue = Int(bytes[17]) << 16 | Int(bytes[18]) << 8 | Int(bytes[19])
 
         let relayOrigin: URL?
-        if selectorLength == 0 {
-            relayOrigin = nil
+        let selector = Int(bytes[26])
+        if selector == 0 {
+            guard bytes.count == 27 else {
+                throw PairURLError.invalidLength(bytes.count)
+            }
+            relayOrigin = URL(string: "https://link.solstone.app")!
         } else {
-            let selectorBytes = bytes[54..<(54 + selectorLength)]
-            guard let selector = String(bytes: selectorBytes, encoding: .utf8),
-                  let url = URL(string: selector),
+            guard bytes.count == 27 + selector else {
+                throw PairURLError.invalidLength(bytes.count)
+            }
+            let originBytes = bytes[27..<(27 + selector)]
+            guard let origin = String(bytes: originBytes, encoding: .utf8),
+                  let url = URL(string: origin),
                   let scheme = url.scheme?.lowercased(),
                   scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss",
                   url.host != nil else {
@@ -201,11 +192,10 @@ public struct PairURL: Sendable, Equatable, Hashable {
         addressBytes = []
         port = 0
         candidates = []
-        nonceBytes = Array(bytes[20..<36])
-        caFingerprintBytes = Array(bytes[37..<53])
+        nonceBytes = []
+        s = Data(bytes[1..<9])
+        caFingerprintBytes = Array(bytes[10..<26])
         caFingerprintKind = .spkiSHA256
-        instanceID = uuid.uuidString.lowercased()
-        totp = String(format: "%06d", totpValue)
         self.relayOrigin = relayOrigin
     }
 }

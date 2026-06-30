@@ -21,6 +21,11 @@ public enum DialError: Error, Equatable, Sendable {
     case wsHandshakeFailed(httpStatus: Int?)
 }
 
+enum RelayWebSocketAuthorization: Sendable, Equatable {
+    case bearer(token: String, instanceID: String)
+    case pairKey(rkHex: String)
+}
+
 public enum DialClient {
     public static func dial(
         _ endpoint: TransportEndpoint,
@@ -32,9 +37,8 @@ public enum DialClient {
         case .relay(let endpoint, let instanceID, let deviceToken):
             return try await dialRelay(
                 endpoint: endpoint,
-                instanceID: instanceID,
-                authToken: deviceToken,
                 path: "session/dial",
+                authorization: .bearer(token: deviceToken, instanceID: instanceID),
                 timeout: timeout
             )
         }
@@ -42,15 +46,13 @@ public enum DialClient {
 
     public static func dialPairRelay(
         endpoint: URL,
-        instanceID: String,
-        pairTicket: String,
+        rkHex: String,
         timeout: Duration = .seconds(5)
     ) async throws -> any ByteTransport {
         try await dialRelay(
             endpoint: endpoint,
-            instanceID: instanceID,
-            authToken: pairTicket,
             path: "session/pair-dial",
+            authorization: .pairKey(rkHex: rkHex),
             timeout: timeout
         )
     }
@@ -82,12 +84,11 @@ public enum DialClient {
 
     private static func dialRelay(
         endpoint: URL,
-        instanceID: String,
-        authToken: String,
         path: String,
+        authorization: RelayWebSocketAuthorization,
         timeout: Duration
     ) async throws -> RelayWSTransport {
-        let transport = try RelayWSTransport(endpoint: endpoint, instanceID: instanceID, authToken: authToken, path: path)
+        let transport = try RelayWSTransport(endpoint: endpoint, path: path, authorization: authorization)
         let startedAt = ContinuousClock.now
 
         do {
@@ -171,13 +172,8 @@ public actor RelayWSTransport: ByteTransport {
     private let task: URLSessionWebSocketTask
     private var closed = false
 
-    init(endpoint: URL, instanceID: String, authToken: String, path: String) throws {
-        let url = try Self.webSocketURL(endpoint: endpoint, path: path, instanceID: instanceID)
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(Self.userAgent(), forHTTPHeaderField: "User-Agent")
-
+    init(endpoint: URL, path: String, authorization: RelayWebSocketAuthorization) throws {
+        let request = try Self.makeRequest(endpoint: endpoint, path: path, authorization: authorization)
         let delegate = WebSocketOpenDelegate()
         let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
         let task = session.webSocketTask(with: request)
@@ -245,7 +241,22 @@ public actor RelayWSTransport: ByteTransport {
         session.invalidateAndCancel()
     }
 
-    static func webSocketURL(endpoint: URL, path: String, instanceID: String) throws -> URL {
+    static func makeRequest(endpoint: URL, path: String, authorization: RelayWebSocketAuthorization) throws -> URLRequest {
+        let url = try Self.webSocketURL(endpoint: endpoint, path: path, authorization: authorization)
+        var request = URLRequest(url: url)
+        request.setValue(Self.userAgent(), forHTTPHeaderField: "User-Agent")
+
+        switch authorization {
+        case .bearer(let token, _):
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        case .pairKey(let rkHex):
+            request.setValue(rkHex, forHTTPHeaderField: "Sec-Pair-Key")
+        }
+
+        return request
+    }
+
+    static func webSocketURL(endpoint: URL, path: String, authorization: RelayWebSocketAuthorization) throws -> URL {
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false),
               let scheme = components.scheme?.lowercased() else {
             throw DialError.invalidRelayURL(endpoint.absoluteString)
@@ -265,9 +276,11 @@ public actor RelayWSTransport: ByteTransport {
         let basePath = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let dialPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.percentEncodedPath = "/" + [basePath, dialPath].filter { !$0.isEmpty }.joined(separator: "/")
-        var queryItems = components.queryItems ?? []
-        queryItems.append(URLQueryItem(name: "instance", value: instanceID))
-        components.queryItems = queryItems
+        if case .bearer(_, let instanceID) = authorization {
+            var queryItems = components.queryItems ?? []
+            queryItems.append(URLQueryItem(name: "instance", value: instanceID))
+            components.queryItems = queryItems
+        }
 
         guard let url = components.url else {
             throw DialError.invalidRelayURL(endpoint.absoluteString)
