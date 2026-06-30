@@ -1864,6 +1864,219 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
     }
 
+    @MainActor
+    func testReconcileKeepsCurrentPortMobileSegment() async throws {
+        let currentPort = 37_171
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.port == currentPort
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held mobile keep upload should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(
+            localPortProvider: { currentPort },
+            urlBuilder: { localPort in
+                URL(string: "http://127.0.0.1:\(localPort)/app/observer/ingest")
+            }
+        )
+        let segmentID = UUID()
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        await uploader.reconcilePortAndResume()
+
+        // Red-fails on main: mobile task descriptions fall through as foreign, so the task is cancelled and tracking is not rebuilt.
+        XCTAssertFalse(ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == currentPort })
+        XCTAssertTrue(uploader.mobileSegmentHasInFlightTrackingForTesting(segmentID: segmentID))
+
+        uploader.cancelMobileSegmentUpload(segmentID: segmentID)
+        try await self.waitFor("mobile keep cleanup cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == currentPort }
+        }
+    }
+
+    @MainActor
+    func testReconcileCancelsStaleMobileSegmentWithoutReschedule() async throws {
+        let oldPort = 37_172
+        let newPort = 37_173
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.port == oldPort
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held stale mobile upload should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: oldPort)
+        let uploader = self.makeUploader(
+            retryDelays: [60],
+            localPortProvider: { localPort.withLock { $0 } },
+            urlBuilder: { localPort in
+                URL(string: "http://127.0.0.1:\(localPort)/app/observer/ingest")
+            },
+            sleep: { delay in
+                try? await Task.sleep(for: .seconds(delay))
+            }
+        )
+        let segmentID = UUID()
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        localPort.withLock { $0 = newPort }
+        await uploader.reconcilePortAndResume()
+
+        XCTAssertFalse(ObserverUploaderURLProtocol.capturedRequests.contains { $0.url?.port == newPort })
+        XCTAssertFalse(uploader.mobileSegmentHasInFlightTrackingForTesting(segmentID: segmentID))
+        try await self.waitFor("stale mobile cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == oldPort }
+        }
+    }
+
+    @MainActor
+    func testReconcileClassifiesMixedAudioMobileForeignTasks() async throws {
+        let currentPort = 37_180
+        let stalePort = 37_181
+        let foreignPort = 37_182
+        let currentStarted = DispatchSemaphore(value: 0)
+        let staleStarted = DispatchSemaphore(value: 0)
+        let foreignStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.port == currentPort
+                || request.url?.port == stalePort
+                || request.url?.port == foreignPort
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { request in
+            switch request.url?.port {
+            case currentPort:
+                currentStarted.signal()
+            case stalePort:
+                staleStarted.signal()
+            case foreignPort:
+                foreignStarted.signal()
+            default:
+                break
+            }
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held mixed reconcile uploads should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: foreignPort)
+        let uploader = self.makeUploader(
+            retryDelays: [60],
+            localPortProvider: { localPort.withLock { $0 } },
+            urlBuilder: { localPort in
+                URL(string: "http://127.0.0.1:\(localPort)/app/observer/ingest")
+            },
+            sleep: { delay in
+                try? await Task.sleep(for: .seconds(delay))
+            }
+        )
+        let foreignSessionID = UUID()
+        let foreignChunkID = "chunk-foreign-reconcile"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: foreignChunkID),
+            sidecar: self.makeSidecar(sessionID: foreignSessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(foreignStarted.wait(timeout: .now() + 2), .success)
+        await uploader.setAllSessionTaskDescriptionsForTesting("not-a-descriptor")
+
+        localPort.withLock { $0 = stalePort }
+        let staleSegmentID = UUID()
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: staleSegmentID)
+        XCTAssertEqual(staleStarted.wait(timeout: .now() + 2), .success)
+
+        localPort.withLock { $0 = currentPort }
+        let keepSessionID = UUID()
+        let keepChunkID = "chunk-current-reconcile"
+        let keepSegmentID = UUID()
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: keepChunkID),
+            sidecar: self.makeSidecar(sessionID: keepSessionID, chunkIndex: 0)
+        )
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: keepSegmentID)
+        XCTAssertEqual(currentStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(currentStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.clearInMemoryUploadStateForTesting()
+        localPort.withLock { $0 = currentPort }
+        await uploader.reconcilePortAndResume()
+
+        try await self.waitFor("mixed stale and foreign cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == stalePort }
+                && ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == foreignPort }
+        }
+        XCTAssertFalse(ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == currentPort })
+        XCTAssertTrue(uploader.hasInFlightTrackingForTesting(chunkID: keepChunkID))
+        XCTAssertTrue(uploader.mobileSegmentHasInFlightTrackingForTesting(segmentID: keepSegmentID))
+        XCTAssertFalse(uploader.mobileSegmentHasInFlightTrackingForTesting(segmentID: staleSegmentID))
+
+        uploader.dropItem(sessionID: foreignSessionID, chunkID: foreignChunkID)
+        uploader.dropItem(sessionID: keepSessionID, chunkID: keepChunkID)
+        uploader.cancelMobileSegmentUpload(segmentID: keepSegmentID)
+        try await self.waitFor("mixed keep cleanup cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == currentPort }
+        }
+    }
+
+    @MainActor
+    func testReconcileCancelsDroppedCurrentPortMobileSegment() async throws {
+        let currentPort = 37_190
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { request in
+            request.url?.port == currentPort
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in
+            uploadStarted.signal()
+        }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held dropped mobile upload should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(
+            localPortProvider: { currentPort },
+            urlBuilder: { localPort in
+                URL(string: "http://127.0.0.1:\(localPort)/app/observer/ingest")
+            }
+        )
+        let segmentID = UUID()
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        uploader.plantMobileSegmentDropTombstoneForTesting(segmentID: segmentID)
+        await uploader.reconcilePortAndResume()
+
+        XCTAssertFalse(uploader.mobileSegmentHasInFlightTrackingForTesting(segmentID: segmentID))
+        try await self.waitFor("dropped mobile cancellation") {
+            ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == currentPort }
+        }
+    }
+
     @MainActor private func makeUploader(
         cacheRootURL: URL? = nil,
         retryDelays: [UInt64] = [0],
@@ -1916,6 +2129,33 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             sessionID: sessionID,
             mode: .meeting,
             locationJSONL: nil
+        )
+    }
+
+    @MainActor private func seedMobileSegmentUpload(uploader: ObserverUploader, segmentID: UUID) async throws {
+        let metadata = ObserverIngestMultipartMetadata(
+            segment: "120000_3",
+            day: "20260420",
+            startedAt: Date(timeIntervalSince1970: 1_713_624_000),
+            durationS: 3,
+            chunkIndex: nil,
+            sessionID: nil,
+            mode: .meeting,
+            segmentID: segmentID,
+            sources: ["location"]
+        )
+        let request = try uploader.buildMobileSegmentRequestBody(
+            segmentID: segmentID,
+            metadata: metadata,
+            audioURL: nil,
+            locationJSONL: Data("{\"event\":\"test\"}\n".utf8),
+            screenURL: nil
+        )
+        await uploader.uploadMobileSegment(
+            segmentID: segmentID,
+            requestBodyURL: request.requestBodyURL,
+            boundary: request.boundary,
+            onComplete: { _ in }
         )
     }
 

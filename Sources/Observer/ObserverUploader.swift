@@ -575,6 +575,21 @@ final class ObserverUploader {
         return self.taskInfoByTaskID[taskID] != nil || self.activeTasksByTaskID[taskID] != nil
     }
 
+    func mobileSegmentHasInFlightTrackingForTesting(segmentID: UUID) -> Bool {
+        self.mobileSegmentSchedulingIDs.contains(segmentID)
+            || self.mobileSegmentTaskIDBySegmentID[segmentID] != nil
+    }
+
+    func plantMobileSegmentDropTombstoneForTesting(segmentID: UUID) {
+        self.mobileSegmentDroppedIDs.insert(segmentID)
+    }
+
+    func setAllSessionTaskDescriptionsForTesting(_ description: String?) async {
+        for task in await self.sessionTasks() {
+            task.taskDescription = description
+        }
+    }
+
     func mobileSegmentAttemptCountForTesting(segmentID: UUID) -> Int {
         self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0]
     }
@@ -823,41 +838,71 @@ private extension ObserverUploader {
         guard !tasks.isEmpty else { return }
 
         for task in tasks {
-            let descriptor = self.uploadTaskDescriptor(from: task.taskDescription)
             let requestPort = task.originalRequest?.url?.port
-            let isCurrentPort = descriptor?.localPort == currentPort
-                && (requestPort == nil || requestPort == currentPort)
 
-            guard isCurrentPort, let descriptor else {
-                self.clearTaskState(taskID: task.taskIdentifier, chunkID: descriptor?.chunkID)
-                task.cancel()
+            if let descriptor = self.uploadTaskDescriptor(from: task.taskDescription) {
+                let isCurrentPort = descriptor.localPort == currentPort
+                    && (requestPort == nil || requestPort == currentPort)
+                let audioURL = self.pendingAudioURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
+                let sidecarURL = self.pendingSidecarURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
+                guard isCurrentPort,
+                      self.fileManager.fileExists(atPath: audioURL.path),
+                      self.fileManager.fileExists(atPath: sidecarURL.path)
+                else {
+                    self.clearTaskState(taskID: task.taskIdentifier, chunkID: descriptor.chunkID)
+                    task.cancel()
+                    continue
+                }
+
+                let requestBodyURL = self.pendingDirectoryURL(sessionID: descriptor.sessionID)
+                    .appendingPathComponent("\(descriptor.chunkID).upload", isDirectory: false)
+                self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
+                    chunkID: descriptor.chunkID,
+                    sessionID: descriptor.sessionID,
+                    audioURL: audioURL,
+                    sidecarURL: sidecarURL,
+                    requestBodyURL: requestBodyURL,
+                    localPort: descriptor.localPort,
+                    prefix: descriptor.prefix,
+                    sourceType: descriptor.sourceType
+                )
+                self.activeTasksByTaskID[task.taskIdentifier] = task
+                self.activeTaskIDByChunkID[descriptor.chunkID] = task.taskIdentifier
                 continue
             }
 
-            let audioURL = self.pendingAudioURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
-            let sidecarURL = self.pendingSidecarURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
-            guard self.fileManager.fileExists(atPath: audioURL.path),
-                  self.fileManager.fileExists(atPath: sidecarURL.path)
-            else {
-                self.clearTaskState(taskID: task.taskIdentifier, chunkID: descriptor.chunkID)
-                task.cancel()
+            if let mobile = self.mobileSegmentUploadTaskDescriptor(from: task.taskDescription) {
+                let isCurrentPort = mobile.localPort == currentPort
+                    && (requestPort == nil || requestPort == currentPort)
+                let bodyURL = self.cacheRootURL
+                    .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+                    .appendingPathComponent("\(mobile.segmentID.uuidString).upload", isDirectory: false)
+                let dropped = self.mobileSegmentDroppedIDs.contains(mobile.segmentID)
+                guard isCurrentPort,
+                      !dropped,
+                      self.fileManager.fileExists(atPath: bodyURL.path)
+                else {
+                    self.clearMobileSegmentTaskState(taskID: task.taskIdentifier, segmentID: mobile.segmentID)
+                    task.cancel()
+                    continue
+                }
+
+                let info = MobileSegmentTaskInfo(
+                    segmentID: mobile.segmentID,
+                    requestBodyURL: bodyURL,
+                    boundary: self.boundary(for: mobile.segmentID.uuidString),
+                    localPort: mobile.localPort,
+                    prefix: mobile.prefix,
+                    sourceType: mobile.sourceType
+                )
+                self.mobileSegmentTaskInfoByTaskID[task.taskIdentifier] = info
+                self.mobileSegmentTaskByTaskID[task.taskIdentifier] = task
+                self.mobileSegmentTaskIDBySegmentID[mobile.segmentID] = task.taskIdentifier
                 continue
             }
 
-            let requestBodyURL = self.pendingDirectoryURL(sessionID: descriptor.sessionID)
-                .appendingPathComponent("\(descriptor.chunkID).upload", isDirectory: false)
-            self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
-                chunkID: descriptor.chunkID,
-                sessionID: descriptor.sessionID,
-                audioURL: audioURL,
-                sidecarURL: sidecarURL,
-                requestBodyURL: requestBodyURL,
-                localPort: descriptor.localPort,
-                prefix: descriptor.prefix,
-                sourceType: descriptor.sourceType
-            )
-            self.activeTasksByTaskID[task.taskIdentifier] = task
-            self.activeTaskIDByChunkID[descriptor.chunkID] = task.taskIdentifier
+            self.clearTaskState(taskID: task.taskIdentifier, chunkID: nil)
+            task.cancel()
         }
     }
 
