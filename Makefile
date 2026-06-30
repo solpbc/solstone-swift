@@ -21,7 +21,8 @@ DERIVED   ?= DerivedData
 SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
 DEV_APP    = $(DERIVED)/Build/Products/Debug-iphoneos/$(SCHEME).app
 DEVICE_LOG ?= /tmp/solstone-swift.log
-BRAND_DIR  ?= ../sol-brand
+# Brand asset source — REQUIRED by `make brand-sync` (no default); set BRAND_DIR=/path/to/brand
+BRAND_DIR  ?=
 
 # --- App Store Connect / TestFlight (operator config) ---
 # The pipeline below is generic; the account-specific values it needs are NOT
@@ -59,7 +60,8 @@ deps: generate
 		-resolvePackageDependencies
 
 brand-sync:
-	@test -d "$(BRAND_DIR)" || { echo "brand: $(BRAND_DIR) not found — set BRAND_DIR to the sol brand source directory (BRAND_DIR=/path/to/brand make brand-sync)"; exit 1; }
+	@test -n "$(BRAND_DIR)" || { echo "brand: BRAND_DIR is required — point it at your sol brand asset directory (BRAND_DIR=/path/to/brand make brand-sync)"; exit 1; }
+	@test -d "$(BRAND_DIR)" || { echo "brand: BRAND_DIR=$(BRAND_DIR) not found"; exit 1; }
 	# unified sol app icon (wordmark, full-bleed cream master, locked 2026-06-25). iOS auto-masks to the
 	# squircle — keep full-bleed, do NOT pre-round. Same 1024 cream master feeds the watch AppIcon too.
 	cp "$(BRAND_DIR)/app-icon/png-cream/sol-app-icon-cream-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
