@@ -33,7 +33,6 @@ enum TunnelState: Sendable, Equatable, CustomStringConvertible {
 
 enum ConnectionHealth: Sendable, Equatable {
     case healthy
-    case degraded
     case unknown
 }
 

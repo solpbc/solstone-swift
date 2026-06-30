@@ -5,18 +5,11 @@ import Foundation
 
 nonisolated enum UploadReach: Equatable {
     case reaching
-    case failing
     case idle
 }
 
 nonisolated func uploadReach(failedTotal: Int, pendingTotal: Int) -> UploadReach {
-    if failedTotal > 0 {
-        return .failing
-    }
-    if pendingTotal > 0 {
-        return .reaching
-    }
-    return .idle
+    (failedTotal + pendingTotal) > 0 ? .reaching : .idle
 }
 
 @MainActor

@@ -824,48 +824,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testConnectionHealthRequiresSustainedProbeFailures() async throws {
-        TunnelProbeURLProtocol.reset()
-        TunnelProbeURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
-                Data("not ready".utf8)
-            )
-        }
-        let session = Self.probeSession()
-        defer {
-            session.invalidateAndCancel()
-            TunnelProbeURLProtocol.reset()
-        }
-        let transport = MockCFTunnelTransport()
-        let manager = makeManager(transport: transport, probeSession: session)
-        manager.forceConnected(port: 8080, via: .lan)
-
-        XCTAssertEqual(manager.connectionHealth, .healthy)
-
-        let first = await manager.probeConnection()
-        XCTAssertEqual(first?.alive, false)
-        XCTAssertEqual(manager.lastProbeAlive, false)
-        XCTAssertEqual(manager.connectionHealth, .healthy)
-
-        let second = await manager.probeConnection()
-        XCTAssertEqual(second?.alive, false)
-        XCTAssertEqual(manager.connectionHealth, .degraded)
-
-        TunnelProbeURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
-            )
-        }
-
-        let third = await manager.probeConnection()
-        XCTAssertEqual(third?.alive, true)
-        XCTAssertEqual(manager.lastProbeAlive, true)
-        XCTAssertEqual(manager.connectionHealth, .healthy)
-    }
-
-    @MainActor
     func testStandingLineStaysConnectedAfterSingleFailedProbe() async throws {
         TunnelProbeURLProtocol.reset()
         TunnelProbeURLProtocol.handler = { request in
@@ -887,11 +845,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(first?.alive, false)
         XCTAssertEqual(manager.lastProbeAlive, false)
-        XCTAssertEqual(manager.connectionHealth, .healthy)
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: manager.connectionHealth, syncing: false),
-            "connected"
-        )
     }
 
     @MainActor

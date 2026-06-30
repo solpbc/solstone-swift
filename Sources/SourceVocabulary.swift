@@ -306,7 +306,6 @@ nonisolated enum SourceVocabulary {
     static let standingConnected = "connected"
     static let standingSyncing = "connected · syncing"
     static let standingOffline = "offline"
-    static let standingDegraded = "connected · trouble reaching your journal"
     static let lastSyncedLabel = "last synced"
     static let reconnectObserverButton = "reconnect this observer"
     static let reconnectObserverConfirmTitle = "reconnect this observer?"
@@ -503,12 +502,6 @@ nonisolated enum SourceVocabulary {
         count == 1
             ? "syncing 1 segment to your journal"
             : "syncing \(count) segments to your journal"
-    }
-
-    static func migrationHeadlineTrouble(count: Int) -> String {
-        count == 1
-            ? "1 waiting · trouble reaching your journal"
-            : "\(count) waiting · trouble reaching your journal"
     }
 
     static func lastActiveLine(relative: String) -> String {

@@ -68,7 +68,6 @@ struct MoreView: View {
     private var healthColor: Color {
         switch self.standingHealth.health {
         case .healthy: .green
-        case .degraded: .yellow
         case .unknown: .gray
         }
     }

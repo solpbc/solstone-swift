@@ -323,7 +323,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.standingConnected, "connected")
         XCTAssertEqual(SourceVocabulary.standingSyncing, "connected · syncing")
         XCTAssertEqual(SourceVocabulary.standingOffline, "offline")
-        XCTAssertEqual(SourceVocabulary.standingDegraded, "connected · trouble reaching your journal")
         XCTAssertEqual(SourceVocabulary.checkConnection, "check connection")
         XCTAssertEqual(SourceVocabulary.probeReachable, "reachable")
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
@@ -399,14 +398,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingSyncLine(health: .unknown, syncing: true),
             "offline"
         )
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: .degraded, syncing: true),
-            "connected · trouble reaching your journal"
-        )
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: .degraded, syncing: false),
-            "connected · trouble reaching your journal"
-        )
+        for line in [SourceVocabulary.standingConnected, SourceVocabulary.standingSyncing, SourceVocabulary.standingOffline] {
+            XCTAssertFalse(line.contains("trouble reaching"))
+        }
         XCTAssertEqual(
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             "checked just now — reachable · 42 ms"
@@ -587,14 +581,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingConnected,
             SourceVocabulary.standingSyncing,
             SourceVocabulary.standingOffline,
-            SourceVocabulary.standingDegraded,
             SourceVocabulary.transferRateLabel,
             SourceVocabulary.transferRateIdle,
             SourceVocabulary.checkConnection,
             SourceVocabulary.probeReachable,
             SourceVocabulary.standingSyncLine(health: .healthy, syncing: true),
             SourceVocabulary.standingSyncLine(health: .healthy, syncing: false),
-            SourceVocabulary.standingSyncLine(health: .degraded, syncing: false),
             SourceVocabulary.standingSyncLine(health: .unknown, syncing: false),
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),

@@ -13,8 +13,6 @@ extension SourceVocabulary {
         }
 
         switch reach {
-        case .failing:
-            return (.degraded, false)
         case .reaching:
             return (.healthy, true)
         case .idle:
@@ -25,7 +23,6 @@ extension SourceVocabulary {
     nonisolated static func standingSyncLine(health: ConnectionHealth, syncing: Bool) -> String {
         switch health {
         case .unknown: return Self.standingOffline
-        case .degraded: return Self.standingDegraded
         case .healthy: return syncing ? Self.standingSyncing : Self.standingConnected
         }
     }

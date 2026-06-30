@@ -132,15 +132,6 @@ final class TunnelManager {
         self.diagnosticLog = diagnosticLog
     }
 
-    var connectionHealth: ConnectionHealth {
-        switch self.state {
-        case .connected:
-            return self.consecutiveProbeFailures >= 2 ? .degraded : .healthy
-        case .disconnected, .connecting, .waitingForHome, .error:
-            return .unknown
-        }
-    }
-
     private func appendStage(_ kind: ConnectionStageKind, detail: String? = nil) {
         let stage = ConnectionStage(id: kind, status: .active, detail: detail, startTime: .now)
         self.connectionStages.append(stage)
