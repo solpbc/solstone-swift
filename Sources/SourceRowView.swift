@@ -62,7 +62,7 @@ private extension SourceRowView {
         case .needsAttention:
             .red
         case .active, .enrolling:
-            .solOrangeAccessible
+            .solOrange
         case .off, .paused:
             .secondary
         }

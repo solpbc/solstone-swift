@@ -72,7 +72,7 @@ struct ConnectJournalSheet: View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.solOrangeAccessible)
+                .foregroundStyle(Color.solOrange)
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 4) {

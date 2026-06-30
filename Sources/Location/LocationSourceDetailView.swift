@@ -289,7 +289,7 @@ private extension LocationSourceDetailView {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? Color.solOrangeAccessible : .secondary)
+                    .foregroundStyle(isSelected ? Color.solOrange : .secondary)
                     .frame(width: 24)
 
                 Text(tier.label)
@@ -463,7 +463,7 @@ private extension LocationEnrollmentContent {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(isSelected ? Color.solOrangeAccessible : .secondary)
+                    .foregroundStyle(isSelected ? Color.solOrange : .secondary)
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -474,7 +474,7 @@ private extension LocationEnrollmentContent {
                         if tier == .balanced {
                             Text(LocationVocabulary.balancedDefaultBadge)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.solOrangeAccessible)
+                                .foregroundStyle(Color.orangeInk)
                         }
                     }
 
@@ -490,7 +490,7 @@ private extension LocationEnrollmentContent {
             .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.solOrangeAccessible : Color(.separator), lineWidth: isSelected ? 2 : 1)
+                    .stroke(isSelected ? Color.solOrange : Color(.separator), lineWidth: isSelected ? 2 : 1)
             }
         }
         .buttonStyle(.plain)

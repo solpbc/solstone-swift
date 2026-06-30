@@ -41,7 +41,7 @@ struct JournalLivesSheet: View {
                         ) {
                             Text(SourceVocabulary.journalLivesAction(isPaired: self.appConfig.isPaired))
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.solOrangeAccessible)
+                                .foregroundStyle(Color.orangeInk)
                         }
                     }
                     .accessibilityIdentifier("journalLives.ownJournal")
@@ -100,7 +100,7 @@ struct JournalLivesSheet: View {
 
                 if current {
                     Text(Image(systemName: "checkmark.circle.fill"))
-                        .foregroundStyle(Color.solOrangeAccessible)
+                        .foregroundStyle(Color.solOrange)
                         .accessibilityLabel("current")
                         .accessibilityIdentifier("\(rowID).current")
                 }

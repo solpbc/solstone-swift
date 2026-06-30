@@ -21,7 +21,7 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         self.stackView.translatesAutoresizingMaskIntoConstraints = false
 
         self.headerLabel.font = .preferredFont(forTextStyle: .headline)
-        self.headerLabel.textColor = UIColor(Color.solOrangeAccessible)
+        self.headerLabel.textColor = UIColor(Color.orangeInk)
         self.headerLabel.numberOfLines = 2
 
         self.heroLabel.font = .preferredFont(forTextStyle: .title3)

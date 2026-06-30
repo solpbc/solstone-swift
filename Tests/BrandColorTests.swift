@@ -21,16 +21,16 @@ nonisolated final class BrandColorTests: XCTestCase {
     func testSolGoldMatchesBrandSpec() throws {
         try self.assertMatchesBrandSpec(
             Color.solGold,
-            red: 0.961,
-            green: 0.780,
-            blue: 0.251
+            red: 1.000,
+            green: 0.812,
+            blue: 0.200
         )
     }
 
     @MainActor
-    func testSolOrangeAccessibleMatchesBrandSpec() throws {
+    func testOrangeInkMatchesBrandSpec() throws {
         try self.assertMatchesBrandSpec(
-            Color.solOrangeAccessible,
+            Color.orangeInk,
             red: 0.690,
             green: 0.416,
             blue: 0.102
@@ -38,7 +38,7 @@ nonisolated final class BrandColorTests: XCTestCase {
     }
 
     @MainActor
-    func testAccentColorLightMatchesSolOrangeAccessible() throws {
+    func testAccentColorLightMatchesSolOrange() throws {
         let bundle = Bundle(for: AppDelegate.self)
         let traits = UITraitCollection(userInterfaceStyle: .light)
         let accentColor = try XCTUnwrap(
@@ -46,9 +46,9 @@ nonisolated final class BrandColorTests: XCTestCase {
         )
         try self.assertMatchesBrandSpec(
             Color(uiColor: accentColor),
-            red: 0.690,
-            green: 0.416,
-            blue: 0.102
+            red: 0.910,
+            green: 0.573,
+            blue: 0.227
         )
     }
 

@@ -102,5 +102,5 @@ make clean         # remove build artifacts
 - Exceptions are limited to HIG cancel/destructive labels, `accessibilityHint` / `accessibilityLabel`, third-party proper nouns, protocol and URL literals, and AM/PM or date abbreviations.
 - Canonical brand source is sol pbc's internal brand canon, kept outside this repo.
 - Sync shipped brand assets with `make brand-sync` (set `BRAND_DIR=/path/to/brand` to point at the canon).
-- `Tests/BrandColorTests.swift` is the tripwire for canonical `solOrange`, `solGold`, `solOrangeAccessible`, and the light `AccentColor` variant.
+- `Tests/BrandColorTests.swift` is the tripwire for canonical `solOrange`, `solGold`, `orangeInk`, and `AccentColor`.
 - Keep `Sources/Design/Colors.swift` numeric triples locked; update brand assets through `make brand-sync`, not ad hoc edits.

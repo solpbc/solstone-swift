@@ -31,7 +31,7 @@ struct DayHomeAskBar: View {
             .overlay(alignment: .topTrailing) {
                 if self.foldBadgeVisible {
                     Circle()
-                        .fill(Color.solOrangeAccessible)
+                        .fill(Color.solOrange)
                         .frame(width: 8, height: 8)
                         .offset(x: 4, y: -4)
                 }
