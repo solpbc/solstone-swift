@@ -335,6 +335,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchLinkConnected, "phone link: in range")
         XCTAssertEqual(SourceVocabulary.watchLinkNotConnected, "phone link: out of range")
         XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
+        XCTAssertEqual(SourceVocabulary.watchReceivingSubtext, "your watch is sending data")
         XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start solstone on your watch")
         XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch — listening")
         XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install solstone on your watch")
@@ -344,7 +345,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchDiagnosticsBlockTitle, "diagnostics")
         XCTAssertEqual(SourceVocabulary.watchTechnicalDetailTitle, "technical detail")
         XCTAssertEqual(SourceVocabulary.watchReceivedLabel, "received")
-        XCTAssertEqual(SourceVocabulary.watchWaitingLabel, "waiting")
+        XCTAssertEqual(SourceVocabulary.watchNotYetInJournalLabel, "not yet in your journal")
         XCTAssertEqual(SourceVocabulary.watchHandedToJournalLabel, "handed to your journal")
         XCTAssertEqual(SourceVocabulary.watchLastSyncLabel, "last sync")
         XCTAssertEqual(SourceVocabulary.watchLastSyncNever, "no sync yet")
@@ -533,6 +534,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchLinkConnected,
             SourceVocabulary.watchLinkNotConnected,
             SourceVocabulary.watchNoContextSubtext,
+            SourceVocabulary.watchReceivingSubtext,
             SourceVocabulary.watchIdleSubtext,
             SourceVocabulary.watchListeningSubtext,
             SourceVocabulary.watchInstallTitle,
@@ -542,7 +544,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchDiagnosticsBlockTitle,
             SourceVocabulary.watchTechnicalDetailTitle,
             SourceVocabulary.watchReceivedLabel,
-            SourceVocabulary.watchWaitingLabel,
+            SourceVocabulary.watchNotYetInJournalLabel,
             SourceVocabulary.watchHandedToJournalLabel,
             SourceVocabulary.watchLastSyncLabel,
             SourceVocabulary.watchLastSyncNever,

@@ -111,7 +111,8 @@ nonisolated final class WatchLinkTests: XCTestCase {
         XCTAssertEqual(
             watchRecordingStatus(
                 context: watchLink.watchStatus,
-                now: Date(timeIntervalSince1970: 1_020)
+                now: Date(timeIntervalSince1970: 1_020),
+                lastReceivedAt: nil
             ),
             .observing
         )
@@ -143,14 +144,17 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
         let recordingStatus = watchRecordingStatus(
             context: watchLink.watchStatus,
-            now: Date(timeIntervalSince1970: 1_020)
+            now: Date(timeIntervalSince1970: 1_020),
+            lastReceivedAt: nil
         )
         let presentation = phoneWatchSourcePresentation(
             install: watchInstallState(
                 isSupported: watchLink.isSupported,
                 isPaired: watchLink.isPaired,
                 isWatchAppInstalled: watchLink.isWatchAppInstalled,
-                activationState: watchLink.activationState
+                activationState: watchLink.activationState,
+                now: Date(timeIntervalSince1970: 1_020),
+                lastReceivedAt: nil
             ),
             recordingStatus: recordingStatus
         )

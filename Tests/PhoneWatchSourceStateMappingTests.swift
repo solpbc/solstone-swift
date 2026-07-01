@@ -11,6 +11,7 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             (.notSupported, .off, SourceAttention(message: SourceVocabulary.watchNotSupported)),
             (.noWatchPaired, .needsAttention, SourceAttention(message: SourceVocabulary.watchNoWatchPaired)),
             (.pairedNoApp, .needsAttention, SourceAttention(message: SourceVocabulary.watchAppNotInstalled)),
+            (.receivingUnconfirmedInstall, .off, nil),
             (.appInstalled, .active, nil),
         ]
 
@@ -26,12 +27,16 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
     }
 
     func testWatchInstallStateDerivation() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
         XCTAssertEqual(
             watchInstallState(
                 isSupported: false,
                 isPaired: true,
                 isWatchAppInstalled: true,
-                activationState: .activated
+                activationState: .activated,
+                now: now,
+                lastReceivedAt: nil
             ),
             .notSupported
         )
@@ -40,7 +45,9 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
                 isSupported: true,
                 isPaired: false,
                 isWatchAppInstalled: true,
-                activationState: .activated
+                activationState: .activated,
+                now: now,
+                lastReceivedAt: nil
             ),
             .noWatchPaired
         )
@@ -49,7 +56,9 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
                 isSupported: true,
                 isPaired: true,
                 isWatchAppInstalled: false,
-                activationState: .activated
+                activationState: .activated,
+                now: now,
+                lastReceivedAt: nil
             ),
             .pairedNoApp
         )
@@ -58,7 +67,9 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
                 isSupported: true,
                 isPaired: true,
                 isWatchAppInstalled: true,
-                activationState: .inactive
+                activationState: .inactive,
+                now: now,
+                lastReceivedAt: nil
             ),
             .pairedNoApp
         )
@@ -67,7 +78,9 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
                 isSupported: true,
                 isPaired: true,
                 isWatchAppInstalled: true,
-                activationState: .activated
+                activationState: .activated,
+                now: now,
+                lastReceivedAt: nil
             ),
             .appInstalled
         )
@@ -76,27 +89,37 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
     func testRecordingStatusFromContext() {
         let now = Date(timeIntervalSince1970: 1_000)
 
-        XCTAssertEqual(watchRecordingStatus(context: nil, now: now), .noContext)
+        XCTAssertEqual(watchRecordingStatus(context: nil, now: now, lastReceivedAt: nil), .noContext)
         XCTAssertEqual(
             watchRecordingStatus(
                 context: Self.context(phase: .observing, asOf: now.addingTimeInterval(-44)),
-                now: now
+                now: now,
+                lastReceivedAt: nil
             ),
             .observing
         )
         XCTAssertEqual(
             watchRecordingStatus(
                 context: Self.context(phase: .observing, asOf: now.addingTimeInterval(-45)),
-                now: now
+                now: now,
+                lastReceivedAt: nil
             ),
             .idle
         )
         XCTAssertEqual(
-            watchRecordingStatus(context: Self.context(phase: .idle, asOf: now), now: now),
+            watchRecordingStatus(
+                context: Self.context(phase: .idle, asOf: now),
+                now: now,
+                lastReceivedAt: nil
+            ),
             .idle
         )
         XCTAssertEqual(
-            watchRecordingStatus(context: Self.context(phase: .stopping, asOf: now), now: now),
+            watchRecordingStatus(
+                context: Self.context(phase: .stopping, asOf: now),
+                now: now,
+                lastReceivedAt: nil
+            ),
             .idle
         )
     }
@@ -108,12 +131,150 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            watchRecordingStatus(context: context, now: Date(timeIntervalSince1970: 1_000)),
+            watchRecordingStatus(
+                context: context,
+                now: Date(timeIntervalSince1970: 1_000),
+                lastReceivedAt: nil
+            ),
             .observing
         )
         XCTAssertEqual(
-            watchRecordingStatus(context: context, now: Date(timeIntervalSince1970: 1_075)),
+            watchRecordingStatus(
+                context: context,
+                now: Date(timeIntervalSince1970: 1_075),
+                lastReceivedAt: nil
+            ),
             .idle
+        )
+    }
+
+    func testFreshReceiptCorroboratesMissingContextWithoutActivating() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let status = watchRecordingStatus(
+            context: nil,
+            now: now,
+            lastReceivedAt: now.addingTimeInterval(-5)
+        )
+        let presentation = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: status
+        )
+
+        XCTAssertEqual(status, .noContextButReceiving)
+        XCTAssertEqual(presentation.state, .off)
+        XCTAssertNil(presentation.attention)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchReceivingSubtext)
+        XCTAssertNotEqual(presentation.subtext, SourceVocabulary.watchNoContextSubtext)
+        XCTAssertNotEqual(presentation.state, .active)
+        XCTAssertNotEqual(presentation.subtext, SourceVocabulary.watchListeningSubtext)
+    }
+
+    func testStaleOrMissingReceiptKeepsMissingContext() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(
+            watchRecordingStatus(
+                context: nil,
+                now: now,
+                lastReceivedAt: now.addingTimeInterval(-61)
+            ),
+            .noContext
+        )
+        XCTAssertEqual(
+            watchRecordingStatus(context: nil, now: now, lastReceivedAt: nil),
+            .noContext
+        )
+    }
+
+    func testReceiptDoesNotReplaceFreshObservingContext() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let status = watchRecordingStatus(
+            context: Self.context(phase: .observing, asOf: now.addingTimeInterval(-5)),
+            now: now,
+            lastReceivedAt: now.addingTimeInterval(-5)
+        )
+        let presentation = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: status
+        )
+
+        XCTAssertEqual(status, .observing)
+        XCTAssertEqual(presentation.state, .active)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchListeningSubtext)
+    }
+
+    func testReceiptCorroborationBoundaryAndCadence() {
+        let base = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(
+            watchRecordingStatus(
+                context: nil,
+                now: base,
+                lastReceivedAt: base.addingTimeInterval(-46)
+            ),
+            .noContextButReceiving
+        )
+
+        for offset in stride(from: 0, through: 30, by: 5) {
+            let now = base.addingTimeInterval(TimeInterval(offset))
+            let trailingReceipt = now.addingTimeInterval(TimeInterval(offset.isMultiple(of: 10) ? -10 : -5))
+            XCTAssertEqual(
+                watchRecordingStatus(
+                    context: nil,
+                    now: now,
+                    lastReceivedAt: trailingReceipt
+                ),
+                .noContextButReceiving
+            )
+        }
+
+        XCTAssertEqual(
+            watchRecordingStatus(
+                context: nil,
+                now: base,
+                lastReceivedAt: base.addingTimeInterval(-61)
+            ),
+            .noContext
+        )
+    }
+
+    func testInstallReceiptCorroborationAvoidsInstallCTAAndPairedScopeOnly() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let freshReceipt = now.addingTimeInterval(-5)
+
+        let receiving = watchInstallState(
+            isSupported: true,
+            isPaired: true,
+            isWatchAppInstalled: false,
+            activationState: .activated,
+            now: now,
+            lastReceivedAt: freshReceipt
+        )
+        let presentation = phoneWatchSourcePresentation(
+            install: receiving,
+            recordingStatus: .noContext
+        )
+
+        XCTAssertEqual(receiving, .receivingUnconfirmedInstall)
+        XCTAssertNotEqual(receiving, .pairedNoApp)
+        XCTAssertNotEqual(receiving, .appInstalled)
+        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(install: receiving))
+        XCTAssertEqual(presentation.state, .off)
+        XCTAssertNil(presentation.attention)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchReceivingSubtext)
+
+        XCTAssertEqual(
+            watchInstallState(
+                isSupported: true,
+                isPaired: false,
+                isWatchAppInstalled: false,
+                activationState: .activated,
+                now: now,
+                lastReceivedAt: freshReceipt
+            ),
+            .noWatchPaired
         )
     }
 
@@ -132,6 +293,11 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         XCTAssertEqual(noContext.state, .off)
         XCTAssertNil(noContext.attention)
         XCTAssertEqual(noContext.subtext, SourceVocabulary.watchNoContextSubtext)
+
+        let receiving = phoneWatchSourcePresentation(install: .appInstalled, recordingStatus: .noContextButReceiving)
+        XCTAssertEqual(receiving.state, .off)
+        XCTAssertNil(receiving.attention)
+        XCTAssertEqual(receiving.subtext, SourceVocabulary.watchReceivingSubtext)
     }
 }
 

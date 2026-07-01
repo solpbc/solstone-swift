@@ -13,15 +13,11 @@ struct SolstoneWatchApp: App {
         do {
             let storage = try WatchCaptureStorage()
             let relaySender = WatchRelaySender(storage: storage, session: session)
-            self._sessionModel = State(initialValue: WatchSessionModel(
-                session: session,
-                relaySender: relaySender
-            ))
-            self._captureModel = State(initialValue: WatchCaptureModel(
-                storage: storage,
-                relaySender: relaySender,
-                session: session
-            ))
+            let sessionModel = WatchSessionModel(session: session, relaySender: relaySender)
+            let captureModel = WatchCaptureModel(storage: storage, relaySender: relaySender, session: session)
+            sessionModel.onReachableRepublish = { [weak captureModel] in captureModel?.republishStatusOnReconnect() }
+            self._sessionModel = State(initialValue: sessionModel)
+            self._captureModel = State(initialValue: captureModel)
         } catch {
             self._sessionModel = State(initialValue: WatchSessionModel(
                 session: session,

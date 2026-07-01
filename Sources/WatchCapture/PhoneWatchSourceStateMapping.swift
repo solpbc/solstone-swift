@@ -8,13 +8,18 @@ nonisolated enum WatchInstallState: Equatable, Sendable {
     case notSupported
     case noWatchPaired
     case pairedNoApp
+    case receivingUnconfirmedInstall
     case appInstalled
 }
 
 nonisolated enum WatchRecordingStatus: Equatable, Sendable {
     static let defaultTTL: TimeInterval = 45
+    // The receipt window is defaultTTL (45s) plus a 15s decay margin so a
+    // receipt landing just past the recording-status TTL does not flap.
+    static let receiptCorroborationTTL: TimeInterval = 60
 
     case noContext
+    case noContextButReceiving
     case observing
     case idle
 }
@@ -29,7 +34,9 @@ nonisolated func watchInstallState(
     isSupported: Bool,
     isPaired: Bool,
     isWatchAppInstalled: Bool,
-    activationState: WCSessionActivationState
+    activationState: WCSessionActivationState,
+    now: Date,
+    lastReceivedAt: Date?
 ) -> WatchInstallState {
     guard isSupported else {
         return .notSupported
@@ -37,10 +44,10 @@ nonisolated func watchInstallState(
     guard isPaired else {
         return .noWatchPaired
     }
-    guard isWatchAppInstalled && activationState == .activated else {
-        return .pairedNoApp
+    if isWatchAppInstalled && activationState == .activated {
+        return .appInstalled
     }
-    return .appInstalled
+    return hasFreshReceipt(lastReceivedAt, now: now) ? .receivingUnconfirmedInstall : .pairedNoApp
 }
 
 nonisolated func phoneWatchSourceState(
@@ -77,6 +84,12 @@ nonisolated func phoneWatchSourcePresentation(
             attention: SourceAttention(message: SourceVocabulary.watchAppNotInstalled),
             subtext: SourceState.needsAttention.subtext(activeSubtext: SourceVocabulary.watchListeningSubtext)
         )
+    case .receivingUnconfirmedInstall:
+        return PhoneWatchSourcePresentation(
+            state: .off,
+            attention: nil,
+            subtext: SourceVocabulary.watchReceivingSubtext
+        )
     case .appInstalled:
         switch recordingStatus {
         case .noContext:
@@ -84,6 +97,12 @@ nonisolated func phoneWatchSourcePresentation(
                 state: .off,
                 attention: nil,
                 subtext: SourceVocabulary.watchNoContextSubtext
+            )
+        case .noContextButReceiving:
+            return PhoneWatchSourcePresentation(
+                state: .off,
+                attention: nil,
+                subtext: SourceVocabulary.watchReceivingSubtext
             )
         case .observing:
             return PhoneWatchSourcePresentation(
@@ -104,10 +123,11 @@ nonisolated func phoneWatchSourcePresentation(
 nonisolated func watchRecordingStatus(
     context: WatchStatusContext?,
     now: Date,
-    ttl: TimeInterval = WatchRecordingStatus.defaultTTL
+    ttl: TimeInterval = WatchRecordingStatus.defaultTTL,
+    lastReceivedAt: Date?
 ) -> WatchRecordingStatus {
     guard let context else {
-        return .noContext
+        return hasFreshReceipt(lastReceivedAt, now: now) ? .noContextButReceiving : .noContext
     }
     switch context.phase {
     case .idle, .stopping:
@@ -116,4 +136,12 @@ nonisolated func watchRecordingStatus(
         let elapsed = max(0, now.timeIntervalSince(context.asOf))
         return elapsed < ttl ? .observing : .idle
     }
+}
+
+private nonisolated func hasFreshReceipt(_ lastReceivedAt: Date?, now: Date) -> Bool {
+    guard let lastReceivedAt else {
+        return false
+    }
+    let elapsed = max(0, now.timeIntervalSince(lastReceivedAt))
+    return elapsed < WatchRecordingStatus.receiptCorroborationTTL
 }

@@ -81,6 +81,31 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(heartbeat.startedAt, initial.startedAt)
     }
 
+    func testRepublishCurrentStatusEmitsCurrentPhaseImmediately() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.start()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } && self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let initial = try XCTUnwrap(statuses.last)
+        statuses.removeAll()
+        harness.clock.advance(by: 1)
+        let republishAt = harness.clock.now()
+
+        harness.engine.republishCurrentStatus()
+
+        let republished = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertEqual(republished.phase, .observing)
+        XCTAssertEqual(republished.asOf, republishAt)
+        XCTAssertEqual(republished.seq, initial.seq + 1)
+        XCTAssertEqual(republished.sessionID, initial.sessionID)
+        XCTAssertEqual(republished.startedAt, initial.startedAt)
+    }
+
     func testStartStopPublishObservingStoppingAndIdle() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []

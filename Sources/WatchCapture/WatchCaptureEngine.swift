@@ -230,6 +230,11 @@ final class WatchCaptureEngine {
         self.publishStatus(.idle)
         self.notifyPresentationChanged()
     }
+
+    func republishCurrentStatus() {
+        let phase: WatchStatusContext.Phase = self.activeSegment == nil ? .idle : .observing
+        self.publishStatus(phase)
+    }
 }
 
 private extension WatchCaptureEngine {

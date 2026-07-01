@@ -21,6 +21,10 @@ final class WatchLink {
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
 
+    var lastReceivedAt: Date? {
+        self.receiver?.lastReceivedAt
+    }
+
     init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?) {
         self.session = session
         self.receiver = receiver

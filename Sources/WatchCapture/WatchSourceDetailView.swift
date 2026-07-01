@@ -145,12 +145,18 @@ private extension WatchSourceDetailView {
             isSupported: self.watchLink.isSupported,
             isPaired: self.watchLink.isPaired,
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-            activationState: self.watchLink.activationState
+            activationState: self.watchLink.activationState,
+            now: self.now,
+            lastReceivedAt: self.watchLink.lastReceivedAt
         )
     }
 
     var recordingStatus: WatchRecordingStatus {
-        watchRecordingStatus(context: self.watchLink.watchStatus, now: self.now)
+        watchRecordingStatus(
+            context: self.watchLink.watchStatus,
+            now: self.now,
+            lastReceivedAt: self.watchLink.lastReceivedAt
+        )
     }
 
     var watchPresentation: PhoneWatchSourcePresentation {

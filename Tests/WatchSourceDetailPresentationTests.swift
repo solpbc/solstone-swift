@@ -50,9 +50,10 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertEqual(summary.handedToJournal, 0)
         XCTAssertEqual(state.0, .active)
         XCTAssertNil(state.1)
-        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchWaitingLabel }?.value, "2")
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchNotYetInJournalLabel }?.value, "2")
         XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchHandedToJournalLabel }?.value, "0")
         XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchLastSyncLabel }?.value, SourceVocabulary.watchLastSyncNever)
+        XCTAssertFalse(rows.contains { $0.label == "waiting" })
         XCTAssertFalse(rows.contains { $0.label.localizedCaseInsensitiveContains("failed") })
         XCTAssertFalse(rows.contains { $0.value.localizedCaseInsensitiveContains("not working") })
     }

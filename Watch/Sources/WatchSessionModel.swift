@@ -12,6 +12,7 @@ private let watchAppLog = Logger(subsystem: "app.solstone.swift", category: "wat
 final class WatchSessionModel {
     var isReachable = false
 
+    @ObservationIgnored var onReachableRepublish: (@MainActor () -> Void)?
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let relaySender: WatchRelaySender?
 
@@ -56,6 +57,7 @@ private extension WatchSessionModel {
         watchAppLog.info("watch app: reachability \(detail, privacy: .public)")
         if isReachable {
             self.relaySender?.drain()
+            self.onReachableRepublish?()
         }
     }
 }

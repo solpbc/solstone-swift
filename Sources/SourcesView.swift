@@ -234,15 +234,19 @@ private extension SourcesView {
     }
 
     var watchSource: Source {
+        let lastReceivedAt = self.watchLink.lastReceivedAt
         let install = watchInstallState(
             isSupported: self.watchLink.isSupported,
             isPaired: self.watchLink.isPaired,
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-            activationState: self.watchLink.activationState
+            activationState: self.watchLink.activationState,
+            now: self.now,
+            lastReceivedAt: lastReceivedAt
         )
         let recordingStatus = watchRecordingStatus(
             context: self.watchLink.watchStatus,
-            now: self.now
+            now: self.now,
+            lastReceivedAt: lastReceivedAt
         )
         let presentation = phoneWatchSourcePresentation(
             install: install,

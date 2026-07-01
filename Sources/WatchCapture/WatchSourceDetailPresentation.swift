@@ -57,7 +57,7 @@ nonisolated enum WatchSourceDetailPresentation {
     static func syncRows(summary: WatchSourceSyncSummary, now: Date) -> [WatchSourceDetailRow] {
         [
             WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "\(summary.received)"),
-            WatchSourceDetailRow(label: SourceVocabulary.watchWaitingLabel, value: "\(summary.waiting)"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(summary.waiting)"),
             WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "\(summary.handedToJournal)"),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncLabel, value: self.lastSyncText(summary.lastSyncAt, now: now))
         ]

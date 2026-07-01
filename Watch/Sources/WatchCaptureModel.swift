@@ -96,6 +96,8 @@ final class WatchCaptureModel {
         }
     }
 
+    func republishStatusOnReconnect() { self.engine?.republishCurrentStatus() }
+
     private func publishComplicationSnapshot() {
         do {
             // Reachability only changes link fields, which the complication snapshot does not persist.
