@@ -72,6 +72,56 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
     }
 
     @MainActor
+    func testBacklogTracksMixedRetryableSnapshot() {
+        let items = [
+            Self.item(id: "saved", sendState: .savedOnThisPhone),
+            Self.item(id: "sending", sendState: .sending),
+            Self.item(
+                id: "retryable-failed",
+                location: .failed,
+                canRetry: true,
+                isActivelyUploading: false
+            ),
+        ]
+
+        let migration = onThisPhoneMigration(snapshot: Self.snapshot(items: items))
+
+        XCTAssertEqual(migration.onThisPhone, 3)
+        XCTAssertEqual(migration.backlog, migration.onThisPhone)
+        XCTAssertEqual(migration.backlog, 3)
+        XCTAssertNotEqual(migration.backlog, 0)
+    }
+
+    @MainActor
+    func testConsumersUseSameBacklogInputs() {
+        let items = [
+            Self.item(id: "saved", sendState: .savedOnThisPhone),
+            Self.item(id: "sending", sendState: .sending),
+            Self.item(
+                id: "retryable-failed",
+                location: .failed,
+                canRetry: true,
+                isActivelyUploading: false
+            ),
+        ]
+
+        let migration = onThisPhoneMigration(snapshot: Self.snapshot(items: items))
+        let headline = onThisPhoneHeadline(
+            migration: migration,
+            isPaired: true,
+            isConnected: true
+        )
+
+        XCTAssertEqual(migration.backlog, migration.onThisPhone)
+        XCTAssertEqual(headline.onThisPhone, migration.onThisPhone)
+        XCTAssertEqual(migration.backlog, headline.onThisPhone)
+        XCTAssertEqual(
+            standingSegmentReach(migration: migration),
+            uploadReach(failedTotal: migration.needsAttention, pendingTotal: migration.onThisPhone)
+        )
+    }
+
+    @MainActor
     func testPermanentFailedItemsStillCountAsNeedsAttention() {
         let migration = onThisPhoneMigration(
             snapshot: Self.snapshot(items: [
@@ -86,6 +136,41 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
 
         XCTAssertEqual(migration.onThisPhone, 0)
         XCTAssertEqual(migration.needsAttention, 1)
+    }
+
+    @MainActor
+    func testNotReachedExcludesSending() {
+        let migration = onThisPhoneMigration(
+            snapshot: Self.snapshot(states: [
+                .savedOnThisPhone,
+                .sending,
+                .sending,
+                .savedOnThisPhone,
+            ])
+        )
+
+        XCTAssertEqual(migration.onThisPhone, 4)
+        XCTAssertEqual(migration.backlog, 4)
+        XCTAssertEqual(migration.notReached, 2)
+    }
+
+    @MainActor
+    func testFailedRepresentedSupportsRawFailedReconciliation() {
+        let rawFailed = 3
+        let migration = onThisPhoneMigration(
+            snapshot: Self.snapshot(items: [
+                Self.item(
+                    id: "represented-failed",
+                    location: .failed,
+                    canRetry: true,
+                    isActivelyUploading: false
+                ),
+                Self.item(id: "saved", sendState: .savedOnThisPhone),
+            ])
+        )
+
+        XCTAssertEqual(migration.failedRepresented, 1)
+        XCTAssertLessThan(migration.failedRepresented, rawFailed)
     }
 
     @MainActor
@@ -108,6 +193,34 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         XCTAssertEqual(headline.role, .syncing)
         XCTAssertEqual(headline.onThisPhone, 2)
         XCTAssertEqual(headline.needsAttention, 0)
+    }
+
+    @MainActor
+    func testL4GoldenInvarianceForFixedSnapshot() {
+        let migration = onThisPhoneMigration(
+            snapshot: Self.snapshot(states: [
+                .savedOnThisPhone,
+                .sending,
+                .inYourJournal,
+            ])
+        )
+        let reach = standingSegmentReach(migration: migration)
+        let standing = SourceVocabulary.standingHealth(
+            isConnected: true,
+            reach: reach
+        )
+        let headline = onThisPhoneHeadline(
+            migration: migration,
+            isPaired: true,
+            isConnected: true
+        )
+
+        XCTAssertEqual(reach, .reaching)
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncLine(health: standing.health, syncing: standing.syncing),
+            "connected · syncing"
+        )
+        XCTAssertEqual(headline.role, .syncing)
     }
 }
 
@@ -140,11 +253,16 @@ private extension OnThisPhoneMigrationTests {
                 location: location,
                 canRetry: canRetry,
                 isActivelyUploading: isActivelyUploading
-            )
+            ),
+            retryAvailable: location == .failed && canRetry
         )
     }
 
-    static func item(id: String, sendState: OnThisPhoneSendState) -> OnThisPhoneItem {
+    static func item(
+        id: String,
+        sendState: OnThisPhoneSendState,
+        retryAvailable: Bool = false
+    ) -> OnThisPhoneItem {
         OnThisPhoneItem(
             id: id,
             sourceKind: .share,
@@ -160,7 +278,8 @@ private extension OnThisPhoneMigrationTests {
             day: nil,
             segment: nil,
             deliveredAt: nil,
-            rawFileURL: nil
+            rawFileURL: nil,
+            retryAvailable: retryAvailable
         )
     }
 }

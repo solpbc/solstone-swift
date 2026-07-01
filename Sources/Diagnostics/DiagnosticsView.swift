@@ -2,6 +2,14 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import os
+
+private let diagnosticsUploadLog = Logger(subsystem: "app.solstone.swift", category: "upload")
+
+private struct FailedReconcileKey: Equatable, Sendable {
+    let rawFailed: Int
+    let failedRepresented: Int
+}
 
 struct DiagnosticsView: View {
     @Environment(DiagnosticLog.self) private var log
@@ -25,6 +33,7 @@ struct DiagnosticsView: View {
     @State private var isRetrying = false
     @State private var showingObserverReset = false
     @State private var lastSynced: Date?
+    @State private var lastReconcileKey: FailedReconcileKey?
     @State private var lifecycleMigration = OnThisPhoneMigration(
         onThisPhone: 0,
         needsAttention: 0
@@ -41,7 +50,7 @@ struct DiagnosticsView: View {
 
     private var failedSegmentPresentation: FailedSegmentPresentation? {
         FailedSegmentSection.presentation(
-            failedTotal: self.failedTotal,
+            failedTotal: self.lifecycleMigration.notReached,
             isConnected: self.tunnelManager.state.isConnected
         )
     }
@@ -183,10 +192,8 @@ struct DiagnosticsView: View {
             reach: standingSegmentReach(migration: migration)
         )
         return Section(SourceVocabulary.onThisPhone) {
-            LabeledContent(SourceVocabulary.migrationStageOnThisPhone, value: "\(migration.onThisPhone)")
-                .accessibilityIdentifier("diagnostics.lifecycle.onThisPhone")
-            LabeledContent(SourceVocabulary.waitingToSync, value: "\(migration.needsAttention)")
-                .accessibilityIdentifier("diagnostics.lifecycle.needsAttention")
+            LabeledContent(SourceVocabulary.waitingToSync, value: "\(migration.backlog)")
+                .accessibilityIdentifier("diagnostics.lifecycle.waitingToSync")
             LabeledContent(
                 SourceVocabulary.yourJournalSection,
                 value: SourceVocabulary.standingSyncLine(health: standing.health, syncing: standing.syncing)
@@ -226,7 +233,7 @@ struct DiagnosticsView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(self.isRetrying)
-                    .accessibilityLabel("retry \(self.failedTotal) failed segments now")
+                    .accessibilityLabel("retry \(self.lifecycleMigration.notReached) failed segments now")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -250,7 +257,7 @@ struct DiagnosticsView: View {
     @MainActor
     private func retryFailedSegments() async {
         guard !self.isRetrying else { return }
-        let failedTotal = self.failedTotal
+        let notReached = self.lifecycleMigration.notReached
         self.isRetrying = true
         defer {
             self.isRetrying = false
@@ -260,7 +267,7 @@ struct DiagnosticsView: View {
             category: .upload,
             severity: .info,
             message: "manual retry of failed segments requested",
-            detail: "count=\(failedTotal)"
+            detail: "count=\(notReached)"
         )
         if UserSettings.haptics {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -308,7 +315,22 @@ struct DiagnosticsView: View {
                 omiUploader: self.omiUploaderHolder.uploader,
                 watchUploader: self.watchUploaderHolder.uploader
             )
-            self.lifecycleMigration = onThisPhoneMigration(snapshot: snapshot)
+            let migration = onThisPhoneMigration(snapshot: snapshot)
+            self.lifecycleMigration = migration
+            let rawFailed = self.failedTotal
+            if rawFailed > migration.failedRepresented {
+                let key = FailedReconcileKey(
+                    rawFailed: rawFailed,
+                    failedRepresented: migration.failedRepresented
+                )
+                if self.lastReconcileKey != key {
+                    let delta = rawFailed - migration.failedRepresented
+                    diagnosticsUploadLog.info("on-this-phone failed count mismatch raw=\(rawFailed, privacy: .public) represented=\(migration.failedRepresented, privacy: .public) delta=\(delta, privacy: .public)")
+                    self.lastReconcileKey = key
+                }
+            } else {
+                self.lastReconcileKey = nil
+            }
             self.lastSynced = lastSyncedAt(
                 mobileSegment: self.mobileSegmentUploader,
                 omi: self.omiUploaderHolder,
