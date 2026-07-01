@@ -17,19 +17,46 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
     let startedAt: Date?
     let asOf: Date
     let seq: Int
+    let queuedCount: Int
+    let transferringCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case phase
+        case sessionID
+        case startedAt
+        case asOf
+        case seq
+        case queuedCount
+        case transferringCount
+    }
 
     init(
         phase: Phase,
         sessionID: String?,
         startedAt: Date?,
         asOf: Date,
-        seq: Int
+        seq: Int,
+        queuedCount: Int,
+        transferringCount: Int
     ) {
         self.phase = phase
         self.sessionID = sessionID
         self.startedAt = startedAt
         self.asOf = asOf
         self.seq = seq
+        self.queuedCount = queuedCount
+        self.transferringCount = transferringCount
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.phase = try container.decode(Phase.self, forKey: .phase)
+        self.sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
+        self.startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        self.asOf = try container.decode(Date.self, forKey: .asOf)
+        self.seq = try container.decode(Int.self, forKey: .seq)
+        self.queuedCount = max(0, try container.decodeIfPresent(Int.self, forKey: .queuedCount) ?? 0)
+        self.transferringCount = max(0, try container.decodeIfPresent(Int.self, forKey: .transferringCount) ?? 0)
     }
 
     func applicationContext() -> [String: Any] {

@@ -12,13 +12,55 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
             sessionID: "session-1",
             startedAt: Date(timeIntervalSince1970: 1_000),
             asOf: Date(timeIntervalSince1970: 1_015),
-            seq: 7
+            seq: 7,
+            queuedCount: 2,
+            transferringCount: 1
         )
 
         let applicationContext = context.applicationContext()
 
         XCTAssertTrue(applicationContext[WatchStatusContext.applicationContextKey] is Data)
         XCTAssertEqual(WatchStatusContext(applicationContext: applicationContext), context)
+    }
+
+    func testOldShapeApplicationContextDefaultsCountsToZero() throws {
+        let applicationContext = [
+            WatchStatusContext.applicationContextKey: try Self.encode(
+                LegacyContext(
+                    phase: .observing,
+                    sessionID: "session-1",
+                    startedAt: Date(timeIntervalSince1970: 1_000),
+                    asOf: Date(timeIntervalSince1970: 1_015),
+                    seq: 7
+                )
+            ),
+        ]
+
+        let decoded = try XCTUnwrap(WatchStatusContext(applicationContext: applicationContext))
+
+        XCTAssertEqual(decoded.queuedCount, 0)
+        XCTAssertEqual(decoded.transferringCount, 0)
+    }
+
+    func testNegativeDecodedCountsClampToZero() throws {
+        let applicationContext = [
+            WatchStatusContext.applicationContextKey: try Self.encode(
+                WireContext(
+                    phase: .observing,
+                    sessionID: "session-1",
+                    startedAt: Date(timeIntervalSince1970: 1_000),
+                    asOf: Date(timeIntervalSince1970: 1_015),
+                    seq: 7,
+                    queuedCount: -2,
+                    transferringCount: -1
+                )
+            ),
+        ]
+
+        let decoded = try XCTUnwrap(WatchStatusContext(applicationContext: applicationContext))
+
+        XCTAssertEqual(decoded.queuedCount, 0)
+        XCTAssertEqual(decoded.transferringCount, 0)
     }
 
     func testMissingContextReturnsNil() {
@@ -35,5 +77,31 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
         XCTAssertNil(WatchStatusContext(applicationContext: [
             WatchStatusContext.applicationContextKey: Data("garbage".utf8),
         ]))
+    }
+}
+
+private extension WatchStatusContextTests {
+    struct LegacyContext: Encodable {
+        let phase: WatchStatusContext.Phase
+        let sessionID: String?
+        let startedAt: Date?
+        let asOf: Date
+        let seq: Int
+    }
+
+    struct WireContext: Encodable {
+        let phase: WatchStatusContext.Phase
+        let sessionID: String?
+        let startedAt: Date?
+        let asOf: Date
+        let seq: Int
+        let queuedCount: Int
+        let transferringCount: Int
+    }
+
+    static func encode(_ context: some Encodable) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(context)
     }
 }

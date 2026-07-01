@@ -75,8 +75,13 @@ final class WatchCaptureEngine {
     }
 
     func refreshRelayCountsFromDisk() {
+        let priorQueued = self.queuedCount
+        let priorTransferring = self.transferringCount
         do {
             try self.refreshRelayCountsFromDiskThrowing()
+            if self.queuedCount != priorQueued || self.transferringCount != priorTransferring {
+                self.republishCurrentStatus()
+            }
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
@@ -84,6 +89,8 @@ final class WatchCaptureEngine {
     }
 
     func reconcileOnLaunch() async {
+        let baselineQueued = self.queuedCount
+        let baselineTransferring = self.transferringCount
         do {
             let entries = try self.storage.scanManifests()
             for entry in entries {
@@ -100,6 +107,9 @@ final class WatchCaptureEngine {
                 }
             }
             try self.refreshRelayCountsFromDiskThrowing()
+            if self.queuedCount != baselineQueued || self.transferringCount != baselineTransferring {
+                self.republishCurrentStatus()
+            }
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
@@ -670,7 +680,9 @@ private extension WatchCaptureEngine {
             sessionID: phase == .idle ? nil : self.currentSessionID,
             startedAt: phase == .idle ? nil : self.sessionStartedAt,
             asOf: asOf,
-            seq: self.statusSeq
+            seq: self.statusSeq,
+            queuedCount: max(0, self.queuedCount),
+            transferringCount: max(0, self.transferringCount)
         )
         self.onPublishStatus?(context)
     }

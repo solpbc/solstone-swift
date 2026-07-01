@@ -334,6 +334,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchSourceDisplayName, "watch")
         XCTAssertEqual(SourceVocabulary.watchLinkConnected, "phone link: in range")
         XCTAssertEqual(SourceVocabulary.watchLinkNotConnected, "phone link: out of range")
+        XCTAssertEqual(SourceVocabulary.watchPipelineUnknown, "—")
         XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
         XCTAssertEqual(SourceVocabulary.watchReceivingSubtext, "your watch is sending data")
         XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start solstone on your watch")
@@ -378,7 +379,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         for string in self.watchOwnerVisibleStrings {
             let firstScalar = try XCTUnwrap(string.unicodeScalars.first)
             XCTAssertTrue(
-                CharacterSet.lowercaseLetters.contains(firstScalar) || CharacterSet.decimalDigits.contains(firstScalar),
+                string == SourceVocabulary.watchPipelineUnknown
+                    || CharacterSet.lowercaseLetters.contains(firstScalar)
+                    || CharacterSet.decimalDigits.contains(firstScalar),
                 string
             )
             let normalized = self.removingAllowedWatchNouns(from: string)
@@ -533,6 +536,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchSourceDisplayName,
             SourceVocabulary.watchLinkConnected,
             SourceVocabulary.watchLinkNotConnected,
+            SourceVocabulary.watchPipelineUnknown,
             SourceVocabulary.watchNoContextSubtext,
             SourceVocabulary.watchReceivingSubtext,
             SourceVocabulary.watchIdleSubtext,

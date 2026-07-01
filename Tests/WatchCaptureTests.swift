@@ -106,6 +106,40 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(republished.startedAt, initial.startedAt)
     }
 
+    func testRefreshRelayCountsFromDiskPublishesOnceWhenQueuedAndTransferringCountsChange() throws {
+        let harness = try self.makeHarness()
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+        let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .queued,
+            sensors: [.audio]
+        )
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(60),
+            state: .transferring,
+            sensors: [.audio]
+        )
+
+        harness.engine.refreshRelayCountsFromDisk()
+
+        let published = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertEqual(published.phase, .idle)
+        XCTAssertEqual(published.queuedCount, 1)
+        XCTAssertEqual(published.transferringCount, 1)
+
+        statuses.removeAll()
+        harness.engine.refreshRelayCountsFromDisk()
+
+        XCTAssertTrue(statuses.isEmpty)
+    }
+
     func testStartStopPublishObservingStoppingAndIdle() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
@@ -159,6 +193,82 @@ final class WatchCaptureTests: XCTestCase {
 
         XCTAssertEqual(statuses.last?.phase, .observing)
         XCTAssertEqual(harness.engine.ownerPresentation.status, .paused)
+    }
+
+    func testReconcileOnLaunchPublishesInitialBacklogOnce() async throws {
+        let harness = try self.makeHarness()
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+        let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .queued,
+            sensors: [.audio]
+        )
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(60),
+            state: .transferring,
+            sensors: [.audio]
+        )
+
+        await harness.engine.reconcileOnLaunch()
+
+        let published = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertEqual(published.phase, .idle)
+        XCTAssertEqual(published.queuedCount, 1)
+        XCTAssertEqual(published.transferringCount, 1)
+    }
+
+    func testReconcileOnLaunchPublishesInitialBacklogFromFinalizedManifests() async throws {
+        let harness = try self.makeHarness()
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+        let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .finalized,
+            sensors: [.audio]
+        )
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(60),
+            state: .finalized,
+            sensors: [.audio]
+        )
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(120),
+            state: .transferring,
+            sensors: [.audio]
+        )
+
+        await harness.engine.reconcileOnLaunch()
+
+        let published = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertEqual(published.phase, .idle)
+        XCTAssertEqual(published.queuedCount, 2)
+        XCTAssertEqual(published.transferringCount, 1)
+    }
+
+    func testReconcileOnLaunchEmptyDiskPublishesNothing() async throws {
+        let harness = try self.makeHarness()
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.reconcileOnLaunch()
+
+        XCTAssertTrue(statuses.isEmpty)
     }
 
     func testAppendFixInCallbackDurablyWritesBeforeFinalize() async throws {

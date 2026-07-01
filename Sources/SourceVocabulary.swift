@@ -133,6 +133,7 @@ nonisolated enum SourceVocabulary {
     static let watchHeadlinePaused = "paused"
     static let watchPipelineSending = "sending"
     static let watchPipelineSaved = "saved on your watch"
+    static let watchPipelineUnknown = "—"
     static let watchPipelineHandedOff = "handed to your iphone"
     static let watchWaitingForPhone = "waiting for your iphone"
     static let watchLinkConnected = "phone link: in range"

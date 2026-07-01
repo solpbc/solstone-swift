@@ -100,7 +100,12 @@ private extension WatchSourceDetailView {
     }
 
     var watchBlock: some View {
-        let rows = WatchSourceDetailPresentation.syncRows(summary: self.syncSummary, now: self.now)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: self.watchLink.watchStatus,
+            summary: self.syncSummary,
+            now: self.now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
         return VStack(alignment: .leading, spacing: 10) {
             ForEach(rows) { row in
                 LabeledContent(row.label, value: row.value)
@@ -190,8 +195,14 @@ private extension WatchSourceDetailView {
     }
 
     func refreshDiagnosticsExport() {
+        let primaryRows = WatchSourceDetailPresentation.pipelineRows(
+            context: self.watchLink.watchStatus,
+            summary: self.syncSummary,
+            now: self.now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
         let text = WatchSourceDetailPresentation.diagnosticsExportText(
-            syncRows: WatchSourceDetailPresentation.syncRows(summary: self.syncSummary, now: self.now),
+            primaryRows: primaryRows,
             diagnosticsRows: self.diagnosticsRows
         )
         let url = FileManager.default.temporaryDirectory

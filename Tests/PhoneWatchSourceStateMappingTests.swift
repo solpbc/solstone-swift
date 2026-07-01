@@ -311,7 +311,9 @@ private extension PhoneWatchSourceStateMappingTests {
             sessionID: phase == .idle ? nil : "session-1",
             startedAt: phase == .idle ? nil : Date(timeIntervalSince1970: 900),
             asOf: asOf,
-            seq: 1
+            seq: 1,
+            queuedCount: 0,
+            transferringCount: 0
         )
     }
 }

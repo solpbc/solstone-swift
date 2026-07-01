@@ -43,19 +43,100 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             lastUploadAt: nil
         )
         let state = phoneWatchSourceState(install: .appInstalled, recordingStatus: .observing)
-        let rows = WatchSourceDetailPresentation.syncRows(summary: summary, now: now)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: nil,
+            summary: summary,
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
 
         XCTAssertEqual(summary.received, 2)
         XCTAssertEqual(summary.waiting, 2)
         XCTAssertEqual(summary.handedToJournal, 0)
         XCTAssertEqual(state.0, .active)
         XCTAssertNil(state.1)
+        XCTAssertEqual(rows.count, 5)
         XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchNotYetInJournalLabel }?.value, "2")
         XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchHandedToJournalLabel }?.value, "0")
-        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchLastSyncLabel }?.value, SourceVocabulary.watchLastSyncNever)
+        XCTAssertFalse(rows.contains { $0.label == SourceVocabulary.watchLastSyncLabel })
         XCTAssertFalse(rows.contains { $0.label == "waiting" })
         XCTAssertFalse(rows.contains { $0.label.localizedCaseInsensitiveContains("failed") })
         XCTAssertFalse(rows.contains { $0.value.localizedCaseInsensitiveContains("not working") })
+    }
+
+    func testPipelineRowsShowFreshContextAsLiveCounts() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let summary = WatchSourceSyncSummary(received: 5, waiting: 2, handedToJournal: 3, lastSyncAt: now)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: Self.context(queuedCount: 3, transferringCount: 1, asOf: now.addingTimeInterval(-10)),
+            summary: summary,
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
+
+        XCTAssertEqual(rows, [
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: "3"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSending, value: "1"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "5"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "2"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "3"),
+        ])
+    }
+
+    func testPipelineRowsShowStaleContextAgeOnlyForWatchRows() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let secondsAgo: TimeInterval = 120
+        let summary = WatchSourceSyncSummary(received: 5, waiting: 2, handedToJournal: 3, lastSyncAt: now)
+        let relative = WatchSourceDetailPresentation.relativeText(secondsAgo: secondsAgo)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: Self.context(queuedCount: 3, transferringCount: 1, asOf: now.addingTimeInterval(-secondsAgo)),
+            summary: summary,
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
+
+        XCTAssertEqual(rows, [
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: "3 · \(relative)"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSending, value: "1 · \(relative)"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "5"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "2"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "3"),
+        ])
+    }
+
+    func testPipelineRowsUseUnknownOnlyForWatchRowsWhenContextIsMissing() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let summary = WatchSourceSyncSummary(received: 5, waiting: 2, handedToJournal: 3, lastSyncAt: nil)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: nil,
+            summary: summary,
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
+
+        XCTAssertEqual(rows, [
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: SourceVocabulary.watchPipelineUnknown),
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSending, value: SourceVocabulary.watchPipelineUnknown),
+            WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "5"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "2"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "3"),
+        ])
+        XCTAssertNotEqual(rows[0].value, "0")
+        XCTAssertNotEqual(rows[1].value, "0")
+    }
+
+    func testPipelineRowsClampNegativeContextCounts() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let summary = WatchSourceSyncSummary(received: 5, waiting: 2, handedToJournal: 3, lastSyncAt: nil)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: Self.context(queuedCount: -3, transferringCount: -1, asOf: now),
+            summary: summary,
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
+
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchPipelineSaved }?.value, "0")
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchPipelineSending }?.value, "0")
     }
 
     func testDiagnosticsRowsShowUploadErrorDetail() {
@@ -95,7 +176,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
     }
 
     func testDiagnosticsExportIncludesSyncAndDiagnosticsRows() {
-        let syncRows = [
+        let primaryRows = [
             WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "1"),
         ]
         let diagnosticsRows = [
@@ -103,12 +184,43 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         ]
 
         let export = WatchSourceDetailPresentation.diagnosticsExportText(
-            syncRows: syncRows,
+            primaryRows: primaryRows,
             diagnosticsRows: diagnosticsRows
         )
 
         XCTAssertTrue(export.contains(SourceVocabulary.watchDiagnosticsExportTitle))
         XCTAssertTrue(export.contains("\(SourceVocabulary.watchReceivedLabel): 1"))
         XCTAssertTrue(export.contains("\(SourceVocabulary.watchInstalledLabel): \(SourceVocabulary.watchBooleanYes)"))
+    }
+
+    func testDiagnosticsExportIncludesPipelineRowsWithoutPrimaryLastSyncRow() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: Self.context(queuedCount: 2, transferringCount: 1, asOf: now),
+            summary: WatchSourceSyncSummary(received: 3, waiting: 1, handedToJournal: 2, lastSyncAt: now),
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
+
+        let export = WatchSourceDetailPresentation.diagnosticsExportText(primaryRows: rows, diagnosticsRows: [])
+        let lines = export.split(separator: "\n").map(String.init)
+
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchPipelineSaved): 2"))
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchPipelineSending): 1"))
+        XCTAssertFalse(lines.contains { $0.hasPrefix("\(SourceVocabulary.watchLastSyncLabel):") })
+    }
+}
+
+private extension WatchSourceDetailPresentationTests {
+    static func context(queuedCount: Int, transferringCount: Int, asOf: Date) -> WatchStatusContext {
+        WatchStatusContext(
+            phase: .idle,
+            sessionID: nil,
+            startedAt: nil,
+            asOf: asOf,
+            seq: 1,
+            queuedCount: queuedCount,
+            transferringCount: transferringCount
+        )
     }
 }

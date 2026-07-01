@@ -54,12 +54,34 @@ nonisolated enum WatchSourceDetailPresentation {
         )
     }
 
-    static func syncRows(summary: WatchSourceSyncSummary, now: Date) -> [WatchSourceDetailRow] {
+    static func pipelineRows(
+        context: WatchStatusContext?,
+        summary: WatchSourceSyncSummary,
+        now: Date,
+        ttl: TimeInterval
+    ) -> [WatchSourceDetailRow] {
         [
+            WatchSourceDetailRow(
+                label: SourceVocabulary.watchPipelineSaved,
+                value: self.pipelineValue(
+                    context: context,
+                    count: context?.queuedCount ?? 0,
+                    now: now,
+                    ttl: ttl
+                )
+            ),
+            WatchSourceDetailRow(
+                label: SourceVocabulary.watchPipelineSending,
+                value: self.pipelineValue(
+                    context: context,
+                    count: context?.transferringCount ?? 0,
+                    now: now,
+                    ttl: ttl
+                )
+            ),
             WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "\(summary.received)"),
             WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(summary.waiting)"),
-            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "\(summary.handedToJournal)"),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncLabel, value: self.lastSyncText(summary.lastSyncAt, now: now))
+            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "\(summary.handedToJournal)")
         ]
     }
 
@@ -87,10 +109,10 @@ nonisolated enum WatchSourceDetailPresentation {
     }
 
     static func diagnosticsExportText(
-        syncRows: [WatchSourceDetailRow],
+        primaryRows: [WatchSourceDetailRow],
         diagnosticsRows: [WatchSourceDetailRow]
     ) -> String {
-        let rows = syncRows + diagnosticsRows
+        let rows = primaryRows + diagnosticsRows
         return ([SourceVocabulary.watchDiagnosticsExportTitle] + rows.map { "\($0.label): \($0.value)" })
             .joined(separator: "\n")
     }
@@ -131,6 +153,23 @@ nonisolated enum WatchSourceDetailPresentation {
             return SourceVocabulary.watchDetailNone
         }
         return value
+    }
+
+    static func pipelineValue(
+        context: WatchStatusContext?,
+        count: Int,
+        now: Date,
+        ttl: TimeInterval
+    ) -> String {
+        guard let context else {
+            return SourceVocabulary.watchPipelineUnknown
+        }
+        let safeCount = max(0, count)
+        let secondsAgo = now.timeIntervalSince(context.asOf)
+        guard secondsAgo >= ttl else {
+            return "\(safeCount)"
+        }
+        return "\(safeCount) · \(self.relativeText(secondsAgo: secondsAgo))"
     }
 
     static func relativeText(secondsAgo: TimeInterval) -> String {

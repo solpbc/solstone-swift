@@ -174,7 +174,9 @@ nonisolated final class WatchLinkTests: XCTestCase {
             sessionID: "session-\(seq)",
             startedAt: Date(timeIntervalSince1970: 1_000),
             asOf: Date(timeIntervalSince1970: 1_015),
-            seq: seq
+            seq: seq,
+            queuedCount: 0,
+            transferringCount: 0
         )
     }
 }
