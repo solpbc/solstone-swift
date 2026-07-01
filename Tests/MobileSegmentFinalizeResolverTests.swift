@@ -80,6 +80,81 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         XCTAssertNotEqual(tombstone.reason, "no_artifacts")
     }
 
+    func testFailedLiveLocationCorruptPartRemovesLocationRequeuesAudio() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let failedDirectory = try self.writeBundle(
+            segmentID: segmentID,
+            store: harness.store,
+            lifecycle: .failed,
+            sources: [.audio, .location],
+            startedAt: startedAt
+        ) { directory, manifest, startedAt, endedAt in
+            try self.writeFinalizedAudio(store: harness.store, directory: directory, manifest: &manifest, startedAt: startedAt, endedAt: endedAt)
+            try self.liveLocation.writeLocationPart(
+                segmentID: segmentID,
+                store: harness.store,
+                directory: directory,
+                startedAt: startedAt,
+                fixes: [self.liveLocation.locationFix(at: startedAt.addingTimeInterval(60))]
+            )
+            try harness.store.appendData(Data("not json\n".utf8), to: harness.store.locationPartURL(in: directory))
+            try self.writeFailedOutcome(source: .location, store: harness.store, directory: directory, manifest: &manifest, startedAt: startedAt, endedAt: endedAt)
+        }
+
+        let result = try harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
+
+        XCTAssertEqual(result, .repend)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.location.state, .removed)
+        XCTAssertEqual(manifest.location.reason, "location_live_corrupt")
+        XCTAssertEqual(manifest.audio.state, .finalizedArtifact)
+
+        self.stubDelivered()
+        await harness.uploader.resumeFromDisk()
+        try await self.waitFor("audio survivor delivery after corrupt location") {
+            MobileSegmentFinalizeResolverURLProtocol.callCount == 1
+                && !FileManager.default.fileExists(atPath: pendingDirectory.path)
+        }
+
+        XCTAssertEqual(try self.sources(in: try XCTUnwrap(MobileSegmentFinalizeResolverURLProtocol.receivedBodies.first)), Set(["audio"]))
+    }
+
+    func testUnrecoverableCorruptLocationOnlyTombstones() throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let failedDirectory = try self.writeBundle(
+            segmentID: segmentID,
+            store: harness.store,
+            lifecycle: .failed,
+            sources: [.location],
+            startedAt: startedAt
+        ) { directory, manifest, startedAt, endedAt in
+            try self.liveLocation.writeLocationPart(
+                segmentID: segmentID,
+                store: harness.store,
+                directory: directory,
+                startedAt: startedAt,
+                fixes: [self.liveLocation.locationFix(at: startedAt.addingTimeInterval(60))]
+            )
+            try harness.store.appendData(Data("not json\n".utf8), to: harness.store.locationPartURL(in: directory))
+            try self.writeFailedOutcome(source: .location, store: harness.store, directory: directory, manifest: &manifest, startedAt: startedAt, endedAt: endedAt)
+        }
+
+        let result = try harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
+
+        XCTAssertEqual(result, .retired)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        let tombstone = try self.emptyTombstone(segmentID: segmentID, store: harness.store)
+        XCTAssertEqual(tombstone.reason, "unrecoverable_lost_data")
+        XCTAssertNotEqual(tombstone.reason, "no_artifacts")
+    }
+
     func testFailedLiveLocationPartRecoversBeforeDiscarding() async throws {
         let harness = self.makeHarness()
         let segmentID = UUID()

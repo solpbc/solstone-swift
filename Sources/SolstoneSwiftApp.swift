@@ -42,6 +42,7 @@ struct SolstoneSwiftApp: App {
     @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
+    @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -475,6 +476,15 @@ struct SolstoneSwiftApp: App {
                 await tunnel.disconnect()
             }
         )
+        let foregroundDrainGate = ForegroundDrainGate(drive: {
+            await driveUploadDrain(
+                mobileSegment: mobileSegmentUploader,
+                omi: omiUploader,
+                watch: watchUploader,
+                importQueue: importQueue,
+                watchDrain: watchSegmentDrain
+            )
+        })
         if !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest {
             finishSyncing.registerLaunchHandler()
         }
@@ -507,6 +517,7 @@ struct SolstoneSwiftApp: App {
         self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
+        self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self.appDelegate.observerUploader = observerUploader
         self.appDelegate.omiUploader = omiUploader
         self.appDelegate.watchUploader = watchUploader
@@ -520,6 +531,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.onboardingFlow)
                 .environment(self.tunnelManager)
                 .environment(self.finishSyncingCoordinator)
+                .environment(self.foregroundDrainGate)
                 .environment(self.voiceManager)
                 .environment(self.chatManager)
                 .environment(self.omiSourceManager)
@@ -600,6 +612,15 @@ struct SolstoneSwiftApp: App {
                     await self.watchSegmentDrain?.drain()
                 }
                 .task {
+                    // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value,
+                    // so an already-connected tunnel at launch is driven by neither the connected-edge
+                    // nor the scene-active handler. This is the only trigger covering that case.
+                    if Self.isIntegrationMode || Self.isUITest { return }
+                    guard self.appConfig.isPaired else { return }
+                    guard case .connected = self.tunnelManager.state else { return }
+                    await self.foregroundDrainGate.requestDrain()
+                }
+                .task {
                     if case .idle = self.observerManager.state {
                         await self.observerManager.endStaleObserverActivities()
                     }
@@ -622,7 +643,12 @@ struct SolstoneSwiftApp: App {
                 self.tunnelManager.startNetworkMonitoring()
 
                 switch self.tunnelManager.state {
-                case .connected, .connecting:
+                case .connected:
+                    // Only an already-connected tunnel needs a foreground drain kick: connecting /
+                    // waitingForHome / disconnected / retryable-error all converge on a future .connected
+                    // edge (which drives via the .onChange handler); already-connected has no future edge.
+                    Task { await self.foregroundDrainGate.requestDrain() }
+                case .connecting:
                     break
                 case .waitingForHome:
                     break
@@ -701,15 +727,7 @@ struct SolstoneSwiftApp: App {
                 self.omiRegistration.activeLocalPort = port
                 self.watchRegistration.activeLocalPort = port
                 self.brainStatusMonitor.startPolling(localPort: port)
-                Task {
-                    await driveUploadDrain(
-                        mobileSegment: self.mobileSegmentUploader,
-                        omi: self.omiUploader,
-                        watch: self.watchUploader,
-                        importQueue: self.importQueue,
-                        watchDrain: self.watchSegmentDrain
-                    )
-                }
+                Task { await self.foregroundDrainGate.requestDrain() }
 
                 if Self.isIntegrationMode,
                    Self.shouldAutoStartIntegrationVoice,

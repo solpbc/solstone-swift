@@ -14,6 +14,7 @@ struct DiagnosticsView: View {
     @Environment(ImportQueue.self) private var importQueue
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
+    @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
 
     @State private var enabledCategories: Set<DiagnosticCategory> = Set(DiagnosticCategory.allCases)
     @State private var expandedEventID: UUID?
@@ -264,10 +265,7 @@ struct DiagnosticsView: View {
         if UserSettings.haptics {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
-        await self.mobileSegmentUploader.retryFailed()
-        await self.omiUploaderHolder.uploader.retryFailed()
-        await self.watchUploaderHolder.uploader.retryFailed()
-        await self.importQueue.retryFailed()
+        await self.foregroundDrainGate.requestDrain()
     }
 
     private func copySnapshot() {
