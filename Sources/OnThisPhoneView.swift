@@ -339,7 +339,6 @@ private extension OnThisPhoneMomentsView {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("onThisPhone.status")
         .accessibilityHint("opens diagnostics")
     }

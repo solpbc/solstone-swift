@@ -47,6 +47,28 @@ nonisolated final class PostPairStateTests: XCTestCase {
     }
 
     @MainActor
+    func testSeededOnThisPhoneStatusBlockNavigatesToDiagnostics() {
+        let app = self.makeSeededApp(extraArguments: [
+            "--ui-test-seed-on-this-phone",
+            "--ui-test-shell-disconnected",
+            "--ui-test-network-unsatisfied",
+        ])
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        self.assertDayHomeRoot(in: app)
+
+        let surface = app.descendants(matching: .any)["onThisPhone.surface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 10))
+
+        let status = app.buttons["onThisPhone.status"]
+        self.scrollToElement(status, in: surface)
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        status.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+
+        XCTAssertTrue(app.buttons["diagnostics.reconnectObserver"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testPairedConnectedDayHomeShowsOpenJournalAndAskChat() {
         let app = self.makeIntegrationApp(extraArguments: ["--integration-test-push-tap=briefing"])
         app.launch()
