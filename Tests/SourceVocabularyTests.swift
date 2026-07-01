@@ -322,9 +322,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.undo, "undo")
         XCTAssertEqual(SourceVocabulary.needsAttention, "needs attention")
         XCTAssertEqual(SourceVocabulary.journalTunnel, "private network")
-        XCTAssertEqual(SourceVocabulary.standingConnected, "connected")
-        XCTAssertEqual(SourceVocabulary.standingSyncing, "connected · syncing")
-        XCTAssertEqual(SourceVocabulary.standingOffline, "offline")
         XCTAssertEqual(SourceVocabulary.checkConnection, "check connection")
         XCTAssertEqual(SourceVocabulary.probeReachable, "reachable")
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
@@ -391,22 +388,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         }
     }
 
-    func testConnectionStandingAndProbeCopyDerivations() {
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: .healthy, syncing: false),
-            "connected"
-        )
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: .healthy, syncing: true),
-            "connected · syncing"
-        )
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: .unknown, syncing: true),
-            "offline"
-        )
-        for line in [SourceVocabulary.standingConnected, SourceVocabulary.standingSyncing, SourceVocabulary.standingOffline] {
-            XCTAssertFalse(line.contains("trouble reaching"))
-        }
+    func testProbeCopyDerivations() {
         XCTAssertEqual(
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             "checked just now — reachable · 42 ms"
@@ -586,16 +568,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFailureRowHint,
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1),
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
-            SourceVocabulary.standingConnected,
-            SourceVocabulary.standingSyncing,
-            SourceVocabulary.standingOffline,
             SourceVocabulary.transferRateLabel,
             SourceVocabulary.transferRateIdle,
             SourceVocabulary.checkConnection,
             SourceVocabulary.probeReachable,
-            SourceVocabulary.standingSyncLine(health: .healthy, syncing: true),
-            SourceVocabulary.standingSyncLine(health: .healthy, syncing: false),
-            SourceVocabulary.standingSyncLine(health: .unknown, syncing: false),
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
             SourceVocabulary.migrationHeadlineUpToDate,

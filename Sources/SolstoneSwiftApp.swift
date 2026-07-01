@@ -13,6 +13,7 @@ struct SolstoneSwiftApp: App {
     @State private var appConfig: AppConfig
     @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
+    @State private var connectionSyncModel: ConnectionSyncModel
     @State private var brainStatusMonitor: BrainStatusMonitor
     @State private var diagnosticLog: DiagnosticLog
     @State private var observerRegistration: ObserverRegistration
@@ -375,6 +376,33 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
+        let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
+            let totals = uploadTotals(
+                mobileSegment: mobileSegmentUploader,
+                omi: omiUploaderHolder,
+                watch: watchUploaderHolder,
+                importQueue: importQueue
+            )
+            return ConnectionSyncInputs(
+                tunnelState: tunnel.state,
+                reconnectCountdown: tunnel.reconnectCountdown,
+                isNetworkSatisfied: tunnel.isNetworkSatisfied,
+                confirmedTransferCount: confirmedTransferCount(
+                    observer: observerUploader,
+                    omi: omiUploaderHolder,
+                    watch: watchUploaderHolder,
+                    importQueue: importQueue
+                ),
+                recentBytesPerSecond: recentBytesTotal(
+                    observer: observerUploader,
+                    omi: omiUploaderHolder,
+                    watch: watchUploaderHolder,
+                    importQueue: importQueue
+                ),
+                backlogPending: totals.pending,
+                backlogFailed: totals.failed
+            )
+        }
         let locationManager = LocationManager(mobileSegmentEngine: mobileSegmentEngine)
         let screencastManager = ScreencastManager(
             engine: mobileSegmentEngine,
@@ -493,6 +521,7 @@ struct SolstoneSwiftApp: App {
         self._diagnosticLog = State(initialValue: log)
         self._brainStatusMonitor = State(initialValue: brain)
         self._tunnelManager = State(initialValue: tunnel)
+        self._connectionSyncModel = State(initialValue: connectionSyncModel)
         self._observerRegistration = State(initialValue: observerRegistration)
         self._observerUploader = State(initialValue: observerUploader)
         self._mobileHealthBeacon = State(initialValue: mobileHealthBeacon)
@@ -530,6 +559,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.appConfig)
                 .environment(self.onboardingFlow)
                 .environment(self.tunnelManager)
+                .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
                 .environment(self.foregroundDrainGate)
                 .environment(self.voiceManager)
@@ -571,6 +601,9 @@ struct SolstoneSwiftApp: App {
                     Task {
                         await self.observerManager.stopSession()
                     }
+                }
+                .task {
+                    await self.connectionSyncModel.run()
                 }
                 .task {
                     self.mobileHealthBeacon.start()

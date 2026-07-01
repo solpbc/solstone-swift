@@ -14,6 +14,7 @@ private struct FailedReconcileKey: Equatable, Sendable {
 struct DiagnosticsView: View {
     @Environment(DiagnosticLog.self) private var log
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverUploader.self) private var observerUploader
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(ObserverRegistration.self) private var observerRegistration
@@ -187,16 +188,12 @@ struct DiagnosticsView: View {
     }
 
     private func lifecycleSection(migration: OnThisPhoneMigration) -> some View {
-        let standing = SourceVocabulary.standingHealth(
-            isConnected: self.tunnelManager.state.isConnected,
-            reach: standingSegmentReach(migration: migration)
-        )
         return Section(SourceVocabulary.onThisPhone) {
             LabeledContent(SourceVocabulary.waitingToSync, value: "\(migration.backlog)")
                 .accessibilityIdentifier("diagnostics.lifecycle.waitingToSync")
             LabeledContent(
                 SourceVocabulary.yourJournalSection,
-                value: SourceVocabulary.standingSyncLine(health: standing.health, syncing: standing.syncing)
+                value: self.connectionSyncModel.status.statusLine
             )
             .accessibilityIdentifier("diagnostics.lifecycle.yourJournal")
             LabeledContent(SourceVocabulary.lastSyncedLabel, value: self.lastSyncedValue)

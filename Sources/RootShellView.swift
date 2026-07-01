@@ -12,6 +12,7 @@ struct RootShellView: View {
     let via: ConnectionEndpoint
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(ObserverManager.self) private var observerManager
     @Environment(LocationManager.self) private var locationManager
@@ -125,10 +126,12 @@ struct RootShellView: View {
         if !self.appConfig.isPaired {
             return .noJournal
         }
-        if self.tunnelManager.state.isConnected {
+        switch self.connectionSyncModel.status {
+        case .connectedIdle, .connectedWaiting, .connectedTransferring:
             return .linkedOnline
+        case .offline, .connecting, .waitingForHome, .reconnecting, .unreachable:
+            return .linkedOffline
         }
-        return .linkedOffline
     }
 
     private func apply(_ route: NotificationRoute) {

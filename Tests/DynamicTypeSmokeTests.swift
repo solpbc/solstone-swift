@@ -131,6 +131,17 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             isConnected: { false },
             disconnect: {}
         )
+        let connectionSyncModel = ConnectionSyncModel(clock: MockObserverClock()) {
+            ConnectionSyncInputs(
+                tunnelState: tunnelManager.state,
+                reconnectCountdown: tunnelManager.reconnectCountdown,
+                isNetworkSatisfied: tunnelManager.isNetworkSatisfied,
+                confirmedTransferCount: 0,
+                recentBytesPerSecond: 0,
+                backlogPending: 0,
+                backlogFailed: 0
+            )
+        }
         chatManager.pendingOffer = ChatOffer(text: "I can ask support to help with this.")
         chatManager.pendingDraft = ChatDraft(
             id: "draft-1",
@@ -148,6 +159,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(appConfig)
             .environment(OnboardingFlow())
             .environment(tunnelManager)
+            .environment(connectionSyncModel)
             .environment(voiceManager)
             .environment(brainStatusMonitor)
             .environment(diagnosticLog)

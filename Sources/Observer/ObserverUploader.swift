@@ -129,6 +129,10 @@ final class ObserverUploader {
             + self.mobileSegmentSchedulingIDs.count
     }
 
+    var confirmedActiveTransferCount: Int {
+        self.activeTasksByTaskID.count + self.mobileSegmentTaskIDBySegmentID.count
+    }
+
     @ObservationIgnored private(set) var fullRecountCount = 0
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL

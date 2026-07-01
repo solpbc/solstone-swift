@@ -115,10 +115,6 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         XCTAssertEqual(migration.backlog, migration.onThisPhone)
         XCTAssertEqual(headline.onThisPhone, migration.onThisPhone)
         XCTAssertEqual(migration.backlog, headline.onThisPhone)
-        XCTAssertEqual(
-            standingSegmentReach(migration: migration),
-            uploadReach(failedTotal: migration.needsAttention, pendingTotal: migration.onThisPhone)
-        )
     }
 
     @MainActor
@@ -204,22 +200,12 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
                 .inYourJournal,
             ])
         )
-        let reach = standingSegmentReach(migration: migration)
-        let standing = SourceVocabulary.standingHealth(
-            isConnected: true,
-            reach: reach
-        )
         let headline = onThisPhoneHeadline(
             migration: migration,
             isPaired: true,
             isConnected: true
         )
 
-        XCTAssertEqual(reach, .reaching)
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: standing.health, syncing: standing.syncing),
-            "connected · syncing"
-        )
         XCTAssertEqual(headline.role, .syncing)
     }
 }

@@ -7,13 +7,6 @@ import os
 
 private let moreLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
 
-nonisolated func standingSegmentReach(migration: OnThisPhoneMigration) -> UploadReach {
-    uploadReach(
-        failedTotal: migration.needsAttention,
-        pendingTotal: migration.onThisPhone
-    )
-}
-
 struct MoreView: View {
     let localPort: Int
     let via: ConnectionEndpoint
@@ -22,6 +15,7 @@ struct MoreView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
@@ -55,20 +49,14 @@ struct MoreView: View {
         return "\(version) (\(build))"
     }
 
-    private var standingHealth: (health: ConnectionHealth, syncing: Bool) {
-        guard let migration = self.segmentMigration else {
-            return (.unknown, false)
-        }
-        return SourceVocabulary.standingHealth(
-            isConnected: self.tunnelManager.state.isConnected,
-            reach: standingSegmentReach(migration: migration)
-        )
-    }
-
-    private var healthColor: Color {
-        switch self.standingHealth.health {
-        case .healthy: .green
-        case .unknown: .gray
+    private var connectionSyncColor: Color {
+        switch self.connectionSyncModel.status {
+        case .connectedIdle, .connectedWaiting, .connectedTransferring:
+            .green
+        case .connecting, .waitingForHome, .reconnecting:
+            Color.solOrange
+        case .offline, .unreachable:
+            .gray
         }
     }
 
@@ -141,14 +129,10 @@ struct MoreView: View {
                         Text(self.connectedSince, style: .timer)
                     }
                     LabeledContent("status") {
-                        let standingHealth = self.standingHealth
-                        let line = SourceVocabulary.standingSyncLine(
-                            health: standingHealth.health,
-                            syncing: standingHealth.syncing
-                        )
+                        let line = self.connectionSyncModel.status.statusLine
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(self.healthColor)
+                                .fill(self.connectionSyncColor)
                                 .frame(width: 8, height: 8)
                             Text(line)
                         }
@@ -344,10 +328,12 @@ struct MoreView: View {
                 watchUploader: self.watchUploaderHolder.uploader
             )
             self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
-            self.transferRate = self.observerUploader.recentBytesPerSecond
-                + self.omiUploaderHolder.uploader.recentBytesPerSecond
-                + self.watchUploaderHolder.uploader.recentBytesPerSecond
-                + self.importQueue.recentBytesPerSecond
+            self.transferRate = recentBytesTotal(
+                observer: self.observerUploader,
+                omi: self.omiUploaderHolder,
+                watch: self.watchUploaderHolder,
+                importQueue: self.importQueue
+            )
             try? await Task.sleep(for: .seconds(2))
         }
     }

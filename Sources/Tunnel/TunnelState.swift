@@ -31,11 +31,6 @@ enum TunnelState: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-enum ConnectionHealth: Sendable, Equatable {
-    case healthy
-    case unknown
-}
-
 enum ConnectionStageKind: String, Sendable, Equatable {
     case prepareCandidates
     case raceCandidates

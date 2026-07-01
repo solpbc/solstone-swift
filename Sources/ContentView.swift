@@ -11,13 +11,12 @@ struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
     @State private var showPairing = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
-    @State private var showOfflineBanner = false
-    @State private var offlineSettleTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var effectivePort: Int {
@@ -57,11 +56,12 @@ struct ContentView: View {
                 RePairBanner {
                     self.showPairing = true
                 }
-            } else if self.appConfig.isPaired && self.showOfflineBanner {
+            } else if self.appConfig.isPaired && self.connectionSyncModel.status == .offline {
                 OfflineBanner()
+                    .allowsHitTesting(false)
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.tunnelManager.state.isConnected)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.connectionSyncModel.status)
         .sheet(isPresented: self.$showPairing) {
             NavigationStack {
                 PairFlowView(
@@ -116,10 +116,6 @@ struct ContentView: View {
         }
         .onChange(of: self.appConfig.pairedAt) { _, _ in
             self.startTunnelIfPaired()
-            self.updateOfflineBannerVisibility()
-        }
-        .onChange(of: self.tunnelManager.isNetworkSatisfied) { _, _ in
-            self.updateOfflineBannerVisibility()
         }
         .task(id: PairingHandoffPresentation.shouldPresent(
             pairURL: self.pairingHandoff.pairURL,
@@ -128,9 +124,6 @@ struct ContentView: View {
             self.presentPairingIfHandoffPending()
         }
         .onAppear {
-            defer {
-                self.updateOfflineBannerVisibility()
-            }
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("--ui-test") {
                 let port = Self.uiTestPort
@@ -184,6 +177,7 @@ struct ContentView: View {
                     self.lastPort = port
                     self.lastVia = .lan
                     self.showPairing = true
+                    self.connectionSyncModel.refreshNow()
                     return
                 }
                 if arguments.contains("--ui-test-revoked") {
@@ -201,6 +195,7 @@ struct ContentView: View {
                     self.tunnelManager.state = .error(.revoked)
                     self.lastPort = port
                     self.lastVia = .lan
+                    self.connectionSyncModel.refreshNow()
                     return
                 }
 #endif
@@ -224,10 +219,12 @@ struct ContentView: View {
                 } else if arguments.contains("--ui-test-network-unsatisfied") {
                     self.tunnelManager.forceNetworkStatus(isSatisfied: false, isWiFi: true)
                 }
+                self.connectionSyncModel.refreshNow()
                 if let reconnectDelay = Self.uiTestNetworkReconnectDelay {
                     Task {
                         try? await Task.sleep(for: .seconds(reconnectDelay))
                         self.tunnelManager.forceNetworkStatus(isSatisfied: true, isWiFi: true)
+                        self.connectionSyncModel.refreshNow()
                     }
                 }
                 return
@@ -240,6 +237,7 @@ struct ContentView: View {
                 self.tunnelManager.forceConnected(port: mockPort, via: .lan)
                 self.lastPort = mockPort
                 self.lastVia = .lan
+                self.connectionSyncModel.refreshNow()
                 Task {
                     await self.pushManager.handleTunnelConnected(localPort: mockPort)
                 }
@@ -252,6 +250,7 @@ struct ContentView: View {
                 self.tunnelManager.forceConnected(port: livePort, via: .lan)
                 self.lastPort = livePort
                 self.lastVia = .lan
+                self.connectionSyncModel.refreshNow()
                 Task {
                     await self.pushManager.handleTunnelConnected(localPort: livePort)
                 }
@@ -261,38 +260,10 @@ struct ContentView: View {
             self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
         }
-        .onDisappear {
-            self.offlineSettleTask?.cancel()
-            self.offlineSettleTask = nil
-        }
     }
 }
 
 private extension ContentView {
-    func updateOfflineBannerVisibility() {
-        self.offlineSettleTask?.cancel()
-        self.offlineSettleTask = nil
-
-        guard self.appConfig.isPaired,
-              self.tunnelManager.isNetworkSatisfied == false
-        else {
-            self.showOfflineBanner = false
-            return
-        }
-
-        self.offlineSettleTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled,
-                  self.appConfig.isPaired,
-                  self.tunnelManager.isNetworkSatisfied == false
-            else {
-                return
-            }
-            self.showOfflineBanner = true
-            self.offlineSettleTask = nil
-        }
-    }
-
     func clearPairingHandoff() {
         self.pairingHandoff.pairURL = nil
         self.pairingHandoff.pairURLError = nil

@@ -23,4 +23,12 @@ final class OmiUploaderHolder {
     var inFlightCount: Int {
         self.uploader.inFlightCount
     }
+
+    var recentBytesPerSecond: Double {
+        self.uploader.recentBytesPerSecond
+    }
+
+    var confirmedActiveTransferCount: Int {
+        self.uploader.confirmedActiveTransferCount
+    }
 }

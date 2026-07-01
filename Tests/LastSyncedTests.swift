@@ -14,20 +14,6 @@ nonisolated final class LastSyncedTests: XCTestCase {
         XCTAssertEqual(lastSyncedAt([d1, nil, d2]), d2)
     }
 
-    @MainActor
-    func testConnectedPendingStandingLineIsSyncing() {
-        let standing = SourceVocabulary.standingHealth(
-            isConnected: true,
-            reach: standingSegmentReach(migration: OnThisPhoneMigration(onThisPhone: 2, needsAttention: 0))
-        )
-
-        XCTAssertEqual(
-            SourceVocabulary.standingSyncLine(health: standing.health, syncing: standing.syncing),
-            SourceVocabulary.standingSyncing
-        )
-        XCTAssertEqual(SourceVocabulary.standingSyncing, "connected · syncing")
-    }
-
     func testUploadDiagnosticSuccessMessageUsesJournalCopyAndOtherStagesKeepSourceForm() {
         let source = "observer-audio"
 

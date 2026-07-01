@@ -65,6 +65,10 @@ final class ImportQueue {
         self.uploadTaskByItemID.count + self.retryTasksByItemID.count + self.schedulingItemIDs.count
     }
 
+    var confirmedActiveTransferCount: Int {
+        self.uploadTaskByItemID.count
+    }
+
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
     @ObservationIgnored private let sessionDelegate: ImportQueueSessionDelegate

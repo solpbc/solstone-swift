@@ -4,29 +4,6 @@
 import Foundation
 
 extension SourceVocabulary {
-    nonisolated static func standingHealth(
-        isConnected: Bool,
-        reach: UploadReach
-    ) -> (health: ConnectionHealth, syncing: Bool) {
-        guard isConnected else {
-            return (.unknown, false)
-        }
-
-        switch reach {
-        case .reaching:
-            return (.healthy, true)
-        case .idle:
-            return (.healthy, false)
-        }
-    }
-
-    nonisolated static func standingSyncLine(health: ConnectionHealth, syncing: Bool) -> String {
-        switch health {
-        case .unknown: return Self.standingOffline
-        case .healthy: return syncing ? Self.standingSyncing : Self.standingConnected
-        }
-    }
-
     nonisolated static func probeChecked(alive: Bool, milliseconds: Int, relative: String) -> String {
         alive
             ? "checked \(relative) — \(Self.probeReachable) · \(milliseconds) ms"
