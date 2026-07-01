@@ -100,10 +100,68 @@ nonisolated final class TunnelSessionTests: XCTestCase {
 
         let didPublishFailure = await Self.waitUntil {
             observedStates.withLock { states in
-                states.contains(.failed(.transportFailed("inbound closed")))
+                states.contains(.failed(.inboundClosed(fault: nil)))
             }
         }
         XCTAssertTrue(didPublishFailure)
+        try? await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(connectCount.withLock { $0 }, 1)
+
+        await session.disconnect()
+    }
+
+    func testPumpFaultPublishesDistinguishableFault() async throws {
+        let fakeTLS = FakeTLS()
+        let connectCount = OSAllocatedUnfairLock(initialState: 0)
+        let session = TunnelSession(pairing: Self.fixturePairing()) { _, _, _ in
+            connectCount.withLock { $0 += 1 }
+            return fakeTLS
+        }
+        let observedStates = OSAllocatedUnfairLock(initialState: [TunnelState]())
+        let stateTask = Task {
+            for await state in session.stateUpdates {
+                observedStates.withLock { $0.append(state) }
+            }
+        }
+        defer { stateTask.cancel() }
+
+        let via = try await session.connect(endpoints: [.lan(host: "127.0.0.1", port: 8676, scope: "")])
+        XCTAssertEqual(via, .lanDirect(host: "127.0.0.1", port: 8676))
+        let didConnect = await Self.waitUntil {
+            observedStates.withLock { states in
+                states.contains { state in
+                    if case .connected = state { return true }
+                    return false
+                }
+            }
+        }
+        XCTAssertTrue(didConnect)
+
+        fakeTLS.failInbound(SessionError.tlsFailed("boom"))
+
+        let didPublishFault = await Self.waitUntil {
+            observedStates.withLock { states in
+                states.contains { state in
+                    if case .failed(.inboundClosed(fault: .some)) = state { return true }
+                    return false
+                }
+            }
+        }
+        XCTAssertTrue(didPublishFault)
+        let fault = observedStates.withLock { states -> String? in
+            states.compactMap { state in
+                if case .failed(.inboundClosed(fault: let fault)) = state {
+                    return fault
+                }
+                return nil
+            }.last
+        }
+        XCTAssertTrue(fault?.contains("boom") == true)
+        if let fault {
+            XCTAssertNotEqual(SessionError.inboundClosed(fault: fault), .inboundClosed(fault: nil))
+        } else {
+            XCTFail("expected inbound fault")
+        }
         try? await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(connectCount.withLock { $0 }, 1)
 
@@ -159,6 +217,10 @@ private final class FakeTLS: TunnelTLSIO, @unchecked Sendable {
 
     func finishInbound() {
         inboundContinuation.finish()
+    }
+
+    func failInbound(_ error: Error) {
+        inboundContinuation.finish(throwing: error)
     }
 }
 

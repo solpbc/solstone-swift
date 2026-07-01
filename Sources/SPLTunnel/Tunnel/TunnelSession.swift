@@ -22,6 +22,7 @@ public enum SessionError: Error, Equatable, Sendable {
     case directKeepaliveMissed
     case invalidRelayURL(String)
     case transportFailed(String)
+    case inboundClosed(fault: String?)
     case tlsFailed(String)
     case revoked
     case tokenExpired
@@ -206,9 +207,9 @@ public actor TunnelSession: TunnelSessioning {
                 for try await chunk in tls.inbound {
                     try await mux.feedInbound(chunk)
                 }
-                await self.handlePumpEnded(id: pumpID)
+                await self.handlePumpEnded(id: pumpID, error: nil)
             } catch {
-                await self.handlePumpEnded(id: pumpID)
+                await self.handlePumpEnded(id: pumpID, error: error)
             }
         }
         inboundPumpTask = pump
@@ -224,11 +225,13 @@ public actor TunnelSession: TunnelSessioning {
         }
     }
 
-    private func handlePumpEnded(id: UUID) async {
+    private func handlePumpEnded(id: UUID, error: Error?) async {
         guard inboundPumpID == id, case .connected = state else {
             return
         }
-        publish(.failed(.transportFailed("inbound closed")))
+        let fault = error.map { String(describing: $0) }
+        logger.error("inbound pump ended fault=\(fault ?? "eof", privacy: .public)")
+        publish(.failed(.inboundClosed(fault: fault)))
         await tearDownCurrent(reason: .transportFailure)
     }
 

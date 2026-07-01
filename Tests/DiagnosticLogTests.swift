@@ -102,6 +102,26 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
     }
 
     @MainActor
+    func testSnapshotIncludesTunnelReconnectBreakdown() {
+        let manager = TunnelManager()
+        manager.reconnectCount = 3
+        manager.reconnectReasonCounts = [
+            .transportClosed: 2,
+            .other: 1,
+        ]
+
+        let snapshot = self.log.snapshot(
+            tunnel: manager,
+            voice: VoiceManager(),
+            brain: BrainStatusMonitor()
+        )
+
+        XCTAssertTrue(snapshot.contains("tunnel reconnects: 3 ("))
+        XCTAssertTrue(snapshot.contains("transport closed 2"))
+        XCTAssertTrue(snapshot.contains("other 1"))
+    }
+
+    @MainActor
     func testExportFileURLWritesRedactedSnapshot() throws {
         self.log.append(
             category: .upload,

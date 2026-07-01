@@ -181,8 +181,8 @@ struct MoreView: View {
             }
 
             Section("diagnostics") {
-                LabeledContent("reconnects", value: "\(self.tunnelManager.reconnectCount)")
-                    .accessibilityLabel("reconnect count: \(self.tunnelManager.reconnectCount)")
+                LabeledContent("tunnel reconnects", value: "\(self.tunnelManager.reconnectCount)")
+                    .accessibilityLabel("tunnel reconnect count: \(self.tunnelManager.reconnectCount)")
 
                 LabeledContent("network") {
                     Text(networkStatusText(self.tunnelManager.currentPathStatus))

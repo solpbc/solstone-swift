@@ -20,6 +20,29 @@ private struct PathMeaningfulSignature: Equatable, Sendable {
     let isSatisfied: Bool
 }
 
+enum ReconnectReasonBucket: String, CaseIterable, Sendable {
+    case transportClosed
+    case pathChanged
+    case probeFailed
+    case keepaliveMissed
+    case other
+
+    var exportLabel: String {
+        switch self {
+        case .transportClosed:
+            return "transport closed"
+        case .pathChanged:
+            return "path changed"
+        case .probeFailed:
+            return "probe failed"
+        case .keepaliveMissed:
+            return "keepalive missed"
+        case .other:
+            return "other"
+        }
+    }
+}
+
 private enum ReconnectReason: Sendable, Equatable {
     case transportClosed(TunnelError)
     case pathChanged
@@ -32,6 +55,19 @@ private enum ReconnectReason: Sendable, Equatable {
             return error
         case .pathChanged, .probeFailed, .keepaliveMissed:
             return .muxTeardown
+        }
+    }
+
+    var bucket: ReconnectReasonBucket {
+        switch self {
+        case .transportClosed:
+            return .transportClosed
+        case .pathChanged:
+            return .pathChanged
+        case .probeFailed:
+            return .probeFailed
+        case .keepaliveMissed:
+            return .keepaliveMissed
         }
     }
 
@@ -89,9 +125,11 @@ final class TunnelManager {
     @ObservationIgnored private var lastEmittedPathSignature: PathMeaningfulSignature?
     var consecutiveKeepaliveFailures: Int = 0
     var reconnectCount: Int = 0
+    var reconnectReasonCounts: [ReconnectReasonBucket: Int] = [:]
     var connectionStages: [ConnectionStage] = []
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
+    @ObservationIgnored private var pendingReconnectReason: ReconnectReasonBucket?
 
     init(
         transport: (any Transporting)? = nil,
@@ -182,6 +220,9 @@ final class TunnelManager {
         log.info("[solstone-swift] connect() starting")
         if case .error = self.state {
             self.reconnectCount += 1
+            let bucket = self.pendingReconnectReason ?? .other
+            self.reconnectReasonCounts[bucket, default: 0] += 1
+            self.pendingReconnectReason = nil
         }
         self.state = .connecting
         self.diagnosticLog?.append(category: .tunnel, message: "connecting")
@@ -356,6 +397,8 @@ final class TunnelManager {
         self.consecutiveProbeFailures = 0
         self.consecutiveKeepaliveFailures = 0
         self.reconnectCount = 0
+        self.reconnectReasonCounts = [:]
+        self.pendingReconnectReason = nil
         self.connectionStages = []
         self.connectTask?.cancel()
         self.connectTask = nil
@@ -486,6 +529,7 @@ final class TunnelManager {
 
     private func forceReconnect(reason: ReconnectReason) async {
         guard case .connected = self.state else { return }
+        self.pendingReconnectReason = reason.bucket
         let tunnelError = reason.tunnelError
         log.error("[solstone-swift] forcing reconnect: \(reason.logLabel, privacy: .public)")
         self.diagnosticLog?.append(
@@ -771,7 +815,7 @@ final class TunnelManager {
         }
         if let sessionError = error as? SessionError {
             switch sessionError {
-            case .unreachable, .invalidRelayURL, .transportFailed:
+            case .unreachable, .invalidRelayURL, .transportFailed, .inboundClosed:
                 return .unreachable
             case .revoked, .tokenExpired:
                 return .revoked

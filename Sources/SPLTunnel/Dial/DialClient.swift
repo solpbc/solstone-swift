@@ -293,9 +293,21 @@ public actor RelayWSTransport: ByteTransport {
         return "solstone-ios/\(version)"
     }
 
-    private func relayCloseError() -> DialError? {
-        if task.closeCode.rawValue == 4401 || delegate.recordedCloseCode == 4401 {
+    static func relayCloseReason(forCloseCode code: Int) -> DialError? {
+        switch code {
+        case 4401:
             return .relayTokenExpired
+        default:
+            return nil
+        }
+    }
+
+    private func relayCloseError() -> DialError? {
+        if let reason = RelayWSTransport.relayCloseReason(forCloseCode: task.closeCode.rawValue) {
+            return reason
+        }
+        if let recorded = delegate.recordedCloseCode {
+            return RelayWSTransport.relayCloseReason(forCloseCode: recorded)
         }
         return nil
     }
@@ -375,8 +387,8 @@ final class WebSocketOpenDelegate: NSObject, URLSessionWebSocketDelegate, URLSes
         lock.withLock {
             self.closeCode = closeCode.rawValue
         }
-        if closeCode.rawValue == 4401 {
-            complete(.failure(DialError.relayTokenExpired))
+        if let reason = RelayWSTransport.relayCloseReason(forCloseCode: closeCode.rawValue) {
+            complete(.failure(reason))
         }
     }
 

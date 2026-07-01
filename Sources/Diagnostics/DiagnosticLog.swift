@@ -63,6 +63,10 @@ final class DiagnosticLog {
         lines.append("solstone-swift diagnostic snapshot")
         lines.append(formatter.string(from: Date()))
         lines.append("connection: \(tunnel.state)")
+        let reconnectBreakdown = ReconnectReasonBucket.allCases
+            .map { "\($0.exportLabel) \(tunnel.reconnectReasonCounts[$0] ?? 0)" }
+            .joined(separator: ", ")
+        lines.append("tunnel reconnects: \(tunnel.reconnectCount) (\(reconnectBreakdown))")
 
         let network: String
         switch tunnel.currentInterfaceIsWiFi {

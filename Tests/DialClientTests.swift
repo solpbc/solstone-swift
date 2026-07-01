@@ -34,6 +34,13 @@ nonisolated final class DialClientTests: XCTestCase {
             XCTAssertEqual(error, .wsHandshakeFailed(httpStatus: 503))
         }
     }
+
+    func testRelayCloseReasonMapsKnownCodes() {
+        XCTAssertEqual(RelayWSTransport.relayCloseReason(forCloseCode: 4401), .relayTokenExpired)
+        XCTAssertNil(RelayWSTransport.relayCloseReason(forCloseCode: 1000))
+        XCTAssertNil(RelayWSTransport.relayCloseReason(forCloseCode: 1001))
+        XCTAssertNil(RelayWSTransport.relayCloseReason(forCloseCode: 4999))
+    }
 }
 
 private final class OneShotHTTPServer: @unchecked Sendable {
