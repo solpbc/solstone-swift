@@ -417,6 +417,9 @@ final class MobileSegmentUploaderTests: XCTestCase {
         let strings = [
             "screencast_removed",
             "screencast_partial_artifact",
+            "unrecoverable_lost_data",
+            "location_no_local_data",
+            "audio_no_local_data",
             "schedule_failed",
             "ignored undeclared screencast artifact segment=00000000-0000-0000-0000-000000000000 source=screencast",
             "mobile segment finalize failed segment=00000000-0000-0000-0000-000000000000 stage=segment-finalize",

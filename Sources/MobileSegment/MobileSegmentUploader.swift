@@ -19,6 +19,12 @@ private enum MobileSegmentUploaderError: Error, CustomStringConvertible {
     }
 }
 
+nonisolated enum FinalizeFailureResolution: Equatable, Sendable {
+    case repend
+    case retired
+    case deferred
+}
+
 @MainActor
 @Observable
 final class MobileSegmentUploader {
@@ -264,8 +270,17 @@ final class MobileSegmentUploader {
         batch: LocationSegmentBatch,
         endedAt: Date
     ) throws {
-        try self.requireStorageAvailable()
         let directory = self.activeDirectory(segmentID: segmentID)
+        try self.recordLocationFinalized(segmentID: segmentID, directory: directory, batch: batch, endedAt: endedAt)
+    }
+
+    func recordLocationFinalized(
+        segmentID: UUID,
+        directory: URL,
+        batch: LocationSegmentBatch,
+        endedAt: Date
+    ) throws {
+        try self.requireStorageAvailable()
         var manifest = try self.store.readManifest(in: directory)
         guard manifest.openedWithSources.contains(.location) else { return }
 
@@ -523,6 +538,7 @@ final class MobileSegmentUploader {
         do {
             try self.store.ensureRoot()
             try await self.reconcileActiveSegments()
+            await self.resolveFinalizeFailurePile()
             let pending = try self.store.list(.pending)
             for directory in pending {
                 guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
@@ -538,10 +554,21 @@ final class MobileSegmentUploader {
 
     func retryFailed() async {
         guard self.guardStorageAvailable() else { return }
+        await self.resolveFinalizeFailurePile()
+        let failed: [URL]
         do {
-            let failed = try self.store.list(.failed)
-            for directory in failed {
-                guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
+            failed = try self.store.list(.failed)
+        } catch {
+            let diagnostic = "mobile segment retry failed stage=retry"
+            self.lastError = diagnostic
+            mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
+            self.refreshCounts()
+            return
+        }
+
+        for directory in failed {
+            guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
+            do {
                 var manifest = try self.store.readManifest(in: directory)
                 guard !manifest.hasFinalizeFailure, manifest.hasArtifact else { continue }
                 manifest.upload = .pending
@@ -549,13 +576,129 @@ final class MobileSegmentUploader {
                 try self.store.writeManifest(manifest, in: directory)
                 _ = try self.store.move(segmentID: segmentID, from: .failed, to: .pending)
                 await self.scheduleUpload(segmentID: segmentID)
+            } catch {
+                let diagnostic = "mobile segment retry failed segment=\(segmentID.uuidString) stage=retry"
+                self.lastError = diagnostic
+                mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
-        } catch {
-            let diagnostic = "mobile segment retry failed stage=retry"
-            self.lastError = diagnostic
-            mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
         self.refreshCounts()
+    }
+
+    func resolveFinalizeFailurePile() async {
+        guard self.guardStorageAvailable() else { return }
+        let failed: [URL]
+        do {
+            failed = try self.store.list(.failed)
+        } catch {
+            let diagnostic = "mobile segment finalize-failure scan failed stage=finalize-failure"
+            self.lastError = diagnostic
+            mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
+            self.refreshCounts()
+            return
+        }
+
+        for directory in failed {
+            guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
+            do {
+                let manifest = try self.store.readManifest(in: directory)
+                guard manifest.hasFinalizeFailure else { continue }
+                let result = try self.resolveFinalizeFailure(segmentID: segmentID, directory: directory, lifecycle: .failed)
+                if result == .repend {
+                    await self.scheduleUpload(segmentID: segmentID)
+                }
+            } catch {
+                let diagnostic = "mobile segment finalize-failure deferred segment=\(segmentID.uuidString) stage=finalize-failure"
+                self.lastError = diagnostic
+                mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
+            }
+        }
+        self.refreshCounts()
+    }
+
+    func resolveFinalizeFailure(
+        segmentID: UUID,
+        directory: URL,
+        lifecycle: MobileSegmentLifecycle
+    ) throws -> FinalizeFailureResolution {
+        try self.requireStorageAvailable()
+        var manifest = try self.store.readManifest(in: directory)
+        guard manifest.hasFinalizeFailure else { return .deferred }
+
+        for source in [MobileSegmentSource.location, .screencast, .audio] {
+            guard manifest.declaredSources.contains(source),
+                  manifest.resolution(for: source).state == .failedToFinalize else {
+                continue
+            }
+            let now = self.clock.now()
+            switch source {
+            case .location:
+                let locationURL = self.store.locationURL(in: directory)
+                let locationPartURL = self.store.locationPartURL(in: directory)
+                if self.store.fileExists(locationURL) {
+                    try self.writeLocationArtifactOutcome(
+                        segmentID: segmentID,
+                        directory: directory,
+                        manifest: &manifest,
+                        now: now
+                    )
+                } else if self.store.fileExists(locationPartURL) {
+                    try self.recoverLocationLive(
+                        segmentID: segmentID,
+                        directory: directory,
+                        manifest: &manifest,
+                        now: now
+                    )
+                } else {
+                    try self.writeLocationRemoved(
+                        segmentID: segmentID,
+                        directory: directory,
+                        manifest: &manifest,
+                        now: now,
+                        reason: "location_no_local_data"
+                    )
+                }
+            case .screencast:
+                self.store.removeIfExists(self.store.screenURL(in: directory))
+                self.store.removeIfExists(self.store.screenPartURL(in: directory))
+                let resolution = MobileSegmentSourceResolution(
+                    state: .removed,
+                    reason: "screencast_removed",
+                    lastAttemptAt: now
+                )
+                try self.store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: now)
+            case .audio:
+                self.store.removeIfExists(self.store.audioURL(in: directory))
+                let resolution = MobileSegmentSourceResolution(
+                    state: .removed,
+                    reason: "audio_no_local_data",
+                    lastAttemptAt: now
+                )
+                try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
+            }
+            manifest = try self.store.readManifest(in: directory)
+        }
+
+        manifest = try self.store.readManifest(in: directory)
+        if manifest.declaredSources.contains(where: { manifest.resolution(for: $0).state == .finalizedArtifact }) {
+            manifest.upload = .pending
+            manifest.updatedAt = self.clock.now()
+            try self.store.writeManifest(manifest, in: directory)
+            if lifecycle == .failed {
+                _ = try self.store.move(segmentID: segmentID, from: .failed, to: .pending)
+            }
+            return .repend
+        }
+
+        try self.store.writeTombstone(
+            segmentID: segmentID,
+            kind: "empty",
+            reason: "unrecoverable_lost_data",
+            now: self.clock.now()
+        )
+        try self.store.remove(directory)
+        mobileSegmentUploadLog.notice("mobile segment retired unrecoverable segment=\(segmentID.uuidString, privacy: .public) reason=unrecoverable_lost_data")
+        return .retired
     }
 
     func dropSegment(segmentID: UUID) {
@@ -843,7 +986,7 @@ private extension MobileSegmentUploader {
         let liveness = self.readLocationLiveness(segmentID: segmentID, directory: directory)
         let endedAt = liveness?.lastSeenAt ?? recovered.latestRecordAt
         let batch = recovered.batch(endedAt: endedAt)
-        try self.recordLocationFinalized(segmentID: segmentID, batch: batch, endedAt: endedAt)
+        try self.recordLocationFinalized(segmentID: segmentID, directory: directory, batch: batch, endedAt: endedAt)
         manifest = try self.store.readManifest(in: directory)
         mobileSegmentUploadLog.info("location live recovered segment=\(segmentID.uuidString, privacy: .public)")
     }
@@ -1133,7 +1276,23 @@ private extension MobileSegmentUploader {
                 )
                 return
             }
-            guard manifest.hasArtifact, !manifest.hasFinalizeFailure else { return }
+            if manifest.hasFinalizeFailure {
+                do {
+                    let result = try self.resolveFinalizeFailure(segmentID: segmentID, directory: directory, lifecycle: .pending)
+                    switch result {
+                    case .repend:
+                        manifest = try self.store.readManifest(in: directory)
+                    case .retired, .deferred:
+                        return
+                    }
+                } catch {
+                    let diagnostic = "mobile segment finalize-failure deferred segment=\(segmentID.uuidString) stage=schedule"
+                    self.lastError = diagnostic
+                    mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
+                    return
+                }
+            }
+            guard manifest.hasArtifact else { return }
             let audioURL = manifest.audio.state == .finalizedArtifact
                 ? self.store.audioURL(in: directory)
                 : nil
