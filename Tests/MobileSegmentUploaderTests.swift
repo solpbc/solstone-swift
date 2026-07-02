@@ -222,6 +222,132 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertTrue(retryBody.contains("Content-Type: video/mp4"))
     }
 
+    func testMobileReconnectRequeuesCanExceedMaxAttemptsWithoutFailing() async throws {
+        MobileSegmentUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let sleeps = UploaderRecordedSleep()
+        let harness = self.makeHarness(
+            connected: true,
+            maxAttempts: 2,
+            retryDelays: [1],
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.uploader.resumeFromDisk()
+
+        for expected in 1...3 {
+            await sleeps.waitForSleepCount(expected)
+            try await self.waitFor("mobile requeue attempt \(expected)") {
+                harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID) == expected
+            }
+            if expected < 3 {
+                sleeps.releaseNext()
+            }
+        }
+
+        XCTAssertEqual(harness.transport.mobileSegmentAttemptCountForTesting(segmentID: segmentID), 0)
+        XCTAssertEqual(harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID), 3)
+        XCTAssertEqual(harness.uploader.failedCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+
+        harness.uploader.dropSegment(segmentID: segmentID)
+        sleeps.releaseAll()
+    }
+
+    func testMobileReconnectRequeueAttemptsAndBackoffEscalate() async throws {
+        MobileSegmentUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let log = DiagnosticLog()
+        let sleeps = UploaderRecordedSleep()
+        let harness = self.makeHarness(
+            connected: true,
+            maxAttempts: 1,
+            retryDelays: [2, 4, 8],
+            diagnosticLog: log,
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.uploader.resumeFromDisk()
+
+        for expected in 1...3 {
+            await sleeps.waitForSleepCount(expected)
+            try await self.waitFor("mobile requeue diagnostic \(expected)") {
+                harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID) == expected
+            }
+            if expected < 3 {
+                sleeps.releaseNext()
+            }
+        }
+
+        let events = self.uploadEvents(in: log).filter { $0.message.hasSuffix("upload reconnect-requeued") }
+        XCTAssertEqual(events.count, 3)
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=1/1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=2/1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=3/1") })
+        XCTAssertEqual(sleeps.recordedDelays(), [2, 4, 8])
+        XCTAssertEqual(harness.transport.mobileSegmentAttemptCountForTesting(segmentID: segmentID), 0)
+
+        harness.uploader.dropSegment(segmentID: segmentID)
+        sleeps.releaseAll()
+    }
+
+    func testMobileReconnectRequeuePortGateReDrivesAfterMaxDeferral() async throws {
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let nextPort = OSAllocatedUnfairLock<Int>(initialState: 7070)
+        let sleepDurations = OSAllocatedUnfairLock<[UInt64]>(initialState: [])
+        let harness = self.makeHarness(
+            connected: true,
+            retryDelays: [0],
+            localPortProvider: {
+                nextPort.withLock { value in
+                    value += 1
+                    return value
+                }
+            },
+            requeueStabilityPoll: 1,
+            requeueStabilityWindow: 2,
+            requeueMaxDeferral: 3,
+            sleep: { delay in sleepDurations.withLock { durations in durations.append(delay) } }
+        )
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.uploader.resumeFromDisk()
+
+        try await self.waitFor("mobile bounded re-drive") {
+            MobileSegmentUploaderURLProtocol.callCount == 2 && harness.uploader.lastUploadAt != nil
+        }
+
+        XCTAssertEqual(sleepDurations.withLock { $0 }, [0, 1, 1, 1])
+        XCTAssertEqual(harness.uploader.failedCount, 0)
+    }
+
     func testMissingFinalizedScreencastFailsWithStatusOnlyScheduleReason() async throws {
         let harness = self.makeHarness(connected: true)
         let segmentID = UUID()
@@ -462,11 +588,22 @@ final class MobileSegmentUploaderTests: XCTestCase {
 private extension MobileSegmentUploaderTests {
     struct Harness {
         let uploader: MobileSegmentUploader
+        let transport: ObserverUploader
         let store: MobileSegmentStore
         let transportRoot: URL
     }
 
-    func makeHarness(connected: Bool = false, maxAttempts: Int = 5) -> Harness {
+    func makeHarness(
+        connected: Bool = false,
+        maxAttempts: Int = 5,
+        retryDelays: [UInt64] = [0],
+        localPortProvider: (@Sendable @MainActor () -> Int?)? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
+        requeueStabilityPoll: UInt64 = 1,
+        requeueStabilityWindow: UInt64 = 2,
+        requeueMaxDeferral: UInt64 = 6,
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
+    ) -> Harness {
         let transportRoot = self.tempDirectory.appendingPathComponent("transport", isDirectory: true)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentUploaderURLProtocol.self]
@@ -475,15 +612,20 @@ private extension MobileSegmentUploaderTests {
             sessionConfiguration: configuration,
             ensureRegistered: { "test-observer-key-abc" },
             isJournalConfigured: { connected },
-            localPortProvider: { connected ? 7071 : nil },
-            retryDelays: [0],
+            localPortProvider: localPortProvider ?? { connected ? 7071 : nil },
+            diagnosticLog: diagnosticLog,
+            retryDelays: retryDelays,
             maxAttempts: maxAttempts,
-            sleep: { _ in },
+            requeueStabilityPoll: requeueStabilityPoll,
+            requeueStabilityWindow: requeueStabilityWindow,
+            requeueMaxDeferral: requeueMaxDeferral,
+            sleep: sleep,
             startPathMonitor: false
         )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         return Harness(
             uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock),
+            transport: transport,
             store: store,
             transportRoot: transportRoot
         )
@@ -686,6 +828,10 @@ private extension MobileSegmentUploaderTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(label)")
+    }
+
+    func uploadEvents(in log: DiagnosticLog) -> [DiagnosticEvent] {
+        log.events.filter { $0.category == .upload }
     }
 
     func multipartValue(named name: String, in body: Data) -> String? {

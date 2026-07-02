@@ -360,6 +360,138 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testReconnectRequeuesCanExceedMaxAttemptsWithoutFailing() async throws {
+        ObserverUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let sleeps = UploaderRecordedSleep()
+        let uploader = self.makeUploader(
+            retryDelays: [1],
+            maxAttempts: 2,
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-requeue-over-max"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        for expected in 1...3 {
+            await sleeps.waitForSleepCount(expected)
+            try await self.waitFor("requeue attempt \(expected)") {
+                uploader.requeueAttemptCountForTesting(chunkID: chunkID) == expected
+            }
+            if expected < 3 {
+                sleeps.releaseNext()
+            }
+        }
+
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.requeueAttemptCountForTesting(chunkID: chunkID), 3)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        sleeps.releaseAll()
+    }
+
+    @MainActor
+    func testReconnectRequeueAttemptsAndBackoffEscalate() async throws {
+        ObserverUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let log = DiagnosticLog()
+        let sleeps = UploaderRecordedSleep()
+        let uploader = self.makeUploader(
+            retryDelays: [2, 4, 8],
+            diagnosticLog: log,
+            maxAttempts: 1,
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-requeue-escalates"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        for expected in 1...3 {
+            await sleeps.waitForSleepCount(expected)
+            try await self.waitFor("requeue diagnostic \(expected)") {
+                uploader.requeueAttemptCountForTesting(chunkID: chunkID) == expected
+            }
+            if expected < 3 {
+                sleeps.releaseNext()
+            }
+        }
+
+        let events = self.uploadEvents(in: log).filter { $0.message == "observer-audio upload reconnect-requeued" }
+        XCTAssertEqual(events.count, 3)
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=1/1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=2/1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=3/1") })
+        XCTAssertEqual(sleeps.recordedDelays(), [2, 4, 8])
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+        sleeps.releaseAll()
+    }
+
+    @MainActor
+    func testReconnectRequeuePortGateReDrivesAfterMaxDeferral() async throws {
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let nextPort = OSAllocatedUnfairLock<Int>(initialState: 7070)
+        let sleepDurations = OSAllocatedUnfairLock<[UInt64]>(initialState: [])
+        let uploader = self.makeUploader(
+            retryDelays: [0],
+            localPortProvider: {
+                nextPort.withLock { value in
+                    value += 1
+                    return value
+                }
+            },
+            requeueStabilityPoll: 1,
+            requeueStabilityWindow: 2,
+            requeueMaxDeferral: 3,
+            sleep: { delay in sleepDurations.withLock { durations in durations.append(delay) } }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-requeue-flappy-port"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("bounded re-drive") {
+            ObserverUploaderURLProtocol.callCount == 2 && uploader.pendingCount == 0
+        }
+
+        XCTAssertEqual(sleepDurations.withLock { $0 }, [0, 1, 1, 1])
+        XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
     func testExhaustionAppliesDeltaWithoutFullRecount() async throws {
         ObserverUploaderURLProtocol.handler = { request in
             (
@@ -2091,6 +2223,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         onSegmentDelivered: (@MainActor @Sendable (UUID) -> Void)? = nil,
         sourceType: String = "observer-audio",
         maxAttempts: Int = 5,
+        requeueStabilityPoll: UInt64 = 1,
+        requeueStabilityWindow: UInt64 = 2,
+        requeueMaxDeferral: UInt64 = 6,
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
     ) -> ObserverUploader {
         let configuration = URLSessionConfiguration.ephemeral
@@ -2108,6 +2243,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             onSegmentDelivered: onSegmentDelivered,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
+            requeueStabilityPoll: requeueStabilityPoll,
+            requeueStabilityWindow: requeueStabilityWindow,
+            requeueMaxDeferral: requeueMaxDeferral,
             sleep: sleep,
             startPathMonitor: false
         )
@@ -2389,6 +2527,82 @@ private final class ObserverUploaderRetrySleepGate: @unchecked Sendable {
             return continuation
         }
         continuation?.resume()
+    }
+}
+
+final class UploaderRecordedSleep: @unchecked Sendable {
+    private struct State {
+        var delays: [UInt64] = []
+        var continuations: [CheckedContinuation<Void, Never>] = []
+        var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    func sleep(_ delay: UInt64) async {
+        await withCheckedContinuation { continuation in
+            let waiters = self.lock.withLock {
+                self.state.delays.append(delay)
+                self.state.continuations.append(continuation)
+                return self.takeSatisfiedWaitersLocked()
+            }
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    func waitForSleepCount(_ count: Int) async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.lock.withLock {
+                if self.state.delays.count >= count {
+                    return true
+                }
+                self.state.waiters.append((count, continuation))
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func releaseNext() {
+        let continuation = self.lock.withLock {
+            self.state.continuations.isEmpty ? nil : self.state.continuations.removeFirst()
+        }
+        continuation?.resume()
+    }
+
+    func releaseAll() {
+        let continuations = self.lock.withLock {
+            let continuations = self.state.continuations
+            self.state.continuations = []
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    func recordedDelays() -> [UInt64] {
+        self.lock.withLock { self.state.delays }
+    }
+
+    private func takeSatisfiedWaitersLocked() -> [CheckedContinuation<Void, Never>] {
+        let delayCount = self.state.delays.count
+        var ready: [CheckedContinuation<Void, Never>] = []
+        var remaining: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in self.state.waiters {
+            if delayCount >= waiter.count {
+                ready.append(waiter.continuation)
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        self.state.waiters = remaining
+        return ready
     }
 }
 

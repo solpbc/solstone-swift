@@ -148,6 +148,9 @@ final class ObserverUploader {
     @ObservationIgnored private let platform: String
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let maxAttempts: Int
+    @ObservationIgnored private let requeueStabilityPoll: UInt64
+    @ObservationIgnored private let requeueStabilityWindow: UInt64
+    @ObservationIgnored private let requeueMaxDeferral: UInt64
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let encoder: JSONEncoder
     @ObservationIgnored private let decoder: JSONDecoder
@@ -160,11 +163,13 @@ final class ObserverUploader {
     @ObservationIgnored private var schedulingChunkIDs: Set<String> = []
     @ObservationIgnored private var droppedChunkIDs: Set<String> = []
     @ObservationIgnored private var attemptCountByChunkID: [String: Int] = [:]
+    @ObservationIgnored private var requeueAttemptCountByChunkID: [String: Int] = [:]
     @ObservationIgnored private var retryTasksByChunkID: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var mobileSegmentTaskInfoByTaskID: [Int: MobileSegmentTaskInfo] = [:]
     @ObservationIgnored private var mobileSegmentTaskByTaskID: [Int: URLSessionTask] = [:]
     @ObservationIgnored private var mobileSegmentTaskIDBySegmentID: [UUID: Int] = [:]
     @ObservationIgnored private var mobileSegmentAttemptCountBySegmentID: [UUID: Int] = [:]
+    @ObservationIgnored private var mobileSegmentRequeueAttemptCountBySegmentID: [UUID: Int] = [:]
     @ObservationIgnored private var mobileSegmentRetryTasksBySegmentID: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var mobileSegmentSchedulingIDs: Set<UUID> = []
     @ObservationIgnored private var mobileSegmentDroppedIDs: Set<UUID> = []
@@ -197,6 +202,9 @@ final class ObserverUploader {
         onSegmentDelivered: (@MainActor @Sendable (UUID) -> Void)? = nil,
         retryDelays: [UInt64] = [2, 4, 8, 16],
         maxAttempts: Int = 5,
+        requeueStabilityPoll: UInt64 = 1,
+        requeueStabilityWindow: UInt64 = 2,
+        requeueMaxDeferral: UInt64 = 6,
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in
             try? await Task.sleep(for: .seconds(delay))
         },
@@ -217,6 +225,9 @@ final class ObserverUploader {
         self.onSegmentDelivered = onSegmentDelivered
         self.retryDelays = retryDelays
         self.maxAttempts = maxAttempts
+        self.requeueStabilityPoll = requeueStabilityPoll
+        self.requeueStabilityWindow = requeueStabilityWindow
+        self.requeueMaxDeferral = requeueMaxDeferral
         self.sleep = sleep
 
         self.encoder = JSONEncoder()
@@ -540,6 +551,7 @@ final class ObserverUploader {
         self.droppedChunkIDs.removeAll()
         self.schedulingChunkIDs.removeAll()
         self.attemptCountByChunkID.removeAll()
+        self.requeueAttemptCountByChunkID.removeAll()
         for task in self.retryTasksByChunkID.values {
             task.cancel()
         }
@@ -550,6 +562,7 @@ final class ObserverUploader {
         self.mobileSegmentDroppedIDs.removeAll()
         self.mobileSegmentSchedulingIDs.removeAll()
         self.mobileSegmentAttemptCountBySegmentID.removeAll()
+        self.mobileSegmentRequeueAttemptCountBySegmentID.removeAll()
         self.mobileSegmentCompletionBySegmentID.removeAll()
         for task in self.mobileSegmentRetryTasksBySegmentID.values {
             task.cancel()
@@ -559,6 +572,10 @@ final class ObserverUploader {
 
     func attemptCountForTesting(chunkID: String) -> Int {
         self.attemptCountByChunkID[chunkID, default: 0]
+    }
+
+    func requeueAttemptCountForTesting(chunkID: String) -> Int {
+        self.requeueAttemptCountByChunkID[chunkID, default: 0]
     }
 
     func retryTaskCountForTesting() -> Int {
@@ -596,6 +613,10 @@ final class ObserverUploader {
 
     func mobileSegmentAttemptCountForTesting(segmentID: UUID) -> Int {
         self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0]
+    }
+
+    func mobileSegmentRequeueAttemptCountForTesting(segmentID: UUID) -> Int {
+        self.mobileSegmentRequeueAttemptCountBySegmentID[segmentID, default: 0]
     }
 
     func inProgressChunkURL(sessionID: UUID, chunkID: String) throws -> URL {
@@ -1021,6 +1042,7 @@ private extension ObserverUploader {
         self.retryTasksByChunkID[chunkID]?.cancel()
         self.retryTasksByChunkID.removeValue(forKey: chunkID)
         self.attemptCountByChunkID.removeValue(forKey: chunkID)
+        self.requeueAttemptCountByChunkID.removeValue(forKey: chunkID)
         if let taskID = self.activeTaskIDByChunkID.removeValue(forKey: chunkID) {
             self.activeTasksByTaskID[taskID]?.cancel()
             self.taskInfoByTaskID.removeValue(forKey: taskID)
@@ -1033,6 +1055,7 @@ private extension ObserverUploader {
         self.mobileSegmentRetryTasksBySegmentID[segmentID]?.cancel()
         self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: segmentID)
         self.mobileSegmentAttemptCountBySegmentID.removeValue(forKey: segmentID)
+        self.mobileSegmentRequeueAttemptCountBySegmentID.removeValue(forKey: segmentID)
         self.mobileSegmentSchedulingIDs.remove(segmentID)
         if let taskID = self.mobileSegmentTaskIDBySegmentID.removeValue(forKey: segmentID) {
             self.mobileSegmentTaskByTaskID[taskID]?.cancel()
@@ -1423,6 +1446,10 @@ private extension ObserverUploader {
             let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
             let isStalePort = currentPort.map { $0 != info.localPort } ?? true
             if isCancelled || isStalePort {
+                let attempt = self.requeueAttemptCountByChunkID[info.chunkID, default: 0] + 1
+                self.requeueAttemptCountByChunkID[info.chunkID] = attempt
+                let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
+                let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
                 // Re-enqueue correctness assumes a chunk that reached the server before reconnect
                 // re-uploads to 2xx (sha256 dedup -> 200 duplicate). This branch owns
                 // a delayed, un-counted re-drive; revisit if ingest ever returns 4xx
@@ -1436,15 +1463,30 @@ private extension ObserverUploader {
                     localPort: info.localPort,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
                     transportError: String(describing: error),
-                    attempt: self.attemptCountByChunkID[info.chunkID, default: 0],
+                    attempt: attempt,
                     reason: "reconnect requeued"
                 )
-                let requeueDelay = self.retryDelays.first ?? 0
                 self.retryTasksByChunkID[info.chunkID]?.cancel()
                 self.retryTasksByChunkID[info.chunkID] = Task { @MainActor [weak self] in
                     guard let self else { return }
                     await self.sleep(requeueDelay)
                     guard !Task.isCancelled else { return }
+                    var waited: UInt64 = 0
+                    var lastPort = self.localPortProvider()
+                    var stableFor: UInt64 = 0
+                    while waited < self.requeueMaxDeferral {
+                        await self.sleep(self.requeueStabilityPoll)
+                        guard !Task.isCancelled else { return }
+                        waited += self.requeueStabilityPoll
+                        let port = self.localPortProvider()
+                        if let port, port == lastPort {
+                            stableFor += self.requeueStabilityPoll
+                            if stableFor >= self.requeueStabilityWindow { break }
+                        } else {
+                            stableFor = 0
+                            lastPort = port
+                        }
+                    }
                     // Every reassignment cancels the previous retry first, so a non-cancelled retry is the current tracked entry; removing by key cannot delete a successor.
                     self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
                     await self.scheduleUpload(chunkID: info.chunkID, sessionID: info.sessionID)
@@ -1503,6 +1545,7 @@ private extension ObserverUploader {
             try? self.fileManager.removeItem(at: info.requestBodyURL)
             self.onSegmentDelivered?(info.sessionID)
             self.attemptCountByChunkID.removeValue(forKey: info.chunkID)
+            self.requeueAttemptCountByChunkID.removeValue(forKey: info.chunkID)
             self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
             self.lastUploadAt = Date()
             self.lastError = nil
@@ -1568,6 +1611,10 @@ private extension ObserverUploader {
             let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
             let isStalePort = currentPort.map { $0 != info.localPort } ?? true
             if isCancelled || isStalePort {
+                let attempt = self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID, default: 0] + 1
+                self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID] = attempt
+                let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
+                let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
                 self.appendUploadDiagnostic(
                     stage: "reconnect-requeued",
                     severity: .info,
@@ -1577,15 +1624,30 @@ private extension ObserverUploader {
                     localPort: info.localPort,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
                     transportError: String(describing: error),
-                    attempt: self.mobileSegmentAttemptCountBySegmentID[info.segmentID, default: 0],
+                    attempt: attempt,
                     reason: "reconnect requeued"
                 )
-                let requeueDelay = self.retryDelays.first ?? 0
                 self.mobileSegmentRetryTasksBySegmentID[info.segmentID]?.cancel()
                 self.mobileSegmentRetryTasksBySegmentID[info.segmentID] = Task { @MainActor [weak self] in
                     guard let self else { return }
                     await self.sleep(requeueDelay)
                     guard !Task.isCancelled else { return }
+                    var waited: UInt64 = 0
+                    var lastPort = self.localPortProvider()
+                    var stableFor: UInt64 = 0
+                    while waited < self.requeueMaxDeferral {
+                        await self.sleep(self.requeueStabilityPoll)
+                        guard !Task.isCancelled else { return }
+                        waited += self.requeueStabilityPoll
+                        let port = self.localPortProvider()
+                        if let port, port == lastPort {
+                            stableFor += self.requeueStabilityPoll
+                            if stableFor >= self.requeueStabilityWindow { break }
+                        } else {
+                            stableFor = 0
+                            lastPort = port
+                        }
+                    }
                     self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
                     await self.scheduleMobileSegmentUpload(
                         segmentID: info.segmentID,
@@ -1638,6 +1700,7 @@ private extension ObserverUploader {
             )
             self.throughputMeter.record(bytes: ThroughputMeter.byteCount(of: info.requestBodyURL))
             self.mobileSegmentAttemptCountBySegmentID.removeValue(forKey: info.segmentID)
+            self.mobileSegmentRequeueAttemptCountBySegmentID.removeValue(forKey: info.segmentID)
             self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
             self.lastUploadAt = Date()
             self.lastError = nil
@@ -1731,6 +1794,7 @@ private extension ObserverUploader {
         reason: String,
         context: UploadFailureContext
     ) async {
+        self.mobileSegmentRequeueAttemptCountBySegmentID.removeValue(forKey: segmentID)
         let nextAttempt = self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0] + 1
         self.mobileSegmentAttemptCountBySegmentID[segmentID] = nextAttempt
         self.lastError = self.redactedFailureDetail(reason)
@@ -1817,6 +1881,7 @@ private extension ObserverUploader {
         reason: String,
         context: UploadFailureContext
     ) async {
+        self.requeueAttemptCountByChunkID.removeValue(forKey: chunkID)
         let nextAttempt = self.attemptCountByChunkID[chunkID, default: 0] + 1
         self.attemptCountByChunkID[chunkID] = nextAttempt
         self.lastError = self.redactedFailureDetail(reason)
