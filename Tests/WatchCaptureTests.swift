@@ -140,6 +140,33 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(statuses.isEmpty)
     }
 
+    func testAC9DeliveredSegmentsCountAsHandedOff() throws {
+        let harness = try self.makeHarness()
+        let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .delivered,
+            sensors: [.audio]
+        )
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(60),
+            state: .acked,
+            sensors: [.audio]
+        )
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(120),
+            state: .safeToDelete,
+            sensors: [.audio]
+        )
+
+        harness.engine.refreshRelayCountsFromDisk()
+
+        XCTAssertEqual(harness.engine.ownerPresentation.handedOffCount, 3)
+    }
+
     func testStartStopPublishObservingStoppingAndIdle() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []

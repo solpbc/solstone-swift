@@ -713,7 +713,7 @@ private extension WatchCaptureEngine {
         self.queuedCount = entries.filter { $0.manifest.state == .queued }.count
         self.transferringCount = entries.filter { $0.manifest.state == .transferring }.count
         self.handedOffCount = entries.filter {
-            $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
+            $0.manifest.state == .delivered || $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
         }.count
     }
 }

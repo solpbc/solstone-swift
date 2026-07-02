@@ -160,38 +160,46 @@ It owns:
 
 - `WatchCaptureStorage`
 - `any WatchConnectivitySession`
-- `maxInFlight = 1`
 - optional `onStateChanged` callback for watch presentation refresh
-
-Cap rationale: watch segments are low-frequency five-minute chunks, FIFO order is
-easy to reason about, and one distinct in-flight segment makes the exactly-once
-logic obvious. The cap can be raised later by changing the named constant and the
-drain loop.
 
 Drain algorithm:
 
 1. `scanManifests()` for FIFO day/segment order.
-2. First advance cleanup states:
-   - `.acked` -> write `.safeToDelete` -> delete segment directory.
-   - `.safeToDelete` -> delete segment directory.
-3. Count distinct `.transferring` segment IDs as in flight.
-4. If a `.transferring` segment exists, re-bundle and call `transferFile` for the
-   earliest one, then return. This is the idempotent resend path for lost ACKs or
-   app relaunch.
-5. If no `.transferring` exists, take the earliest `.queued` segment if below
-   `maxInFlight`.
-6. Persist `.transferring` before calling `transferFile`.
-7. Build or refresh the transfer bundle.
-8. Call `transferFile(bundleURL, metadata:)`.
+2. ACK-delete sweep:
+   - `.acked` -> write `.safeToDelete` -> delete segment directory and bundle.
+   - `.safeToDelete` -> delete segment directory and bundle.
+3. Activation gate after cleanup: if `session.activationState != .activated`,
+   return without calling `transferFile`, cancelling outstanding transfers, or
+   mutating live transport state.
+4. Reconcile a fresh scan against `session.outstandingFileTransfers`, grouped by
+   parsed segment id:
+   - `.queued` + no outstanding -> write `.transferring`, rewrite the bundle, and
+     call `transferFile`.
+   - `.queued` + outstanding -> adopt by writing `.transferring`; do not rewrite
+     the bundle or enqueue another transfer; cancel redundant extra copies.
+   - `.transferring` + no outstanding -> rewrite the bundle and call
+     `transferFile` once, keeping `.transferring`.
+   - `.transferring` + outstanding -> leave disk and manifest untouched; cancel
+     redundant extra copies.
+   - Outstanding transfers with an unparseable id, no matching manifest, or a
+     non-`{queued,transferring}` manifest cancel all copies.
 
-The sender deliberately does not use `.delivered`. WC `didFinishFileTransfer` is
-not the receiver's durable commit signal, and L3 never gates deletion on it. The
-honest chain is:
+Cancelling an outstanding transfer is not a delete. The segment directory and
+`.watchrelay` bundle stay on disk.
 
-`.queued` -> `.transferring` -> `.acked` -> `.safeToDelete` -> directory deleted
+`didFinishFileTransfer` is observed and records transport outcomes:
 
-This deviates from the original scope's enumerated `delivered -> acked` path and
-needs explicit Jer ratification.
+- Success on `.transferring` or `.queued` writes `.delivered`.
+- Failure on `.transferring` writes `.queued`; retry happens only on the next
+  natural drain. The in-memory consecutive-failure count is unbounded and logged
+  at `.notice`.
+- Other states and missing manifests are no-ops.
+
+`.delivered` is a persistent, count-visible state ("handed to your iphone") that
+waits for ACK indefinitely. The ACK path remains the sole delete gate. The honest
+chain is:
+
+`.queued` -> `.transferring` -> `.delivered` -> `.acked` -> `.safeToDelete` -> directory deleted
 
 ACK handling:
 
@@ -201,7 +209,7 @@ ACK handling:
 4. Write `.safeToDelete`.
 5. Delete the segment directory with `WatchFileWriting.removeItem(at:)`.
 6. Delete the matching `.relay-bundles/<uuid>.watchrelay`.
-7. Notify presentation and drain the next queued segment.
+7. Notify presentation and run the same drain pass.
 
 Crash handling:
 
@@ -383,11 +391,10 @@ Never duplicate:
 
 Backlog drain:
 
-- Create N queued segments where N is greater than `maxInFlight`.
-- Start with mock unreachable, then emit reachable true and drain.
-- Repeatedly ferry one file to receiver and one ACK back to sender.
-- Assert all N UUIDs appear under staging, all watch source dirs are deleted, and
-  at no point more than one distinct segment manifest is `.transferring`.
+- Create N queued segments, activate the mock, and call `drain()` once.
+- Assert N `transferFile` calls and all N manifests are `.transferring`.
+- Ferry files and ACKs in any order.
+- Assert all N UUIDs appear under staging and all watch source dirs are deleted.
 
 Presentation:
 
@@ -407,8 +414,6 @@ Build validation after implementation:
 
 ## Risks And Review Gate Items
 
-- Jer must ratify skipping `.delivered`. The design intentionally treats WC
-  transfer completion as insufficient for deletion.
 - Jer must ratify the corrected sender eligibility rule. Transferring
   `.captured` or `.persisted` would be unsafe with the current engine.
 - The watch composition refactor is required because storage currently lives

@@ -8,6 +8,12 @@ import WatchConnectivity
 nonisolated private let watchConnectivityLog = Logger(subsystem: "app.solstone.swift", category: "watch-connectivity")
 
 @MainActor
+struct OutstandingFileTransfer {
+    let id: UUID?
+    let cancel: @MainActor () -> Void
+}
+
+@MainActor
 protocol WatchConnectivitySession: AnyObject {
     var isSupported: Bool { get }
     var isReachable: Bool { get }
@@ -15,12 +21,14 @@ protocol WatchConnectivitySession: AnyObject {
     var isWatchAppInstalled: Bool { get }
     var activationState: WCSessionActivationState { get }
     var receivedApplicationContext: [String: Any] { get }
+    var outstandingFileTransfers: [OutstandingFileTransfer] { get }
     var onActivationChanged: (@Sendable (Bool) -> Void)? { get set }
     var onReachabilityChanged: (@Sendable (Bool) -> Void)? { get set }
     var onWatchStateChanged: (@Sendable () -> Void)? { get set }
     var onReceiveFile: ((URL, [String: Any]) -> Void)? { get set }
     var onReceiveUserInfo: (([String: Any]) -> Void)? { get set }
     var onReceiveApplicationContext: (([String: Any]) -> Void)? { get set }
+    var onFileTransferFinished: ((UUID, String?) -> Void)? { get set }
 
     func activate()
     func transferFile(_ url: URL, metadata: [String: Any])
@@ -37,6 +45,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
     var onReceiveApplicationContext: (([String: Any]) -> Void)?
+    var onFileTransferFinished: ((UUID, String?) -> Void)?
 
     private let session: WCSession?
 
@@ -54,6 +63,20 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 
     var receivedApplicationContext: [String: Any] {
         self.session?.receivedApplicationContext ?? [:]
+    }
+
+    var outstandingFileTransfers: [OutstandingFileTransfer] {
+        (self.session?.outstandingFileTransfers ?? []).map { transfer in
+            let id: UUID?
+            if let idString = transfer.file.metadata?["id"] as? String {
+                id = UUID(uuidString: idString)
+            } else {
+                id = nil
+            }
+            return OutstandingFileTransfer(id: id) {
+                transfer.cancel()
+            }
+        }
     }
 
 #if os(iOS)
@@ -179,6 +202,22 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         Task { @MainActor [weak self] in
             let metadata = Self.propertyListDictionary(from: metadataData)
             self?.onReceiveFile?(scratchURL, metadata)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?) {
+        let idString = fileTransfer.file.metadata?["id"] as? String
+        let errorDescription = error.map { String(describing: $0) }
+        Task { @MainActor [weak self] in
+            guard let idString else {
+                watchConnectivityLog.info("watch connectivity file transfer finished without segment id")
+                return
+            }
+            guard let id = UUID(uuidString: idString) else {
+                watchConnectivityLog.error("watch connectivity file transfer finished with invalid segment id")
+                return
+            }
+            self?.onFileTransferFinished?(id, errorDescription)
         }
     }
 

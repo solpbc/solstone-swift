@@ -21,9 +21,8 @@ nonisolated enum WatchRelayACK {
 
 @MainActor
 final class WatchRelaySender {
-    static let maxInFlight = 1
-
     var onStateChanged: (@MainActor () -> Void)?
+    private(set) var consecutiveFailureCounts: [UUID: Int] = [:]
 
     private let storage: WatchCaptureStorage
     private let session: any WatchConnectivitySession
@@ -33,6 +32,9 @@ final class WatchRelaySender {
         self.session = session
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
+        }
+        self.session.onFileTransferFinished = { [weak self] id, errorDescription in
+            self?.handleFileTransferFinished(id: id, errorDescription: errorDescription)
         }
     }
 
@@ -48,16 +50,50 @@ final class WatchRelaySender {
                 }
             }
 
+            guard self.session.activationState == .activated else { return }
+
             let refreshedEntries = try self.storage.scanManifests()
-            if let transferring = refreshedEntries.first(where: { $0.manifest.state == .transferring }) {
-                try self.transfer(entry: transferring)
-                return
+            let outstanding = self.groupedOutstandingFileTransfers()
+            var manifestStatesByID: [UUID: WatchSegmentState] = [:]
+            for entry in refreshedEntries {
+                manifestStatesByID[entry.manifest.id] = entry.manifest.state
             }
 
-            let inFlightCount = refreshedEntries.filter { $0.manifest.state == .transferring }.count
-            guard inFlightCount < Self.maxInFlight else { return }
-            guard let queued = refreshedEntries.first(where: { $0.manifest.state == .queued }) else { return }
-            try self.promoteAndTransfer(entry: queued)
+            for entry in refreshedEntries {
+                let group = outstanding.grouped[entry.manifest.id] ?? []
+                switch entry.manifest.state {
+                case .queued:
+                    if group.isEmpty {
+                        try self.promoteAndTransfer(entry: entry)
+                    } else {
+                        try self.adoptAsTransferring(entry)
+                        self.cancelRedundant(group)
+                    }
+                case .transferring:
+                    if group.isEmpty {
+                        try self.transfer(directoryURL: entry.directoryURL, manifest: entry.manifest)
+                    } else {
+                        self.cancelRedundant(group)
+                    }
+                case .captured, .persisted, .finalized, .delivered, .acked, .safeToDelete:
+                    break
+                }
+            }
+
+            for id in outstanding.orderedIDs {
+                guard let group = outstanding.grouped[id] else { continue }
+                guard let id else {
+                    self.cancelAll(group)
+                    continue
+                }
+                guard let state = manifestStatesByID[id] else {
+                    self.cancelAll(group)
+                    continue
+                }
+                if state != .queued && state != .transferring {
+                    self.cancelAll(group)
+                }
+            }
         } catch {
             watchRelaySenderLog.error("watch relay drain failed: \(String(describing: error), privacy: .public)")
         }
@@ -83,6 +119,32 @@ private extension WatchRelaySender {
             self.drain()
         } catch {
             watchRelaySenderLog.error("watch relay ack failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    func handleFileTransferFinished(id: UUID, errorDescription: String?) {
+        do {
+            let entries = try self.storage.scanManifests()
+            guard let entry = entries.first(where: { $0.manifest.id == id }) else { return }
+            var manifest = entry.manifest
+            if let errorDescription {
+                guard manifest.state == .transferring else { return }
+                manifest.state = .queued
+                try self.storage.writeManifest(manifest, in: entry.directoryURL)
+                self.notifyStateChanged()
+                let failureCount = (self.consecutiveFailureCounts[id] ?? 0) + 1
+                self.consecutiveFailureCounts[id] = failureCount
+                watchRelaySenderLog.notice("watch relay transfer failed id=\(id.uuidString, privacy: .public) count=\(failureCount, privacy: .public): \(errorDescription, privacy: .public)")
+                return
+            }
+
+            guard manifest.state == .transferring || manifest.state == .queued else { return }
+            manifest.state = .delivered
+            try self.storage.writeManifest(manifest, in: entry.directoryURL)
+            self.notifyStateChanged()
+            self.consecutiveFailureCounts.removeValue(forKey: id)
+        } catch {
+            watchRelaySenderLog.error("watch relay finish handling failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -128,8 +190,12 @@ private extension WatchRelaySender {
         try self.transfer(directoryURL: entry.directoryURL, manifest: manifest)
     }
 
-    func transfer(entry: WatchCaptureStorage.ManifestEntry) throws {
-        try self.transfer(directoryURL: entry.directoryURL, manifest: entry.manifest)
+    func adoptAsTransferring(_ entry: WatchCaptureStorage.ManifestEntry) throws {
+        guard entry.manifest.state == .queued else { return }
+        var manifest = entry.manifest
+        manifest.state = .transferring
+        try self.storage.writeManifest(manifest, in: entry.directoryURL)
+        self.notifyStateChanged()
     }
 
     func transfer(directoryURL: URL, manifest: WatchSegmentManifest) throws {
@@ -146,6 +212,32 @@ private extension WatchRelaySender {
 
     func bundleDirectoryURL() -> URL {
         self.storage.rootURL.appendingPathComponent(".relay-bundles", isDirectory: true)
+    }
+
+    func groupedOutstandingFileTransfers() -> (
+        grouped: Dictionary<UUID?, [OutstandingFileTransfer]>,
+        orderedIDs: [UUID?]
+    ) {
+        var grouped: Dictionary<UUID?, [OutstandingFileTransfer]> = [:]
+        var orderedIDs: [UUID?] = []
+        for transfer in self.session.outstandingFileTransfers {
+            if grouped[transfer.id] == nil {
+                orderedIDs.append(transfer.id)
+            }
+            grouped[transfer.id, default: []].append(transfer)
+        }
+        return (grouped, orderedIDs)
+    }
+
+    func cancelRedundant(_ group: [OutstandingFileTransfer]) {
+        guard group.count > 1 else { return }
+        self.cancelAll(Array(group.dropFirst()))
+    }
+
+    func cancelAll(_ transfers: [OutstandingFileTransfer]) {
+        for transfer in transfers {
+            transfer.cancel()
+        }
     }
 
     func notifyStateChanged() {

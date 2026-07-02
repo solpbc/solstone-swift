@@ -49,6 +49,9 @@ private extension WatchSessionModel {
         self.isReachable = self.session.isReachable
         let detail = didActivate ? "completed" : "failed"
         watchAppLog.info("watch app: activation \(detail, privacy: .public)")
+        if didActivate {
+            self.relaySender?.drain()
+        }
     }
 
     func handleReachabilityChanged(_ isReachable: Bool) {
