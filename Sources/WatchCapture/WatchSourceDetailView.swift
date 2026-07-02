@@ -3,20 +3,67 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import CoreTransferable
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 private let watchSourceLog = Logger(subsystem: "app.solstone.swift", category: "watch")
 
+nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
+    let text: String
+    let filename: String
+
+    init(summary: WatchPipelineSummary) {
+        self.text = summary.diagnosticsExportText
+        self.filename = SourceVocabulary.watchDiagnosticsExportFileName
+    }
+
+    nonisolated static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .plainText) { export in
+            Data(export.text.utf8)
+        }
+        .suggestedFileName { export in
+            export.filename
+        }
+    }
+}
+
 struct WatchSourceDetailView: View {
+    // KILL-LIST-EXEMPT:BEGIN
     @Environment(WatchLink.self) private var watchLink
     @Environment(WatchRelayReceiver.self) private var receiver: WatchRelayReceiver?
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(WatchSegmentLedger.self) private var watchSegmentLedger
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
-    @State private var diagnosticsExportURL: URL?
     @State private var now = Date()
+
+    var pipelineInput: WatchPipelineInput {
+        WatchPipelineInput(
+            now: self.now,
+            watchStatus: self.watchLink.watchStatus,
+            lifetimeReceived: self.watchSegmentLedger.lifetimeReceived,
+            lifetimeHanded: self.watchSegmentLedger.lifetimeHanded,
+            nonTerminalCount: self.watchSegmentLedger.nonTerminalCount,
+            lastHandedAt: self.watchSegmentLedger.lastHandedAt,
+            oldestNonTerminalReceivedAt: self.watchSegmentLedger.oldestNonTerminalReceivedAt,
+            lastLedgerError: self.watchSegmentLedger.lastLedgerError,
+            pendingCount: self.watchUploaderHolder.pendingCount,
+            failedCount: self.watchUploaderHolder.failedCount,
+            inFlightCount: self.watchUploaderHolder.inFlightCount,
+            lastUploadAt: self.watchUploaderHolder.lastUploadAt,
+            lastUploadError: self.watchUploaderHolder.lastError,
+            lastReceivedAt: self.receiver?.lastReceivedAt,
+            lastStagingError: self.receiver?.lastStagingError,
+            isPaired: self.watchLink.isPaired,
+            isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
+            activationState: self.watchLink.activationState,
+            isJournalReachable: isJournalReachable(self.connectionSyncModel.status)
+        )
+    }
+    // KILL-LIST-EXEMPT:END
 
     var body: some View {
         ScrollView {
@@ -29,9 +76,6 @@ struct WatchSourceDetailView: View {
         }
         .navigationTitle(SourceVocabulary.watchSourceDisplayName)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            self.refreshDiagnosticsExport()
-        }
         .task {
             await self.refreshNowPeriodically()
         }
@@ -101,22 +145,19 @@ private extension WatchSourceDetailView {
     }
 
     var watchBlock: some View {
-        let rows = WatchSourceDetailPresentation.pipelineRows(
-            context: self.watchLink.watchStatus,
-            summary: self.syncSummary,
-            now: self.now,
-            ttl: WatchRecordingStatus.defaultTTL
-        )
+        let summary = self.summary
         return VStack(alignment: .leading, spacing: 10) {
-            ForEach(rows) { row in
+            ForEach(summary.pipelineRows) { row in
                 LabeledContent(row.label, value: row.value)
             }
+            self.stuckNoticeBlock(summary.stuck)
         }
         .font(.subheadline)
     }
 
     var diagnosticsBlock: some View {
-        let rows = self.diagnosticsRows
+        let summary = self.summary
+        let rows = summary.diagnosticsRows
         return VStack(alignment: .leading, spacing: 10) {
             DisclosureGroup(SourceVocabulary.watchTechnicalDetailTitle) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -126,42 +167,36 @@ private extension WatchSourceDetailView {
                 }
             }
 
-            if let diagnosticsExportURL {
-                ShareLink(item: diagnosticsExportURL) {
-                    Label(SourceVocabulary.watchShareDiagnosticsLabel, systemImage: "square.and.arrow.up")
-                }
-                .frame(minHeight: 44)
-                .accessibilityHint(SourceVocabulary.watchShareDiagnosticsHint)
-            } else {
-                Button {
-                    self.refreshDiagnosticsExport()
-                } label: {
-                    Label(SourceVocabulary.watchShareDiagnosticsLabel, systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.bordered)
-                .frame(minHeight: 44)
-                .accessibilityHint(SourceVocabulary.watchPrepareDiagnosticsHint)
+            ShareLink(
+                item: WatchDiagnosticsExport(summary: summary),
+                preview: SharePreview(SourceVocabulary.watchDiagnosticsExportFileName)
+            ) {
+                Label(SourceVocabulary.watchShareDiagnosticsLabel, systemImage: "square.and.arrow.up")
             }
+            .frame(minHeight: 44)
+            .accessibilityHint(SourceVocabulary.watchShareDiagnosticsHint)
         }
         .font(.subheadline)
     }
 
     var installState: WatchInstallState {
-        watchInstallState(
+        let input = self.pipelineInput
+        return watchInstallState(
             isSupported: self.watchLink.isSupported,
-            isPaired: self.watchLink.isPaired,
-            isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-            activationState: self.watchLink.activationState,
-            now: self.now,
-            lastReceivedAt: self.watchLink.lastReceivedAt
+            isPaired: input.isPaired,
+            isWatchAppInstalled: input.isWatchAppInstalled,
+            activationState: input.activationState,
+            now: input.now,
+            lastReceivedAt: input.lastReceivedAt
         )
     }
 
     var recordingStatus: WatchRecordingStatus {
-        watchRecordingStatus(
-            context: self.watchLink.watchStatus,
-            now: self.now,
-            lastReceivedAt: self.watchLink.lastReceivedAt
+        let input = self.pipelineInput
+        return watchRecordingStatus(
+            context: input.watchStatus,
+            now: input.now,
+            lastReceivedAt: input.lastReceivedAt
         )
     }
 
@@ -172,48 +207,16 @@ private extension WatchSourceDetailView {
         )
     }
 
-    var syncSummary: WatchSourceSyncSummary {
-        WatchSourceDetailPresentation.syncSummary(
-            lifetimeReceived: self.watchSegmentLedger.lifetimeReceived,
-            nonTerminalCount: self.watchSegmentLedger.nonTerminalCount,
-            lifetimeHanded: self.watchSegmentLedger.lifetimeHanded,
-            lastHandedAt: self.watchSegmentLedger.lastHandedAt
-        )
+    var summary: WatchPipelineSummary {
+        WatchPipelineReducer.reduce(self.pipelineInput)
     }
 
-    var diagnosticsRows: [WatchSourceDetailRow] {
-        WatchSourceDetailPresentation.diagnosticsRows(
-            activationState: self.watchLink.activationState,
-            isPaired: self.watchLink.isPaired,
-            isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-            watchStatus: self.watchLink.watchStatus,
-            lastReceivedAt: self.receiver?.lastReceivedAt,
-            lastStagingError: self.receiver?.lastStagingError,
-            lastLedgerError: self.watchSegmentLedger.lastLedgerError,
-            lastUploadAt: self.watchUploaderHolder.lastUploadAt,
-            lastUploadError: self.watchUploaderHolder.lastError,
-            now: self.now
-        )
-    }
-
-    func refreshDiagnosticsExport() {
-        let primaryRows = WatchSourceDetailPresentation.pipelineRows(
-            context: self.watchLink.watchStatus,
-            summary: self.syncSummary,
-            now: self.now,
-            ttl: WatchRecordingStatus.defaultTTL
-        )
-        let text = WatchSourceDetailPresentation.diagnosticsExportText(
-            primaryRows: primaryRows,
-            diagnosticsRows: self.diagnosticsRows
-        )
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(SourceVocabulary.watchDiagnosticsExportFileName, isDirectory: false)
-        do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            self.diagnosticsExportURL = url
-        } catch {
-            self.diagnosticsExportURL = nil
+    @ViewBuilder
+    func stuckNoticeBlock(_ stuck: WatchPipelineStuck) -> some View {
+        if let notice = WatchSourceDetailPresentation.stuckNotice(for: stuck) {
+            Label(notice.reason, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(Color.solOrange)
+                .accessibilityIdentifier("watch.pipelineStuckNotice")
         }
     }
 

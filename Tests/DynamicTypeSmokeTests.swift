@@ -198,6 +198,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
                 .environment(watchSegmentLedger)
+                .environment(connectionSyncModel)
         }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -215,6 +216,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
                 .environment(watchSegmentLedger)
+                .environment(connectionSyncModel)
         }
         let activeLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()

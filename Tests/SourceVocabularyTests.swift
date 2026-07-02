@@ -332,6 +332,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchLinkConnected, "phone link: in range")
         XCTAssertEqual(SourceVocabulary.watchLinkNotConnected, "phone link: out of range")
         XCTAssertEqual(SourceVocabulary.watchPipelineUnknown, "—")
+        XCTAssertEqual(
+            SourceVocabulary.watchPipelineRelayStuckReason,
+            "your watch has segments saved but nothing has arrived on your iphone for a while"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.watchPipelineHandoffStuckReason,
+            "segments are waiting to reach your journal"
+        )
+        XCTAssertEqual(
+            SourceVocabulary.watchPipelineOrphanStuckReason,
+            "some segments stalled and may need your watch to send them again"
+        )
         XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
         XCTAssertEqual(SourceVocabulary.watchReceivingSubtext, "your watch is sending data")
         XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start solstone on your watch")
@@ -353,6 +365,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchLastReceivedLabel, "last received")
         XCTAssertEqual(SourceVocabulary.watchLastReceivedNever, "nothing received yet")
         XCTAssertEqual(SourceVocabulary.watchLastStagingDetailLabel, "last staging detail")
+        XCTAssertEqual(SourceVocabulary.watchLastLedgerDetailLabel, "last ledger detail")
         XCTAssertEqual(SourceVocabulary.watchLastSyncDetailLabel, "last sync detail")
         XCTAssertEqual(SourceVocabulary.watchLastUploadErrorLabel, "last upload error")
         XCTAssertEqual(SourceVocabulary.watchStatusLabel, "watch status")
@@ -519,6 +532,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchLinkConnected,
             SourceVocabulary.watchLinkNotConnected,
             SourceVocabulary.watchPipelineUnknown,
+            SourceVocabulary.watchPipelineRelayStuckReason,
+            SourceVocabulary.watchPipelineHandoffStuckReason,
+            SourceVocabulary.watchPipelineOrphanStuckReason,
             SourceVocabulary.watchNoContextSubtext,
             SourceVocabulary.watchReceivingSubtext,
             SourceVocabulary.watchIdleSubtext,
@@ -540,6 +556,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchLastReceivedLabel,
             SourceVocabulary.watchLastReceivedNever,
             SourceVocabulary.watchLastStagingDetailLabel,
+            SourceVocabulary.watchLastLedgerDetailLabel,
             SourceVocabulary.watchLastSyncDetailLabel,
             SourceVocabulary.watchLastUploadErrorLabel,
             SourceVocabulary.watchStatusLabel,

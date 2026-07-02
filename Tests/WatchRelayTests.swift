@@ -210,23 +210,23 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertNotNil(receiver.lastReceivedAt)
         XCTAssertNil(receiver.lastStagingError)
 
-        let waiting = WatchSourceDetailPresentation.syncSummary(
+        let waiting = WatchPipelineReducer.reduce(self.pipelineInput(
             lifetimeReceived: ledger.lifetimeReceived,
             nonTerminalCount: ledger.nonTerminalCount,
             lifetimeHanded: ledger.lifetimeHanded,
             lastHandedAt: ledger.lastHandedAt
-        )
+        )).syncSummary
         XCTAssertEqual(waiting.received, 1)
         XCTAssertEqual(waiting.waiting, 1)
         XCTAssertEqual(waiting.handedToJournal, 0)
 
         ledger.recordHanded(id: id)
-        let handed = WatchSourceDetailPresentation.syncSummary(
+        let handed = WatchPipelineReducer.reduce(self.pipelineInput(
             lifetimeReceived: ledger.lifetimeReceived,
             nonTerminalCount: ledger.nonTerminalCount,
             lifetimeHanded: ledger.lifetimeHanded,
             lastHandedAt: ledger.lastHandedAt
-        )
+        )).syncSummary
         XCTAssertEqual(handed.received, 1)
         XCTAssertEqual(handed.waiting, 0)
         XCTAssertEqual(handed.handedToJournal, 1)
@@ -725,6 +725,36 @@ private extension WatchRelayTests {
             session: session,
             ledger: ledger ?? self.makeLedger("receiver-ledger-\(UUID().uuidString)"),
             stagingRootURL: stagingRoot
+        )
+    }
+
+    func pipelineInput(
+        now: Date = Date(timeIntervalSince1970: 2_000),
+        lifetimeReceived: Int = 0,
+        nonTerminalCount: Int = 0,
+        lifetimeHanded: Int = 0,
+        lastHandedAt: Date? = nil
+    ) -> WatchPipelineInput {
+        WatchPipelineInput(
+            now: now,
+            watchStatus: nil,
+            lifetimeReceived: lifetimeReceived,
+            lifetimeHanded: lifetimeHanded,
+            nonTerminalCount: nonTerminalCount,
+            lastHandedAt: lastHandedAt,
+            oldestNonTerminalReceivedAt: nil,
+            lastLedgerError: nil,
+            pendingCount: 0,
+            failedCount: 0,
+            inFlightCount: 0,
+            lastUploadAt: nil,
+            lastUploadError: nil,
+            lastReceivedAt: nil,
+            lastStagingError: nil,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            activationState: .activated,
+            isJournalReachable: true
         )
     }
 

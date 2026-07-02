@@ -49,6 +49,47 @@ final class WatchSegmentLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.nonTerminalCount, 1)
     }
 
+    func testOldestNonTerminalReceivedAtExcludesTerminalAndNilReceivedAt() throws {
+        let fileURL = self.ledgerFileURL("oldest-non-terminal")
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = Date(timeIntervalSince1970: 2_000)
+        let handedAt = Date(timeIntervalSince1970: 3_000)
+        let nilReceivedID = UUID().uuidString
+        let terminalID = UUID().uuidString
+        let olderID = UUID().uuidString
+        let newerID = UUID().uuidString
+        let store = WatchSegmentLedgerStore(
+            entries: [
+                nilReceivedID: WatchSegmentLedgerStore.Entry(),
+                terminalID: WatchSegmentLedgerStore.Entry(receivedAt: Date(timeIntervalSince1970: 500), handedAt: handedAt),
+                olderID: WatchSegmentLedgerStore.Entry(receivedAt: older),
+                newerID: WatchSegmentLedgerStore.Entry(receivedAt: newer),
+            ],
+            lifetimeReceived: 4,
+            lifetimeHanded: 1
+        )
+        try self.writeStore(store, to: fileURL)
+
+        let ledger = WatchSegmentLedger(fileURL: fileURL)
+
+        XCTAssertEqual(ledger.oldestNonTerminalReceivedAt, older)
+
+        let emptyFileURL = self.ledgerFileURL("oldest-non-terminal-empty")
+        let emptyStore = WatchSegmentLedgerStore(
+            entries: [
+                nilReceivedID: WatchSegmentLedgerStore.Entry(),
+                terminalID: WatchSegmentLedgerStore.Entry(receivedAt: older, handedAt: handedAt),
+            ],
+            lifetimeReceived: 2,
+            lifetimeHanded: 1
+        )
+        try self.writeStore(emptyStore, to: emptyFileURL)
+
+        let emptyLedger = WatchSegmentLedger(fileURL: emptyFileURL)
+
+        XCTAssertNil(emptyLedger.oldestNonTerminalReceivedAt)
+    }
+
     func testAC6aUnknownIDBackfillsHandAndDropCounters() throws {
         let handedID = UUID()
         let droppedID = UUID()
@@ -77,12 +118,12 @@ final class WatchSegmentLedgerTests: XCTestCase {
         XCTAssertNil(dropped.handedAt)
         XCTAssertEqual(dropped.droppedAt, Date(timeIntervalSince1970: 2_000))
 
-        let summary = WatchSourceDetailPresentation.syncSummary(
+        let summary = WatchPipelineReducer.reduce(self.pipelineInput(
             lifetimeReceived: ledger.lifetimeReceived,
             nonTerminalCount: ledger.nonTerminalCount,
             lifetimeHanded: ledger.lifetimeHanded,
             lastHandedAt: ledger.lastHandedAt
-        )
+        )).syncSummary
         XCTAssertLessThanOrEqual(summary.handedToJournal, summary.received)
     }
 
@@ -179,33 +220,19 @@ final class WatchSegmentLedgerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
         ledger.recordReceived(id: UUID())
         XCTAssertNotNil(ledger.lastLedgerError)
-        let rowsWithError = WatchSourceDetailPresentation.diagnosticsRows(
-            activationState: .activated,
-            isPaired: true,
-            isWatchAppInstalled: true,
-            lastReceivedAt: nil,
-            lastStagingError: nil,
-            lastLedgerError: ledger.lastLedgerError,
-            lastUploadAt: nil,
-            lastUploadError: nil,
-            now: Date(timeIntervalSince1970: 1_000)
-        )
+        let rowsWithError = WatchPipelineReducer.reduce(self.pipelineInput(
+            now: Date(timeIntervalSince1970: 1_000),
+            lastLedgerError: ledger.lastLedgerError
+        )).diagnosticsRows
         XCTAssertTrue(rowsWithError.contains { $0.label == SourceVocabulary.watchLastLedgerDetailLabel })
 
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
         ledger.recordReceived(id: UUID())
         XCTAssertNil(ledger.lastLedgerError)
-        let rowsWithoutError = WatchSourceDetailPresentation.diagnosticsRows(
-            activationState: .activated,
-            isPaired: true,
-            isWatchAppInstalled: true,
-            lastReceivedAt: nil,
-            lastStagingError: nil,
-            lastLedgerError: ledger.lastLedgerError,
-            lastUploadAt: nil,
-            lastUploadError: nil,
-            now: Date(timeIntervalSince1970: 1_000)
-        )
+        let rowsWithoutError = WatchPipelineReducer.reduce(self.pipelineInput(
+            now: Date(timeIntervalSince1970: 1_000),
+            lastLedgerError: ledger.lastLedgerError
+        )).diagnosticsRows
         XCTAssertFalse(rowsWithoutError.contains { $0.label == SourceVocabulary.watchLastLedgerDetailLabel })
     }
 }
@@ -222,5 +249,44 @@ private extension WatchSegmentLedgerTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(WatchSegmentLedgerStore.self, from: data)
+    }
+
+    func writeStore(_ store: WatchSegmentLedgerStore, to fileURL: URL) throws {
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(store)
+        try data.write(to: fileURL)
+    }
+
+    func pipelineInput(
+        now: Date = Date(timeIntervalSince1970: 2_000),
+        lifetimeReceived: Int = 0,
+        nonTerminalCount: Int = 0,
+        lifetimeHanded: Int = 0,
+        lastHandedAt: Date? = nil,
+        lastLedgerError: String? = nil
+    ) -> WatchPipelineInput {
+        WatchPipelineInput(
+            now: now,
+            watchStatus: nil,
+            lifetimeReceived: lifetimeReceived,
+            lifetimeHanded: lifetimeHanded,
+            nonTerminalCount: nonTerminalCount,
+            lastHandedAt: lastHandedAt,
+            oldestNonTerminalReceivedAt: nil,
+            lastLedgerError: lastLedgerError,
+            pendingCount: 0,
+            failedCount: 0,
+            inFlightCount: 0,
+            lastUploadAt: nil,
+            lastUploadError: nil,
+            lastReceivedAt: nil,
+            lastStagingError: nil,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            activationState: .activated,
+            isJournalReachable: true
+        )
     }
 }

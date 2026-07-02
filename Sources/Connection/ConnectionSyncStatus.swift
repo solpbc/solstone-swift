@@ -75,3 +75,12 @@ nonisolated struct ConnectionSyncInputs: Sendable {
     let backlogPending: Int
     let backlogFailed: Int
 }
+
+nonisolated func isJournalReachable(_ status: ConnectionSyncStatus) -> Bool {
+    switch status {
+    case .connectedIdle, .connectedWaiting, .connectedTransferring:
+        return true
+    case .offline, .connecting, .waitingForHome, .reconnecting, .unreachable:
+        return false
+    }
+}

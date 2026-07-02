@@ -2,7 +2,6 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
-import WatchConnectivity
 
 nonisolated struct WatchSourceSyncSummary: Equatable, Sendable {
     let received: Int
@@ -16,6 +15,10 @@ nonisolated struct WatchInstallAffordance: Equatable, Sendable {
     let instruction: String
 }
 
+nonisolated struct WatchStuckNotice: Equatable, Sendable {
+    let reason: String
+}
+
 nonisolated struct WatchSourceDetailRow: Identifiable, Equatable, Sendable {
     let label: String
     let value: String
@@ -26,20 +29,6 @@ nonisolated struct WatchSourceDetailRow: Identifiable, Equatable, Sendable {
 }
 
 nonisolated enum WatchSourceDetailPresentation {
-    static func syncSummary(
-        lifetimeReceived: Int,
-        nonTerminalCount: Int,
-        lifetimeHanded: Int,
-        lastHandedAt: Date?
-    ) -> WatchSourceSyncSummary {
-        return WatchSourceSyncSummary(
-            received: max(0, lifetimeReceived),
-            waiting: max(0, nonTerminalCount),
-            handedToJournal: max(0, lifetimeHanded),
-            lastSyncAt: lastHandedAt
-        )
-    }
-
     static func installAffordance(install: WatchInstallState) -> WatchInstallAffordance? {
         guard install == .pairedNoApp else {
             return nil
@@ -50,142 +39,10 @@ nonisolated enum WatchSourceDetailPresentation {
         )
     }
 
-    static func pipelineRows(
-        context: WatchStatusContext?,
-        summary: WatchSourceSyncSummary,
-        now: Date,
-        ttl: TimeInterval
-    ) -> [WatchSourceDetailRow] {
-        [
-            WatchSourceDetailRow(
-                label: SourceVocabulary.watchPipelineSaved,
-                value: self.pipelineValue(
-                    context: context,
-                    count: context?.queuedCount ?? 0,
-                    now: now,
-                    ttl: ttl
-                )
-            ),
-            WatchSourceDetailRow(
-                label: SourceVocabulary.watchPipelineSending,
-                value: self.pipelineValue(
-                    context: context,
-                    count: context?.transferringCount ?? 0,
-                    now: now,
-                    ttl: ttl
-                )
-            ),
-            WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "\(summary.received)"),
-            WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(summary.waiting)"),
-            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "\(summary.handedToJournal)")
-        ]
-    }
-
-    static func diagnosticsRows(
-        activationState: WCSessionActivationState,
-        isPaired: Bool,
-        isWatchAppInstalled: Bool,
-        watchStatus: WatchStatusContext? = nil,
-        lastReceivedAt: Date?,
-        lastStagingError: String?,
-        lastLedgerError: String?,
-        lastUploadAt: Date?,
-        lastUploadError: String?,
-        now: Date
-    ) -> [WatchSourceDetailRow] {
-        var rows = [
-            WatchSourceDetailRow(label: SourceVocabulary.watchActivationLabel, value: self.activationText(activationState)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchPairedWithPhoneLabel, value: self.booleanText(isPaired)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchInstalledLabel, value: self.booleanText(isWatchAppInstalled)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchStatusLabel, value: self.watchStatusText(watchStatus, now: now)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastReceivedLabel, value: self.lastReceivedText(lastReceivedAt, now: now)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: self.detailText(lastStagingError))
-        ]
-        if let lastLedgerError, !lastLedgerError.isEmpty {
-            rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastLedgerDetailLabel, value: lastLedgerError))
+    static func stuckNotice(for stuck: WatchPipelineStuck) -> WatchStuckNotice? {
+        guard let reason = stuck.reason else {
+            return nil
         }
-        rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(lastUploadAt, now: now)))
-        rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.detailText(lastUploadError)))
-        return rows
-    }
-
-    static func diagnosticsExportText(
-        primaryRows: [WatchSourceDetailRow],
-        diagnosticsRows: [WatchSourceDetailRow]
-    ) -> String {
-        let rows = primaryRows + diagnosticsRows
-        return ([SourceVocabulary.watchDiagnosticsExportTitle] + rows.map { "\($0.label): \($0.value)" })
-            .joined(separator: "\n")
-    }
-
-    static func lastSyncText(_ date: Date?, now: Date) -> String {
-        guard let date else {
-            return SourceVocabulary.watchLastSyncNever
-        }
-        return self.relativeText(secondsAgo: max(0, now.timeIntervalSince(date)))
-    }
-
-    static func lastReceivedText(_ date: Date?, now: Date) -> String {
-        guard let date else {
-            return SourceVocabulary.watchLastReceivedNever
-        }
-        return self.relativeText(secondsAgo: max(0, now.timeIntervalSince(date)))
-    }
-
-    static func booleanText(_ value: Bool) -> String {
-        value ? SourceVocabulary.watchBooleanYes : SourceVocabulary.watchBooleanNo
-    }
-
-    static func activationText(_ state: WCSessionActivationState) -> String {
-        switch state {
-        case .activated:
-            SourceVocabulary.watchActivationActivated
-        case .inactive:
-            SourceVocabulary.watchActivationInactive
-        case .notActivated:
-            SourceVocabulary.watchActivationNotActivated
-        @unknown default:
-            SourceVocabulary.watchActivationNotActivated
-        }
-    }
-
-    static func detailText(_ value: String?) -> String {
-        guard let value, !value.isEmpty else {
-            return SourceVocabulary.watchDetailNone
-        }
-        return value
-    }
-
-    static func pipelineValue(
-        context: WatchStatusContext?,
-        count: Int,
-        now: Date,
-        ttl: TimeInterval
-    ) -> String {
-        guard let context else {
-            return SourceVocabulary.watchPipelineUnknown
-        }
-        let safeCount = max(0, count)
-        let secondsAgo = now.timeIntervalSince(context.asOf)
-        guard secondsAgo >= ttl else {
-            return "\(safeCount)"
-        }
-        return "\(safeCount) · \(self.relativeText(secondsAgo: secondsAgo))"
-    }
-
-    static func relativeText(secondsAgo: TimeInterval) -> String {
-        if secondsAgo < 60 {
-            return SourceVocabulary.watchRelativeJustNow
-        }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(fromTimeInterval: -secondsAgo)
-    }
-
-    static func watchStatusText(_ status: WatchStatusContext?, now: Date) -> String {
-        guard let status else {
-            return SourceVocabulary.watchDetailNone
-        }
-        return "\(status.phase.rawValue) · \(self.relativeText(secondsAgo: max(0, now.timeIntervalSince(status.asOf))))"
+        return WatchStuckNotice(reason: reason)
     }
 }

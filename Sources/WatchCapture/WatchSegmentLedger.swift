@@ -108,6 +108,23 @@ final class WatchSegmentLedger {
         }.count
     }
 
+    var oldestNonTerminalReceivedAt: Date? {
+        var oldest: Date?
+        for entry in self.store.entries.values where entry.receivedAt != nil && !entry.isTerminal {
+            guard let receivedAt = entry.receivedAt else {
+                continue
+            }
+            if let current = oldest {
+                if receivedAt < current {
+                    oldest = receivedAt
+                }
+            } else {
+                oldest = receivedAt
+            }
+        }
+        return oldest
+    }
+
     var lastHandedAt: Date? {
         var latest: Date?
         for entry in self.store.entries.values {
