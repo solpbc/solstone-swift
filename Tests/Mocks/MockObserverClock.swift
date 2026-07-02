@@ -13,6 +13,10 @@ final class MockObserverClock: ObserverClock {
         self.currentDate = now
     }
 
+    var pendingSleeperCount: Int {
+        self.sleepers.count
+    }
+
     func now() -> Date {
         self.currentDate
     }

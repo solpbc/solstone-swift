@@ -5,8 +5,10 @@ import SwiftUI
 
 @main
 struct SolstoneWatchApp: App {
+    @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var appDelegate
     @State private var sessionModel: WatchSessionModel
     @State private var captureModel: WatchCaptureModel
+    @State private var backgroundTaskCoordinator: WatchBackgroundTaskCoordinator
 
     init() {
         let session = LiveWatchConnectivitySession()
@@ -25,6 +27,10 @@ struct SolstoneWatchApp: App {
             ))
             self._captureModel = State(initialValue: WatchCaptureModel(initializationError: error))
         }
+        let coordinator = WatchBackgroundTaskCoordinator(session: session)
+        self._backgroundTaskCoordinator = State(initialValue: coordinator)
+        self.appDelegate.session = session
+        self.appDelegate.backgroundTaskCoordinator = coordinator
     }
 
     var body: some Scene {

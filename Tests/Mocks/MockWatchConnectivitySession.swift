@@ -17,6 +17,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var isPaired = false
     var isWatchAppInstalled = false
     var activationState: WCSessionActivationState = .notActivated
+    var hasContentPending = false
     var receivedApplicationContext: [String: Any] = [:]
     var outstandingFileTransfers: [OutstandingFileTransfer] {
         self.outstandingRecords.map { record in
@@ -32,6 +33,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var onReceiveUserInfo: (([String: Any]) -> Void)?
     var onReceiveApplicationContext: (([String: Any]) -> Void)?
     var onFileTransferFinished: ((UUID, String?) -> Void)?
+    var onSessionEvent: (() -> Void)?
 
     var activateCallCount = 0
     var transferredFiles: [(URL, [String: Any])] = []
@@ -47,6 +49,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
         self.activateCallCount += 1
         self.activationState = .activated
         self.onActivationChanged?(true)
+        self.onSessionEvent?()
     }
 
     func transferFile(_ url: URL, metadata: [String: Any]) {
@@ -84,15 +87,18 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func deliverFile(_ url: URL, metadata: [String: Any]) {
         self.onReceiveFile?(url, metadata)
+        self.onSessionEvent?()
     }
 
     func deliverUserInfo(_ userInfo: [String: Any]) {
         self.onReceiveUserInfo?(userInfo)
+        self.onSessionEvent?()
     }
 
     func deliverApplicationContext(_ applicationContext: [String: Any]) {
         self.receivedApplicationContext = applicationContext
         self.onReceiveApplicationContext?(applicationContext)
+        self.onSessionEvent?()
     }
 
     func seedOutstandingTransfer(id: UUID?) {
@@ -102,6 +108,11 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     func finishTransfer(id: UUID, error: String?) {
         self.outstandingRecords.removeAll { $0.id == id }
         self.onFileTransferFinished?(id, error)
+        self.onSessionEvent?()
+    }
+
+    func emitSessionEvent() {
+        self.onSessionEvent?()
     }
 }
 

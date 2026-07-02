@@ -20,6 +20,7 @@ protocol WatchConnectivitySession: AnyObject {
     var isPaired: Bool { get }
     var isWatchAppInstalled: Bool { get }
     var activationState: WCSessionActivationState { get }
+    var hasContentPending: Bool { get }
     var receivedApplicationContext: [String: Any] { get }
     var outstandingFileTransfers: [OutstandingFileTransfer] { get }
     var onActivationChanged: (@Sendable (Bool) -> Void)? { get set }
@@ -29,6 +30,7 @@ protocol WatchConnectivitySession: AnyObject {
     var onReceiveUserInfo: (([String: Any]) -> Void)? { get set }
     var onReceiveApplicationContext: (([String: Any]) -> Void)? { get set }
     var onFileTransferFinished: ((UUID, String?) -> Void)? { get set }
+    var onSessionEvent: (() -> Void)? { get set }
 
     func activate()
     func transferFile(_ url: URL, metadata: [String: Any])
@@ -46,6 +48,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var onReceiveUserInfo: (([String: Any]) -> Void)?
     var onReceiveApplicationContext: (([String: Any]) -> Void)?
     var onFileTransferFinished: ((UUID, String?) -> Void)?
+    var onSessionEvent: (() -> Void)?
 
     private let session: WCSession?
 
@@ -59,6 +62,10 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 
     var activationState: WCSessionActivationState {
         self.session?.activationState ?? .notActivated
+    }
+
+    var hasContentPending: Bool {
+        self.session?.hasContentPending ?? false
     }
 
     var receivedApplicationContext: [String: Any] {
@@ -154,6 +161,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         let didActivate = activationState == .activated && error == nil
         Task { @MainActor [weak self] in
             self?.onActivationChanged?(didActivate)
+            self?.onSessionEvent?()
         }
     }
 
@@ -202,6 +210,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         Task { @MainActor [weak self] in
             let metadata = Self.propertyListDictionary(from: metadataData)
             self?.onReceiveFile?(scratchURL, metadata)
+            self?.onSessionEvent?()
         }
     }
 
@@ -209,6 +218,9 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         let idString = fileTransfer.file.metadata?["id"] as? String
         let errorDescription = error.map { String(describing: $0) }
         Task { @MainActor [weak self] in
+            defer {
+                self?.onSessionEvent?()
+            }
             guard let idString else {
                 watchConnectivityLog.info("watch connectivity file transfer finished without segment id")
                 return
@@ -231,6 +243,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         }
         Task { @MainActor [weak self] in
             self?.onReceiveUserInfo?(Self.propertyListDictionary(from: messageData))
+            self?.onSessionEvent?()
         }
     }
 
@@ -244,6 +257,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         }
         Task { @MainActor [weak self] in
             self?.onReceiveUserInfo?(Self.propertyListDictionary(from: userInfoData))
+            self?.onSessionEvent?()
         }
     }
 
@@ -257,6 +271,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         }
         Task { @MainActor [weak self] in
             self?.onReceiveApplicationContext?(Self.propertyListDictionary(from: contextData))
+            self?.onSessionEvent?()
         }
     }
 }
