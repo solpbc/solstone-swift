@@ -15,22 +15,24 @@ final class WatchRelayReceiver {
     static let incomingDirectoryName = ".incoming"
 
     let stagingRootURL: URL
-    private(set) var receivedCount = 0
     private(set) var lastReceivedAt: Date?
     private(set) var lastStagingError: String?
     @ObservationIgnored
     var onSegmentStaged: ((UUID) -> Void)?
 
     private let session: any WatchConnectivitySession
+    private let ledger: WatchSegmentLedger
     private let fileWriter: any WatchFileWriting
 
     init(
         session: any WatchConnectivitySession,
+        ledger: WatchSegmentLedger,
         stagingRootURL: URL? = nil,
         fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
         fileManager: FileManager = .default
     ) throws {
         self.session = session
+        self.ledger = ledger
         self.fileWriter = fileWriter
         self.stagingRootURL = try stagingRootURL
             ?? AppGroupContainer.rootURL(fileManager: fileManager)
@@ -54,6 +56,13 @@ final class WatchRelayReceiver {
             return
         }
 
+        if self.ledger.isTerminal(id: id) {
+            watchRelayReceiverLog.info("watch relay terminal duplicate id=\(id.uuidString, privacy: .public)")
+            self.lastReceivedAt = Date()
+            self.sendACK(id: id)
+            return
+        }
+
         let committedURL = self.committedURL(for: id)
         if self.fileWriter.fileExists(at: committedURL) {
             watchRelayReceiverLog.info("watch relay duplicate staged id=\(id.uuidString, privacy: .public)")
@@ -73,7 +82,7 @@ final class WatchRelayReceiver {
                 fileWriter: self.fileWriter
             )
             try self.fileWriter.moveItem(at: incomingURL, to: committedURL)
-            self.receivedCount += 1
+            self.ledger.recordReceived(id: id)
             self.lastReceivedAt = Date()
             self.lastStagingError = nil
             self.sendACK(id: id)

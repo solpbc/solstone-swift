@@ -58,7 +58,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
@@ -90,7 +90,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
@@ -117,7 +117,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
@@ -142,7 +142,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
@@ -168,7 +168,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         var stagedIDs: [UUID] = []
         receiver.onSegmentStaged = { stagedIDs.append($0) }
         defer { withExtendedLifetime(receiver) {} }
@@ -194,7 +194,8 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let ledger = self.makeLedger("instrumentation-success-ledger")
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         let invalidScratch = self.tempDirectory.appendingPathComponent("invalid-watchrelay")
         try Data("not a segment bundle".utf8).write(to: invalidScratch, options: .atomic)
         receiver.receiveFile(invalidScratch, metadata: ["id": UUID().uuidString])
@@ -205,25 +206,26 @@ final class WatchRelayTests: XCTestCase {
         sender.drain()
         try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
-        XCTAssertEqual(receiver.receivedCount, 1)
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
         XCTAssertNotNil(receiver.lastReceivedAt)
         XCTAssertNil(receiver.lastStagingError)
 
         let waiting = WatchSourceDetailPresentation.syncSummary(
-            received: receiver.receivedCount,
-            pending: 1,
-            failed: 0,
-            lastUploadAt: nil
+            lifetimeReceived: ledger.lifetimeReceived,
+            nonTerminalCount: ledger.nonTerminalCount,
+            lifetimeHanded: ledger.lifetimeHanded,
+            lastHandedAt: ledger.lastHandedAt
         )
         XCTAssertEqual(waiting.received, 1)
         XCTAssertEqual(waiting.waiting, 1)
         XCTAssertEqual(waiting.handedToJournal, 0)
 
+        ledger.recordHanded(id: id)
         let handed = WatchSourceDetailPresentation.syncSummary(
-            received: receiver.receivedCount,
-            pending: 0,
-            failed: 0,
-            lastUploadAt: Date(timeIntervalSince1970: 1_000)
+            lifetimeReceived: ledger.lifetimeReceived,
+            nonTerminalCount: ledger.nonTerminalCount,
+            lifetimeHanded: ledger.lifetimeHanded,
+            lastHandedAt: ledger.lastHandedAt
         )
         XCTAssertEqual(handed.received, 1)
         XCTAssertEqual(handed.waiting, 0)
@@ -238,7 +240,8 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let ledger = self.makeLedger("instrumentation-duplicate-ledger")
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
@@ -251,7 +254,7 @@ final class WatchRelayTests: XCTestCase {
         sender.drain()
         try self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
-        XCTAssertEqual(receiver.receivedCount, 1)
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
         let duplicateReceivedAt = try XCTUnwrap(receiver.lastReceivedAt)
         XCTAssertGreaterThan(duplicateReceivedAt.timeIntervalSinceReferenceDate, firstReceivedAt.timeIntervalSinceReferenceDate)
     }
@@ -259,16 +262,158 @@ final class WatchRelayTests: XCTestCase {
     func testReceiverInstrumentationTracksStagingFailure() throws {
         let stagingRoot = self.tempDirectory.appendingPathComponent("instrumentation-failure-staging", isDirectory: true)
         let phoneSession = MockWatchConnectivitySession()
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let ledger = self.makeLedger("instrumentation-failure-ledger")
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         let scratchURL = self.tempDirectory.appendingPathComponent("invalid-watchrelay")
         try Data("not a segment bundle".utf8).write(to: scratchURL, options: .atomic)
         defer { withExtendedLifetime(receiver) {} }
 
         receiver.receiveFile(scratchURL, metadata: ["id": UUID().uuidString])
 
-        XCTAssertEqual(receiver.receivedCount, 0)
+        XCTAssertEqual(ledger.lifetimeReceived, 0)
         XCTAssertNil(receiver.lastReceivedAt)
         XCTAssertNotNil(receiver.lastStagingError)
+    }
+
+    func testAC4TerminalDuplicateShortCircuitsHandedAndDroppedIDs() throws {
+        for terminalKind in ["handed", "dropped"] {
+            let storage = try self.makeStorage("ac4-\(terminalKind)")
+            let stagingRoot = self.tempDirectory.appendingPathComponent("ac4-\(terminalKind)-staging", isDirectory: true)
+            let id = UUID()
+            _ = try self.writeSegment(storage: storage, id: id, index: 0)
+            let watchSession = MockWatchConnectivitySession()
+            let phoneSession = MockWatchConnectivitySession()
+            let sender = WatchRelaySender(storage: storage, session: watchSession)
+            let ledger = self.makeLedger("ac4-\(terminalKind)-ledger")
+            ledger.recordReceived(id: id)
+            if terminalKind == "handed" {
+                ledger.recordHanded(id: id)
+            } else {
+                ledger.recordDropped(id: id)
+            }
+            let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+            var stagedIDs: [UUID] = []
+            receiver.onSegmentStaged = { stagedIDs.append($0) }
+            defer { withExtendedLifetime(receiver) {} }
+
+            watchSession.activate()
+            sender.drain()
+            try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+            XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
+            self.assertRelayACK(phoneSession.transferredUserInfos[0], id: id)
+            XCTAssertTrue(try self.stagedEntryIDs(at: stagingRoot).isEmpty)
+            XCTAssertTrue(stagedIDs.isEmpty)
+            XCTAssertNotNil(receiver.lastReceivedAt)
+            XCTAssertEqual(ledger.lifetimeReceived, 1)
+        }
+    }
+
+    func testAC5NonTerminalDuplicateReACKsAndRekicks() throws {
+        let storage = try self.makeStorage("ac5-nonterminal-duplicate")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("ac5-nonterminal-staging", isDirectory: true)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let ledger = self.makeLedger("ac5-nonterminal-ledger")
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+        var stagedIDs: [UUID] = []
+        receiver.onSegmentStaged = { stagedIDs.append($0) }
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+        XCTAssertEqual(stagedIDs, [id])
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+
+        watchSession.outstandingFileTransfers.first?.cancel()
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
+
+        XCTAssertEqual(phoneSession.transferredUserInfos.count, 2)
+        XCTAssertEqual(stagedIDs, [id, id])
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+    }
+
+    func testAC5MissingNonTerminalStagingRestagesAndRekicks() throws {
+        let storage = try self.makeStorage("ac5-missing-staging")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("ac5-missing-staging-root", isDirectory: true)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let ledger = self.makeLedger("ac5-missing-ledger")
+        ledger.recordReceived(id: id)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+        var stagedIDs: [UUID] = []
+        receiver.onSegmentStaged = { stagedIDs.append($0) }
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(stagedIDs, [id])
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+    }
+
+    func testAC8CorruptLedgerStillStagesAndACKs() throws {
+        let storage = try self.makeStorage("ac8-corrupt-ledger")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("ac8-corrupt-staging", isDirectory: true)
+        let ledgerURL = self.tempDirectory
+            .appendingPathComponent("ac8-corrupt-ledger-file", isDirectory: true)
+            .appendingPathComponent("ledger.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: ledgerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("garbage".utf8).write(to: ledgerURL)
+        let ledger = WatchSegmentLedger(fileURL: ledgerURL)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
+        self.assertRelayACK(phoneSession.transferredUserInfos[0], id: id)
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
+        XCTAssertNil(ledger.lastLedgerError)
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+    }
+
+    func testAC8PermanentLedgerWriteFailureStillStagesAndACKs() throws {
+        let storage = try self.makeStorage("ac8-write-failure-ledger")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("ac8-write-failure-staging", isDirectory: true)
+        let blocker = self.tempDirectory.appendingPathComponent("ac8-blocker", isDirectory: false)
+        try Data("blocker".utf8).write(to: blocker)
+        let ledger = WatchSegmentLedger(fileURL: blocker.appendingPathComponent("ledger.json", isDirectory: false))
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
+        self.assertRelayACK(phoneSession.transferredUserInfos[0], id: id)
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
+        XCTAssertNotNil(ledger.lastLedgerError)
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
     }
 
     func testAC1EnqueueOnceDoesNotDuplicateWhileOutstanding() throws {
@@ -297,7 +442,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(storage: storage, session: watchSession)
-        let receiver = try WatchRelayReceiver(session: phoneSession, stagingRootURL: stagingRoot)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
@@ -563,6 +708,26 @@ final class WatchRelayTests: XCTestCase {
 
 @MainActor
 private extension WatchRelayTests {
+    func makeLedger(_ name: String) -> WatchSegmentLedger {
+        WatchSegmentLedger(
+            fileURL: self.tempDirectory
+                .appendingPathComponent(name, isDirectory: true)
+                .appendingPathComponent("ledger.json", isDirectory: false)
+        )
+    }
+
+    func makeReceiver(
+        session: MockWatchConnectivitySession,
+        stagingRoot: URL,
+        ledger: WatchSegmentLedger? = nil
+    ) throws -> WatchRelayReceiver {
+        try WatchRelayReceiver(
+            session: session,
+            ledger: ledger ?? self.makeLedger("receiver-ledger-\(UUID().uuidString)"),
+            stagingRootURL: stagingRoot
+        )
+    }
+
     func makeStorage(_ name: String) throws -> WatchCaptureStorage {
         try WatchCaptureStorage(rootURL: self.tempDirectory.appendingPathComponent(name, isDirectory: true))
     }

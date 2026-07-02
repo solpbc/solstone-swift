@@ -450,12 +450,14 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let watchFailedAudio = try Self.writeFailedPair(root: watchRoot, sessionID: sessionID, chunkID: chunkID)
         let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
         let stagedDirectory = try Self.writeStagedWatchSegment(stagingRoot: stagingRoot, id: sessionID)
-        let drain = try WatchSegmentDrain(
-            stagingRootURL: stagingRoot,
+        let ledgerURL = root.appendingPathComponent("ledger.json", isDirectory: false)
+        let pipeline = makeWatchPhonePipeline(
             watchUploader: watchUploader,
             watchRegistration: Self.watchRegistration(),
-            localPortProvider: { 7071 },
-            tempDirectoryURL: root.appendingPathComponent("watch-drain-temp", isDirectory: true)
+            watchConnectivitySession: MockWatchConnectivitySession(),
+            ledgerFileURL: ledgerURL,
+            drainStagingRootURL: stagingRoot,
+            drainTempDirectoryURL: root.appendingPathComponent("watch-drain-temp", isDirectory: true)
         )
 
         let commit = try XCTUnwrap(makeDropCommit(
@@ -465,12 +467,34 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             omiUploader: omiUploader,
             watchUploader: watchUploader,
             mobileSegmentUploader: mobileSegmentUploader,
-            removeWatchStaging: drain.removeStaged
+            removeWatchStaging: pipeline.watchUploaderHolder.removeStaging
         ))
         commit()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: watchFailedAudio.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagedDirectory.path))
+        XCTAssertEqual(pipeline.watchSegmentLedger.lifetimeReceived, 1)
+        XCTAssertEqual(pipeline.watchSegmentLedger.lifetimeHanded, 0)
+        XCTAssertTrue(pipeline.watchSegmentLedger.isTerminal(id: sessionID))
+        pipeline.watchSegmentLedger.recordHanded(id: sessionID)
+        XCTAssertEqual(pipeline.watchSegmentLedger.lifetimeHanded, 0)
+        XCTAssertNil(pipeline.watchSegmentLedger.lastHandedAt)
+        var store = try Self.loadLedgerStore(ledgerURL)
+        var droppedEntry = try XCTUnwrap(store.entries[sessionID.uuidString])
+        XCTAssertNotNil(droppedEntry.droppedAt)
+        XCTAssertNil(droppedEntry.handedAt)
+
+        let handThenDropID = UUID()
+        let handThenDropDirectory = try Self.writeStagedWatchSegment(stagingRoot: stagingRoot, id: handThenDropID)
+        pipeline.watchSegmentLedger.recordHanded(id: handThenDropID)
+        pipeline.watchUploaderHolder.removeStaging?(handThenDropID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: handThenDropDirectory.path))
+        XCTAssertEqual(pipeline.watchSegmentLedger.lifetimeHanded, 1)
+        XCTAssertNotNil(pipeline.watchSegmentLedger.lastHandedAt)
+        store = try Self.loadLedgerStore(ledgerURL)
+        droppedEntry = try XCTUnwrap(store.entries[handThenDropID.uuidString])
+        XCTAssertNotNil(droppedEntry.handedAt)
+        XCTAssertNil(droppedEntry.droppedAt)
     }
 
     private static func item(id: String, sourceKind: OnThisPhoneSourceKind) -> OnThisPhoneItem {
@@ -524,6 +548,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             .appendingPathComponent(sessionID.uuidString, isDirectory: true)
             .appendingPathComponent("pending", isDirectory: true)
             .appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+    }
+
+    private static func loadLedgerStore(_ fileURL: URL) throws -> WatchSegmentLedgerStore {
+        let data = try Data(contentsOf: fileURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(WatchSegmentLedgerStore.self, from: data)
     }
 
     @MainActor

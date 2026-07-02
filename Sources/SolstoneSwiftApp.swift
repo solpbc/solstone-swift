@@ -29,6 +29,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchUploaderHolder: WatchUploaderHolder
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
+    @State private var watchSegmentLedger: WatchSegmentLedger
     @State private var importQueue: ImportQueue
     @State private var mobileSegmentUploader: MobileSegmentUploader
     @State private var mobileSegmentEngine: MobileSegmentEngine
@@ -347,24 +348,17 @@ struct SolstoneSwiftApp: App {
             session: healthSession,
             clock: observerClock
         )
-        let watchUploaderHolder = WatchUploaderHolder(watchUploader)
-        let watchSegmentDrain: WatchSegmentDrain?
-        do {
-            watchSegmentDrain = try WatchSegmentDrain(
-                watchUploader: watchUploader,
-                watchRegistration: watchRegistration,
-                localPortProvider: {
-                    watchRegistration.activeLocalPort
-                }
-            )
-        } catch {
-            Logger(subsystem: "app.solstone.swift", category: "watch-drain")
-                .error("watch segment drain unavailable: \(String(describing: error), privacy: .public)")
-            watchSegmentDrain = nil
-        }
-        watchUploaderHolder.removeStaging = { [weak watchSegmentDrain] id in
-            watchSegmentDrain?.removeStaged(id)
-        }
+        let watchConnectivitySession = LiveWatchConnectivitySession()
+        let watchPipeline = makeWatchPhonePipeline(
+            watchUploader: watchUploader,
+            watchRegistration: watchRegistration,
+            watchConnectivitySession: watchConnectivitySession
+        )
+        let watchUploaderHolder = watchPipeline.watchUploaderHolder
+        let watchSegmentDrain = watchPipeline.watchSegmentDrain
+        let watchRelayReceiver = watchPipeline.watchRelayReceiver
+        let watchSegmentLedger = watchPipeline.watchSegmentLedger
+        let watchLink = watchPipeline.watchLink
         let importQueue = ImportQueue(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
@@ -415,22 +409,6 @@ struct SolstoneSwiftApp: App {
             mobileSegmentEngine: mobileSegmentEngine,
             clock: observerClock
         )
-        let watchConnectivitySession = LiveWatchConnectivitySession()
-        let watchRelayReceiver: WatchRelayReceiver?
-        do {
-            watchRelayReceiver = try WatchRelayReceiver(session: watchConnectivitySession)
-        } catch {
-            Logger(subsystem: "app.solstone.swift", category: "watch-relay")
-                .error("watch relay receiver unavailable: \(String(describing: error), privacy: .public)")
-            watchRelayReceiver = nil
-        }
-        watchRelayReceiver?.onSegmentStaged = { _ in
-            Task {
-                await watchSegmentDrain?.drain()
-            }
-        }
-        let watchLink = WatchLink(session: watchConnectivitySession, receiver: watchRelayReceiver)
-        watchLink.activate()
         let voice = VoiceManager(
             webrtc: Self.makeWebRTCConnector(),
             diagnosticLog: log
@@ -535,6 +513,7 @@ struct SolstoneSwiftApp: App {
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
+        self._watchSegmentLedger = State(initialValue: watchSegmentLedger)
         self._importQueue = State(initialValue: importQueue)
         self._mobileSegmentUploader = State(initialValue: mobileSegmentUploader)
         self._mobileSegmentEngine = State(initialValue: mobileSegmentEngine)
@@ -571,6 +550,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.watchUploaderHolder)
                 .environment(self.watchLink)
                 .environment(self.watchRelayReceiver)
+                .environment(self.watchSegmentLedger)
                 .environment(self.importQueue)
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)

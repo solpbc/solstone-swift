@@ -82,6 +82,7 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         )
         let drain = try WatchSegmentDrain(
             stagingRootURL: stagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "cold-ledger")),
             watchUploader: uploader,
             watchRegistration: self.makeWatchRegistration(loadKey: nil, activeLocalPort: nil),
             localPortProvider: { 7071 },
@@ -131,6 +132,47 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
 
         XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 1)
         XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+    }
+
+    @MainActor
+    func testAC2AudioHandoffRecordsHandedOnceAndRemovesStaging() async throws {
+        WatchDrainURLProtocol.handler = Self.okResponse
+        let stagingRoot = self.stagingRootURL(name: "ac2-audio")
+        let ledgerURL = self.ledgerFileURL(name: "ac2-audio-ledger")
+        let ledger = WatchSegmentLedger(fileURL: ledgerURL)
+        let manifest = self.makeManifest()
+        try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest, audioData: Data("audio".utf8))
+        let watchHandle = self.watchHandle
+        let uploader = self.makeWatchUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("ac2-audio-uploader", isDirectory: true),
+            ensureRegistered: { watchHandle }
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: ledger,
+            watchUploader: uploader,
+            watchRegistration: self.makeWatchRegistration(loadKey: self.watchHandle, activeLocalPort: 7071),
+            localPortProvider: { 7071 },
+            tempDirectoryURL: self.tempDirectory.appendingPathComponent("ac2-audio-temp", isDirectory: true)
+        )
+
+        await drain.drain()
+        try await self.waitFor("audio handoff") {
+            WatchDrainURLProtocol.capturedRequests.count == 1
+                && !self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id)
+        }
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+        XCTAssertEqual(ledger.lifetimeHanded, 1)
+        XCTAssertEqual(ledger.nonTerminalCount, 0)
+        XCTAssertTrue(ledger.isTerminal(id: manifest.id))
+
+        let store = try self.loadStore(ledgerURL)
+        let entry = try XCTUnwrap(store.entries[manifest.id.uuidString])
+        XCTAssertNotNil(entry.handedAt)
+        XCTAssertNil(entry.droppedAt)
+
+        uploader.onSegmentDelivered?(manifest.id)
+        XCTAssertEqual(ledger.lifetimeHanded, 1)
     }
 
     @MainActor
@@ -245,6 +287,60 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         XCTAssertTrue(body.contains(String(decoding: locationBytes, as: UTF8.self)))
         XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
     }
+
+    @MainActor
+    func testAC2LocationOnlyHandoffRecordsHandedOnceAndRemovesStaging() async throws {
+        WatchDrainURLProtocol.handler = Self.okResponse
+        let stagingRoot = self.stagingRootURL(name: "ac2-location")
+        let ledgerURL = self.ledgerFileURL(name: "ac2-location-ledger")
+        let ledger = WatchSegmentLedger(fileURL: ledgerURL)
+        let manifest = self.makeManifest(sensors: [.location], fixCount: 1)
+        try self.writeStagedSegment(
+            stagingRoot: stagingRoot,
+            manifest: manifest,
+            locationData: Data(#"{"location":true}"#.utf8) + Data([0x0A])
+        )
+        let drain = try self.makeDrain(
+            stagingRoot: stagingRoot,
+            ledger: ledger,
+            directSession: self.makeCapturedSession(),
+            tempName: "ac2-location-temp"
+        )
+
+        await drain.drain()
+
+        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 1)
+        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+        XCTAssertEqual(ledger.lifetimeHanded, 1)
+        XCTAssertEqual(ledger.nonTerminalCount, 0)
+
+        let store = try self.loadStore(ledgerURL)
+        let entry = try XCTUnwrap(store.entries[manifest.id.uuidString])
+        XCTAssertNotNil(entry.handedAt)
+        XCTAssertNil(entry.droppedAt)
+
+        ledger.recordHanded(id: manifest.id)
+        XCTAssertEqual(ledger.lifetimeHanded, 1)
+    }
+
+    @MainActor
+    func testAC5aDrainSkipsTerminalStagingAndCleansUp() async throws {
+        WatchDrainURLProtocol.handler = Self.okResponse
+        let stagingRoot = self.stagingRootURL(name: "ac5a-terminal")
+        let ledger = WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "ac5a-terminal-ledger"))
+        let manifest = self.makeManifest()
+        ledger.recordReceived(id: manifest.id)
+        ledger.recordHanded(id: manifest.id)
+        try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest, audioData: Data("audio".utf8))
+        let drain = try self.makeDrain(stagingRoot: stagingRoot, ledger: ledger)
+
+        await drain.drain()
+
+        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 0)
+        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        XCTAssertEqual(ledger.lifetimeHanded, 1)
+    }
 }
 
 private extension WatchSegmentDrainTests {
@@ -258,6 +354,7 @@ private extension WatchSegmentDrainTests {
     @MainActor
     func makeDrain(
         stagingRoot: URL,
+        ledger: WatchSegmentLedger? = nil,
         watchRegistration: ObserverRegistration? = nil,
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
         directSession: URLSession = .shared,
@@ -271,6 +368,7 @@ private extension WatchSegmentDrainTests {
         )
         return try WatchSegmentDrain(
             stagingRootURL: stagingRoot,
+            ledger: ledger ?? WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "ledger-\(UUID().uuidString)")),
             watchUploader: uploader,
             watchRegistration: watchRegistration ?? self.makeWatchRegistration(loadKey: self.watchHandle, activeLocalPort: 7071),
             localPortProvider: localPortProvider,
@@ -333,6 +431,19 @@ private extension WatchSegmentDrainTests {
 
     func stagingRootURL(name: String = "staging") -> URL {
         self.tempDirectory.appendingPathComponent(name, isDirectory: true)
+    }
+
+    func ledgerFileURL(name: String = "ledger") -> URL {
+        self.tempDirectory
+            .appendingPathComponent(name, isDirectory: true)
+            .appendingPathComponent("ledger.json", isDirectory: false)
+    }
+
+    func loadStore(_ fileURL: URL) throws -> WatchSegmentLedgerStore {
+        let data = try Data(contentsOf: fileURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(WatchSegmentLedgerStore.self, from: data)
     }
 
     func makeManifest(

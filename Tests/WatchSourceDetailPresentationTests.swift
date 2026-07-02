@@ -9,10 +9,10 @@ import XCTest
 nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
     func testSyncSummaryCountsReceivedAsWaitingUntilUploadCompletes() {
         let staged = WatchSourceDetailPresentation.syncSummary(
-            received: 1,
-            pending: 1,
-            failed: 0,
-            lastUploadAt: nil
+            lifetimeReceived: 1,
+            nonTerminalCount: 1,
+            lifetimeHanded: 0,
+            lastHandedAt: nil
         )
 
         XCTAssertEqual(staged.received, 1)
@@ -22,10 +22,10 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
 
         let uploadCompletedAt = Date(timeIntervalSince1970: 1_000)
         let uploaded = WatchSourceDetailPresentation.syncSummary(
-            received: 1,
-            pending: 0,
-            failed: 0,
-            lastUploadAt: uploadCompletedAt
+            lifetimeReceived: 1,
+            nonTerminalCount: 0,
+            lifetimeHanded: 1,
+            lastHandedAt: uploadCompletedAt
         )
 
         XCTAssertEqual(uploaded.received, 1)
@@ -37,10 +37,10 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
     func testAllFailedUploadsRemainWaitingWithoutWatchFaultState() {
         let now = Date(timeIntervalSince1970: 2_000)
         let summary = WatchSourceDetailPresentation.syncSummary(
-            received: 2,
-            pending: 0,
-            failed: 2,
-            lastUploadAt: nil
+            lifetimeReceived: 2,
+            nonTerminalCount: 2,
+            lifetimeHanded: 0,
+            lastHandedAt: nil
         )
         let state = phoneWatchSourceState(install: .appInstalled, recordingStatus: .observing)
         let rows = WatchSourceDetailPresentation.pipelineRows(
@@ -62,6 +62,41 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.label == "waiting" })
         XCTAssertFalse(rows.contains { $0.label.localizedCaseInsensitiveContains("failed") })
         XCTAssertFalse(rows.contains { $0.value.localizedCaseInsensitiveContains("not working") })
+    }
+
+    func testAC6SyncSummaryUsesLedgerValuesWithoutInference() {
+        let handedAt = Date(timeIntervalSince1970: 3_000)
+        let summary = WatchSourceDetailPresentation.syncSummary(
+            lifetimeReceived: 5,
+            nonTerminalCount: 2,
+            lifetimeHanded: 3,
+            lastHandedAt: handedAt
+        )
+
+        XCTAssertEqual(summary.received, 5)
+        XCTAssertEqual(summary.waiting, 2)
+        XCTAssertEqual(summary.handedToJournal, 3)
+        XCTAssertEqual(summary.lastSyncAt, handedAt)
+    }
+
+    func testAC6aRowsRenderHandedNotGreaterThanReceivedInputs() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let summary = WatchSourceDetailPresentation.syncSummary(
+            lifetimeReceived: 1,
+            nonTerminalCount: 0,
+            lifetimeHanded: 0,
+            lastHandedAt: nil
+        )
+        let rows = WatchSourceDetailPresentation.pipelineRows(
+            context: Self.context(queuedCount: 0, transferringCount: 0, asOf: now),
+            summary: summary,
+            now: now,
+            ttl: WatchRecordingStatus.defaultTTL
+        )
+
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchReceivedLabel }?.value, "1")
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchNotYetInJournalLabel }?.value, "0")
+        XCTAssertEqual(rows.first { $0.label == SourceVocabulary.watchHandedToJournalLabel }?.value, "0")
     }
 
     func testPipelineRowsShowFreshContextAsLiveCounts() {
@@ -147,6 +182,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             isWatchAppInstalled: true,
             lastReceivedAt: now.addingTimeInterval(-30),
             lastStagingError: nil,
+            lastLedgerError: nil,
             lastUploadAt: nil,
             lastUploadError: "connection failed",
             now: now
@@ -161,6 +197,38 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             XCTAssertFalse(row.value.localizedCaseInsensitiveContains("not working"))
             XCTAssertFalse(row.value.localizedCaseInsensitiveContains("sync failed"))
         }
+    }
+
+    func testAC6bDiagnosticsRowsEmitLedgerErrorOnlyWhenPresent() {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let rowsWithError = WatchSourceDetailPresentation.diagnosticsRows(
+            activationState: .activated,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            lastReceivedAt: nil,
+            lastStagingError: nil,
+            lastLedgerError: "persist failed",
+            lastUploadAt: nil,
+            lastUploadError: nil,
+            now: now
+        )
+        XCTAssertEqual(
+            rowsWithError.first { $0.label == SourceVocabulary.watchLastLedgerDetailLabel }?.value,
+            "persist failed"
+        )
+
+        let rowsWithoutError = WatchSourceDetailPresentation.diagnosticsRows(
+            activationState: .activated,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            lastReceivedAt: nil,
+            lastStagingError: nil,
+            lastLedgerError: nil,
+            lastUploadAt: nil,
+            lastUploadError: nil,
+            now: now
+        )
+        XCTAssertFalse(rowsWithoutError.contains { $0.label == SourceVocabulary.watchLastLedgerDetailLabel })
     }
 
     func testInstallAffordanceIsTextOnlyAndOnlyForPairedNoApp() throws {

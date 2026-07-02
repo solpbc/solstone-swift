@@ -12,6 +12,7 @@ struct WatchSourceDetailView: View {
     @Environment(WatchLink.self) private var watchLink
     @Environment(WatchRelayReceiver.self) private var receiver: WatchRelayReceiver?
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
+    @Environment(WatchSegmentLedger.self) private var watchSegmentLedger
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
     @State private var diagnosticsExportURL: URL?
@@ -173,10 +174,10 @@ private extension WatchSourceDetailView {
 
     var syncSummary: WatchSourceSyncSummary {
         WatchSourceDetailPresentation.syncSummary(
-            received: self.receiver?.receivedCount ?? 0,
-            pending: self.watchUploaderHolder.pendingCount,
-            failed: self.watchUploaderHolder.failedCount,
-            lastUploadAt: self.watchUploaderHolder.lastUploadAt
+            lifetimeReceived: self.watchSegmentLedger.lifetimeReceived,
+            nonTerminalCount: self.watchSegmentLedger.nonTerminalCount,
+            lifetimeHanded: self.watchSegmentLedger.lifetimeHanded,
+            lastHandedAt: self.watchSegmentLedger.lastHandedAt
         )
     }
 
@@ -188,6 +189,7 @@ private extension WatchSourceDetailView {
             watchStatus: self.watchLink.watchStatus,
             lastReceivedAt: self.receiver?.lastReceivedAt,
             lastStagingError: self.receiver?.lastStagingError,
+            lastLedgerError: self.watchSegmentLedger.lastLedgerError,
             lastUploadAt: self.watchUploaderHolder.lastUploadAt,
             lastUploadError: self.watchUploaderHolder.lastError,
             now: self.now

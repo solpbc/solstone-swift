@@ -13,6 +13,7 @@ final class WatchSegmentDrain {
 
     private let stagingRootURL: URL
     private let tempDirectoryURL: URL
+    private let ledger: WatchSegmentLedger
     private let watchUploader: ObserverUploader
     private let watchRegistration: ObserverRegistration
     private let localPortProvider: @Sendable @MainActor () -> Int?
@@ -24,6 +25,7 @@ final class WatchSegmentDrain {
 
     init(
         stagingRootURL: URL? = nil,
+        ledger: WatchSegmentLedger,
         watchUploader: ObserverUploader,
         watchRegistration: ObserverRegistration,
         localPortProvider: @escaping @Sendable @MainActor () -> Int?,
@@ -39,6 +41,7 @@ final class WatchSegmentDrain {
         self.tempDirectoryURL = tempDirectoryURL
             ?? fileManager.temporaryDirectory
                 .appendingPathComponent("watch-segment-drain", isDirectory: true)
+        self.ledger = ledger
         self.watchUploader = watchUploader
         self.watchRegistration = watchRegistration
         self.localPortProvider = localPortProvider
@@ -52,7 +55,9 @@ final class WatchSegmentDrain {
         try self.fileManager.createDirectory(at: self.tempDirectoryURL, withIntermediateDirectories: true)
 
         self.watchUploader.onSegmentDelivered = { [weak self] id in
-            self?.removeStaged(id)
+            guard let self else { return }
+            self.ledger.recordHanded(id: id)
+            self.removeStaged(id)
         }
     }
 
@@ -71,6 +76,10 @@ final class WatchSegmentDrain {
 
         for directory in directories where self.isDirectory(directory) {
             guard let id = UUID(uuidString: directory.lastPathComponent) else { continue }
+            if self.ledger.isTerminal(id: id) {
+                self.removeStaged(id)
+                continue
+            }
             guard !self.inFlight.contains(id) else { continue }
 
             self.inFlight.insert(id)
@@ -198,6 +207,7 @@ private extension WatchSegmentDrain {
                 return
             }
 
+            self.ledger.recordHanded(id: manifest.id)
             self.removeStaged(manifest.id)
         } catch {
             watchSegmentDrainLog.error("watch location-only upload failed id=\(manifest.id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")

@@ -163,6 +163,7 @@ nonisolated enum SourceVocabulary {
     static let watchLastReceivedLabel = "last received"
     static let watchLastReceivedNever = "nothing received yet"
     static let watchLastStagingDetailLabel = "last staging detail"
+    static let watchLastLedgerDetailLabel = "last ledger detail"
     static let watchLastSyncDetailLabel = "last sync detail"
     static let watchLastUploadErrorLabel = "last upload error"
     static let watchStatusLabel = "watch status"

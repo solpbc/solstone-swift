@@ -63,7 +63,15 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let watchRelayRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-WatchRelay-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: watchRelayRoot) }
-        let watchRelayReceiver = try WatchRelayReceiver(session: watchSession, stagingRootURL: watchRelayRoot)
+        let watchLedgerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-WatchLedger-\(UUID().uuidString).json", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: watchLedgerURL) }
+        let watchSegmentLedger = WatchSegmentLedger(fileURL: watchLedgerURL)
+        let watchRelayReceiver = try WatchRelayReceiver(
+            session: watchSession,
+            ledger: watchSegmentLedger,
+            stagingRootURL: watchRelayRoot
+        )
         let watchLink = WatchLink(session: watchSession, receiver: watchRelayReceiver)
         let observerManager = ObserverManager(
             recorder: MockObserverRecorder(),
@@ -189,6 +197,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
+                .environment(watchSegmentLedger)
         }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -205,6 +214,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
+                .environment(watchSegmentLedger)
         }
         let activeLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()

@@ -27,20 +27,16 @@ nonisolated struct WatchSourceDetailRow: Identifiable, Equatable, Sendable {
 
 nonisolated enum WatchSourceDetailPresentation {
     static func syncSummary(
-        received: Int,
-        pending: Int,
-        failed: Int,
-        lastUploadAt: Date?
+        lifetimeReceived: Int,
+        nonTerminalCount: Int,
+        lifetimeHanded: Int,
+        lastHandedAt: Date?
     ) -> WatchSourceSyncSummary {
-        let safeReceived = max(0, received)
-        let unresolved = max(0, pending) + max(0, failed)
-        let waiting = min(safeReceived, unresolved)
-        let handed = lastUploadAt == nil ? 0 : max(0, safeReceived - waiting)
         return WatchSourceSyncSummary(
-            received: safeReceived,
-            waiting: waiting,
-            handedToJournal: handed,
-            lastSyncAt: lastUploadAt
+            received: max(0, lifetimeReceived),
+            waiting: max(0, nonTerminalCount),
+            handedToJournal: max(0, lifetimeHanded),
+            lastSyncAt: lastHandedAt
         )
     }
 
@@ -92,20 +88,25 @@ nonisolated enum WatchSourceDetailPresentation {
         watchStatus: WatchStatusContext? = nil,
         lastReceivedAt: Date?,
         lastStagingError: String?,
+        lastLedgerError: String?,
         lastUploadAt: Date?,
         lastUploadError: String?,
         now: Date
     ) -> [WatchSourceDetailRow] {
-        [
+        var rows = [
             WatchSourceDetailRow(label: SourceVocabulary.watchActivationLabel, value: self.activationText(activationState)),
             WatchSourceDetailRow(label: SourceVocabulary.watchPairedWithPhoneLabel, value: self.booleanText(isPaired)),
             WatchSourceDetailRow(label: SourceVocabulary.watchInstalledLabel, value: self.booleanText(isWatchAppInstalled)),
             WatchSourceDetailRow(label: SourceVocabulary.watchStatusLabel, value: self.watchStatusText(watchStatus, now: now)),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastReceivedLabel, value: self.lastReceivedText(lastReceivedAt, now: now)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: self.detailText(lastStagingError)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(lastUploadAt, now: now)),
-            WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.detailText(lastUploadError))
+            WatchSourceDetailRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: self.detailText(lastStagingError))
         ]
+        if let lastLedgerError, !lastLedgerError.isEmpty {
+            rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastLedgerDetailLabel, value: lastLedgerError))
+        }
+        rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(lastUploadAt, now: now)))
+        rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.detailText(lastUploadError)))
+        return rows
     }
 
     static func diagnosticsExportText(
