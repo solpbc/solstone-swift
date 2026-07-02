@@ -119,6 +119,26 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
         XCTAssertTrue(snapshot.contains("tunnel reconnects: 3 ("))
         XCTAssertTrue(snapshot.contains("transport closed 2"))
         XCTAssertTrue(snapshot.contains("other 1"))
+        XCTAssertTrue(snapshot.contains("tunnel inbound-closed faults: (none)"))
+    }
+
+    @MainActor
+    func testSnapshotIncludesInboundClosedFaultBreakdown() {
+        let manager = TunnelManager()
+        manager.inboundClosedFaultCounts = [
+            "streamReset(streamID: 3)": 2,
+            "<unspecified>": 1,
+        ]
+
+        let snapshot = self.log.snapshot(
+            tunnel: manager,
+            voice: VoiceManager(),
+            brain: BrainStatusMonitor()
+        )
+        let line = "tunnel inbound-closed faults: <unspecified> 1, streamReset(streamID: 3) 2"
+
+        XCTAssertTrue(snapshot.contains(line))
+        XCTAssertEqual(DiagnosticLog.redact(line), line)
     }
 
     @MainActor

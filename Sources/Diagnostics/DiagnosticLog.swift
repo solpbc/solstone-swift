@@ -67,6 +67,13 @@ final class DiagnosticLog {
             .map { "\($0.exportLabel) \(tunnel.reconnectReasonCounts[$0] ?? 0)" }
             .joined(separator: ", ")
         lines.append("tunnel reconnects: \(tunnel.reconnectCount) (\(reconnectBreakdown))")
+        let inboundFaultBreakdown = tunnel.inboundClosedFaultCounts.isEmpty
+            ? "(none)"
+            : tunnel.inboundClosedFaultCounts
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key) \($0.value)" }
+                .joined(separator: ", ")
+        lines.append("tunnel inbound-closed faults: \(inboundFaultBreakdown)")
 
         let network: String
         switch tunnel.currentInterfaceIsWiFi {

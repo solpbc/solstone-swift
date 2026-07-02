@@ -25,6 +25,9 @@ enum ReconnectReasonBucket: String, CaseIterable, Sendable {
     case pathChanged
     case probeFailed
     case keepaliveMissed
+    case connectFailed
+    case watchdogTimeout
+    case pathRestore
     case other
 
     var exportLabel: String {
@@ -37,6 +40,12 @@ enum ReconnectReasonBucket: String, CaseIterable, Sendable {
             return "probe failed"
         case .keepaliveMissed:
             return "keepalive missed"
+        case .connectFailed:
+            return "connect failed"
+        case .watchdogTimeout:
+            return "watchdog timeout"
+        case .pathRestore:
+            return "path restore"
         case .other:
             return "other"
         }
@@ -126,6 +135,7 @@ final class TunnelManager {
     var consecutiveKeepaliveFailures: Int = 0
     var reconnectCount: Int = 0
     var reconnectReasonCounts: [ReconnectReasonBucket: Int] = [:]
+    var inboundClosedFaultCounts: [String: Int] = [:]
     var connectionStages: [ConnectionStage] = []
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
@@ -289,6 +299,7 @@ final class TunnelManager {
                     try? self.deletePairing()
                     await self.endpointCache.wipe()
                 }
+                self.pendingReconnectReason = .connectFailed
                 self.scheduleReconnect(for: tunnelError)
             }
         }
@@ -304,6 +315,7 @@ final class TunnelManager {
             self.failActiveStage()
             self.state = .error(.unreachable)
             self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "connection timed out", detail: nil)
+            self.pendingReconnectReason = .watchdogTimeout
             self.scheduleReconnect(for: .unreachable)
         }
         await task.value
@@ -344,6 +356,9 @@ final class TunnelManager {
             onDisconnect: { [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    if case .inboundClosed(let fault) = (error as? SessionError) {
+                        self.inboundClosedFaultCounts[fault ?? "<unspecified>", default: 0] += 1
+                    }
                     if let sessionError = error as? SessionError, sessionError == .directKeepaliveMissed {
                         await self.forceReconnect(reason: .keepaliveMissed)
                     } else {
@@ -574,6 +589,7 @@ final class TunnelManager {
                     }
                 case .error(let error) where error.isRetryable:
                     if status.isSatisfied {
+                        self.pendingReconnectReason = .pathRestore
                         self.scheduleReconnect(for: error)
                     }
                 case .disconnected:

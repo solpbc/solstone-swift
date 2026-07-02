@@ -417,11 +417,34 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     @MainActor
     func testReconnectCountTotalEqualsSumAcrossMixedSequence() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plDirect
-        let manager = makeManager(transport: transport)
+        transport.suspendConnectUntilDisconnect = true
+        let manager = makeManager(
+            transport: transport,
+            pathMonitor: pathMonitor,
+            connectDeadline: .milliseconds(100)
+        )
 
-        await manager.connect()
+        let timeoutConnectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didTimeout = await Self.waitUntil {
+            if case .error(.unreachable) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didTimeout)
+        await timeoutConnectTask.value
+
+        transport.suspendConnectUntilDisconnect = false
+        transport.nextResult = .success(1111)
+        await manager.retryNow()
+        XCTAssertEqual(manager.state, .connected(localPort: 1111, via: .lan))
+
         transport.queuedResults = [
             .failure(TunnelError.unreachable),
             .success(2222),
@@ -440,6 +463,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await manager.retryNow()
         XCTAssertEqual(manager.state, .connected(localPort: 2222, via: .lan))
 
+        transport.nextResult = .success(3333)
         transport.simulateDisconnect(error: SessionError.directKeepaliveMissed)
         let didScheduleKeepalive = await Self.waitUntil {
             if case .error(.muxTeardown) = manager.state {
@@ -449,13 +473,34 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }
         XCTAssertTrue(didScheduleKeepalive)
         await manager.retryNow()
+        XCTAssertEqual(manager.state, .connected(localPort: 3333, via: .lan))
 
-        let bucketSum = manager.reconnectReasonCounts.values.reduce(0, +)
-        XCTAssertEqual(manager.reconnectCount, bucketSum)
-        XCTAssertGreaterThanOrEqual(manager.reconnectReasonCounts[.other] ?? 0, 1)
-        XCTAssertEqual(manager.reconnectReasonCounts[.transportClosed] ?? 0, 1)
-        XCTAssertEqual(manager.reconnectReasonCounts[.keepaliveMissed] ?? 0, 1)
-        XCTAssertEqual(manager.reconnectCount, 3)
+        transport.simulateDisconnect(error: TunnelError.muxTeardown)
+        let didScheduleBeforePathRestore = await Self.waitUntil {
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didScheduleBeforePathRestore)
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        let didApplyPathRestore = await Self.waitUntil({
+            manager.currentPathStatus == .satisfiedWiFi
+        }, timeout: .seconds(2))
+        XCTAssertTrue(didApplyPathRestore)
+        transport.nextResult = .success(4444)
+        await manager.retryNow()
+        XCTAssertEqual(manager.state, .connected(localPort: 4444, via: .lan))
+
+        Self.assertReconnectBuckets(manager, expected: [
+            .transportClosed: 1,
+            .keepaliveMissed: 1,
+            .connectFailed: 1,
+            .watchdogTimeout: 1,
+            .pathRestore: 1,
+        ])
+        manager.stopNetworkMonitoring()
         await manager.disconnect()
     }
 
@@ -520,6 +565,23 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(inboundClosed, transportFailed)
         XCTAssertEqual(inboundClosed.userMessage, transportFailed.userMessage)
         XCTAssertEqual(inboundClosed.isRetryable, transportFailed.isRetryable)
+    }
+
+    @MainActor
+    func testInboundClosedFaultAggregatesBeforeTransportMapping() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let manager = makeManager(transport: transport)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.inboundClosed(fault: "streamReset(streamID: 3)"))
+
+        let didAggregate = await Self.waitUntil {
+            manager.inboundClosedFaultCounts["streamReset(streamID: 3)"] == 1
+        }
+        XCTAssertTrue(didAggregate)
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        await manager.disconnect()
     }
 
     @MainActor
