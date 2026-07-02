@@ -156,7 +156,8 @@ nonisolated final class WatchLinkTests: XCTestCase {
                 now: Date(timeIntervalSince1970: 1_020),
                 lastReceivedAt: nil
             ),
-            recordingStatus: recordingStatus
+            recordingStatus: recordingStatus,
+            isReachable: watchLink.isReachable
         )
 
         XCTAssertEqual(recordingStatus, .noContext)

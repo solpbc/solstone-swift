@@ -345,6 +345,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "some segments stalled and may need your watch to send them again"
         )
         XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
+        XCTAssertEqual(SourceVocabulary.watchConnectedNowSubtext, "your watch is connected right now")
         XCTAssertEqual(SourceVocabulary.watchReceivingSubtext, "your watch is sending data")
         XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start solstone on your watch")
         XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch — listening")
@@ -369,6 +370,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchLastSyncDetailLabel, "last sync detail")
         XCTAssertEqual(SourceVocabulary.watchLastUploadErrorLabel, "last upload error")
         XCTAssertEqual(SourceVocabulary.watchStatusLabel, "watch status")
+        XCTAssertEqual(SourceVocabulary.watchReachableLabel, "reachable")
         XCTAssertEqual(SourceVocabulary.watchDetailNone, "none")
         XCTAssertEqual(SourceVocabulary.watchBooleanYes, "yes")
         XCTAssertEqual(SourceVocabulary.watchBooleanNo, "no")

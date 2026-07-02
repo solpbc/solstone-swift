@@ -18,7 +18,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         for (install, expectedState, expectedAttention) in cases {
             let mapped = phoneWatchSourceState(
                 install: install,
-                recordingStatus: .observing
+                recordingStatus: .observing,
+                isReachable: false
             )
 
             XCTAssertEqual(mapped.0, expectedState)
@@ -158,7 +159,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
         let presentation = phoneWatchSourcePresentation(
             install: .appInstalled,
-            recordingStatus: status
+            recordingStatus: status,
+            isReachable: false
         )
 
         XCTAssertEqual(status, .noContextButReceiving)
@@ -197,7 +199,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
         let presentation = phoneWatchSourcePresentation(
             install: .appInstalled,
-            recordingStatus: status
+            recordingStatus: status,
+            isReachable: false
         )
 
         XCTAssertEqual(status, .observing)
@@ -254,7 +257,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
         let presentation = phoneWatchSourcePresentation(
             install: receiving,
-            recordingStatus: .noContext
+            recordingStatus: .noContext,
+            isReachable: false
         )
 
         XCTAssertEqual(receiving, .receivingUnconfirmedInstall)
@@ -279,25 +283,147 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
     }
 
     func testPresentationCopyForInstalledWatch() {
-        let observing = phoneWatchSourcePresentation(install: .appInstalled, recordingStatus: .observing)
+        let observing = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: .observing,
+            isReachable: false
+        )
         XCTAssertEqual(observing.state, .active)
         XCTAssertNil(observing.attention)
         XCTAssertEqual(observing.subtext, SourceVocabulary.watchListeningSubtext)
 
-        let idle = phoneWatchSourcePresentation(install: .appInstalled, recordingStatus: .idle)
+        let idle = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: .idle,
+            isReachable: false
+        )
         XCTAssertEqual(idle.state, .off)
         XCTAssertNil(idle.attention)
         XCTAssertEqual(idle.subtext, SourceVocabulary.watchIdleSubtext)
 
-        let noContext = phoneWatchSourcePresentation(install: .appInstalled, recordingStatus: .noContext)
+        let noContext = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: .noContext,
+            isReachable: false
+        )
         XCTAssertEqual(noContext.state, .off)
         XCTAssertNil(noContext.attention)
         XCTAssertEqual(noContext.subtext, SourceVocabulary.watchNoContextSubtext)
 
-        let receiving = phoneWatchSourcePresentation(install: .appInstalled, recordingStatus: .noContextButReceiving)
+        let receiving = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: .noContextButReceiving,
+            isReachable: false
+        )
         XCTAssertEqual(receiving.state, .off)
         XCTAssertNil(receiving.attention)
         XCTAssertEqual(receiving.subtext, SourceVocabulary.watchReceivingSubtext)
+    }
+
+    func testReachableInstalledIdleUsesConnectedNowCopy() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let install = watchInstallState(
+            isSupported: true,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            activationState: .activated,
+            now: now,
+            lastReceivedAt: nil
+        )
+        let status = watchRecordingStatus(
+            context: Self.context(phase: .idle, asOf: now),
+            now: now,
+            lastReceivedAt: nil
+        )
+
+        let presentation = phoneWatchSourcePresentation(
+            install: install,
+            recordingStatus: status,
+            isReachable: true
+        )
+
+        XCTAssertEqual(install, .appInstalled)
+        XCTAssertEqual(status, .idle)
+        XCTAssertEqual(presentation.state, .off)
+        XCTAssertNil(presentation.attention)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchConnectedNowSubtext)
+    }
+
+    func testReachableInstalledNoContextStaysOffWithConnectedNowCopy() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let install = watchInstallState(
+            isSupported: true,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            activationState: .activated,
+            now: now,
+            lastReceivedAt: nil
+        )
+        let status = watchRecordingStatus(context: nil, now: now, lastReceivedAt: nil)
+
+        let presentation = phoneWatchSourcePresentation(
+            install: install,
+            recordingStatus: status,
+            isReachable: true
+        )
+
+        XCTAssertEqual(install, .appInstalled)
+        XCTAssertEqual(status, .noContext)
+        XCTAssertEqual(presentation.state, .off)
+        XCTAssertNil(presentation.attention)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchConnectedNowSubtext)
+    }
+
+    func testReachableStaleObservingUsesConnectedNowIdleCopy() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let status = watchRecordingStatus(
+            context: Self.context(phase: .observing, asOf: now.addingTimeInterval(-45)),
+            now: now,
+            lastReceivedAt: nil
+        )
+
+        let presentation = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: status,
+            isReachable: true
+        )
+
+        XCTAssertEqual(status, .idle)
+        XCTAssertEqual(presentation.state, .off)
+        XCTAssertNil(presentation.attention)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchConnectedNowSubtext)
+    }
+
+    func testReachabilityDoesNotOverrideReceivingObservingOrInstallState() {
+        let receiving = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: .noContextButReceiving,
+            isReachable: true
+        )
+        XCTAssertEqual(receiving.state, .off)
+        XCTAssertNil(receiving.attention)
+        XCTAssertEqual(receiving.subtext, SourceVocabulary.watchReceivingSubtext)
+
+        let observing = phoneWatchSourcePresentation(
+            install: .appInstalled,
+            recordingStatus: .observing,
+            isReachable: true
+        )
+        XCTAssertEqual(observing.state, .active)
+        XCTAssertNil(observing.attention)
+        XCTAssertEqual(observing.subtext, SourceVocabulary.watchListeningSubtext)
+
+        let reachablePairedNoApp = phoneWatchSourcePresentation(
+            install: .pairedNoApp,
+            recordingStatus: .noContext,
+            isReachable: true
+        )
+        let notReachablePairedNoApp = phoneWatchSourcePresentation(
+            install: .pairedNoApp,
+            recordingStatus: .noContext,
+            isReachable: false
+        )
+        XCTAssertEqual(reachablePairedNoApp, notReachablePairedNoApp)
     }
 }
 

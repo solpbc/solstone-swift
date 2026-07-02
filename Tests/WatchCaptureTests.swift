@@ -286,7 +286,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(published.transferringCount, 1)
     }
 
-    func testReconcileOnLaunchEmptyDiskPublishesNothing() async throws {
+    func testReconcileOnLaunchEmptyDiskPublishesOneBaseline() async throws {
         let harness = try self.makeHarness()
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { status in
@@ -295,7 +295,30 @@ final class WatchCaptureTests: XCTestCase {
 
         await harness.engine.reconcileOnLaunch()
 
-        XCTAssertTrue(statuses.isEmpty)
+        let published = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertEqual(published.phase, .idle)
+        XCTAssertEqual(published.queuedCount, 0)
+        XCTAssertEqual(published.transferringCount, 0)
+    }
+
+    func testReconcileOnLaunchScanFailurePublishesOneBaselineAndNeedsAttention() async throws {
+        let harness = try self.makeHarness(fileWriter: FailingWatchFileWriter(failAppend: false, failContents: true))
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+
+        await harness.engine.reconcileOnLaunch()
+
+        let published = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(statuses.count, 1)
+        XCTAssertEqual(published.phase, .idle)
+        XCTAssertEqual(published.queuedCount, 0)
+        XCTAssertEqual(published.transferringCount, 0)
+        guard case .needsAttention = harness.engine.ownerPresentation.status else {
+            return XCTFail("Expected scan failure to need attention")
+        }
     }
 
     func testAppendFixInCallbackDurablyWritesBeforeFinalize() async throws {
@@ -869,9 +892,11 @@ private final class MockWatchAudioProbe: WatchAudioProbing {
 private final class FailingWatchFileWriter: WatchFileWriting {
     private let base = FoundationWatchFileWriter()
     private let failAppend: Bool
+    private let failContents: Bool
 
-    init(failAppend: Bool) {
+    init(failAppend: Bool, failContents: Bool = false) {
         self.failAppend = failAppend
+        self.failContents = failContents
     }
 
     func createDirectory(at url: URL) throws {
@@ -914,6 +939,9 @@ private final class FailingWatchFileWriter: WatchFileWriting {
     }
 
     func contentsOfDirectory(at url: URL) throws -> [URL] {
-        try self.base.contentsOfDirectory(at: url)
+        if self.failContents {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        }
+        return try self.base.contentsOfDirectory(at: url)
     }
 }

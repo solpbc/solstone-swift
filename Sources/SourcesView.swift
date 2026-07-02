@@ -250,7 +250,8 @@ private extension SourcesView {
         )
         let presentation = phoneWatchSourcePresentation(
             install: install,
-            recordingStatus: recordingStatus
+            recordingStatus: recordingStatus,
+            isReachable: self.watchLink.isReachable
         )
         return Source(
             id: "watch",

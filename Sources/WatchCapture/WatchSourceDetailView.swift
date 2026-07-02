@@ -118,6 +118,7 @@ struct WatchSourceDetailView: View {
             isPaired: self.watchLink.isPaired,
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
             activationState: self.watchLink.activationState,
+            isReachable: self.watchLink.isReachable,
             isJournalReachable: isJournalReachable(self.connectionSyncModel.status)
         )
     }
@@ -259,9 +260,11 @@ private extension WatchSourceDetailView {
     }
 
     var watchPresentation: PhoneWatchSourcePresentation {
-        phoneWatchSourcePresentation(
+        let input = self.pipelineInput
+        return phoneWatchSourcePresentation(
             install: self.installState,
-            recordingStatus: self.recordingStatus
+            recordingStatus: self.recordingStatus,
+            isReachable: input.isReachable
         )
     }
 

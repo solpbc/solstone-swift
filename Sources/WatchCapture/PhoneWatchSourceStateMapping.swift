@@ -52,18 +52,21 @@ nonisolated func watchInstallState(
 
 nonisolated func phoneWatchSourceState(
     install: WatchInstallState,
-    recordingStatus: WatchRecordingStatus
+    recordingStatus: WatchRecordingStatus,
+    isReachable: Bool
 ) -> (SourceState, SourceAttention?) {
     let presentation = phoneWatchSourcePresentation(
         install: install,
-        recordingStatus: recordingStatus
+        recordingStatus: recordingStatus,
+        isReachable: isReachable
     )
     return (presentation.state, presentation.attention)
 }
 
 nonisolated func phoneWatchSourcePresentation(
     install: WatchInstallState,
-    recordingStatus: WatchRecordingStatus
+    recordingStatus: WatchRecordingStatus,
+    isReachable: Bool
 ) -> PhoneWatchSourcePresentation {
     switch install {
     case .notSupported:
@@ -93,6 +96,13 @@ nonisolated func phoneWatchSourcePresentation(
     case .appInstalled:
         switch recordingStatus {
         case .noContext:
+            if isReachable {
+                return PhoneWatchSourcePresentation(
+                    state: .off,
+                    attention: nil,
+                    subtext: SourceVocabulary.watchConnectedNowSubtext
+                )
+            }
             return PhoneWatchSourcePresentation(
                 state: .off,
                 attention: nil,
@@ -111,6 +121,13 @@ nonisolated func phoneWatchSourcePresentation(
                 subtext: SourceVocabulary.watchListeningSubtext
             )
         case .idle:
+            if isReachable {
+                return PhoneWatchSourcePresentation(
+                    state: .off,
+                    attention: nil,
+                    subtext: SourceVocabulary.watchConnectedNowSubtext
+                )
+            }
             return PhoneWatchSourcePresentation(
                 state: .off,
                 attention: nil,

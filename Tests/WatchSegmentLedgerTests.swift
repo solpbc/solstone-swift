@@ -286,6 +286,7 @@ private extension WatchSegmentLedgerTests {
             isPaired: true,
             isWatchAppInstalled: true,
             activationState: .activated,
+            isReachable: false,
             isJournalReachable: true
         )
     }

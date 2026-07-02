@@ -87,6 +87,22 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(summary.diagnosticsExportText.contains("\(SourceVocabulary.watchLastLedgerDetailLabel): persist failed"))
     }
 
+    func testDiagnosticsRowsAndExportIncludeWatchReachability() {
+        let reachable = WatchPipelineReducer.reduce(Self.input(isReachable: true))
+        XCTAssertEqual(
+            reachable.diagnosticsRows.first { $0.label == SourceVocabulary.watchReachableLabel }?.value,
+            SourceVocabulary.watchBooleanYes
+        )
+        XCTAssertTrue(reachable.diagnosticsExportText.contains("\(SourceVocabulary.watchReachableLabel): \(SourceVocabulary.watchBooleanYes)"))
+
+        let notReachable = WatchPipelineReducer.reduce(Self.input(isReachable: false))
+        XCTAssertEqual(
+            notReachable.diagnosticsRows.first { $0.label == SourceVocabulary.watchReachableLabel }?.value,
+            SourceVocabulary.watchBooleanNo
+        )
+        XCTAssertTrue(notReachable.diagnosticsExportText.contains("\(SourceVocabulary.watchReachableLabel): \(SourceVocabulary.watchBooleanNo)"))
+    }
+
     func testReducerClampsNegativeCountsAndFutureWatchEpochs() {
         let now = Self.now
         let summary = WatchPipelineReducer.reduce(Self.input(
@@ -254,6 +270,25 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(summary.stuck, .orphan)
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))
     }
+
+    func testWatchReachabilityDoesNotAffectStuckDetection() {
+        let now = Self.now
+        let base = Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 1, asOf: now.addingTimeInterval(-90)),
+            lastReceivedAt: now.addingTimeInterval(-600),
+            isReachable: false
+        )
+        let reachable = Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 1, asOf: now.addingTimeInterval(-90)),
+            lastReceivedAt: now.addingTimeInterval(-600),
+            isReachable: true
+        )
+
+        XCTAssertEqual(WatchPipelineReducer.reduce(base).stuck, .relay)
+        XCTAssertEqual(WatchPipelineReducer.reduce(reachable).stuck, WatchPipelineReducer.reduce(base).stuck)
+    }
 }
 
 private extension WatchPipelineReducerTests {
@@ -295,7 +330,8 @@ private extension WatchPipelineReducerTests {
         isPaired: Bool = true,
         isWatchAppInstalled: Bool = true,
         activationState: WCSessionActivationState = .activated,
-        isJournalReachable: Bool = false
+        isJournalReachable: Bool = false,
+        isReachable: Bool = false
     ) -> WatchPipelineInput {
         WatchPipelineInput(
             now: now,
@@ -316,6 +352,7 @@ private extension WatchPipelineReducerTests {
             isPaired: isPaired,
             isWatchAppInstalled: isWatchAppInstalled,
             activationState: activationState,
+            isReachable: isReachable,
             isJournalReachable: isJournalReachable
         )
     }

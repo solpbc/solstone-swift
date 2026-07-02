@@ -51,6 +51,7 @@ private extension WatchSessionModel {
         watchAppLog.info("watch app: activation \(detail, privacy: .public)")
         if didActivate {
             self.relaySender?.drain()
+            self.onReachableRepublish?()
         }
     }
 

@@ -23,6 +23,7 @@ nonisolated struct WatchPipelineInput: Sendable {
     let isPaired: Bool
     let isWatchAppInstalled: Bool
     let activationState: WCSessionActivationState
+    let isReachable: Bool
     let isJournalReachable: Bool
 }
 
@@ -132,6 +133,7 @@ private extension WatchPipelineReducer {
             WatchSourceDetailRow(label: SourceVocabulary.watchActivationLabel, value: self.activationText(input.activationState)),
             WatchSourceDetailRow(label: SourceVocabulary.watchPairedWithPhoneLabel, value: self.booleanText(input.isPaired)),
             WatchSourceDetailRow(label: SourceVocabulary.watchInstalledLabel, value: self.booleanText(input.isWatchAppInstalled)),
+            WatchSourceDetailRow(label: SourceVocabulary.watchReachableLabel, value: self.booleanText(input.isReachable)),
             WatchSourceDetailRow(label: SourceVocabulary.watchStatusLabel, value: self.watchStatusText(input.watchStatus, now: input.now)),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastReceivedLabel, value: self.lastReceivedText(input.lastReceivedAt, now: input.now)),
             WatchSourceDetailRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: self.detailText(input.lastStagingError))

@@ -89,8 +89,6 @@ final class WatchCaptureEngine {
     }
 
     func reconcileOnLaunch() async {
-        let baselineQueued = self.queuedCount
-        let baselineTransferring = self.transferringCount
         do {
             let entries = try self.storage.scanManifests()
             for entry in entries {
@@ -107,12 +105,10 @@ final class WatchCaptureEngine {
                 }
             }
             try self.refreshRelayCountsFromDiskThrowing()
-            if self.queuedCount != baselineQueued || self.transferringCount != baselineTransferring {
-                self.republishCurrentStatus()
-            }
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
+        self.republishCurrentStatus()
         self.notifyPresentationChanged()
         self.requestRelayDrain()
     }
