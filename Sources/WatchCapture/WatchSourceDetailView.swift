@@ -20,11 +20,69 @@ nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
     }
 
     nonisolated static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .plainText) { export in
-            Data(export.text.utf8)
+        FileRepresentation(exportedContentType: .plainText) { export in
+            let url = try WatchDiagnosticsExport.writeTransferFile(text: export.text, into: WatchDiagnosticsExport.exportTempRoot)
+            return SentTransferredFile(url)
         }
         .suggestedFileName { export in
             export.filename
+        }
+    }
+
+    /// Single source of truth for the per-transfer temp namespace. The sweep is scoped
+    /// to this directory and can never touch unrelated temp contents.
+    nonisolated static let exportTempDirectoryName = "watch-diagnostics-export"
+
+    /// Upper bound on retained per-transfer subdirectories. Keeping the newest K leaves
+    /// comfortable margin for an in-flight transfer's copy while keeping the temp area bounded.
+    nonisolated static let maxRetainedExportDirectories = 8
+
+    nonisolated static var exportTempRoot: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(exportTempDirectoryName, isDirectory: true)
+    }
+
+    /// Writes `text` to a fresh per-transfer subdirectory (unique UUID) whose file basename
+    /// is the pinned diagnostics filename, sweeps stale siblings to keep `root` bounded, and
+    /// returns the written URL. Throwing propagates to the share sheet — no fallback.
+    nonisolated static func writeTransferFile(text: String, into root: URL) throws -> URL {
+        let fileManager = FileManager.default
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(
+            SourceVocabulary.watchDiagnosticsExportFileName,
+            isDirectory: false
+        )
+        try Data(text.utf8).write(to: url, options: [.atomic])
+        sweepStaleExportDirectories(in: root, keeping: directory)
+        return url
+    }
+
+    /// Deletes older per-transfer subdirectories, retaining the `maxRetainedExportDirectories`
+    /// most-recently-created ones and always preserving `keep`. Best-effort: never throws — a
+    /// failed unlink must not fail an export.
+    nonisolated static func sweepStaleExportDirectories(in root: URL, keeping keep: URL) {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let newestFirst = entries.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return lhsDate > rhsDate
+        }
+
+        let keepPath = keep.standardizedFileURL.path
+        for (index, entry) in newestFirst.enumerated() {
+            if index < maxRetainedExportDirectories || entry.standardizedFileURL.path == keepPath {
+                continue
+            }
+            try? fileManager.removeItem(at: entry)
         }
     }
 }
