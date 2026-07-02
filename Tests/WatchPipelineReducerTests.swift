@@ -49,8 +49,16 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         ))
 
         XCTAssertEqual(summary.pipelineRows, [
-            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: "3 · \(relative)"),
-            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSending, value: "1 · \(relative)"),
+            WatchSourceDetailRow(
+                label: SourceVocabulary.watchPipelineSaved,
+                value: "3",
+                detail: SourceVocabulary.watchPipelineStaleAsOf(relative)
+            ),
+            WatchSourceDetailRow(
+                label: SourceVocabulary.watchPipelineSending,
+                value: "1",
+                detail: SourceVocabulary.watchPipelineStaleAsOf(relative)
+            ),
             WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "5"),
             WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "2"),
             WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "3"),
@@ -130,7 +138,12 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         ))
 
         XCTAssertEqual(atBoundary.pipelineRows[0].value, "1")
-        XCTAssertTrue(justPastBoundary.pipelineRows[0].value.hasPrefix("1 · "))
+        XCTAssertNil(atBoundary.pipelineRows[0].detail)
+        XCTAssertEqual(justPastBoundary.pipelineRows[0].value, "1")
+        XCTAssertEqual(
+            justPastBoundary.pipelineRows[0].detail,
+            SourceVocabulary.watchPipelineStaleAsOf(Self.relativeText(secondsAgo: 91))
+        )
         XCTAssertEqual(justPastBoundary.pipelineRows[2].value, "0")
     }
 
@@ -268,6 +281,24 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         ))
 
         XCTAssertEqual(summary.stuck, .orphan)
+        XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))
+    }
+
+    func testDiagnosticsExportIncludesStaleWatchDetailAndStuckReason() {
+        let now = Self.now
+        let secondsAgo: TimeInterval = 120
+        let relative = Self.relativeText(secondsAgo: secondsAgo)
+        let summary = WatchPipelineReducer.reduce(Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 3, asOf: now.addingTimeInterval(-secondsAgo)),
+            oldestNonTerminalReceivedAt: now.addingTimeInterval(-1_800)
+        ))
+
+        XCTAssertTrue(
+            summary.diagnosticsExportText.contains(
+                "\(SourceVocabulary.watchPipelineSaved): 3 (\(SourceVocabulary.watchPipelineStaleAsOf(relative)))"
+            )
+        )
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))
     }
 

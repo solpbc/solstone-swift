@@ -205,9 +205,26 @@ private extension WatchSourceDetailView {
 
     var watchBlock: some View {
         let summary = self.summary
-        return VStack(alignment: .leading, spacing: 10) {
-            ForEach(summary.pipelineRows) { row in
-                LabeledContent(row.label, value: row.value)
+        let groups = WatchSourceDetailPresentation.pipelineGroups(summary.pipelineRows)
+        return VStack(alignment: .leading, spacing: 14) {
+            ForEach(groups, id: \.label) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(group.label)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(group.rows) { row in
+                        LabeledContent(row.label) {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(row.value)
+                                if let detail = row.detail {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
             }
             self.stuckNoticeBlock(summary.stuck)
         }
@@ -275,9 +292,22 @@ private extension WatchSourceDetailView {
     @ViewBuilder
     func stuckNoticeBlock(_ stuck: WatchPipelineStuck) -> some View {
         if let notice = WatchSourceDetailPresentation.stuckNotice(for: stuck) {
-            Label(notice.reason, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(Color.solOrange)
-                .accessibilityIdentifier("watch.pipelineStuckNotice")
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Color.solOrange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(notice.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.orangeInk)
+                    Text(notice.reason)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.orangeInk)
+                    Text(notice.nextStep)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("watch.pipelineStuckNotice")
         }
     }
 

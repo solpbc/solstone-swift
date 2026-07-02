@@ -106,21 +106,17 @@ private extension WatchPipelineReducer {
         now: Date
     ) -> [WatchSourceDetailRow] {
         [
-            WatchSourceDetailRow(
+            self.pipelineRow(
                 label: SourceVocabulary.watchPipelineSaved,
-                value: self.pipelineValue(
-                    context: context,
-                    count: context?.queuedCount ?? 0,
-                    now: now
-                )
+                context: context,
+                count: context?.queuedCount ?? 0,
+                now: now
             ),
-            WatchSourceDetailRow(
+            self.pipelineRow(
                 label: SourceVocabulary.watchPipelineSending,
-                value: self.pipelineValue(
-                    context: context,
-                    count: context?.transferringCount ?? 0,
-                    now: now
-                )
+                context: context,
+                count: context?.transferringCount ?? 0,
+                now: now
             ),
             WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "\(summary.received)"),
             WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(summary.waiting)"),
@@ -152,7 +148,12 @@ private extension WatchPipelineReducer {
         stuck: WatchPipelineStuck
     ) -> String {
         let rows = primaryRows + diagnosticsRows
-        var lines = [SourceVocabulary.watchDiagnosticsExportTitle] + rows.map { "\($0.label): \($0.value)" }
+        var lines = [SourceVocabulary.watchDiagnosticsExportTitle] + rows.map { row in
+            if let detail = row.detail {
+                return "\(row.label): \(row.value) (\(detail))"
+            }
+            return "\(row.label): \(row.value)"
+        }
         if let reason = stuck.reason {
             lines.append(reason)
         }
@@ -248,20 +249,25 @@ private extension WatchPipelineReducer {
         return value
     }
 
-    nonisolated static func pipelineValue(
+    nonisolated static func pipelineRow(
+        label: String,
         context: WatchStatusContext?,
         count: Int,
         now: Date
-    ) -> String {
+    ) -> WatchSourceDetailRow {
         guard let context else {
-            return SourceVocabulary.watchPipelineUnknown
+            return WatchSourceDetailRow(label: label, value: SourceVocabulary.watchPipelineUnknown)
         }
         let safeCount = max(0, count)
         let secondsAgo = self.age(of: context.asOf, now: now) ?? 0
         guard secondsAgo > self.watchClaimFreshnessWindow else {
-            return "\(safeCount)"
+            return WatchSourceDetailRow(label: label, value: "\(safeCount)")
         }
-        return "\(safeCount) · \(self.relativeText(secondsAgo: secondsAgo))"
+        return WatchSourceDetailRow(
+            label: label,
+            value: "\(safeCount)",
+            detail: SourceVocabulary.watchPipelineStaleAsOf(self.relativeText(secondsAgo: secondsAgo))
+        )
     }
 
     nonisolated static func relativeText(secondsAgo: TimeInterval) -> String {

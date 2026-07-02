@@ -135,9 +135,15 @@ nonisolated enum SourceVocabulary {
     static let watchPipelineSaved = "saved on your watch"
     static let watchPipelineUnknown = "—"
     static let watchPipelineHandedOff = "handed to your iphone"
-    static let watchPipelineRelayStuckReason = "your watch has segments saved but nothing has arrived on your iphone for a while"
-    static let watchPipelineHandoffStuckReason = "segments are waiting to reach your journal"
-    static let watchPipelineOrphanStuckReason = "some segments stalled and may need your watch to send them again"
+    static let watchPipelineRelayStuckReason = "your watch has segments saved, but this iphone has not received anything for a while."
+    static let watchPipelineHandoffStuckReason = "segments are on this iphone and waiting to reach your journal."
+    static let watchPipelineOrphanStuckReason = "some segments stalled before they reached your journal."
+    static let watchPipelineReportedGroupLabel = "reported by your watch"
+    static let watchPipelineKnownGroupLabel = "known on this iphone"
+    static let watchStuckNoticeTitle = "sync needs attention"
+    static let watchPipelineRelayStuckNextStep = "keep your watch near this iphone. open solstone on your watch if this does not move."
+    static let watchPipelineHandoffStuckNextStep = "keep solstone open here while your journal catches up."
+    static let watchPipelineOrphanStuckNextStep = "open solstone on your watch and keep it near this iphone so it can send them again."
     static let watchWaitingForPhone = "waiting for your iphone"
     static let watchLinkConnected = "phone link: in range"
     static let watchLinkNotConnected = "phone link: out of range"
@@ -187,6 +193,10 @@ nonisolated enum SourceVocabulary {
 
     static func trustLine(isPaired: Bool) -> String {
         isPaired ? Self.trustLineConfigured : Self.trustLineUnpaired
+    }
+
+    static func watchPipelineStaleAsOf(_ relative: String) -> String {
+        "as of \(relative)"
     }
 
     static func watchSavedOnWatchCount(_ n: Int) -> String {

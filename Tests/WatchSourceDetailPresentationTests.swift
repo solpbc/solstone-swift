@@ -30,16 +30,47 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertFalse(Mirror(reflecting: affordance).children.contains { $0.label == "action" })
     }
 
-    func testStuckNoticeReturnsReasonOnlyWhenStuck() throws {
+    func testStuckNoticeMapsCopyWhenStuck() throws {
         XCTAssertNil(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.none))
 
         let relay = try XCTUnwrap(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.relay))
         let handoff = try XCTUnwrap(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.handoff))
         let orphan = try XCTUnwrap(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.orphan))
 
+        XCTAssertEqual(relay.title, SourceVocabulary.watchStuckNoticeTitle)
         XCTAssertEqual(relay.reason, SourceVocabulary.watchPipelineRelayStuckReason)
+        XCTAssertEqual(relay.nextStep, SourceVocabulary.watchPipelineRelayStuckNextStep)
+        XCTAssertEqual(handoff.title, SourceVocabulary.watchStuckNoticeTitle)
         XCTAssertEqual(handoff.reason, SourceVocabulary.watchPipelineHandoffStuckReason)
+        XCTAssertEqual(handoff.nextStep, SourceVocabulary.watchPipelineHandoffStuckNextStep)
+        XCTAssertEqual(orphan.title, SourceVocabulary.watchStuckNoticeTitle)
         XCTAssertEqual(orphan.reason, SourceVocabulary.watchPipelineOrphanStuckReason)
+        XCTAssertEqual(orphan.nextStep, SourceVocabulary.watchPipelineOrphanStuckNextStep)
+    }
+
+    func testPipelineGroupsSplitWatchReportedAndPhoneKnownRows() {
+        let rows = [
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: "3"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSending, value: "1"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "5"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "2"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "3"),
+        ]
+
+        let groups = WatchSourceDetailPresentation.pipelineGroups(rows)
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].label, SourceVocabulary.watchPipelineReportedGroupLabel)
+        XCTAssertEqual(groups[0].rows.map(\.label), [
+            SourceVocabulary.watchPipelineSaved,
+            SourceVocabulary.watchPipelineSending,
+        ])
+        XCTAssertEqual(groups[1].label, SourceVocabulary.watchPipelineKnownGroupLabel)
+        XCTAssertEqual(groups[1].rows.map(\.label), [
+            SourceVocabulary.watchReceivedLabel,
+            SourceVocabulary.watchNotYetInJournalLabel,
+            SourceVocabulary.watchHandedToJournalLabel,
+        ])
     }
 
     func testDiagnosticsExportValueReflectsSummaryTextAndFilename() {

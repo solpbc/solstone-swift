@@ -334,15 +334,30 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchPipelineUnknown, "—")
         XCTAssertEqual(
             SourceVocabulary.watchPipelineRelayStuckReason,
-            "your watch has segments saved but nothing has arrived on your iphone for a while"
+            "your watch has segments saved, but this iphone has not received anything for a while."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineHandoffStuckReason,
-            "segments are waiting to reach your journal"
+            "segments are on this iphone and waiting to reach your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineOrphanStuckReason,
-            "some segments stalled and may need your watch to send them again"
+            "some segments stalled before they reached your journal."
+        )
+        XCTAssertEqual(SourceVocabulary.watchPipelineReportedGroupLabel, "reported by your watch")
+        XCTAssertEqual(SourceVocabulary.watchPipelineKnownGroupLabel, "known on this iphone")
+        XCTAssertEqual(SourceVocabulary.watchStuckNoticeTitle, "sync needs attention")
+        XCTAssertEqual(
+            SourceVocabulary.watchPipelineRelayStuckNextStep,
+            "keep your watch near this iphone. open solstone on your watch if this does not move."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.watchPipelineHandoffStuckNextStep,
+            "keep solstone open here while your journal catches up."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.watchPipelineOrphanStuckNextStep,
+            "open solstone on your watch and keep it near this iphone so it can send them again."
         )
         XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
         XCTAssertEqual(SourceVocabulary.watchConnectedNowSubtext, "your watch is connected right now")
@@ -537,6 +552,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchPipelineRelayStuckReason,
             SourceVocabulary.watchPipelineHandoffStuckReason,
             SourceVocabulary.watchPipelineOrphanStuckReason,
+            SourceVocabulary.watchPipelineReportedGroupLabel,
+            SourceVocabulary.watchPipelineKnownGroupLabel,
+            SourceVocabulary.watchStuckNoticeTitle,
+            SourceVocabulary.watchPipelineRelayStuckNextStep,
+            SourceVocabulary.watchPipelineHandoffStuckNextStep,
+            SourceVocabulary.watchPipelineOrphanStuckNextStep,
+            SourceVocabulary.watchPipelineStaleAsOf("1m ago"),
             SourceVocabulary.watchNoContextSubtext,
             SourceVocabulary.watchReceivingSubtext,
             SourceVocabulary.watchIdleSubtext,

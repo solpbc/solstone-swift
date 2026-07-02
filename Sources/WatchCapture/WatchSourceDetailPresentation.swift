@@ -16,16 +16,28 @@ nonisolated struct WatchInstallAffordance: Equatable, Sendable {
 }
 
 nonisolated struct WatchStuckNotice: Equatable, Sendable {
+    let title: String
     let reason: String
+    let nextStep: String
 }
 
 nonisolated struct WatchSourceDetailRow: Identifiable, Equatable, Sendable {
     let label: String
     let value: String
+    let detail: String?
 
-    var id: String {
-        self.label
+    init(label: String, value: String, detail: String? = nil) {
+        self.label = label
+        self.value = value
+        self.detail = detail
     }
+
+    var id: String { self.label }
+}
+
+nonisolated struct WatchPipelineRowGroup: Equatable, Sendable {
+    let label: String
+    let rows: [WatchSourceDetailRow]
 }
 
 nonisolated enum WatchSourceDetailPresentation {
@@ -39,10 +51,28 @@ nonisolated enum WatchSourceDetailPresentation {
         )
     }
 
+    static func pipelineGroups(_ rows: [WatchSourceDetailRow]) -> [WatchPipelineRowGroup] {
+        [
+            WatchPipelineRowGroup(label: SourceVocabulary.watchPipelineReportedGroupLabel, rows: Array(rows.prefix(2))),
+            WatchPipelineRowGroup(label: SourceVocabulary.watchPipelineKnownGroupLabel, rows: Array(rows.dropFirst(2)))
+        ]
+    }
+
     static func stuckNotice(for stuck: WatchPipelineStuck) -> WatchStuckNotice? {
         guard let reason = stuck.reason else {
             return nil
         }
-        return WatchStuckNotice(reason: reason)
+        let nextStep: String
+        switch stuck {
+        case .none:
+            return nil
+        case .relay:
+            nextStep = SourceVocabulary.watchPipelineRelayStuckNextStep
+        case .handoff:
+            nextStep = SourceVocabulary.watchPipelineHandoffStuckNextStep
+        case .orphan:
+            nextStep = SourceVocabulary.watchPipelineOrphanStuckNextStep
+        }
+        return WatchStuckNotice(title: SourceVocabulary.watchStuckNoticeTitle, reason: reason, nextStep: nextStep)
     }
 }
