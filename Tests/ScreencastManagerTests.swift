@@ -124,6 +124,27 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testFinalizedScreenDurationIsCeilingClampedWithoutChangingStopTime() async throws {
+        let log = ScreencastCallLog()
+        let endedAt = ScreencastFixtures.start.addingTimeInterval(450)
+        let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast], callLog: log)
+        let uploader = FakeScreencastUploader(callLog: log)
+        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+        try self.write(
+            ScreencastFixtures.runtime(state: .finalized, segmentID: ScreencastFixtures.segmentID, lastSeenAt: endedAt),
+            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
+        )
+        try self.write(ScreencastFixtures.handoff(), relativePath: MobileSegmentScreencastPaths.handoffRelativePath())
+        try self.writeScreenFile(segmentID: ScreencastFixtures.segmentID)
+
+        await manager.reconcileScreencast(reason: .darwinNotification)
+
+        XCTAssertEqual(uploader.finalizedDurationsBySegmentID[ScreencastFixtures.segmentID], 300)
+        XCTAssertEqual(engine.stoppedAt, [endedAt])
+        XCTAssertEqual(log.entries, ["recordFinalized", "stopBoundary"])
+    }
+
+    @MainActor
     func testManagerPublishesValidLeaseWhileActive() async throws {
         let engine = FakeScreencastEngine(
             handoff: ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast])

@@ -407,7 +407,8 @@ final class MobileSegmentUploader {
         do {
             var manifest = try self.store.readManifest(in: directory)
             manifest.endedAt = endedAt
-            manifest.durationS = max(0, endedAt.timeIntervalSince(manifest.startedAt))
+            let audioResolved = manifest.resolution(for: .audio).durationS
+            manifest.durationS = audioResolved ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
             manifest.day = Self.dayString(for: manifest.startedAt)
             manifest.segment = ChunkSidecar.segmentString(for: manifest.startedAt, durationSeconds: manifest.durationS ?? 0)
             manifest.updatedAt = endedAt
@@ -425,7 +426,10 @@ final class MobileSegmentUploader {
                             bytes: self.store.fileSize(at: screenURL),
                             startedAt: manifest.startedAt,
                             endedAt: endedAt,
-                            durationS: max(0, endedAt.timeIntervalSince(manifest.startedAt))
+                            durationS: MobileSegmentDuration.bounded(
+                                container: await MobileSegmentDuration.probeContainerDuration(at: screenURL),
+                                elapsed: endedAt.timeIntervalSince(manifest.startedAt)
+                            )
                         )
                         try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                         manifest = try self.store.readManifest(in: directory)
@@ -1457,7 +1461,10 @@ private extension MobileSegmentUploader {
                             bytes: self.store.fileSize(at: audioURL),
                             startedAt: manifest.startedAt,
                             endedAt: now,
-                            durationS: max(0, now.timeIntervalSince(manifest.startedAt)),
+                            durationS: MobileSegmentDuration.bounded(
+                                container: await MobileSegmentDuration.probeContainerDuration(at: audioURL),
+                                elapsed: now.timeIntervalSince(manifest.startedAt)
+                            ),
                             mode: resolution.mode
                         )
                         try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
@@ -1509,7 +1516,10 @@ private extension MobileSegmentUploader {
                             bytes: self.store.fileSize(at: screenURL),
                             startedAt: manifest.startedAt,
                             endedAt: now,
-                            durationS: max(0, now.timeIntervalSince(manifest.startedAt))
+                            durationS: MobileSegmentDuration.bounded(
+                                container: await MobileSegmentDuration.probeContainerDuration(at: screenURL),
+                                elapsed: now.timeIntervalSince(manifest.startedAt)
+                            )
                         )
                         try self.store.writeOutcome(finalized, source: .screencast, manifest: &manifest, in: directory, now: now)
                     } else {

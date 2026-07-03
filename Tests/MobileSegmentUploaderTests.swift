@@ -76,6 +76,30 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual(manifest.screencast.state, .notDeclared)
     }
 
+    func testFinalizeConsumesRecorderAudioDurationWithoutCeilingClamp() async throws {
+        let harness = self.makeHarness(connected: false)
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(600)
+        let segmentID = try harness.uploader.openSegment(sources: [.audio], startedAt: startedAt, sourceSetVersion: 1)
+        let audioURL = harness.uploader.activeAudioURL(segmentID: segmentID)
+        try Data("live-audio".utf8).write(to: audioURL, options: .atomic)
+        try harness.uploader.recordAudioFinalized(
+            segmentID: segmentID,
+            finalized: ObserverRecordedChunk(url: audioURL, duration: 360),
+            startedAt: startedAt,
+            endedAt: endedAt,
+            mode: .meeting,
+            minimumDuration: 0.1
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        let manifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID))
+        XCTAssertEqual(manifest.audio.durationS, 360)
+        XCTAssertEqual(manifest.durationS, 360)
+        XCTAssertEqual(manifest.segment, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 360))
+    }
+
     func testPublicScreencastOnlyFinalizeUploadsScreenPartAndSourceMetadata() async throws {
         let author = self.makeHarness(connected: false)
         let segmentID = try await self.createPublicFinalizedSegment(uploader: author.uploader, sources: [.screencast])

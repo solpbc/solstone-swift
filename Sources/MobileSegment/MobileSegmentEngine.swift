@@ -116,7 +116,7 @@ final class MobileSegmentEngine {
                 sourceSet: sourceSet,
                 notBefore: rolloverAt,
                 startsAt: rolloverAt,
-                rolloverAfter: rolloverAt.addingTimeInterval(300),
+                rolloverAfter: rolloverAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling),
                 expiresAt: expiresAt,
                 issuedAt: self.clock.now(),
                 segmentDirectoryRelativePath: existing.segmentDirectoryRelativePath,
@@ -136,7 +136,7 @@ final class MobileSegmentEngine {
             sourceSet: sourceSet,
             notBefore: rolloverAt,
             startsAt: rolloverAt,
-            rolloverAfter: rolloverAt.addingTimeInterval(300),
+            rolloverAfter: rolloverAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling),
             expiresAt: expiresAt,
             issuedAt: self.clock.now(),
             segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID),
@@ -747,7 +747,7 @@ private extension MobileSegmentEngine {
         self.timerTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.clock.sleep(for: .seconds(300))
+                try await self.clock.sleep(for: .seconds(MobileSegmentDuration.rotationCeiling))
             } catch {
                 return
             }
@@ -896,7 +896,7 @@ private extension MobileSegmentEngine {
             screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
             screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),
             desiredState: .writing,
-            rolloverAfter: startedAt.addingTimeInterval(300),
+            rolloverAfter: startedAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling),
             lastHostUpdateAt: self.clock.now()
         )
     }

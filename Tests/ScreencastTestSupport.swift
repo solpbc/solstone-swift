@@ -21,6 +21,7 @@ final class FakeScreencastEngine: ScreencastEngineDriving {
     var nextHandoff: MobileSegmentScreencastHandoffRecord
     var preparedLeases: [MobileSegmentScreencastContinuationLease] = []
     var adoptedLeases: [MobileSegmentScreencastContinuationLease] = []
+    var stoppedAt: [Date] = []
 
     init(
         sources: Set<MobileSegmentSource> = [],
@@ -40,6 +41,7 @@ final class FakeScreencastEngine: ScreencastEngineDriving {
 
     func stopScreencast(at endedAt: Date) async throws {
         self.callLog.append("stopBoundary")
+        self.stoppedAt.append(endedAt)
         self.currentScreencastSources.remove(.screencast)
     }
 
@@ -92,6 +94,7 @@ final class FakeScreencastEngine: ScreencastEngineDriving {
 final class FakeScreencastUploader: ScreencastFacetResolving {
     let callLog: ScreencastCallLog
     var finalized: [UUID] = []
+    var finalizedDurationsBySegmentID: [UUID: TimeInterval] = [:]
     var noArtifacts: [(segmentID: UUID, reason: String)] = []
     var failures: [(segmentID: UUID, reason: String)] = []
     var resolutions: [UUID: MobileSegmentSourceResolution] = [:]
@@ -109,6 +112,9 @@ final class FakeScreencastUploader: ScreencastFacetResolving {
     ) throws {
         self.callLog.append("recordFinalized")
         self.finalized.append(segmentID)
+        if let durationS {
+            self.finalizedDurationsBySegmentID[segmentID] = durationS
+        }
     }
 
     func recordScreencastNoArtifact(
@@ -179,14 +185,15 @@ nonisolated enum ScreencastFixtures {
         revision: Int64 = 1,
         state: MobileSegmentScreencastRuntimeState = .broadcastStarted,
         segmentID: UUID? = nil,
-        acceptedFrameCount: Int = 1
+        acceptedFrameCount: Int = 1,
+        lastSeenAt: Date = Self.start.addingTimeInterval(5)
     ) -> MobileSegmentScreencastRuntimeRecord {
         MobileSegmentScreencastRuntimeRecord(
             revision: revision,
             sessionID: Self.sessionID,
             state: state,
             startedAt: Self.start,
-            lastSeenAt: Self.start.addingTimeInterval(5),
+            lastSeenAt: lastSeenAt,
             currentSegmentID: segmentID,
             currentHandoffRevision: nil,
             acceptedFrameCount: acceptedFrameCount,

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
 import Foundation
 import os
 import XCTest
@@ -64,6 +65,148 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(try harness.store.list(.active).count, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(noArtifact.uuidString).json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(unresolvedNoMarker.uuidString).json").path))
+    }
+
+    func testResumeReconcileAudioUsesReadableContainerDuration() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-3_600)
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+        try self.writeReadableAudio(at: harness.store.audioURL(in: directory), seconds: 12)
+
+        await harness.uploader.resumeFromDisk()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.audio.durationS ?? 0, 12, accuracy: 0.25)
+        XCTAssertEqual(manifest.durationS ?? 0, 12, accuracy: 0.25)
+        XCTAssertEqual(manifest.segment, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 12))
+    }
+
+    func testResumeReconcileAudioClampsReadableContainerOverCeiling() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-3_600)
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+        try self.writeReadableAudio(at: harness.store.audioURL(in: directory), seconds: 301)
+
+        await harness.uploader.resumeFromDisk()
+
+        let manifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID))
+        XCTAssertEqual(manifest.audio.durationS, 300)
+        XCTAssertEqual(manifest.durationS, 300)
+        XCTAssertEqual(manifest.segment, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 300))
+    }
+
+    func testResumeReconcileUnreadableAudioBoundsElapsedFallback() async throws {
+        let harness = self.makeHarness(connected: false)
+        let hoursOldID = UUID()
+        let ninetySecondID = UUID()
+        let futureID = UUID()
+        let hoursOld = self.clock.now().addingTimeInterval(-3_600)
+        let ninetySecondsOld = self.clock.now().addingTimeInterval(-90)
+        let future = self.clock.now().addingTimeInterval(10)
+        let hoursDirectory = try self.writeActiveSegment(segmentID: hoursOldID, store: harness.store, sources: [.audio], startedAt: hoursOld)
+        let ninetyDirectory = try self.writeActiveSegment(segmentID: ninetySecondID, store: harness.store, sources: [.audio], startedAt: ninetySecondsOld)
+        let futureDirectory = try self.writeActiveSegment(segmentID: futureID, store: harness.store, sources: [.audio], startedAt: future)
+        try Data("audio-\(hoursOldID.uuidString)".utf8).write(to: harness.store.audioURL(in: hoursDirectory), options: .atomic)
+        try Data("audio-\(ninetySecondID.uuidString)".utf8).write(to: harness.store.audioURL(in: ninetyDirectory), options: .atomic)
+        try Data("audio-\(futureID.uuidString)".utf8).write(to: harness.store.audioURL(in: futureDirectory), options: .atomic)
+
+        await harness.uploader.resumeFromDisk()
+
+        let hoursManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: hoursOldID))
+        let ninetyManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: ninetySecondID))
+        let futureManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: futureID))
+        XCTAssertEqual(hoursManifest.audio.durationS, 300)
+        XCTAssertEqual(hoursManifest.durationS, 300)
+        XCTAssertEqual(hoursManifest.segment, ChunkSidecar.segmentString(for: hoursOld, durationSeconds: 300))
+        XCTAssertEqual(ninetyManifest.audio.durationS, 90)
+        XCTAssertEqual(ninetyManifest.durationS, 90)
+        XCTAssertEqual(ninetyManifest.segment, ChunkSidecar.segmentString(for: ninetySecondsOld, durationSeconds: 90))
+        XCTAssertEqual(futureManifest.audio.durationS, 1)
+        XCTAssertEqual(futureManifest.durationS, 1)
+        XCTAssertEqual(futureManifest.segment, ChunkSidecar.segmentString(for: future, durationSeconds: 1))
+    }
+
+    func testResumeReconcileUploadedMetadataUsesBoundedSegmentKey() async throws {
+        let harness = self.makeHarness(connected: true)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-3_600)
+        let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
+        try Data("audio-\(segmentID.uuidString)".utf8).write(to: harness.store.audioURL(in: directory), options: .atomic)
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+        try await self.waitFor("bounded metadata upload") {
+            MobileSegmentReconcileURLProtocol.callCount == 1
+        }
+
+        let body = try XCTUnwrap(MobileSegmentReconcileURLProtocol.capturedBodies.first)
+        let meta = try self.multipartMeta(in: body)
+        XCTAssertEqual(meta["segment"] as? String, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 300))
+        XCTAssertEqual(meta["duration_s"] as? Double, 300)
+    }
+
+    func testResumeReconcileScreencastBoundsElapsedFallback() async throws {
+        let harness = self.makeHarness(connected: false)
+        let hoursOldID = UUID()
+        let futureID = UUID()
+        let hoursOld = self.clock.now().addingTimeInterval(-3_600)
+        let future = self.clock.now().addingTimeInterval(10)
+        let hoursDirectory = try self.writeActiveSegment(segmentID: hoursOldID, store: harness.store, sources: [.screencast], startedAt: hoursOld)
+        let futureDirectory = try self.writeActiveSegment(segmentID: futureID, store: harness.store, sources: [.screencast], startedAt: future)
+        try Data("screen-\(hoursOldID.uuidString)".utf8).write(to: harness.store.screenURL(in: hoursDirectory), options: .atomic)
+        try Data("screen-\(futureID.uuidString)".utf8).write(to: harness.store.screenURL(in: futureDirectory), options: .atomic)
+
+        await harness.uploader.resumeFromDisk()
+
+        let hoursManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: hoursOldID))
+        let futureManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: futureID))
+        XCTAssertEqual(hoursManifest.resolution(for: .screencast).durationS, 300)
+        XCTAssertEqual(futureManifest.resolution(for: .screencast).durationS, 1)
+    }
+
+    func testFinalizeActiveSegmentPrefersPersistedAudioDurationForSegmentName() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-3_600)
+        let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
+        var manifest = try harness.store.readManifest(in: directory)
+        let resolution = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: "audio.m4a",
+            bytes: 42,
+            startedAt: startedAt,
+            endedAt: self.clock.now(),
+            durationS: 42,
+            mode: .meeting
+        )
+        try harness.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: self.clock.now())
+        try Data(repeating: 0, count: 42).write(to: harness.store.audioURL(in: directory), options: .atomic)
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
+
+        let found = try XCTUnwrap(harness.store.findDirectory(segmentID: segmentID))
+        let finalized = try harness.store.readManifest(in: found.url)
+        XCTAssertEqual(finalized.durationS, 42)
+        XCTAssertEqual(finalized.segment, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 42))
+        XCTAssertEqual(finalized.audio.durationS, 42)
     }
 
     func testResumeReconcilesUnresolvedScreencastWithScreenFileToPendingBundle() async throws {
@@ -503,6 +646,40 @@ private extension MobileSegmentReconcileTests {
         )
     }
 
+    func writeActiveSegment(
+        segmentID: UUID,
+        store: MobileSegmentStore,
+        sources: Set<MobileSegmentSource>,
+        startedAt: Date
+    ) throws -> URL {
+        let manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: sources,
+            activeSourceSetVersion: 1
+        )
+        return try store.createActive(manifest: manifest)
+    }
+
+    func writeReadableAudio(at url: URL, seconds: TimeInterval, sampleRate: Double = 16_000) throws {
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 32_000,
+        ]
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: settings)
+            let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+            let frameCount = AVAudioFrameCount((sampleRate * seconds).rounded())
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+            buffer.frameLength = frameCount
+            try file.write(from: buffer)
+        }
+    }
+
     func writeActiveAudio(segmentID: UUID, store: MobileSegmentStore, state: MobileSegmentResolutionState, includeFile: Bool) throws {
         let startedAt = self.clock.now().addingTimeInterval(-300)
         var manifest = MobileSegmentManifest(
@@ -620,6 +797,21 @@ private extension MobileSegmentReconcileTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(label)")
+    }
+
+    func multipartValue(named name: String, in body: Data) -> String? {
+        let string = String(decoding: body, as: UTF8.self)
+        guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),
+              let separator = string[headerRange.upperBound...].range(of: "\r\n\r\n")
+        else { return nil }
+        let valueStart = separator.upperBound
+        guard let valueEnd = string[valueStart...].range(of: "\r\n--")?.lowerBound else { return nil }
+        return String(string[valueStart..<valueEnd])
+    }
+
+    func multipartMeta(in body: Data) throws -> [String: Any] {
+        let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
     }
 }
 

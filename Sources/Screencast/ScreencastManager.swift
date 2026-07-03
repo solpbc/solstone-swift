@@ -809,7 +809,7 @@ private extension ScreencastManager {
                     artifactURL: artifactURL,
                     startedAt: startedAt,
                     endedAt: endedAt,
-                    durationS: endedAt.timeIntervalSince(startedAt)
+                    durationS: min(endedAt.timeIntervalSince(startedAt), MobileSegmentDuration.rotationCeiling)
                 )
             case .recordNoArtifact(let segmentID, let reason):
                 let startedAt = currentHandoff?.startedAt ?? runtime?.startedAt ?? self.clock.now()
