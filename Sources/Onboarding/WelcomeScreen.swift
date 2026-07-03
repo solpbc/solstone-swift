@@ -12,8 +12,8 @@ struct WelcomeScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "welcome to solstone",
-            subtitle: "solstone experiences your day alongside you and syncs it to your journal — private, and yours.",
+            title: "this is sol, part of solstone.",
+            subtitle: "sol lives on your devices, experiences your day with you, and keeps it all in your journal. your journal is always private, only yours.",
             showsBrandMark: true,
             ground: Color.solCream,
             alignment: .center
