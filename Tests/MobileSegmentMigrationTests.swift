@@ -112,6 +112,44 @@ final class MobileSegmentMigrationTests: XCTestCase {
         XCTAssertEqual(preserved.audio.state, .notDeclared)
     }
 
+    func testLegacyMobileMigrationTripsMaintenanceCheckpointsForLargeBacklog() async throws {
+        let cooperator = MaintenanceCooperator(chunkSize: 2)
+        let harness = self.makeHarness(cooperator: cooperator)
+        let observerRoot = self.tempDirectory.appendingPathComponent("ObserverCheckpoint", isDirectory: true)
+        let locationRoot = self.tempDirectory.appendingPathComponent("LocationCheckpoint", isDirectory: true)
+        let sessionID = UUID()
+        for index in 0..<5 {
+            _ = try self.writeLegacyAudio(root: observerRoot, sessionID: sessionID, state: "pending", chunkID: "audio-\(index)")
+            _ = try self.writeLegacyLocation(root: locationRoot, state: "pending", fileID: "20260628-09000\(index)_60")
+        }
+
+        await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: locationRoot)
+
+        XCTAssertGreaterThan(cooperator.checkpointCount, 0)
+    }
+
+    func testCancelledLegacyMobileMigrationLeavesRemainingLegacyItemRetryable() async throws {
+        let cooperator = MaintenanceCooperator(chunkSize: 1)
+        let harness = self.makeHarness(cooperator: cooperator)
+        let observerRoot = self.tempDirectory.appendingPathComponent("ObserverCancel", isDirectory: true)
+        let locationRoot = self.tempDirectory.appendingPathComponent("LocationCancel", isDirectory: true)
+        let sessionID = UUID()
+        let remainingAudio = try self.writeLegacyAudio(root: observerRoot, sessionID: sessionID, state: "pending", chunkID: "remaining-audio")
+        _ = try self.writeLegacyAudio(root: observerRoot, sessionID: sessionID, state: "pending", chunkID: "other-audio")
+        _ = try self.writeLegacyLocation(root: locationRoot, state: "pending", fileID: "20260628-090000_60")
+
+        let migration = Task { @MainActor in
+            await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: locationRoot)
+        }
+        while cooperator.checkpointCount == 0 {
+            await Task.yield()
+        }
+        migration.cancel()
+        await migration.value
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: remainingAudio.path))
+    }
+
     func testAppGroupRootMigrationCopiesBundlesAndTombstonesWithDistinctFlag() throws {
         let legacyRoot = self.tempDirectory.appendingPathComponent("LegacyMobileSegment", isDirectory: true)
         let appGroupRoot = self.tempDirectory.appendingPathComponent("AppGroup", isDirectory: true)
@@ -203,7 +241,7 @@ private extension MobileSegmentMigrationTests {
         let store: MobileSegmentStore
     }
 
-    func makeHarness() -> Harness {
+    func makeHarness(cooperator: MaintenanceCooperator = MaintenanceCooperator()) -> Harness {
         let transport = ObserverUploader(
             cacheRootURL: self.tempDirectory.appendingPathComponent("transport", isDirectory: true),
             isJournalConfigured: { false },
@@ -212,7 +250,7 @@ private extension MobileSegmentMigrationTests {
         )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         return Harness(
-            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock),
+            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock, cooperator: cooperator),
             store: store
         )
     }

@@ -42,6 +42,7 @@ final class MobileSegmentUploader {
     @ObservationIgnored private let transport: ObserverUploader
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let storageDisabledReason: String?
+    @ObservationIgnored private let cooperator: MaintenanceCooperator
     @ObservationIgnored private var schedulingSegmentIDs: Set<UUID> = []
     @ObservationIgnored private var transportInFlightSegmentIDs: Set<UUID> = []
 
@@ -49,12 +50,14 @@ final class MobileSegmentUploader {
         transport: ObserverUploader,
         store: MobileSegmentStore = MobileSegmentStore(),
         clock: any ObserverClock = SystemObserverClock(),
-        storageDisabledReason: String? = nil
+        storageDisabledReason: String? = nil,
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) {
         self.transport = transport
         self.store = store
         self.clock = clock
         self.storageDisabledReason = storageDisabledReason
+        self.cooperator = cooperator
         if let storageDisabledReason {
             self.lastError = storageDisabledReason
             return
@@ -542,9 +545,20 @@ final class MobileSegmentUploader {
         do {
             try self.store.ensureRoot()
             try await self.reconcileActiveSegments()
+            if Task.isCancelled {
+                self.refreshCounts()
+                return
+            }
             await self.resolveFinalizeFailurePile()
+            if Task.isCancelled {
+                self.refreshCounts()
+                return
+            }
             let pending = try self.store.list(.pending)
             for directory in pending {
+                if Task.isCancelled { break }
+                await self.cooperator.step()
+                if Task.isCancelled { break }
                 guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
                 await self.scheduleUpload(segmentID: segmentID)
             }
@@ -559,6 +573,10 @@ final class MobileSegmentUploader {
     func retryFailed() async {
         guard self.guardStorageAvailable() else { return }
         await self.resolveFinalizeFailurePile()
+        if Task.isCancelled {
+            self.refreshCounts()
+            return
+        }
         let failed: [URL]
         do {
             failed = try self.store.list(.failed)
@@ -571,6 +589,9 @@ final class MobileSegmentUploader {
         }
 
         for directory in failed {
+            if Task.isCancelled { break }
+            await self.cooperator.step()
+            if Task.isCancelled { break }
             guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
             do {
                 var manifest = try self.store.readManifest(in: directory)
@@ -603,6 +624,9 @@ final class MobileSegmentUploader {
         }
 
         for directory in failed {
+            if Task.isCancelled { break }
+            await self.cooperator.step()
+            if Task.isCancelled { break }
             guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
             do {
                 let manifest = try self.store.readManifest(in: directory)
@@ -872,9 +896,11 @@ final class MobileSegmentUploader {
 
         if let observerRoot {
             await self.migrateLegacyObserverItems(root: observerRoot, fileManager: fileManager)
+            guard !Task.isCancelled else { return }
         }
         if let locationRoot {
             await self.migrateLegacyLocationItems(root: locationRoot, fileManager: fileManager)
+            guard !Task.isCancelled else { return }
         }
         await self.resumeFromDisk()
     }
@@ -1005,6 +1031,9 @@ private extension MobileSegmentUploader {
         else { return }
 
         for sessionDirectory in sessions where self.isDirectory(sessionDirectory) {
+            guard !Task.isCancelled else { return }
+            await self.cooperator.step()
+            guard !Task.isCancelled else { return }
             guard UUID(uuidString: sessionDirectory.lastPathComponent) != nil else { continue }
             for legacyState in ["in-progress", "pending", "failed"] {
                 let directory = sessionDirectory.appendingPathComponent(legacyState, isDirectory: true)
@@ -1014,6 +1043,9 @@ private extension MobileSegmentUploader {
                     options: [.skipsHiddenFiles]
                 ) else { continue }
                 for audioURL in entries where audioURL.pathExtension == "m4a" {
+                    guard !Task.isCancelled else { return }
+                    await self.cooperator.step()
+                    guard !Task.isCancelled else { return }
                     do {
                         try self.migrateLegacyAudioItem(audioURL: audioURL, legacyState: legacyState, fileManager: fileManager)
                     } catch {
@@ -1080,6 +1112,9 @@ private extension MobileSegmentUploader {
                 options: [.skipsHiddenFiles]
             ) else { continue }
             for locationURL in entries where locationURL.pathExtension == "jsonl" {
+                guard !Task.isCancelled else { return }
+                await self.cooperator.step()
+                guard !Task.isCancelled else { return }
                 do {
                     try self.migrateLegacyLocationItem(locationURL: locationURL, legacyState: legacyState, fileManager: fileManager)
                 } catch {
@@ -1418,6 +1453,9 @@ private extension MobileSegmentUploader {
         guard self.guardStorageAvailable() else { return }
         let active = try self.store.list(.active)
         for directory in active {
+            guard !Task.isCancelled else { return }
+            await self.cooperator.step()
+            guard !Task.isCancelled else { return }
             guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
             let now = self.clock.now()
             if self.isReservedLeasedScreencastSegment(segmentID: segmentID, now: now) {

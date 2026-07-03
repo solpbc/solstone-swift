@@ -1470,6 +1470,30 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testMigrateLegacySegmentKeysTripsMaintenanceCheckpointsForLargeBacklog() async throws {
+        let cooperator = MaintenanceCooperator(chunkSize: 2)
+        let uploader = self.makeUploader(cooperator: cooperator)
+        let sessionID = UUID()
+        let startedAt = self.localStartedAt104355()
+        for index in 0..<6 {
+            try self.writeLegacyFailedChunk(
+                sessionID: sessionID,
+                chunkID: "legacy-\(index)",
+                segment: "20260623-104355",
+                startedAt: startedAt,
+                durationS: 300.0
+            )
+        }
+
+        let migratedCount = await uploader.migrateLegacySegmentKeys()
+
+        XCTAssertEqual(migratedCount, 6)
+        XCTAssertGreaterThan(cooperator.checkpointCount, 0)
+        let migrated = try self.decodeSidecar(at: self.failedDirectoryURL(sessionID: sessionID).appendingPathComponent("legacy-0.json"))
+        XCTAssertEqual(migrated.segment, "104355_300")
+    }
+
+    @MainActor
     func testSegmentStringHelpersShareCanonicalImplementation() {
         let dates = [
             Date(timeIntervalSince1970: 1_782_216_235),
@@ -2226,7 +2250,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         requeueStabilityPoll: UInt64 = 1,
         requeueStabilityWindow: UInt64 = 2,
         requeueMaxDeferral: UInt64 = 6,
-        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) -> ObserverUploader {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverUploaderURLProtocol.self]
@@ -2247,7 +2272,8 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             requeueStabilityWindow: requeueStabilityWindow,
             requeueMaxDeferral: requeueMaxDeferral,
             sleep: sleep,
-            startPathMonitor: false
+            startPathMonitor: false,
+            cooperator: cooperator
         )
     }
 

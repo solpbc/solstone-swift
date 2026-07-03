@@ -150,6 +150,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - SolstoneShareExtension
+      - Sources/Background/MaintenanceCooperator.swift
       - Sources/ImportQueue/ImportQueue.swift
       - Sources/ThroughputMeter.swift
       - Sources/ImportQueue/ImporterServerURL.swift

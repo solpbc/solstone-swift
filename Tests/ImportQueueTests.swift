@@ -1776,6 +1776,20 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testResumeFromDiskTripsMaintenanceCheckpointsForLargePendingBacklog() async throws {
+        self.installSuccessfulImportHandler()
+        let cooperator = MaintenanceCooperator(chunkSize: 2)
+        let queue = self.makeQueue(cooperator: cooperator)
+        for index in 0..<6 {
+            _ = try self.writeLocalItem(status: "pending", itemID: UUID().uuidString.lowercased(), rawData: Data("raw-\(index)".utf8))
+        }
+
+        await queue.resumeFromDisk()
+
+        XCTAssertGreaterThan(cooperator.checkpointCount, 0)
+    }
+
+    @MainActor
     private func makeQueue(
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
@@ -1787,7 +1801,8 @@ nonisolated final class ImportQueueTests: XCTestCase {
         saveURLBuilder: @escaping @Sendable (Int) -> URL? = { ImporterServerURL.saveURL(localPort: $0) },
         startURLBuilder: @escaping @Sendable (Int) -> URL? = { ImporterServerURL.startURL(localPort: $0) },
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
-        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_713_624_000) }
+        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 1_713_624_000) },
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) -> ImportQueue {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ImportQueueURLProtocol.self]
@@ -1804,7 +1819,8 @@ nonisolated final class ImportQueueTests: XCTestCase {
             maxAttempts: maxAttempts,
             sleep: sleep,
             startPathMonitor: false,
-            now: now
+            now: now,
+            cooperator: cooperator
         )
     }
 

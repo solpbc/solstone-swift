@@ -252,14 +252,17 @@ extension OnThisPhoneUITestSeeder {
     }
 
     static func seedAgedBacklog(roots: Roots, fileManager: FileManager) throws {
+        let baseDate = Date(timeIntervalSince1970: 1_577_836_800)
         for index in 0..<51 {
             let hour = index / 12
             let minute = (index % 12) * 5
-            let fileID = String(format: "20200101-%02d%02d00_300", hour, minute)
-            try Self.writeLocationSegment(
-                root: roots.location,
-                status: "pending",
-                fileID: fileID,
+            try Self.writeMobileSegment(
+                root: roots.mobileSegment,
+                segmentID: UUID(uuidString: String(format: "51000000-0000-0000-0000-%012d", index))!,
+                source: .location,
+                lifecycle: .pending,
+                startedAt: baseDate.addingTimeInterval(TimeInterval((hour * 60 + minute) * 60)),
+                durationS: 300,
                 fixCount: 1,
                 fileManager: fileManager
             )

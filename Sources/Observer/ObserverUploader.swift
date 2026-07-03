@@ -6,7 +6,7 @@ import Network
 import Observation
 import os
 
-private let uploaderLog = Logger(subsystem: "app.solstone.swift", category: "uploader")
+nonisolated private let uploaderLog = Logger(subsystem: "app.solstone.swift", category: "uploader")
 
 nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
     let segment: String
@@ -67,6 +67,11 @@ nonisolated struct ObserverMobileSegmentTransportFailure: Equatable, Sendable {
     let attemptCount: Int
     let stage: String
     let lastAttemptAt: Date?
+}
+
+nonisolated private struct LegacySegmentKeyMigrationResult: Sendable {
+    let count: Int
+    let failure: String?
 }
 
 nonisolated enum ObserverMobileSegmentTransportResult: Equatable, Sendable {
@@ -152,6 +157,7 @@ final class ObserverUploader {
     @ObservationIgnored private let requeueStabilityWindow: UInt64
     @ObservationIgnored private let requeueMaxDeferral: UInt64
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
+    @ObservationIgnored private let cooperator: MaintenanceCooperator
     @ObservationIgnored private let encoder: JSONEncoder
     @ObservationIgnored private let decoder: JSONDecoder
     @ObservationIgnored var onSegmentDelivered: (@MainActor @Sendable (UUID) -> Void)?
@@ -208,7 +214,8 @@ final class ObserverUploader {
         sleep: @escaping @Sendable (UInt64) async -> Void = { delay in
             try? await Task.sleep(for: .seconds(delay))
         },
-        startPathMonitor: Bool = true
+        startPathMonitor: Bool = true,
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) {
         self.fileManager = fileManager
         self.cacheRootURL = cacheRootURL
@@ -229,6 +236,7 @@ final class ObserverUploader {
         self.requeueStabilityWindow = requeueStabilityWindow
         self.requeueMaxDeferral = requeueMaxDeferral
         self.sleep = sleep
+        self.cooperator = cooperator
 
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
@@ -302,6 +310,9 @@ final class ObserverUploader {
             )
 
             for sessionDirectory in sessionDirectories {
+                if Task.isCancelled { break }
+                await self.cooperator.step()
+                if Task.isCancelled { break }
                 guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
                 try self.ensureSessionDirectories(sessionID: sessionID)
                 try await self.resumePendingFiles(sessionID: sessionID)
@@ -413,7 +424,10 @@ final class ObserverUploader {
                 options: [.skipsHiddenFiles]
             )
 
-            for sessionDirectory in sessionDirectories where self.isDirectory(sessionDirectory) {
+            sessionLoop: for sessionDirectory in sessionDirectories where self.isDirectory(sessionDirectory) {
+                if Task.isCancelled { break }
+                await self.cooperator.step()
+                if Task.isCancelled { break }
                 guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
                 let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
                 guard self.fileManager.fileExists(atPath: failedDirectory.path) else { continue }
@@ -427,6 +441,9 @@ final class ObserverUploader {
                     .map { $0.deletingPathExtension().lastPathComponent }
                     .sorted()
                 for chunkID in audioChunkIDs {
+                    if Task.isCancelled { break sessionLoop }
+                    await self.cooperator.step()
+                    if Task.isCancelled { break sessionLoop }
                     let sidecarURL = failedDirectory.appendingPathComponent("\(chunkID).json", isDirectory: false)
                     guard self.fileManager.fileExists(atPath: sidecarURL.path) else { continue }
                     do {
@@ -446,60 +463,21 @@ final class ObserverUploader {
     }
 
     func migrateLegacySegmentKeys() async -> Int {
-        var count = 0
+        let result = await Self.migrateLegacySegmentKeysOffMain(
+            cacheRootURL: self.cacheRootURL,
+            fileManager: self.fileManager,
+            cooperator: self.cooperator
+        )
 
-        do {
-            try self.fileManager.createDirectory(at: self.cacheRootURL, withIntermediateDirectories: true)
-            let sessionDirectories = try self.fileManager.contentsOfDirectory(
-                at: self.cacheRootURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-
-            for sessionDirectory in sessionDirectories where self.isDirectory(sessionDirectory) {
-                guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
-                let failedDirectory = self.failedDirectoryURL(sessionID: sessionID)
-                guard self.fileManager.fileExists(atPath: failedDirectory.path) else { continue }
-                let entries = try self.fileManager.contentsOfDirectory(
-                    at: failedDirectory,
-                    includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]
-                )
-                for url in entries where url.pathExtension == "json" {
-                    do {
-                        let data = try Data(contentsOf: url)
-                        let sidecar = try self.decoder.decode(ChunkSidecar.self, from: data)
-                        if sidecar.segment.wholeMatch(of: /^\d{6}_\d+$/) != nil {
-                            continue
-                        }
-
-                        let migrated = ChunkSidecar(
-                            segment: ChunkSidecar.segmentString(for: sidecar.startedAt, durationSeconds: sidecar.durationS),
-                            day: sidecar.day,
-                            chunkIndex: sidecar.chunkIndex,
-                            startedAt: sidecar.startedAt,
-                            durationS: sidecar.durationS,
-                            sessionID: sidecar.sessionID,
-                            mode: sidecar.mode,
-                            locationJSONL: sidecar.locationJSONL
-                        )
-                        let encoded = try self.encoder.encode(migrated)
-                        try encoded.write(to: url, options: .atomic)
-                        count += 1
-                    } catch {
-                        uploaderLog.error("legacy segment migration skipped \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
-                    }
-                }
-            }
-        } catch {
-            uploaderLog.error("legacy segment migration failed for source \(self.sourceType, privacy: .public): \(String(describing: error), privacy: .public)")
-            return count
+        if let failure = result.failure {
+            uploaderLog.error("legacy segment migration failed for source \(self.sourceType, privacy: .public): \(failure, privacy: .public)")
+            return result.count
         }
 
-        if count > 0 {
-            uploaderLog.info("legacy segment migration: rewrote \(count, privacy: .public) sidecar(s) for source \(self.sourceType, privacy: .public)")
+        if result.count > 0 {
+            uploaderLog.info("legacy segment migration: rewrote \(result.count, privacy: .public) sidecar(s) for source \(self.sourceType, privacy: .public)")
         }
-        return count
+        return result.count
     }
 
     func dropItem(sessionID: UUID, chunkID: String) {
@@ -835,6 +813,74 @@ private extension ObserverUploader {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
+    nonisolated static func migrateLegacySegmentKeysOffMain(
+        cacheRootURL: URL,
+        fileManager: FileManager,
+        cooperator: MaintenanceCooperator
+    ) async -> LegacySegmentKeyMigrationResult {
+        var count = 0
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        do {
+            try fileManager.createDirectory(at: cacheRootURL, withIntermediateDirectories: true)
+            let sessionDirectories = try fileManager.contentsOfDirectory(
+                at: cacheRootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+
+            for sessionDirectory in sessionDirectories where (try? sessionDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                guard !Task.isCancelled else { return LegacySegmentKeyMigrationResult(count: count, failure: nil) }
+                await cooperator.step()
+                guard !Task.isCancelled else { return LegacySegmentKeyMigrationResult(count: count, failure: nil) }
+                guard UUID(uuidString: sessionDirectory.lastPathComponent) != nil else { continue }
+                let failedDirectory = sessionDirectory.appendingPathComponent("failed", isDirectory: true)
+                guard fileManager.fileExists(atPath: failedDirectory.path) else { continue }
+                let entries = try fileManager.contentsOfDirectory(
+                    at: failedDirectory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+                for url in entries where url.pathExtension == "json" {
+                    guard !Task.isCancelled else { return LegacySegmentKeyMigrationResult(count: count, failure: nil) }
+                    await cooperator.step()
+                    guard !Task.isCancelled else { return LegacySegmentKeyMigrationResult(count: count, failure: nil) }
+                    do {
+                        let data = try Data(contentsOf: url)
+                        let sidecar = try decoder.decode(ChunkSidecar.self, from: data)
+                        if sidecar.segment.wholeMatch(of: /^\d{6}_\d+$/) != nil {
+                            continue
+                        }
+
+                        let migrated = ChunkSidecar(
+                            segment: ChunkSidecar.segmentString(for: sidecar.startedAt, durationSeconds: sidecar.durationS),
+                            day: sidecar.day,
+                            chunkIndex: sidecar.chunkIndex,
+                            startedAt: sidecar.startedAt,
+                            durationS: sidecar.durationS,
+                            sessionID: sidecar.sessionID,
+                            mode: sidecar.mode,
+                            locationJSONL: sidecar.locationJSONL
+                        )
+                        let encoded = try encoder.encode(migrated)
+                        try encoded.write(to: url, options: .atomic)
+                        count += 1
+                    } catch {
+                        uploaderLog.error("legacy segment migration skipped \(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
+                }
+            }
+        } catch {
+            return LegacySegmentKeyMigrationResult(count: count, failure: String(describing: error))
+        }
+
+        return LegacySegmentKeyMigrationResult(count: count, failure: nil)
+    }
+
     func startPathMonitor() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
@@ -1082,6 +1128,9 @@ private extension ObserverUploader {
         let chunkIDs = Set(audioByChunkID.keys).union(sidecarByChunkID.keys)
 
         for chunkID in chunkIDs.sorted() {
+            guard !Task.isCancelled else { return }
+            await self.cooperator.step()
+            guard !Task.isCancelled else { return }
             guard let audioURL = audioByChunkID[chunkID],
                   let sidecarURL = sidecarByChunkID[chunkID]
             else {

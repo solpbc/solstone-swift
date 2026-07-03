@@ -341,6 +341,25 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
         XCTAssertEqual(ledger.lifetimeHanded, 1)
     }
+
+    @MainActor
+    func testDrainTripsMaintenanceCheckpointsForLargeStagedBacklog() async throws {
+        WatchDrainURLProtocol.handler = Self.okResponse
+        let stagingRoot = self.stagingRootURL(name: "checkpoint-staging")
+        for _ in 0..<6 {
+            try self.writeStagedSegment(
+                stagingRoot: stagingRoot,
+                manifest: self.makeManifest(),
+                audioData: Data("audio".utf8)
+            )
+        }
+        let cooperator = MaintenanceCooperator(chunkSize: 2)
+        let drain = try self.makeDrain(stagingRoot: stagingRoot, cooperator: cooperator)
+
+        await drain.drain()
+
+        XCTAssertGreaterThan(cooperator.checkpointCount, 0)
+    }
 }
 
 private extension WatchSegmentDrainTests {
@@ -359,7 +378,8 @@ private extension WatchSegmentDrainTests {
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
         directSession: URLSession = .shared,
         urlBuilder: @escaping @Sendable (Int) -> URL? = { ObserverServerURL.ingestURL(localPort: $0) },
-        tempName: String = "watch-drain-temp"
+        tempName: String = "watch-drain-temp",
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) throws -> WatchSegmentDrain {
         let watchHandle = self.watchHandle
         let uploader = self.makeWatchUploader(
@@ -374,7 +394,8 @@ private extension WatchSegmentDrainTests {
             localPortProvider: localPortProvider,
             session: directSession,
             urlBuilder: urlBuilder,
-            tempDirectoryURL: self.tempDirectory.appendingPathComponent(tempName, isDirectory: true)
+            tempDirectoryURL: self.tempDirectory.appendingPathComponent(tempName, isDirectory: true),
+            cooperator: cooperator
         )
     }
 

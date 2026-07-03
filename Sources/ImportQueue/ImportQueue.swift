@@ -82,6 +82,7 @@ final class ImportQueue {
     @ObservationIgnored private let maxAttempts: Int
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private let cooperator: MaintenanceCooperator
     @ObservationIgnored private let encoder = JSONEncoder()
     @ObservationIgnored private let decoder = JSONDecoder()
     @ObservationIgnored private var backgroundCompletionHandler: (@MainActor @Sendable () -> Void)?
@@ -119,7 +120,8 @@ final class ImportQueue {
             try? await Task.sleep(for: .seconds(delay))
         },
         startPathMonitor: Bool = true,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) {
         self.fileManager = fileManager
         self.cacheRootURL = cacheRootURL ?? Self.defaultCacheRootURL(fileManager: fileManager)
@@ -132,6 +134,7 @@ final class ImportQueue {
         self.maxAttempts = maxAttempts
         self.sleep = sleep
         self.now = now
+        self.cooperator = cooperator
 
         self.encoder.dateEncodingStrategy = .iso8601
         self.encoder.outputFormatting = [.sortedKeys]
@@ -229,6 +232,9 @@ final class ImportQueue {
             )
 
             for itemDirectory in itemDirectories {
+                if Task.isCancelled { break }
+                await self.cooperator.step()
+                if Task.isCancelled { break }
                 let itemID = itemDirectory.lastPathComponent
                 guard self.isDirectory(itemDirectory) else { continue }
 
@@ -291,6 +297,9 @@ final class ImportQueue {
 
         let sortedDirectories = failedDirectories.sorted { $0.lastPathComponent < $1.lastPathComponent }
         for directory in sortedDirectories where self.isDirectory(directory) {
+            if Task.isCancelled { break }
+            await self.cooperator.step()
+            if Task.isCancelled { break }
             guard let itemID = UUID(uuidString: directory.lastPathComponent) else { continue }
             do {
                 try await self.requeueFailedItem(itemID: itemID)

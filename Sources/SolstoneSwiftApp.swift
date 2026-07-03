@@ -46,6 +46,7 @@ struct SolstoneSwiftApp: App {
     @State private var omiSourceManager: OmiSourceManager
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
     @State private var foregroundDrainGate: ForegroundDrainGate
+    @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var integrationVoiceStartTask: Task<Void, Never>?
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -91,6 +92,11 @@ struct SolstoneSwiftApp: App {
 #else
         false
 #endif
+    }
+
+    static func shouldRunLaunchMaintenance(scenePhase: ScenePhase) -> Bool {
+        guard scenePhase == .active else { return false }
+        return !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest
     }
 
     private static var shouldUseUITestObserverRecorder: Bool {
@@ -500,6 +506,39 @@ struct SolstoneSwiftApp: App {
                 watchDrain: watchSegmentDrain
             )
         })
+        let launchMaintenanceCoordinator = LaunchMaintenanceCoordinator(
+            operations: LaunchMaintenanceCoordinator.Operations(
+                migrateIngestKeyAccessibility: {
+                    _ = ObserverKeychain.migrateIngestKeyAccessibility()
+                },
+                startScreencastObserving: {
+                    screencastManager.startObservingDarwin()
+                },
+                reconcileScreencast: { reason in
+                    await screencastManager.reconcileScreencast(reason: reason)
+                },
+                resumeImportQueue: {
+                    await importQueue.resumeFromDisk()
+                },
+                migrateLegacyMobileItems: {
+                    await mobileSegmentUploader.migrateLegacyMobileItems()
+                },
+                resumeMobileSegments: {
+                    await mobileSegmentEngine.resumeFromDisk()
+                },
+                migrateLegacyAudioKeys: {
+                    _ = await omiUploader.migrateLegacySegmentKeys()
+                },
+                drainWatch: {
+                    await watchSegmentDrain?.drain()
+                },
+                endStaleObserverActivitiesIfIdle: {
+                    if case .idle = observerManager.state {
+                        await observerManager.endStaleObserverActivities()
+                    }
+                }
+            )
+        )
         if !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest {
             finishSyncing.registerLaunchHandler()
         }
@@ -536,6 +575,7 @@ struct SolstoneSwiftApp: App {
         self._omiSourceManager = State(initialValue: omiSource)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
+        self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
         self.appDelegate.observerUploader = observerUploader
         self.appDelegate.omiUploader = omiUploader
         self.appDelegate.watchUploader = watchUploader
@@ -602,38 +642,15 @@ struct SolstoneSwiftApp: App {
                     self.watchHealthBeacon.start()
                 }
                 .task {
-                    await self.importQueue.resumeFromDisk()
-                }
-                .task {
-                    self.screencastManager.startObservingDarwin()
-                    await self.screencastManager.reconcileScreencast(reason: .launch)
-                }
-                .task {
-                    guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyMobileSegmentsV1") else {
-                        await self.mobileSegmentEngine.resumeFromDisk()
-                        await self.screencastManager.reconcileScreencast(reason: .mobileSegmentResume)
-                        return
-                    }
-                    await self.mobileSegmentUploader.migrateLegacyMobileItems()
-                    UserDefaults.standard.set(true, forKey: "didMigrateLegacyMobileSegmentsV1")
-                    await self.screencastManager.reconcileScreencast(reason: .mobileSegmentResume)
-                }
-                .task {
-                    guard !UserDefaults.standard.bool(forKey: "didMigrateLegacyAudioSegmentKeysV1") else { return }
-                    _ = await self.omiUploader.migrateLegacySegmentKeys()
-                    UserDefaults.standard.set(true, forKey: "didMigrateLegacyAudioSegmentKeysV1")
-                }
-                .task {
-                    _ = ObserverKeychain.migrateIngestKeyAccessibility()
+                    await Task.yield()
+                    guard Self.shouldRunLaunchMaintenance(scenePhase: self.scenePhase) else { return }
+                    await self.launchMaintenanceCoordinator.runForegroundMaintenance()
                 }
                 .task {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {
                     await self.omiSourceManager.resumeIfEnabled()
-                }
-                .task {
-                    await self.watchSegmentDrain?.drain()
                 }
                 .task {
                     // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value,
@@ -644,17 +661,17 @@ struct SolstoneSwiftApp: App {
                     guard case .connected = self.tunnelManager.state else { return }
                     await self.foregroundDrainGate.requestDrain()
                 }
-                .task {
-                    if case .idle = self.observerManager.state {
-                        await self.observerManager.endStaleObserverActivities()
-                    }
-                }
         }
         .onChange(of: self.scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
                 self.backgroundDrainTask?.cancel()
                 self.backgroundDrainTask = nil
+                if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {
+                    Task {
+                        await self.launchMaintenanceCoordinator.runForegroundMaintenance()
+                    }
+                }
                 Task {
                     await self.screencastManager.reconcileScreencast(reason: .foreground)
                 }
@@ -691,6 +708,7 @@ struct SolstoneSwiftApp: App {
                 Task {
                     await self.screencastManager.prepareForBackground()
                 }
+                self.launchMaintenanceCoordinator.cancel()
                 self.integrationVoiceStartTask?.cancel()
                 self.integrationVoiceStartTask = nil
                 self.integrationObserverStartTask?.cancel()

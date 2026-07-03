@@ -21,6 +21,7 @@ final class WatchSegmentDrain {
     private let urlBuilder: @Sendable (Int) -> URL?
     private let fileManager: FileManager
     private let decoder: JSONDecoder
+    private let cooperator: MaintenanceCooperator
     private var inFlight: Set<UUID> = []
 
     init(
@@ -32,7 +33,8 @@ final class WatchSegmentDrain {
         session: URLSession = .shared,
         urlBuilder: @escaping @Sendable (Int) -> URL? = { ObserverServerURL.ingestURL(localPort: $0) },
         fileManager: FileManager = .default,
-        tempDirectoryURL: URL? = nil
+        tempDirectoryURL: URL? = nil,
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) throws {
         self.stagingRootURL = try stagingRootURL
             ?? AppGroupContainer.rootURL(fileManager: fileManager)
@@ -48,6 +50,7 @@ final class WatchSegmentDrain {
         self.session = session
         self.urlBuilder = urlBuilder
         self.fileManager = fileManager
+        self.cooperator = cooperator
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
 
@@ -75,6 +78,9 @@ final class WatchSegmentDrain {
         }
 
         for directory in directories where self.isDirectory(directory) {
+            guard !Task.isCancelled else { return }
+            await self.cooperator.step()
+            guard !Task.isCancelled else { return }
             guard let id = UUID(uuidString: directory.lastPathComponent) else { continue }
             if self.ledger.isTerminal(id: id) {
                 self.removeStaged(id)

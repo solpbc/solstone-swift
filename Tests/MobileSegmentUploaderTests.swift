@@ -175,6 +175,26 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual(bodies.filter { !$0.contains(#"filename="audio.m4a""#) && $0.contains(#"filename="location.jsonl""#) }.count, 1)
     }
 
+    func testResumeAndRetryTripMaintenanceCheckpointsForLargeBacklogs() async throws {
+        let cooperator = MaintenanceCooperator(chunkSize: 2)
+        let harness = self.makeHarness(connected: false, cooperator: cooperator)
+        for _ in 0..<5 {
+            let segmentID = UUID()
+            _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+            _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+        }
+        for _ in 0..<5 {
+            let segmentID = UUID()
+            _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.location])
+            _ = try harness.store.move(segmentID: segmentID, from: .active, to: .failed)
+        }
+
+        await harness.uploader.resumeFromDisk()
+        await harness.uploader.retryFailed()
+
+        XCTAssertGreaterThan(cooperator.checkpointCount, 0)
+    }
+
     func testFailedMixedUploadKeepsArtifactsAndRetryResendsBothParts() async throws {
         let harness = self.makeHarness(connected: true, maxAttempts: 2)
         let segmentID = UUID()
@@ -626,7 +646,8 @@ private extension MobileSegmentUploaderTests {
         requeueStabilityPoll: UInt64 = 1,
         requeueStabilityWindow: UInt64 = 2,
         requeueMaxDeferral: UInt64 = 6,
-        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) -> Harness {
         let transportRoot = self.tempDirectory.appendingPathComponent("transport", isDirectory: true)
         let configuration = URLSessionConfiguration.ephemeral
@@ -648,7 +669,7 @@ private extension MobileSegmentUploaderTests {
         )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         return Harness(
-            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock),
+            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock, cooperator: cooperator),
             transport: transport,
             store: store,
             transportRoot: transportRoot
