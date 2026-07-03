@@ -13,9 +13,9 @@ nonisolated enum ObserverError: Error, Equatable, Sendable {
     var message: String {
         switch self {
         case .permissionDenied:
-            "microphone access is required to listen"
+            "microphone access is required to take in audio"
         case .audioSessionConflict:
-            "audio session changed while listening"
+            "audio session changed while taking in audio"
         case .diskFull:
             "storage is full"
         case .uploadFailed:

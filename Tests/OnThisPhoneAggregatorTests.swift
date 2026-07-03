@@ -373,10 +373,10 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             locationFixCount: 2
         )
 
-        XCTAssertTrue(singular.rowPayloadText.hasPrefix("1 observation · "))
-        XCTAssertTrue(plural.rowPayloadText.hasPrefix("2 observations · "))
-        XCTAssertTrue(singular.voiceOverText.contains("1 observation"))
-        XCTAssertTrue(plural.voiceOverText.contains("2 observations"))
+        XCTAssertTrue(singular.rowPayloadText.hasPrefix("1 memory · "))
+        XCTAssertTrue(plural.rowPayloadText.hasPrefix("2 memories · "))
+        XCTAssertTrue(singular.voiceOverText.contains("1 memory"))
+        XCTAssertTrue(plural.voiceOverText.contains("2 memories"))
         XCTAssertFalse(singular.rowPayloadText.contains("place"))
         XCTAssertFalse(plural.rowPayloadText.contains("place"))
     }
@@ -423,7 +423,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
         XCTAssertEqual(audio.rowDescriptorText, "1m 15s")
         XCTAssertEqual(failedAudio.rowDescriptorText, "1m 15s · \(SourceVocabulary.onThisPhoneFailureRowHint)")
-        XCTAssertEqual(location.rowDescriptorText, "2 observations")
+        XCTAssertEqual(location.rowDescriptorText, "2 memories")
         XCTAssertEqual(share.rowDescriptorText, "share.pdf")
         XCTAssertEqual(audio.rowTimestampText, itemTime.formatted(date: .omitted, time: .shortened))
         XCTAssertEqual(deliveredOnly.rowTimestampText, deliveredAt.formatted(date: .omitted, time: .shortened))

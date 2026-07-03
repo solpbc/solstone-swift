@@ -76,7 +76,7 @@ private extension ProblemReportsUITests {
         let entry = app.buttons["dayHome.yourSolstoneEntry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 10))
         entry.tap()
-        XCTAssertTrue(app.navigationBars["your solstone"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 10))
     }
 
     func openProblemReports(in app: XCUIApplication) {

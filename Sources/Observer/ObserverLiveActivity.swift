@@ -99,5 +99,5 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
 }
 
 nonisolated func observerModeLabel(for rawMode: String) -> String {
-    "listening"
+    "on"
 }

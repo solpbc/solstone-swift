@@ -169,7 +169,7 @@ struct MoreView: View {
                 .disabled(conveyURL == nil)
                 .hoverEffect(.highlight)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("Opens your journal inside solstone.")
+                .accessibilityHint("Opens your journal inside sol.")
                 .sheet(isPresented: self.$showingJournal) {
                     InAppJournalView()
                 }
@@ -302,7 +302,7 @@ struct MoreView: View {
                 NavigationLink {
                     AboutView()
                 } label: {
-                    Text("about solstone")
+                    Text("about sol")
                 }
                 .accessibilityHint("Opens an about screen with app, journal, and credits")
 

@@ -47,7 +47,7 @@ private extension OmiSourceDetailView {
 
     var offContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("adds pendant audio while this is on. turn it on when you want solstone alongside you.")
+            Text("adds pendant audio while this is on. turn it on when you want sol with you.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(14)

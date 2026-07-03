@@ -319,7 +319,7 @@ private extension SourceDetailView {
         case .error:
             "retry"
         case .idle, .starting, .stopping:
-            "listen"
+            "start"
         }
     }
 
@@ -415,7 +415,7 @@ private struct AudioEnrollmentContent: View {
             .controlSize(.large)
             .frame(maxWidth: .infinity, minHeight: 44)
             .disabled(self.isStarting)
-            .accessibilityHint("Starts keeping audio observations on this phone.")
+            .accessibilityHint("Starts keeping audio memories on this phone.")
 
             if let errorMessage = self.errorMessage {
                 VStack(alignment: .leading, spacing: 8) {

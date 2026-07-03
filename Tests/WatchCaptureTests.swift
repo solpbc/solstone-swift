@@ -570,7 +570,7 @@ final class WatchCaptureTests: XCTestCase {
 
     func testOwnerPresentationHeadlineCountsAndLink() {
         let active = WatchCaptureOwnerPresentation(status: .active, queuedCount: 0, isSessionRunning: true)
-        XCTAssertEqual(active.headline, "listening")
+        XCTAssertEqual(active.headline, "on")
         XCTAssertNil(active.countsLine)
         XCTAssertNil(active.attentionLine)
 

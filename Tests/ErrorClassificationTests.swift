@@ -9,9 +9,9 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
     @MainActor
     func testUserMessages() {
         XCTAssertEqual(TunnelError.revoked.userMessage, "your journal asked this phone to reconnect.")
-        XCTAssertEqual(TunnelError.tlsHandshakeFailed.userMessage, "couldn't verify this solstone.")
+        XCTAssertEqual(TunnelError.tlsHandshakeFailed.userMessage, "couldn't verify this journal.")
         XCTAssertEqual(TunnelError.muxTeardown.userMessage, "connection lost.")
-        XCTAssertEqual(TunnelError.unreachable.userMessage, "can't reach this solstone right now.")
+        XCTAssertEqual(TunnelError.unreachable.userMessage, "can't reach this journal right now.")
     }
 
     @MainActor
@@ -49,7 +49,7 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         XCTAssertEqual(manager.mapTransportError(SessionError.unreachable), .unreachable)
         XCTAssertEqual(
             manager.mapTransportError(SessionError.unreachable).userMessage,
-            "can't reach this solstone right now."
+            "can't reach this journal right now."
         )
     }
 }

@@ -143,7 +143,7 @@ private extension OnThisPhoneItemDetailView {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(!availability.enabled)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("Opens your journal inside solstone.")
+                .accessibilityHint("Opens your journal inside sol.")
                 .sheet(isPresented: self.$showingJournal) {
                     InAppJournalView()
                 }

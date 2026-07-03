@@ -14,17 +14,17 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("your solstone") {
+            Section("your journal") {
                 LabeledContent("label", value: self.appConfig.homeLabel.isEmpty ? "unpaired" : self.appConfig.homeLabel)
                 LabeledContent("fingerprint", value: self.shortFingerprint)
                 LabeledContent("paired", value: self.pairedAtText)
 
-                Button("forget this solstone", role: .destructive) {
+                Button("forget this journal", role: .destructive) {
                     self.showingForgetConfirm = true
                 }
                 .disabled(!self.appConfig.isPaired)
 
-                Button("pair a new solstone") {
+                Button("pair a new journal") {
                     self.showingPairNewConfirm = true
                 }
             }
@@ -43,7 +43,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("settings")
-        .alert("forget this solstone?", isPresented: self.$showingForgetConfirm) {
+        .alert("forget this journal?", isPresented: self.$showingForgetConfirm) {
             Button("cancel", role: .cancel) {}
             Button("forget", role: .destructive) {
                 Task {
@@ -53,7 +53,7 @@ struct SettingsView: View {
         } message: {
             Text("this removes the pairing from this phone.")
         }
-        .alert("pair a new solstone?", isPresented: self.$showingPairNewConfirm) {
+        .alert("pair a new journal?", isPresented: self.$showingPairNewConfirm) {
             Button("cancel", role: .cancel) {}
             Button("continue", role: .destructive) {
                 Task {
@@ -61,7 +61,7 @@ struct SettingsView: View {
                 }
             }
         } message: {
-            Text("this forgets the current solstone before pairing another one.")
+            Text("this forgets the current journal before pairing another one.")
         }
         .sheet(isPresented: self.$showingPairFlow) {
             NavigationStack {

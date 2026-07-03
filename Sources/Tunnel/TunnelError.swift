@@ -13,11 +13,11 @@ enum TunnelError: Error, Sendable, Equatable {
         case .revoked:
             return "your journal asked this phone to reconnect."
         case .tlsHandshakeFailed:
-            return "couldn't verify this solstone."
+            return "couldn't verify this journal."
         case .muxTeardown:
             return "connection lost."
         case .unreachable:
-            return "can't reach this solstone right now."
+            return "can't reach this journal right now."
         case .unknown(let detail):
             if UserSettings.verboseErrors {
                 return "connection failed — \(detail)"

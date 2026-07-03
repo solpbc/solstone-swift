@@ -19,7 +19,7 @@ struct SolstoneWatchComplication: Widget {
         ) { entry in
             SolstoneWatchComplicationView(entry: entry)
         }
-        .configurationDisplayName("solstone")
+        .configurationDisplayName("sol")
         .description(SourceVocabulary.watchSourceDisplayName)
         .supportedFamilies([.accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
@@ -155,7 +155,7 @@ private extension SolstoneWatchComplicationView {
     }
 
     var inlineView: some View {
-        Text("solstone · \(self.snapshot.handoffLine ?? self.snapshot.stateWord)")
+        Text("sol · \(self.snapshot.handoffLine ?? self.snapshot.stateWord)")
             .accessibilityLabel(self.accessibilityText)
     }
 
@@ -167,7 +167,7 @@ private extension SolstoneWatchComplicationView {
     }
 
     var accessibilityText: String {
-        var parts = ["solstone", self.snapshot.stateWord]
+        var parts = ["sol", self.snapshot.stateWord]
         if let handoffLine = self.snapshot.handoffLine {
             parts.append(handoffLine)
         }

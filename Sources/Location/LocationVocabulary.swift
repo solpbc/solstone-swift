@@ -17,7 +17,7 @@ nonisolated enum LocationVocabulary {
     static let fullLabel = "the complete picture"
     static let fullBody = "the full, detailed picture of where your day happened. uses more battery."
     static let batteryHonesty = "fuller settings run in the background and use more battery. iOS shows its location arrow whenever location is on."
-    static let alwaysBackgroundPrimer = "to keep this when solstone isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings."
+    static let alwaysBackgroundPrimer = "to keep this when sol isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings."
     static let turnOnLocation = "turn on location"
     static let alwaysPrimerHeader = "before iOS asks"
     static let alwaysPrimerContinue = "continue"
@@ -30,10 +30,10 @@ nonisolated enum LocationVocabulary {
     static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
     static let deliveryLastSavedTemplate = "last saved to your journal at {time}."
     static let deliveryQuietLine = "nothing waiting right now."
-    static let downgradeBodyTemplate = "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — solstone never fills them in."
+    static let downgradeBodyTemplate = "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — sol never fills them in."
     static let openSettingsAction = "open iOS Settings"
     static let matchToAllowedAction = "match it to what's allowed"
-    static let restrictedBody = "location is turned off for solstone by a restriction on this device. solstone can't keep your day until that's lifted."
+    static let restrictedBody = "location is turned off for sol by a restriction on this device. sol can't keep your day until that's lifted."
     static let honestGap = "gap here — location wasn't available."
     static let deleteConfirmBody = "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone."
     static let deleteConfirmButton = "delete location's contributions"
@@ -46,9 +46,9 @@ nonisolated enum LocationVocabulary {
         case .always(accuracy: .reduced):
             "sharing location: always · reduced precision"
         case .whenInUse(accuracy: .full):
-            "sharing location: while solstone is open · precise"
+            "sharing location: while sol is open · precise"
         case .whenInUse(accuracy: .reduced):
-            "sharing location: while solstone is open · reduced precision"
+            "sharing location: while sol is open · reduced precision"
         case .notDetermined:
             "sharing location: not yet decided"
         case .servicesDisabled:

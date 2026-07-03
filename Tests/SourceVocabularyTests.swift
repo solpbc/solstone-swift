@@ -52,7 +52,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertTrue(SourceVocabulary.onThisPhoneWaitingExplain.contains("still on this phone"))
         XCTAssertEqual(
             SourceVocabulary.audioEnrollmentValue,
-            "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you."
+            "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want sol with you."
         )
         XCTAssertEqual(SourceVocabulary.turnOnAudio, "turn on audio")
         XCTAssertEqual(SourceVocabulary.onThisPhone, "on this phone")
@@ -64,7 +64,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "no journal connected yet")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
-        XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your solstone")
+        XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your journal")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
         XCTAssertEqual(SourceVocabulary.askBarOffline, "journal offline")
         XCTAssertEqual(SourceVocabulary.askBarOfflineExplanationTitle, "sol needs your journal")
@@ -132,10 +132,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
-            "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
+            "your memories are kept on this phone. connect a journal and everything sol has taken in so far flows in."
         )
         XCTAssertEqual(SourceVocabulary.connectDoorOwnTitle, "your own journal")
-        XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this phone to a solstone running on your computer.")
+        XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this phone to your journal running on your computer.")
         XCTAssertEqual(SourceVocabulary.connectDoorHostedTitle, "a hosted journal")
         XCTAssertEqual(
             SourceVocabulary.connectDoorHostedSubtitle,
@@ -147,19 +147,19 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.pairingReconnecting, "reconnecting…")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneScope,
-            "everything your observers have gathered, resting here until you connect a journal."
+            "everything sol has taken in, resting here until you connect a journal."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneScopeConnected,
-            "everything your observers have gathered, moving into your journal."
+            "everything sol has taken in, moving into your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneScopeOfflinePaired,
-            "everything your observers have gathered, ready for your journal when it reconnects."
+            "everything sol has taken in, ready for your journal when it reconnects."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneEmpty,
-            "nothing here yet. turn on a source and solstone starts experiencing alongside you — it'll wait here and sync to your journal once you connect one."
+            "nothing here yet. turn on a source and sol starts experiencing your day with you — it all waits here and syncs to your journal once you connect one."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneAllQuietHeadline, "all quiet")
         XCTAssertEqual(
@@ -189,21 +189,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.magicMomentShownHeadline, "it's on your phone now")
         XCTAssertEqual(
             SourceVocabulary.magicMomentShownBody,
-            "sol just took in your first observation and kept it here — yours, and nowhere else."
+            "sol just took in your first memory and kept it here — yours, and nowhere else."
         )
         XCTAssertEqual(SourceVocabulary.magicMomentShownSecondary, "connect a journal whenever →")
-        XCTAssertEqual(SourceVocabulary.magicMomentPendingHeadline, "your first audio observation is getting ready")
-        XCTAssertEqual(SourceVocabulary.magicMomentPendingBody, "when you stop listening, it will rest here on this phone.")
+        XCTAssertEqual(SourceVocabulary.magicMomentPendingHeadline, "your first audio memory is getting ready")
+        XCTAssertEqual(SourceVocabulary.magicMomentPendingBody, "when you stop, it will rest here on this phone.")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneAgedBacklog(count: 1),
-            "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
+            "1 memory is resting on this phone. connect a journal whenever you'd like a backup."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneAgedBacklog(count: 12),
-            "12 observations are resting on this phone. connect a journal whenever you'd like a backup."
+            "12 memories are resting on this phone. connect a journal whenever you'd like a backup."
         )
-        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 1), "1 observation")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 observations")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 1), "1 memory")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationRowLabel(count: 12), "12 memories")
         XCTAssertEqual(SourceVocabulary.openJournalLink, "open journal ↗")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintSaved,
@@ -239,10 +239,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropSnackbar(descriptor: "1m 15s of audio"), "dropped “1m 15s of audio”.")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: "1m 15s"), "1m 15s of audio")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2), "2 observations")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneDropLocationDescriptor(count: 2), "2 memories")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFileLabel, "file")
         XCTAssertEqual(SourceVocabulary.onThisPhoneWhenLabel, "when")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneObservationsLabel, "observations")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneObservationsLabel, "memories")
         XCTAssertEqual(SourceVocabulary.onThisPhoneSourceLabel, "source")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonLabel, "why")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureStatusLabel, "status")
@@ -272,7 +272,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "today at 3:00 PM"),
             "last tried today at 3:00 PM"
         )
-        XCTAssertEqual(SourceVocabulary.audioPlaybackObserverActiveHint, "pause listening to play this")
+        XCTAssertEqual(SourceVocabulary.audioPlaybackObserverActiveHint, "pause to play this")
         XCTAssertEqual(SourceVocabulary.audioPlaybackPlayLabel, "play audio")
         XCTAssertEqual(SourceVocabulary.audioPlaybackPauseLabel, "pause audio")
         XCTAssertEqual(SourceVocabulary.audioPlaybackHint, "plays this audio from this phone.")
@@ -282,19 +282,19 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "audio · 9:30 AM"
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneAudioSummary(duration: "1m 15s"), "1m 15s of audio")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 1), "1 observation")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 3), "3 observations")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 1), "1 memory")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneLocationSummary(count: 3), "3 memories")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneObservedSummary(relativeDay: "today", shortTime: "9:30 AM"),
-            "observed on this phone · today at 9:30 AM"
+            "kept on this phone · today at 9:30 AM"
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneObservedSummary(relativeDay: "today", shortTime: nil),
-            "observed on this phone · today"
+            "kept on this phone · today"
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneObservedSummary(relativeDay: nil, shortTime: nil),
-            "observed on this phone"
+            "kept on this phone"
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneShareSummary(originApp: "Files", relativeDay: "today", shortTime: "9:30 AM"),
@@ -327,7 +327,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
         XCTAssertEqual(SourceVocabulary.watchNotSupported, "not available on this device")
         XCTAssertEqual(SourceVocabulary.watchNoWatchPaired, "no watch paired with this iphone")
-        XCTAssertEqual(SourceVocabulary.watchAppNotInstalled, "solstone isn't on your watch yet")
+        XCTAssertEqual(SourceVocabulary.watchAppNotInstalled, "sol isn't on your watch yet")
         XCTAssertEqual(SourceVocabulary.watchSourceDisplayName, "watch")
         XCTAssertEqual(SourceVocabulary.watchLinkConnected, "phone link: in range")
         XCTAssertEqual(SourceVocabulary.watchLinkNotConnected, "phone link: out of range")
@@ -349,22 +349,22 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchStuckNoticeTitle, "sync needs attention")
         XCTAssertEqual(
             SourceVocabulary.watchPipelineRelayStuckNextStep,
-            "keep your watch near this iphone. open solstone on your watch if this does not move."
+            "keep your watch near this iphone. open sol on your watch if this does not move."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineHandoffStuckNextStep,
-            "keep solstone open here while your journal catches up."
+            "keep sol open here while your journal catches up."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineOrphanStuckNextStep,
-            "open solstone on your watch and keep it near this iphone so it can send them again."
+            "open sol on your watch and keep it near this iphone so it can send them again."
         )
         XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
         XCTAssertEqual(SourceVocabulary.watchConnectedNowSubtext, "your watch is connected right now")
         XCTAssertEqual(SourceVocabulary.watchReceivingSubtext, "your watch is sending data")
-        XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start solstone on your watch")
-        XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch — listening")
-        XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install solstone on your watch")
+        XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start sol on your watch")
+        XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch, taking in audio")
+        XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install sol on your watch")
         XCTAssertEqual(SourceVocabulary.watchInstallInstruction, "open the Watch app to install it")
         XCTAssertEqual(SourceVocabulary.watchStateBlockTitle, "state")
         XCTAssertEqual(SourceVocabulary.watchDeviceBlockTitle, "watch")
@@ -415,7 +415,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.problemReportsEmptyTitle, "no problem reports yet")
         XCTAssertEqual(
             SourceVocabulary.problemReportsEmptyBody,
-            "reports will appear here if solstone quits unexpectedly or gets stuck."
+            "reports will appear here if sol quits unexpectedly or gets stuck."
         )
         XCTAssertEqual(SourceVocabulary.problemReportKindCrash, "app quit unexpectedly")
         XCTAssertEqual(SourceVocabulary.problemReportKindHang, "app got stuck")

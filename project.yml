@@ -61,15 +61,15 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
+        INFOPLIST_KEY_CFBundleDisplayName: sol
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "solstone listens to meetings and voice memos you start and keeps them on this phone — yours alone, until you connect a journal. nothing is shared with sol pbc."
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "solstone uses Bluetooth to connect to wearable audio devices like the Omi pendant, and keeps everything on this phone — yours alone, until you connect a journal. nothing is shared with sol pbc."
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "solstone adds where your day happens and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
-        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "solstone adds where your day happens, even in the background, and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
-        INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your solstone's pairing code"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "sol hears what you hear — the meetings and voice memos you start — and keeps them on this phone, yours alone, until you connect a journal. nothing is shared with sol pbc."
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "sol uses Bluetooth to connect to wearable audio devices like the Omi pendant, and keeps everything on this phone — yours alone, until you connect a journal. nothing is shared with sol pbc."
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "sol adds where your day happens and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "sol adds where your day happens, even in the background, and keeps it on this phone — yours alone, until you connect a journal. you choose how much; you can change it or delete it any time."
+        INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your journal's pairing code"
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -170,7 +170,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.share
-        INFOPLIST_KEY_CFBundleDisplayName: SolstoneShareExtension
+        INFOPLIST_KEY_CFBundleDisplayName: sol
         CODE_SIGN_ENTITLEMENTS: SolstoneShareExtension/SolstoneShareExtension.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
@@ -274,7 +274,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
+        INFOPLIST_KEY_CFBundleDisplayName: sol
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
@@ -286,8 +286,8 @@ targets:
         UIBackgroundModes:
           - audio
           - location
-        NSMicrophoneUsageDescription: "solstone listens to voice you start on your watch and keeps it on your watch until it can hand it to your iphone — yours alone, for your journal. nothing is shared with sol pbc."
-        NSLocationWhenInUseUsageDescription: "solstone adds where your day happens, from a session you start on your watch, and keeps it on your watch until it can hand it to your iphone — yours alone, for your journal. nothing is shared with sol pbc."
+        NSMicrophoneUsageDescription: "sol hears the voice sessions you start on your watch and keeps them on your watch until it can hand them to your iphone — yours alone, for your journal. nothing is shared with sol pbc."
+        NSLocationWhenInUseUsageDescription: "sol adds where your day happens, from a session you start on your watch, and keeps it on your watch until it can hand it to your iphone — yours alone, for your journal. nothing is shared with sol pbc."
     dependencies:
       - target: SolstoneWatchComplication
         embed: true
@@ -311,7 +311,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch.widget
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
+        INFOPLIST_KEY_CFBundleDisplayName: sol
         CODE_SIGN_ENTITLEMENTS: SolstoneWatchComplication/SolstoneWatchComplication.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES

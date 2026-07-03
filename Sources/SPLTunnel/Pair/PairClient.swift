@@ -623,23 +623,23 @@ public enum PairError: Error, Equatable, LocalizedError, Sendable {
         case .csrBuildFailed:
             return "couldn't create the pairing request."
         case .lanRequestFailed:
-            return "couldn't reach solstone on this network."
+            return "couldn't reach your journal on this network."
         case .lanCAFingerprintMismatch:
-            return "couldn't verify this solstone."
+            return "couldn't verify this journal."
         case .lanResponseInvalid:
-            return "solstone returned an invalid pairing response."
+            return "your journal returned an invalid pairing response."
         case .nonceExpired:
-            return "this pairing code has expired. generate a new one on your solstone."
+            return "this pairing code has expired. generate a new one on your journal."
         case .pairingWindowClosed:
-            return "the pairing window closed. generate a new code on your solstone."
+            return "the pairing window closed. generate a new code on your journal."
         case .lanCandidatesExhausted:
-            return "couldn't reach solstone on this network."
+            return "couldn't reach your journal on this network."
         case .relayRequestFailed:
             return "couldn't reach the relay."
         case .relayResponseInvalid:
             return "the relay returned an invalid pairing response."
         case .relayInstanceMismatch:
-            return "the relay connected to the wrong solstone."
+            return "the relay connected to the wrong journal."
         case .attestationRejected:
             return "the relay rejected this pairing."
         }

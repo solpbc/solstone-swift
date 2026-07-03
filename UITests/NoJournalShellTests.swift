@@ -22,7 +22,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         self.dismissPresentedSheet(in: app, untilMissingElementID: "source.row.audio")
 
         app.buttons["dayHome.yourSolstoneEntry"].tap()
-        XCTAssertTrue(app.navigationBars["your solstone"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -60,7 +60,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         let valueBlock = app.staticTexts["audioEnrollment.value"]
         XCTAssertTrue(valueBlock.waitForExistence(timeout: 5))
-        XCTAssertEqual(valueBlock.label, "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you.")
+        XCTAssertEqual(valueBlock.label, "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want sol with you.")
         let turnOnAudio = app.buttons["turn on audio"]
         XCTAssertTrue(turnOnAudio.waitForExistence(timeout: 5))
         XCTAssertTrue(turnOnAudio.isEnabled)
@@ -199,8 +199,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(promise.exists)
         XCTAssertEqual(promise.label, "your journal is always private, only yours.")
 
-        XCTAssertTrue(app.staticTexts["your observations rest here, yours and nowhere else."].exists)
-        XCTAssertTrue(app.staticTexts["pair to a solstone on your computer — everything gathered so far flows in."].exists)
+        XCTAssertTrue(app.staticTexts["your memories rest here, yours and nowhere else."].exists)
+        XCTAssertTrue(app.staticTexts["pair to your journal on your computer — everything sol has taken in so far flows in."].exists)
         XCTAssertTrue(app.staticTexts["a journal sol pbc keeps for you. operated by sol pbc."].exists)
 
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.onThisPhone.current"].exists)
@@ -277,7 +277,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let turnOnAudio = app.buttons["turn on audio"]
         XCTAssertTrue(turnOnAudio.waitForExistence(timeout: 5))
         turnOnAudio.tap()
-        XCTAssertTrue(app.staticTexts["microphone access is required to listen"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["microphone access is required to take in audio"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["open settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["turn on audio"].exists)
 
@@ -384,7 +384,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-seed-aged-backlog",
             "--ui-test-reset-nudge-dismissal",
         ])
-        let text = "51 observations are resting on this phone. connect a journal whenever you'd like a backup."
+        let text = "51 memories are resting on this phone. connect a journal whenever you'd like a backup."
 
         XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 10))
         app.buttons["onThisPhone.agedBacklog.dismiss"].tap()

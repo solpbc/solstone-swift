@@ -86,7 +86,7 @@ nonisolated enum SourceVocabulary {
     static let needsAttentionSubtext = "something's not getting through."
     static let needsAttention = "needs attention"
 
-    static let observerActiveSubtext = "listening"
+    static let observerActiveSubtext = "on"
     static let modeExplanation = "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
     static let importerActiveSubtext = "sending to your journal as you share."
     static let shareAlwaysOnSubtext = "share to your journal from any app"
@@ -99,7 +99,7 @@ nonisolated enum SourceVocabulary {
     static let sendStateCompactSaved = "waiting to sync"
     static let sendStateCompactOnTheWay = "on the way"
     static let sendStateCompactInJournal = "in your journal"
-    static let onThisPhoneWaitingExplain = "still on this phone. solstone keeps trying to sync it to your journal automatically — you don't have to do anything."
+    static let onThisPhoneWaitingExplain = "still on this phone. sol keeps trying to sync it to your journal automatically — you don't have to do anything."
     static let tryNow = "try now"
     static let waitingToSync = sendStateCompactSaved
     static let screencastDisplayName = "screen"
@@ -123,13 +123,13 @@ nonisolated enum SourceVocabulary {
     static let screencastFinalizeFailedText = "screen video could not be saved"
     static let screencastPointerFailedText = "screen could not connect to this journal"
 
-    static let experiencingAlongsideYouHeader = "experiencing alongside you"
+    static let experiencingAlongsideYouHeader = "experiencing your day with you"
     static let bringingInYourselfHeader = "bringing in yourself"
     static let trustLineUnpaired = "kept on this phone, only — nowhere else, until you connect a journal"
     static let trustLineConfigured = "syncs only to your journal — nowhere else"
     static let watchHeadlineOff = "off"
     static let watchHeadlineEnrolling = "setting up"
-    static let watchHeadlineListening = "listening"
+    static let watchHeadlineListening = "on"
     static let watchHeadlinePaused = "paused"
     static let watchPipelineSending = "sending"
     static let watchPipelineSaved = "saved on your watch"
@@ -141,22 +141,22 @@ nonisolated enum SourceVocabulary {
     static let watchPipelineReportedGroupLabel = "reported by your watch"
     static let watchPipelineKnownGroupLabel = "known on this iphone"
     static let watchStuckNoticeTitle = "sync needs attention"
-    static let watchPipelineRelayStuckNextStep = "keep your watch near this iphone. open solstone on your watch if this does not move."
-    static let watchPipelineHandoffStuckNextStep = "keep solstone open here while your journal catches up."
-    static let watchPipelineOrphanStuckNextStep = "open solstone on your watch and keep it near this iphone so it can send them again."
+    static let watchPipelineRelayStuckNextStep = "keep your watch near this iphone. open sol on your watch if this does not move."
+    static let watchPipelineHandoffStuckNextStep = "keep sol open here while your journal catches up."
+    static let watchPipelineOrphanStuckNextStep = "open sol on your watch and keep it near this iphone so it can send them again."
     static let watchWaitingForPhone = "waiting for your iphone"
     static let watchLinkConnected = "phone link: in range"
     static let watchLinkNotConnected = "phone link: out of range"
     static let watchNotSupported = "not available on this device"
     static let watchNoWatchPaired = "no watch paired with this iphone"
-    static let watchAppNotInstalled = "solstone isn't on your watch yet"
+    static let watchAppNotInstalled = "sol isn't on your watch yet"
     static let watchSourceDisplayName = "watch"
     static let watchNoContextSubtext = "haven't heard from your watch"
     static let watchConnectedNowSubtext = "your watch is connected right now"
     static let watchReceivingSubtext = "your watch is sending data"
-    static let watchIdleSubtext = "no watch session right now — start solstone on your watch"
-    static let watchListeningSubtext = "on your watch — listening"
-    static let watchInstallTitle = "install solstone on your watch"
+    static let watchIdleSubtext = "no watch session right now — start sol on your watch"
+    static let watchListeningSubtext = "on your watch, taking in audio"
+    static let watchInstallTitle = "install sol on your watch"
     static let watchInstallInstruction = "open the Watch app to install it"
     static let watchStateBlockTitle = "state"
     static let watchDeviceBlockTitle = "watch"
@@ -199,7 +199,7 @@ nonisolated enum SourceVocabulary {
     static let problemReportsOptedOutTitle = "problem reports are off"
     static let problemReportsOptedOutBody = "turn them on to keep reports on this phone when the app quits or gets stuck."
     static let problemReportsEmptyTitle = "no problem reports yet"
-    static let problemReportsEmptyBody = "reports will appear here if solstone quits unexpectedly or gets stuck."
+    static let problemReportsEmptyBody = "reports will appear here if sol quits unexpectedly or gets stuck."
     static let problemReportKindCrash = "app quit unexpectedly"
     static let problemReportKindHang = "app got stuck"
     static let problemReportKindCPUException = "app used too much processing time"
@@ -248,7 +248,7 @@ nonisolated enum SourceVocabulary {
     static let whatItAdds = "adds what you say and nearby sound while this is on."
     static let pendingSeam = "nothing pending right now."
     static let removeSeam = "removing audio is coming later."
-    static let audioEnrollmentValue = "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want solstone alongside you."
+    static let audioEnrollmentValue = "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want sol with you."
     static let turnOnAudio = "turn on audio"
     static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
     static let onThisPhone = "on this phone"
@@ -259,10 +259,10 @@ nonisolated enum SourceVocabulary {
     static let journalConnected = "your journal · connected"
     static let journalOffline = "your journal · offline"
     static let dayToday = "today"
-    static let yourSolstoneTitle = "your solstone"
-    static let onThisPhoneScope = "everything your observers have gathered, resting here until you connect a journal."
-    static let onThisPhoneScopeConnected = "everything your observers have gathered, moving into your journal."
-    static let onThisPhoneScopeOfflinePaired = "everything your observers have gathered, ready for your journal when it reconnects."
+    static let yourSolstoneTitle = "your journal"
+    static let onThisPhoneScope = "everything sol has taken in, resting here until you connect a journal."
+    static let onThisPhoneScopeConnected = "everything sol has taken in, moving into your journal."
+    static let onThisPhoneScopeOfflinePaired = "everything sol has taken in, ready for your journal when it reconnects."
     static let dayHomeAskBarHint = "connect a journal to ask sol"
     static let askBarOffline = "journal offline"
     static let askBarOfflineExplanationTitle = "sol needs your journal"
@@ -325,7 +325,7 @@ nonisolated enum SourceVocabulary {
     static let chatDraftDiagnosticsIncluded = "diagnostics included"
     static let chatSourceOpenTitle = "open ↗"
     static let chatSourceSeparator = " · "
-    static let onThisPhoneEmpty = "nothing here yet. turn on a source and solstone starts experiencing alongside you — it'll wait here and sync to your journal once you connect one."
+    static let onThisPhoneEmpty = "nothing here yet. turn on a source and sol starts experiencing your day with you — it all waits here and syncs to your journal once you connect one."
     static let onThisPhoneAllQuietHeadline = "all quiet"
     static let onThisPhoneAllQuietBody = "everything you've gathered is in your journal. new moments rest here on their way through."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
@@ -339,10 +339,10 @@ nonisolated enum SourceVocabulary {
     static let syncedBody = "everything's in your journal"
     static let offlineSafeLine = "safe here · your journal will catch up"
     static let magicMomentShownHeadline = "it's on your phone now"
-    static let magicMomentShownBody = "sol just took in your first observation and kept it here — yours, and nowhere else."
+    static let magicMomentShownBody = "sol just took in your first memory and kept it here — yours, and nowhere else."
     static let magicMomentShownSecondary = "connect a journal whenever →"
-    static let magicMomentPendingHeadline = "your first audio observation is getting ready"
-    static let magicMomentPendingBody = "when you stop listening, it will rest here on this phone."
+    static let magicMomentPendingHeadline = "your first audio memory is getting ready"
+    static let magicMomentPendingBody = "when you stop, it will rest here on this phone."
     static let yourJournalSection = "your journal"
     static let details = "details"
     static let notProvided = "not provided"
@@ -354,9 +354,9 @@ nonisolated enum SourceVocabulary {
     static let transferRateLabel = "transfer rate"
     static let transferRateIdle = "idle"
     static let lastSyncedLabel = "last synced"
-    static let reconnectObserverButton = "reconnect this observer"
-    static let reconnectObserverConfirmTitle = "reconnect this observer?"
-    static let reconnectObserverConfirmBody = "this clears the stored observer key and registers fresh on next use."
+    static let reconnectObserverButton = "reconnect this phone"
+    static let reconnectObserverConfirmTitle = "reconnect this phone?"
+    static let reconnectObserverConfirmBody = "this clears the stored key and registers this phone fresh on next use."
     static let checkConnection = "check connection"
     static let probeReachable = "reachable"
     static let probeNotReachable = "not reachable"
@@ -369,7 +369,7 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneDropConfirmTitle = "drop this from this phone?"
     static let onThisPhoneFileLabel = "file"
     static let onThisPhoneWhenLabel = "when"
-    static let onThisPhoneObservationsLabel = "observations"
+    static let onThisPhoneObservationsLabel = "memories"
     static let onThisPhoneSourceLabel = "source"
     static let onThisPhoneFailureReasonLabel = "why"
     static let onThisPhoneFailureStatusLabel = "status"
@@ -377,13 +377,13 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneOmiAudioSourceLabel = "omi pendant audio"
     static let onThisPhoneWatchAudioSourceLabel = "watch audio"
     static let onThisPhoneFailureRowHint = "needs a retry"
-    static let audioPlaybackObserverActiveHint = "pause listening to play this"
+    static let audioPlaybackObserverActiveHint = "pause to play this"
     static let audioPlaybackPlayLabel = "play audio"
     static let audioPlaybackPauseLabel = "pause audio"
     static let audioPlaybackHint = "plays this audio from this phone."
-    static let connectJournalIntro = "your observations are kept on this phone. connect a journal and everything gathered so far flows in."
+    static let connectJournalIntro = "your memories are kept on this phone. connect a journal and everything sol has taken in so far flows in."
     static let connectDoorOwnTitle = "your own journal"
-    static let connectDoorOwnSubtitle = "pair this phone to a solstone running on your computer."
+    static let connectDoorOwnSubtitle = "pair this phone to your journal running on your computer."
     static let connectDoorHostedTitle = "a hosted journal"
     static let connectDoorHostedSubtitle = "a journal sol pbc keeps for you. on by you, off by you, yours either way."
     // VPX: functional placeholders pending product voice review.
@@ -406,9 +406,9 @@ nonisolated enum SourceVocabulary {
     static let journalLivesTitle = "where your journal lives"
     static let journalLivesPromise = "your journal is always private, only yours."
     static let journalLivesOnThisPhoneTitle = "on this phone"
-    static let journalLivesOnThisPhoneBody = "your observations rest here, yours and nowhere else."
+    static let journalLivesOnThisPhoneBody = "your memories rest here, yours and nowhere else."
     static let journalLivesOwnTitle = "your own journal"
-    static let journalLivesOwnBody = "pair to a solstone on your computer — everything gathered so far flows in."
+    static let journalLivesOwnBody = "pair to your journal on your computer — everything sol has taken in so far flows in."
     static let journalLivesHostedTitle = "solstone hosted"
     static let journalLivesHostedBody = "a journal sol pbc keeps for you. operated by sol pbc."
     static let journalLivesComingLater = "coming later"
@@ -438,9 +438,9 @@ nonisolated enum SourceVocabulary {
 
     static func onThisPhoneAgedBacklog(count: Int) -> String {
         if count == 1 {
-            return "1 observation is resting on this phone. connect a journal whenever you'd like a backup."
+            return "1 memory is resting on this phone. connect a journal whenever you'd like a backup."
         }
-        return "\(count) observations are resting on this phone. connect a journal whenever you'd like a backup."
+        return "\(count) memories are resting on this phone. connect a journal whenever you'd like a backup."
     }
 
     static func chatSourceCount(_ n: Int) -> String {
@@ -462,7 +462,7 @@ nonisolated enum SourceVocabulary {
     }
 
     static func onThisPhoneLocationRowLabel(count: Int) -> String {
-        count == 1 ? "1 observation" : "\(count) observations"
+        count == 1 ? "1 memory" : "\(count) memories"
     }
 
     static func onThisPhoneDropSnackbar(descriptor: String) -> String {
@@ -474,7 +474,7 @@ nonisolated enum SourceVocabulary {
     }
 
     static func onThisPhoneDropLocationDescriptor(count: Int) -> String {
-        "\(count) observations"
+        "\(count) memories"
     }
 
     static let onThisPhoneDropScreencastDescriptor = "screen video"
@@ -489,14 +489,14 @@ nonisolated enum SourceVocabulary {
     }
 
     static func onThisPhoneLocationSummary(count: Int) -> String {
-        count == 1 ? "1 observation" : "\(count) observations"
+        count == 1 ? "1 memory" : "\(count) memories"
     }
 
     static func onThisPhoneObservedSummary(relativeDay: String?, shortTime: String?) -> String {
         guard let datePhrase = self.onThisPhoneDatePhrase(relativeDay: relativeDay, shortTime: shortTime) else {
-            return "observed on this phone"
+            return "kept on this phone"
         }
-        return "observed on this phone · \(datePhrase)"
+        return "kept on this phone · \(datePhrase)"
     }
 
     static func onThisPhoneShareSummary(originApp: String?, relativeDay: String?, shortTime: String?) -> String {

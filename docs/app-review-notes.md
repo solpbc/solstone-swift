@@ -1,14 +1,20 @@
 # App Review Notes
 
+## Naming
+
+The App Store listing name is solstone. The installed iOS and watchOS app display name is sol.
+
+sol is the app on each device. the journal is the owner's private memory on a computer they choose. The app can connect to that journal; it does not make sol pbc a data host for the owner's audio, location, or journal contents.
+
 ## Watch Companion
 
-The watch companion is an owner-started observer. During a session the owner starts from the watch UI, it captures audio and location on the watch, then hands those files to the paired iPhone for the owner's private journal.
+The watch companion is owner-started. During a session the owner starts from the watch UI, sol takes in audio and location on the watch, then hands those files to the paired iPhone for the owner's private journal.
 
 The watch target declares `UIBackgroundModes` with exactly `audio` and `location` so an owner-started session can continue briefly in the background. These sessions are not always-on, do not auto-start, and are foreground-armed by the owner before background execution is possible.
 
 Location authorization on the watch is When In Use only. The watch target declares `NSLocationWhenInUseUsageDescription` and does not declare `NSLocationAlwaysAndWhenInUseUsageDescription`.
 
-System indicators stay visible. Audio capture uses `AVAudioRecorder`, so the watchOS recording indicator remains system-driven. Location sets `allowsBackgroundLocationUpdates = true` only during an active owner session and resets it to `false` on stop. There is no `showsBackgroundLocationIndicator` usage; that API does not exist on watchOS.
+System indicators stay visible. Audio uses `AVAudioRecorder`, so watchOS controls the microphone status indicator. Location sets `allowsBackgroundLocationUpdates = true` only during an active owner session and resets it to `false` on stop. There is no `showsBackgroundLocationIndicator` usage; that API does not exist on watchOS.
 
 The app has no analytics, telemetry, or crash reporting anywhere. This is reflected in `Watch/PrivacyInfo.xcprivacy`: `NSPrivacyTracking` is `false`, `NSPrivacyTrackingDomains` is empty, and `NSPrivacyCollectedDataTypes` is empty.
 

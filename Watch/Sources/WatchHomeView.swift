@@ -79,7 +79,7 @@ private extension WatchHomeView {
     }
 
     var controlHint: String {
-        self.captureModel.isRunning ? "stops observing" : "starts observing"
+        self.captureModel.isRunning ? "turns sol off" : "turns sol on"
     }
 
     var controlFill: Color {

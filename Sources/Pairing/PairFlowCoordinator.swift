@@ -162,7 +162,7 @@ final class PairFlowCoordinator {
              PairURLError.invalidLength:
             "this pairing link is damaged."
         case PairURLError.invalidVersion:
-            "this pairing link is from a newer version of solstone."
+            "this pairing link is from a newer version of your journal."
         case PairURLError.unsupportedAddrType:
             "this pairing link uses an unsupported address format."
         case PairURLError.unsupportedCAFingerprintTag:

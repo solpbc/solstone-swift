@@ -75,30 +75,30 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         switch self {
         case .differentNetwork(let phoneAddress, let targetAddress):
             """
-            this phone and your solstone are on different networks.
+            this phone and your journal are on different networks.
             this phone: \(phoneAddress)
-            your solstone: \(targetAddress)
+            your journal: \(targetAddress)
             connect both to the same wi-fi, then try again.
-            you can also switch your solstone to private network to pair from anywhere.
+            you can also switch your journal to private network to pair from anywhere.
             """
         case .hostUnreachable(let targetAddress):
             if let targetAddress {
-                "couldn't reach your solstone at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. you can also switch your solstone to private network to pair from anywhere."
+                "couldn't reach your journal at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. you can also switch your journal to private network to pair from anywhere."
             } else {
-                "couldn't reach your solstone. make sure it's running and on the same wi-fi, then try again. you can also switch your solstone to private network to pair from anywhere."
+                "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. you can also switch your journal to private network to pair from anywhere."
             }
         case .loopbackAddress:
-            "that address points back at this phone. paste the pairing link shown on your solstone instead."
+            "that address points back at this phone. paste the pairing link shown on your journal instead."
         case .journalUnreachableOffLAN:
-            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your solstone to private network to pair from anywhere. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
+            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect."
         case .codeExpired:
-            "the pairing window closed. show a new pairing code on your solstone, then try again."
+            "the pairing window closed. show a new pairing code on your journal, then try again."
         case .wrongSolstone:
-            "this solstone's identity doesn't match the pairing code. double-check which solstone you're pairing, then try again with a new code."
+            "this journal's identity doesn't match the pairing code. double-check which journal you're pairing, then try again with a new code."
         case .relayInstanceMismatch:
-            "the relay connected to the wrong solstone."
+            "the relay connected to the wrong journal."
         case .generic:
-            "pairing didn't go through. show a new pairing code on your solstone and try again."
+            "pairing didn't go through. show a new pairing code on your journal and try again."
         }
     }
 

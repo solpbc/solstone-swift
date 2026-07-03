@@ -110,13 +110,13 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.summaryBig(
                 for: Self.item(sourceKind: .location, locationFixCount: 1)
             ),
-            "1 observation"
+            "1 memory"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summaryBig(
                 for: Self.item(sourceKind: .location, locationFixCount: 3)
             ),
-            "3 observations"
+            "3 memories"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summaryBig(
@@ -146,7 +146,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            "observed on this phone · today at \(Self.shortTime(today))"
+            "kept on this phone · today at \(Self.shortTime(today))"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summarySmall(
@@ -156,7 +156,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            "observed on this phone · yesterday at \(Self.shortTime(yesterday))"
+            "kept on this phone · yesterday at \(Self.shortTime(yesterday))"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summarySmall(
@@ -166,7 +166,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            "observed on this phone"
+            "kept on this phone"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summarySmall(

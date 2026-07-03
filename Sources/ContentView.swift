@@ -470,7 +470,7 @@ struct ConnectingView: View {
         case .raceCandidates:
             return "race candidates"
         case .tlsHandshake:
-            return "verify solstone"
+            return "verify journal"
         case .muxReady:
             return "secure channel"
         case .loopback:
