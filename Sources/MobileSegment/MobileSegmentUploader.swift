@@ -934,7 +934,7 @@ private extension MobileSegmentUploader {
             bytes: self.store.fileSize(at: locationURL),
             startedAt: manifest.startedAt,
             endedAt: now,
-            durationS: max(0, now.timeIntervalSince(manifest.startedAt)),
+            durationS: MobileSegmentDuration.bounded(container: nil, elapsed: now.timeIntervalSince(manifest.startedAt)),
             fixCount: header?.fixCount
         )
         try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: now)

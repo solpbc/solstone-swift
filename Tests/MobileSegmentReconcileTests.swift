@@ -182,6 +182,27 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(futureManifest.resolution(for: .screencast).durationS, 1)
     }
 
+    func testResumeReconcileLocationCanonicalArtifactBoundsElapsedFallback() async throws {
+        let harness = self.makeHarness(connected: false)
+        let hoursOldID = UUID()
+        let futureID = UUID()
+        let hoursOld = self.clock.now().addingTimeInterval(-3_600)
+        let future = self.clock.now().addingTimeInterval(10)
+        let hoursDirectory = try self.writeActiveSegment(segmentID: hoursOldID, store: harness.store, sources: [.location], startedAt: hoursOld)
+        let futureDirectory = try self.writeActiveSegment(segmentID: futureID, store: harness.store, sources: [.location], startedAt: future)
+        try Data("location-\(hoursOldID.uuidString)".utf8).write(to: harness.store.locationURL(in: hoursDirectory), options: .atomic)
+        try Data("location-\(futureID.uuidString)".utf8).write(to: harness.store.locationURL(in: futureDirectory), options: .atomic)
+
+        await harness.uploader.resumeFromDisk()
+
+        let hoursManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: hoursOldID))
+        let futureManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: futureID))
+        XCTAssertEqual(hoursManifest.resolution(for: .location).durationS, 300)
+        XCTAssertEqual(futureManifest.resolution(for: .location).durationS, 1)
+        XCTAssertEqual(hoursManifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(hoursManifest.location.artifactFilename, "location.jsonl")
+    }
+
     func testFinalizeActiveSegmentPrefersPersistedAudioDurationForSegmentName() async throws {
         let harness = self.makeHarness(connected: false)
         let segmentID = UUID()
