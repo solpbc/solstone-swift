@@ -296,15 +296,20 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             this phone: 192.168.1.20
             your solstone: 10.0.0.5
             connect both to the same wi-fi, then try again.
+            you can also switch your solstone to private network to pair from anywhere.
             """
         )
         XCTAssertEqual(
             PairFailureReason.hostUnreachable(targetAddress: "192.168.1.99").message,
-            "couldn't reach your solstone at 192.168.1.99. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly."
+            "couldn't reach your solstone at 192.168.1.99. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. you can also switch your solstone to private network to pair from anywhere."
+        )
+        XCTAssertEqual(
+            PairFailureReason.hostUnreachable(targetAddress: nil).message,
+            "couldn't reach your solstone. make sure it's running and on the same wi-fi, then try again. you can also switch your solstone to private network to pair from anywhere."
         )
         XCTAssertEqual(
             PairFailureReason.journalUnreachableOffLAN.message,
-            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
+            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your solstone to private network to pair from anywhere. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
         )
         XCTAssertEqual(
             PairFailureReason.wrongSolstone.message,

@@ -79,17 +79,18 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             this phone: \(phoneAddress)
             your solstone: \(targetAddress)
             connect both to the same wi-fi, then try again.
+            you can also switch your solstone to private network to pair from anywhere.
             """
         case .hostUnreachable(let targetAddress):
             if let targetAddress {
-                "couldn't reach your solstone at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly."
+                "couldn't reach your solstone at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. you can also switch your solstone to private network to pair from anywhere."
             } else {
-                "couldn't reach your solstone. make sure it's running and on the same wi-fi, then try again."
+                "couldn't reach your solstone. make sure it's running and on the same wi-fi, then try again. you can also switch your solstone to private network to pair from anywhere."
             }
         case .loopbackAddress:
             "that address points back at this phone. paste the pairing link shown on your solstone instead."
         case .journalUnreachableOffLAN:
-            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
+            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your solstone to private network to pair from anywhere. nothing's lost — anything you've gathered stays safe on this phone and syncs once you reconnect."
         case .codeExpired:
             "the pairing window closed. show a new pairing code on your solstone, then try again."
         case .wrongSolstone:
