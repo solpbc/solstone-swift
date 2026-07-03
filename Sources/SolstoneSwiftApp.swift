@@ -16,6 +16,7 @@ struct SolstoneSwiftApp: App {
     @State private var connectionSyncModel: ConnectionSyncModel
     @State private var brainStatusMonitor: BrainStatusMonitor
     @State private var diagnosticLog: DiagnosticLog
+    @State private var problemReportsManager: ProblemReportsManager
     @State private var observerRegistration: ObserverRegistration
     @State private var observerUploader: ObserverUploader
     @State private var mobileHealthBeacon: ObserverHealthBeacon
@@ -168,7 +169,15 @@ struct SolstoneSwiftApp: App {
         }
 #if DEBUG
         OnThisPhoneUITestSeeder.runIfRequested()
+        ProblemReportsUITestSeeder.runIfRequested()
 #endif
+        let problemReportStore = ProblemReportStore(diagnosticLog: log)
+        let problemReports = ProblemReportsManager(
+            store: problemReportStore,
+            makeSubscriber: { ingest in
+                Self.makeMetricSubscriber(ingest: ingest)
+            }
+        )
         let observerUploader = ObserverUploader(
             ensureRegistered: {
                 try await observerRegistration.ensureRegistered()
@@ -497,6 +506,7 @@ struct SolstoneSwiftApp: App {
         self._appConfig = State(initialValue: appConfig)
         self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
+        self._problemReportsManager = State(initialValue: problemReports)
         self._brainStatusMonitor = State(initialValue: brain)
         self._tunnelManager = State(initialValue: tunnel)
         self._connectionSyncModel = State(initialValue: connectionSyncModel)
@@ -561,6 +571,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.pairingHandoff)
                 .environment(self.brainStatusMonitor)
                 .environment(self.diagnosticLog)
+                .environment(self.problemReportsManager)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
                 .environment(self.pendingFold)
@@ -891,6 +902,17 @@ private extension SolstoneSwiftApp {
         }
 #endif
         return LiveObserverRecorder()
+    }
+
+    static func makeMetricSubscriber(
+        ingest: @escaping @MainActor @Sendable ([ProblemReportPayloadInput]) -> Void
+    ) -> any MetricSubscribing {
+#if DEBUG
+        if self.isIntegrationMode || self.isUITest || self.isUnitTest {
+            return NoOpMetricSubscriber()
+        }
+#endif
+        return LiveMetricSubscriber(ingest: ingest)
     }
 
     static func makeWebRTCConnector() -> any WebRTCConnecting {

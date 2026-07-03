@@ -398,6 +398,44 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchPrepareDiagnosticsHint, "prepares watch diagnostics.")
         XCTAssertEqual(SourceVocabulary.watchDiagnosticsExportTitle, "watch diagnostics")
         XCTAssertEqual(SourceVocabulary.watchDiagnosticsExportFileName, "watch-diagnostics.txt")
+        XCTAssertEqual(SourceVocabulary.problemReportsToggle, "keep problem reports")
+        XCTAssertEqual(
+            SourceVocabulary.problemReportsToggleHint,
+            "keeps app problem reports on this phone so you can share them if you choose."
+        )
+        XCTAssertEqual(SourceVocabulary.problemReportsTitle, "problem reports")
+        XCTAssertEqual(SourceVocabulary.problemReportsRow, "problem reports")
+        XCTAssertEqual(SourceVocabulary.problemReportsRowHint, "opens problem reports kept on this phone.")
+        XCTAssertEqual(SourceVocabulary.problemReportsReportRowHint, "opens report detail.")
+        XCTAssertEqual(SourceVocabulary.problemReportsOptedOutTitle, "problem reports are off")
+        XCTAssertEqual(
+            SourceVocabulary.problemReportsOptedOutBody,
+            "turn them on to keep reports on this phone when the app quits or gets stuck."
+        )
+        XCTAssertEqual(SourceVocabulary.problemReportsEmptyTitle, "no problem reports yet")
+        XCTAssertEqual(
+            SourceVocabulary.problemReportsEmptyBody,
+            "reports will appear here if solstone quits unexpectedly or gets stuck."
+        )
+        XCTAssertEqual(SourceVocabulary.problemReportKindCrash, "app quit unexpectedly")
+        XCTAssertEqual(SourceVocabulary.problemReportKindHang, "app got stuck")
+        XCTAssertEqual(SourceVocabulary.problemReportKindCPUException, "app used too much processing time")
+        XCTAssertEqual(SourceVocabulary.problemReportKindDiskWriteException, "app wrote too much to storage")
+        XCTAssertEqual(SourceVocabulary.problemReportKindAppLaunch, "app took too long to open")
+        XCTAssertEqual(SourceVocabulary.problemReportKindAppExit, "app quit summary")
+        XCTAssertEqual(SourceVocabulary.problemReportKindUnknown, "app issue report")
+        XCTAssertEqual(SourceVocabulary.problemReportsShare, "share")
+        XCTAssertEqual(SourceVocabulary.problemReportsShareHint, "shares this problem report.")
+        XCTAssertEqual(SourceVocabulary.problemReportsShareAll, "share all")
+        XCTAssertEqual(SourceVocabulary.problemReportsShareAllHint, "shares all problem reports.")
+        XCTAssertEqual(SourceVocabulary.problemReportsDelete, "delete")
+        XCTAssertEqual(SourceVocabulary.problemReportsDeleteHint, "deletes this problem report.")
+        XCTAssertEqual(SourceVocabulary.problemReportsDeleteAll, "delete all")
+        XCTAssertEqual(SourceVocabulary.problemReportsDeleteAllHint, "deletes all problem reports.")
+        XCTAssertEqual(SourceVocabulary.problemReportsDeleteAllConfirmTitle, "delete all problem reports?")
+        XCTAssertEqual(SourceVocabulary.problemReportsDeleteAllConfirmBody, "this removes the reports kept on this phone.")
+        XCTAssertEqual(SourceVocabulary.problemReportsMissingTitle, "problem report unavailable")
+        XCTAssertEqual(SourceVocabulary.problemReportsMissingBody, "it may have already been deleted.")
     }
 
     func testWatchOwnerVisibleCopyAllowsOnlyRequiredWatchNounsAndAvoidsForbiddenTerms() throws {

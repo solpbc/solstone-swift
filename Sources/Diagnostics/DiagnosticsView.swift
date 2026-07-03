@@ -357,6 +357,7 @@ private struct EventRow: View {
         case .network: "wifi"
         case .upload: "arrow.up.circle"
         case .brain: "brain"
+        case .diagnostics: "doc.text.magnifyingglass"
         }
     }
 
@@ -367,6 +368,7 @@ private struct EventRow: View {
         case .network: .gray
         case .upload: .green
         case .brain: .purple
+        case .diagnostics: .teal
         }
     }
 

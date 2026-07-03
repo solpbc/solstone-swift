@@ -36,4 +36,13 @@ enum UserSettings: Sendable {
             UserDefaults.standard.set(newValue, forKey: "onThisPhoneBacklogNudgeDismissed")
         }
     }
+
+    nonisolated static var problemReportsEnabled: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: "problemReportsEnabled")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "problemReportsEnabled")
+        }
+    }
 }

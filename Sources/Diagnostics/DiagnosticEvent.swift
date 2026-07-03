@@ -9,6 +9,7 @@ enum DiagnosticCategory: String, CaseIterable, Sendable {
     case network
     case upload
     case brain
+    case diagnostics
 }
 
 enum DiagnosticSeverity: Sendable, Equatable {

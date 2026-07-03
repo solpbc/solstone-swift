@@ -157,6 +157,14 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             fields: [ChatDraftField(id: "summary", label: "summary", value: "journal connection")],
             diagnosticsIncluded: true
         )
+        let problemReportsRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-ProblemReports-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: problemReportsRoot) }
+        let problemReportsManager = ProblemReportsManager(
+            store: ProblemReportStore(rootURL: problemReportsRoot),
+            subscriber: NoOpMetricSubscriber(),
+            initialEnabled: false
+        )
         let moreView = NavigationStack {
             MoreView(
                 localPort: 7071,
@@ -171,6 +179,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(voiceManager)
             .environment(brainStatusMonitor)
             .environment(diagnosticLog)
+            .environment(problemReportsManager)
             .environment(PushNotificationManager())
             .environment(observerRegistration)
             .environment(observerUploader)

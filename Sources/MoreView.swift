@@ -19,6 +19,7 @@ struct MoreView: View {
     @Environment(VoiceManager.self) private var voiceManager
     @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
+    @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverUploader.self) private var observerUploader
@@ -181,6 +182,31 @@ struct MoreView: View {
             }
 
             Section("diagnostics") {
+                Toggle(SourceVocabulary.problemReportsToggle, isOn: Binding(
+                    get: { self.problemReportsManager.isEnabled },
+                    set: { enabled in
+                        UserSettings.problemReportsEnabled = enabled
+                        self.problemReportsManager.setEnabled(enabled)
+                    }
+                ))
+                .accessibilityIdentifier("more.diagnostics.problemReports.toggle")
+                .accessibilityHint(SourceVocabulary.problemReportsToggleHint)
+
+                NavigationLink {
+                    ProblemReportsView()
+                } label: {
+                    HStack {
+                        Text(SourceVocabulary.problemReportsRow)
+                        Spacer()
+                        Text("\(self.problemReportsManager.reports.count)")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("more.diagnostics.problemReports")
+                .accessibilityHint(SourceVocabulary.problemReportsRowHint)
+                .hoverEffect(.highlight)
+
                 LabeledContent("tunnel reconnects", value: "\(self.tunnelManager.reconnectCount)")
                     .accessibilityLabel("tunnel reconnect count: \(self.tunnelManager.reconnectCount)")
 
