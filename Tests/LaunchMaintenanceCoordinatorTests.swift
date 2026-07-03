@@ -32,6 +32,20 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.log.entries, Self.migrationExpectedOrder)
     }
 
+    func testCancelledCallerDoesNotStartPass() async throws {
+        let harness = try self.makeHarness()
+
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { currentTask in
+                currentTask?.cancel()
+            }
+            await harness.coordinator.runForegroundMaintenance()
+        }
+        await task.value
+
+        XCTAssertEqual(harness.log.entries, [])
+    }
+
     func testConcurrentForegroundRequestsCoalesceToSinglePass() async throws {
         let blocker = ControlledLaunchMaintenanceOperation()
         let harness = try self.makeHarness(blockers: ["resumeImport": blocker])

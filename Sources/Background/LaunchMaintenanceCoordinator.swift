@@ -35,10 +35,12 @@ final class LaunchMaintenanceCoordinator {
     }
 
     func runForegroundMaintenance() async {
+        guard !Task.isCancelled else { return }
         guard !self.hasCompleted else { return }
         if self.isRunning {
             let task = self.runTask
             await task?.value
+            guard !Task.isCancelled else { return }
             guard task?.isCancelled == true else { return }
             while self.isRunning {
                 await Task.yield()
@@ -63,6 +65,7 @@ final class LaunchMaintenanceCoordinator {
     }
 
     private func runPass() async {
+        guard !Task.isCancelled else { return }
         var passSucceeded = true
 
         self.operations.migrateIngestKeyAccessibility()
