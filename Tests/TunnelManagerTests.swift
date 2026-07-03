@@ -787,6 +787,346 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testWaitingForHomePathBucketChangeRedrivesAndConnects() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+        var connectCountsAtDisconnect: [Int] = []
+        transport.onDisconnectInvoked = {
+            connectCountsAtDisconnect.append(transport.connectCallCount)
+        }
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        let didApplyBaseline = await Self.waitUntil {
+            manager.currentPathStatus == .satisfiedWiFi
+        }
+        XCTAssertTrue(didApplyBaseline)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        source.trigger(.satisfiedCellular)
+        let didDisconnectFirst = await Self.waitUntil {
+            transport.disconnectCallCount >= 1 && connectCountsAtDisconnect.first == 1
+        }
+        XCTAssertTrue(didDisconnectFirst)
+        let didStartFreshConnect = await Self.waitUntil {
+            transport.connectCallCount == 2
+        }
+        XCTAssertTrue(didStartFreshConnect)
+
+        transport.completeSuspendedConnect(port: 5151)
+        await firstConnectTask.value
+        let didConnect = await Self.waitUntil {
+            manager.state == .connected(localPort: 5151, via: .remote)
+        }
+
+        XCTAssertTrue(didConnect)
+        XCTAssertEqual(manager.state, .connected(localPort: 5151, via: .remote))
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingForHomeReturnToSatisfiedPathRedrives() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+        var connectCountsAtDisconnect: [Int] = []
+        transport.onDisconnectInvoked = {
+            connectCountsAtDisconnect.append(transport.connectCallCount)
+        }
+
+        manager.startNetworkMonitoring()
+        source.trigger(.unsatisfiedWiFi)
+        let didApplyUnsatisfiedBaseline = await Self.waitUntil {
+            manager.currentPathStatus == .unsatisfiedWiFi
+        }
+        XCTAssertTrue(didApplyUnsatisfiedBaseline)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        source.trigger(.satisfiedWiFi)
+        let didDisconnectFirst = await Self.waitUntil {
+            transport.disconnectCallCount >= 1 && connectCountsAtDisconnect.first == 1
+        }
+        XCTAssertTrue(didDisconnectFirst)
+        let didStartFreshConnect = await Self.waitUntil {
+            transport.connectCallCount == 2
+        }
+        XCTAssertTrue(didStartFreshConnect)
+
+        transport.completeSuspendedConnect(port: 5252)
+        await firstConnectTask.value
+        let didConnect = await Self.waitUntil {
+            manager.state == .connected(localPort: 5252, via: .remote)
+        }
+
+        XCTAssertTrue(didConnect)
+        XCTAssertEqual(manager.state, .connected(localPort: 5252, via: .remote))
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingForHomeForegroundRedrivesAndConnects() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport)
+        var connectCountsAtDisconnect: [Int] = []
+        transport.onDisconnectInvoked = {
+            connectCountsAtDisconnect.append(transport.connectCallCount)
+        }
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        let redriveTask = Task { @MainActor in
+            await manager.redriveFromWaitingForHome(reason: .foreground)
+        }
+        let didDisconnectFirst = await Self.waitUntil {
+            transport.disconnectCallCount >= 1 && connectCountsAtDisconnect.first == 1
+        }
+        XCTAssertTrue(didDisconnectFirst)
+        let didStartFreshConnect = await Self.waitUntil {
+            transport.connectCallCount == 2
+        }
+        XCTAssertTrue(didStartFreshConnect)
+
+        transport.completeSuspendedConnect(port: 5353)
+        await redriveTask.value
+        await firstConnectTask.value
+
+        XCTAssertEqual(manager.state, .connected(localPort: 5353, via: .remote))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingForHomeSameSatisfiedBucketPathDoesNotRedrive() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        let didApplyBaseline = await Self.waitUntil {
+            manager.currentPathStatus == .satisfiedWiFi
+        }
+        XCTAssertTrue(didApplyBaseline)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        source.trigger(NetworkPathStatus(
+            isSatisfied: true,
+            isWiFi: true,
+            isCellular: false,
+            isExpensive: true,
+            isConstrained: true
+        ))
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+        XCTAssertEqual(manager.state, .waitingForHome)
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+        await firstConnectTask.value
+    }
+
+    @MainActor
+    func testConcurrentWaitingRedrivesStartAtMostOneFreshConnect() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        transport.emitAwaitingBrokerBeforeResult = false
+        transport.suspendAfterAwaitingBroker = false
+        transport.connectDelay = .milliseconds(120)
+        transport.nextResult = .success(5454)
+
+        let firstRedriveTask = Task { @MainActor in
+            await manager.redriveFromWaitingForHome(reason: .foreground)
+        }
+        let secondRedriveTask = Task { @MainActor in
+            await manager.redriveFromWaitingForHome(reason: .foreground)
+        }
+
+        await firstRedriveTask.value
+        await secondRedriveTask.value
+        await firstConnectTask.value
+
+        XCTAssertLessThanOrEqual(transport.connectCallCount, 2)
+        XCTAssertEqual(manager.state, .connected(localPort: 5454, via: .remote))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingRedriveRearmsWaitingTimeoutWhenFreshAttemptAwaitsBroker() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(
+            transport: transport,
+            waitingDeadline: .milliseconds(100)
+        )
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        let redriveTask = Task { @MainActor in
+            await manager.redriveFromWaitingForHome(reason: .foreground)
+        }
+        let didStartFreshConnect = await Self.waitUntil {
+            transport.connectCallCount == 2 && manager.state == .waitingForHome
+        }
+        XCTAssertTrue(didStartFreshConnect)
+        let didScheduleRelaxedRedial = await Self.waitUntil({
+            manager.state == .waitingForHome
+                && manager.reconnectCountdown == 60
+                && transport.disconnectCallCount >= 2
+        }, timeout: .seconds(2))
+        XCTAssertTrue(didScheduleRelaxedRedial)
+
+        await redriveTask.value
+        await firstConnectTask.value
+        XCTAssertEqual(manager.reconnectCount, 0)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingRedriveFastFailureSchedulesReconnect() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(
+            transport: transport,
+            initialRetryDelay: 1
+        )
+        var connectCountsAtDisconnect: [Int] = []
+        transport.onDisconnectInvoked = {
+            connectCountsAtDisconnect.append(transport.connectCallCount)
+        }
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        let redriveTask = Task { @MainActor in
+            await manager.redriveFromWaitingForHome(reason: .foreground)
+        }
+        let didStartFreshConnect = await Self.waitUntil {
+            transport.connectCallCount == 2
+        }
+        XCTAssertTrue(didStartFreshConnect)
+
+        transport.failSuspendedConnect(error: TunnelError.unreachable)
+        await redriveTask.value
+        await firstConnectTask.value
+
+        XCTAssertEqual(connectCountsAtDisconnect.first, 1)
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingRedriveDoesNotIncrementReconnectBuckets() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        let redriveTask = Task { @MainActor in
+            await manager.redriveFromWaitingForHome(reason: .foreground)
+        }
+        let didStartFreshConnect = await Self.waitUntil {
+            transport.connectCallCount == 2
+        }
+        XCTAssertTrue(didStartFreshConnect)
+
+        transport.completeSuspendedConnect(port: 5555)
+        await redriveTask.value
+        await firstConnectTask.value
+
+        XCTAssertEqual(manager.state, .connected(localPort: 5555, via: .remote))
+        Self.assertReconnectBuckets(manager, expected: [:])
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingRedriveLogsTriggerDiagnostic() async {
+        do {
+            let transport = MockCFTunnelTransport()
+            transport.emitAwaitingBrokerBeforeResult = true
+            transport.suspendAfterAwaitingBroker = true
+            let diagnosticLog = DiagnosticLog()
+            let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+            let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+            let redriveTask = Task { @MainActor in
+                await manager.redriveFromWaitingForHome(reason: .foreground)
+            }
+            let didStartFreshConnect = await Self.waitUntil {
+                transport.connectCallCount == 2
+            }
+            XCTAssertTrue(didStartFreshConnect)
+            transport.completeSuspendedConnect(port: 5656)
+            await redriveTask.value
+            await firstConnectTask.value
+
+            XCTAssertTrue(diagnosticLog.events.contains {
+                $0.category == .tunnel && $0.message == "re-dialing" && $0.detail == "foreground"
+            })
+            await manager.disconnect()
+        }
+
+        do {
+            let source = MockPathSource()
+            let pathMonitor = PathMonitor(source: source)
+            let transport = MockCFTunnelTransport()
+            transport.emitAwaitingBrokerBeforeResult = true
+            transport.suspendAfterAwaitingBroker = true
+            let diagnosticLog = DiagnosticLog()
+            let manager = makeManager(
+                transport: transport,
+                pathMonitor: pathMonitor,
+                diagnosticLog: diagnosticLog
+            )
+
+            manager.startNetworkMonitoring()
+            source.trigger(.satisfiedWiFi)
+            let didApplyBaseline = await Self.waitUntil {
+                manager.currentPathStatus == .satisfiedWiFi
+            }
+            XCTAssertTrue(didApplyBaseline)
+            let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+            source.trigger(.satisfiedCellular)
+            let didStartFreshConnect = await Self.waitUntil {
+                transport.connectCallCount == 2
+            }
+            XCTAssertTrue(didStartFreshConnect)
+            transport.completeSuspendedConnect(port: 5757)
+            await firstConnectTask.value
+            let didConnect = await Self.waitUntil {
+                manager.state == .connected(localPort: 5757, via: .remote)
+            }
+            XCTAssertTrue(didConnect)
+
+            XCTAssertTrue(diagnosticLog.events.contains {
+                $0.category == .tunnel && $0.message == "re-dialing" && $0.detail == "network changed"
+            })
+            manager.stopNetworkMonitoring()
+            await manager.disconnect()
+        }
+    }
+
+    @MainActor
     func testSuccessfulConnectLogsSinglePrepareCandidatesCompletion() async {
         let transport = MockCFTunnelTransport()
         let diagnosticLog = DiagnosticLog()
@@ -1503,6 +1843,23 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         return condition()
     }
 
+    @MainActor
+    private static func startAwaitingBrokerConnect(
+        manager: TunnelManager,
+        transport: MockCFTunnelTransport,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async -> Task<Void, Never> {
+        let connectTask = Task { @MainActor in
+            await manager.connect()
+        }
+        let didEnterWait = await Self.waitUntil {
+            manager.state == .waitingForHome && transport.connectCallCount == 1
+        }
+        XCTAssertTrue(didEnterWait, "tunnel did not enter waitingForHome", file: file, line: line)
+        return connectTask
+    }
+
     private static func tempFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1693,6 +2050,22 @@ private extension NetworkPathStatus {
         isWiFi: true,
         isCellular: false,
         isExpensive: false,
+        isConstrained: false
+    )
+
+    static let unsatisfiedWiFi = NetworkPathStatus(
+        isSatisfied: false,
+        isWiFi: true,
+        isCellular: false,
+        isExpensive: false,
+        isConstrained: false
+    )
+
+    static let satisfiedCellular = NetworkPathStatus(
+        isSatisfied: true,
+        isWiFi: false,
+        isCellular: true,
+        isExpensive: true,
         isConstrained: false
     )
 

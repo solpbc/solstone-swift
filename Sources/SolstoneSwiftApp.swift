@@ -657,14 +657,14 @@ struct SolstoneSwiftApp: App {
 
                 switch self.tunnelManager.state {
                 case .connected:
-                    // Only an already-connected tunnel needs a foreground drain kick: connecting /
-                    // waitingForHome / disconnected / retryable-error all converge on a future .connected
-                    // edge (which drives via the .onChange handler); already-connected has no future edge.
+                    // Connected tunnels need a foreground drain kick; waitingForHome is re-driven
+                    // below because suspended timers may not have fired while backgrounded.
+                    // Disconnected and retryable-error states use retryNow().
                     Task { await self.foregroundDrainGate.requestDrain() }
                 case .connecting:
                     break
                 case .waitingForHome:
-                    break
+                    Task { await self.tunnelManager.redriveFromWaitingForHome(reason: .foreground) }
                 case .disconnected:
                     Task {
                         await self.tunnelManager.retryNow()

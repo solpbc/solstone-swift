@@ -20,6 +20,20 @@ private struct PathMeaningfulSignature: Equatable, Sendable {
     let isSatisfied: Bool
 }
 
+enum RedriveTrigger: Sendable, Equatable {
+    case networkChanged
+    case foreground
+
+    var label: String {
+        switch self {
+        case .networkChanged:
+            return "network changed"
+        case .foreground:
+            return "foreground"
+        }
+    }
+}
+
 enum ReconnectReasonBucket: String, CaseIterable, Sendable {
     case transportClosed
     case pathChanged
@@ -132,6 +146,7 @@ final class TunnelManager {
     var lastProbeAlive: Bool?
     @ObservationIgnored private var consecutiveProbeFailures: Int = 0
     @ObservationIgnored private var lastEmittedPathSignature: PathMeaningfulSignature?
+    @ObservationIgnored private var redriveBaselineSignature: PathMeaningfulSignature?
     var consecutiveKeepaliveFailures: Int = 0
     var reconnectCount: Int = 0
     var reconnectReasonCounts: [ReconnectReasonBucket: Int] = [:]
@@ -441,6 +456,28 @@ final class TunnelManager {
         await self.connect()
     }
 
+    func redriveFromWaitingForHome(reason: RedriveTrigger) async {
+        guard case .waitingForHome = self.state else { return }
+
+        self.cancelWaitingTimeout()
+
+        let stalled = self.connectTask
+        stalled?.cancel()
+
+        await self.transport.disconnect()
+        await stalled?.value
+
+        guard case .waitingForHome = self.state else { return }
+
+        self.diagnosticLog?.append(
+            category: .tunnel,
+            message: "re-dialing",
+            detail: reason.label
+        )
+
+        await self.connect()
+    }
+
     func armOwnerConnectSuccessBanner() {
         self.ownerConnectSuccessBannerArmed = true
     }
@@ -596,8 +633,15 @@ final class TunnelManager {
                     if status.isSatisfied {
                         self.scheduleReconnect(for: .muxTeardown)
                     }
-                case .connecting, .waitingForHome, .error:
+                case .connecting, .error:
                     break
+                case .waitingForHome:
+                    let baseline = self.redriveBaselineSignature
+                    self.redriveBaselineSignature = signature
+                    if signature.isSatisfied,
+                       baseline?.isSatisfied != true || signature.interface != baseline?.interface {
+                        await self.redriveFromWaitingForHome(reason: .networkChanged)
+                    }
                 }
             }
         }
@@ -795,6 +839,7 @@ final class TunnelManager {
             self.appendStage(.raceCandidates)
         case .awaitingBroker:
             self.completeStage(.raceCandidates)
+            self.redriveBaselineSignature = self.currentPathStatus.map(self.pathMeaningfulSignature)
             self.state = .waitingForHome
             self.cancelConnectWatchdog()
             self.startWaitingTimeout()
