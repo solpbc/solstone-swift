@@ -162,7 +162,7 @@ func makeRetryCommit(
         return { try? await importQueue.requeueFailedItem(itemID: id) }
     case .mobileSegment:
         // no per-segment requeue exists; retry is source-level
-        return { await mobileSegmentUploader.retryFailed() }
+        return { await mobileSegmentUploader.retryFailed(respectingCooldown: false) }
     case .audio(let sessionID, let chunkID, let source):
         return {
             switch source {

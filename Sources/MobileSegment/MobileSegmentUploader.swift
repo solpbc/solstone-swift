@@ -7,6 +7,7 @@ import Observation
 import os
 
 private let mobileSegmentUploadLog = Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
+private let failedRetryCooldown: TimeInterval = 30
 
 private enum MobileSegmentUploaderError: Error, CustomStringConvertible {
     case storageUnavailable(String)
@@ -271,17 +272,19 @@ final class MobileSegmentUploader {
     func recordLocationFinalized(
         segmentID: UUID,
         batch: LocationSegmentBatch,
-        endedAt: Date
+        endedAt: Date,
+        reason: String?
     ) throws {
         let directory = self.activeDirectory(segmentID: segmentID)
-        try self.recordLocationFinalized(segmentID: segmentID, directory: directory, batch: batch, endedAt: endedAt)
+        try self.recordLocationFinalized(segmentID: segmentID, directory: directory, batch: batch, endedAt: endedAt, reason: reason)
     }
 
     func recordLocationFinalized(
         segmentID: UUID,
         directory: URL,
         batch: LocationSegmentBatch,
-        endedAt: Date
+        endedAt: Date,
+        reason: String?
     ) throws {
         try self.requireStorageAvailable()
         var manifest = try self.store.readManifest(in: directory)
@@ -293,7 +296,7 @@ final class MobileSegmentUploader {
                 startedAt: batch.segmentStart,
                 endedAt: endedAt,
                 durationS: TimeInterval(batch.coveredSeconds),
-                reason: batch.gap ? "authorization_gap_only" : "location_no_fixes_or_visits",
+                reason: reason ?? (batch.gap ? "authorization_gap_only" : "location_no_fixes_or_visits"),
                 fixCount: 0
             )
             try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
@@ -311,6 +314,7 @@ final class MobileSegmentUploader {
             startedAt: batch.segmentStart,
             endedAt: endedAt,
             durationS: TimeInterval(batch.coveredSeconds),
+            reason: reason,
             fixCount: frozen.fixCount
         )
         try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
@@ -570,7 +574,7 @@ final class MobileSegmentUploader {
         self.refreshCounts()
     }
 
-    func retryFailed() async {
+    func retryFailed(respectingCooldown: Bool) async {
         guard self.guardStorageAvailable() else { return }
         await self.resolveFinalizeFailurePile()
         if Task.isCancelled {
@@ -596,8 +600,14 @@ final class MobileSegmentUploader {
             do {
                 var manifest = try self.store.readManifest(in: directory)
                 guard !manifest.hasFinalizeFailure, manifest.hasArtifact else { continue }
+                let now = self.clock.now()
+                if respectingCooldown,
+                   let lastAttemptAt = self.store.loadFailure(in: directory)?.lastAttemptAt,
+                   now.timeIntervalSince(lastAttemptAt) < failedRetryCooldown {
+                    continue
+                }
                 manifest.upload = .pending
-                manifest.updatedAt = self.clock.now()
+                manifest.updatedAt = now
                 try self.store.writeManifest(manifest, in: directory)
                 _ = try self.store.move(segmentID: segmentID, from: .failed, to: .pending)
                 await self.scheduleUpload(segmentID: segmentID)
@@ -631,7 +641,7 @@ final class MobileSegmentUploader {
             do {
                 let manifest = try self.store.readManifest(in: directory)
                 guard manifest.hasFinalizeFailure else { continue }
-                let result = try self.resolveFinalizeFailure(segmentID: segmentID, directory: directory, lifecycle: .failed)
+                let result = try await self.resolveFinalizeFailure(segmentID: segmentID, directory: directory, lifecycle: .failed)
                 if result == .repend {
                     await self.scheduleUpload(segmentID: segmentID)
                 }
@@ -648,7 +658,7 @@ final class MobileSegmentUploader {
         segmentID: UUID,
         directory: URL,
         lifecycle: MobileSegmentLifecycle
-    ) throws -> FinalizeFailureResolution {
+    ) async throws -> FinalizeFailureResolution {
         try self.requireStorageAvailable()
         var manifest = try self.store.readManifest(in: directory)
         guard manifest.hasFinalizeFailure else { return .deferred }
@@ -696,13 +706,30 @@ final class MobileSegmentUploader {
                 )
                 try self.store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: now)
             case .audio:
-                self.store.removeIfExists(self.store.audioURL(in: directory))
-                let resolution = MobileSegmentSourceResolution(
-                    state: .removed,
-                    reason: "audio_no_local_data",
-                    lastAttemptAt: now
-                )
-                try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
+                let audioURL = self.store.audioURL(in: directory)
+                if self.store.fileExists(audioURL) {
+                    let finalized = MobileSegmentSourceResolution(
+                        state: .finalizedArtifact,
+                        artifactFilename: audioURL.lastPathComponent,
+                        bytes: self.store.fileSize(at: audioURL),
+                        startedAt: manifest.startedAt,
+                        endedAt: now,
+                        durationS: MobileSegmentDuration.bounded(
+                            container: await MobileSegmentDuration.probeContainerDuration(at: audioURL),
+                            elapsed: now.timeIntervalSince(manifest.startedAt)
+                        ),
+                        mode: manifest.resolution(for: .audio).mode
+                    )
+                    try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
+                } else {
+                    self.store.removeIfExists(audioURL)
+                    let resolution = MobileSegmentSourceResolution(
+                        state: .removed,
+                        reason: "audio_no_local_data",
+                        lastAttemptAt: now
+                    )
+                    try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
+                }
             }
             manifest = try self.store.readManifest(in: directory)
         }
@@ -1016,7 +1043,11 @@ private extension MobileSegmentUploader {
         let liveness = self.readLocationLiveness(segmentID: segmentID, directory: directory)
         let endedAt = liveness?.lastSeenAt ?? recovered.latestRecordAt
         let batch = recovered.batch(endedAt: endedAt)
-        try self.recordLocationFinalized(segmentID: segmentID, directory: directory, batch: batch, endedAt: endedAt)
+        let reason = recovered.droppedLineCount == 0 ? nil : "location_live_partial_salvage"
+        if recovered.droppedLineCount > 0 {
+            mobileSegmentUploadLog.info("location live partial salvage segment=\(segmentID.uuidString, privacy: .public) dropped_lines=\(recovered.droppedLineCount, privacy: .public)")
+        }
+        try self.recordLocationFinalized(segmentID: segmentID, directory: directory, batch: batch, endedAt: endedAt, reason: reason)
         manifest = try self.store.readManifest(in: directory)
         mobileSegmentUploadLog.info("location live recovered segment=\(segmentID.uuidString, privacy: .public)")
     }
@@ -1317,7 +1348,7 @@ private extension MobileSegmentUploader {
             }
             if manifest.hasFinalizeFailure {
                 do {
-                    let result = try self.resolveFinalizeFailure(segmentID: segmentID, directory: directory, lifecycle: .pending)
+                    let result = try await self.resolveFinalizeFailure(segmentID: segmentID, directory: directory, lifecycle: .pending)
                     switch result {
                     case .repend:
                         manifest = try self.store.readManifest(in: directory)

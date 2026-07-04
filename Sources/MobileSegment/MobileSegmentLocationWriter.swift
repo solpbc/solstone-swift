@@ -100,6 +100,7 @@ nonisolated enum MobileSegmentLocationWriter {
         let visits: [LocationVisit]
         let gap: Bool
         let latestRecordAt: Date
+        let droppedLineCount: Int
 
         func batch(endedAt: Date) -> LocationSegmentBatch {
             LocationSegmentBatch(
@@ -331,31 +332,51 @@ nonisolated enum MobileSegmentLocationWriter {
         var fixes: [LocationFix] = []
         var visits: [LocationVisit] = []
         var latestRecordAt: Date?
+        var droppedLineCount = 0
 
         for line in lines {
-            let probe = try Self.decodeProbe(from: line, decoder: decoder)
+            let probe: Probe
+            do {
+                probe = try Self.decodeProbe(from: line, decoder: decoder)
+            } catch {
+                guard state != nil else { throw error }
+                droppedLineCount += 1
+                continue
+            }
             switch (probe.schema, probe.kind) {
             case ("solstone.location.live.state/1", "state"):
                 let decoded = try decoder.decode(LiveStateRecord.self, from: line)
                 guard decoded.segmentID == segmentID,
                       decoded.kind == "state",
                       decoded.source == "location",
-                      decoded.platform == "ios"
-                else {
-                    throw MobileSegmentLocationLiveRecoveryError.segmentMismatch
+                      decoded.platform == "ios" else {
+                    continue
                 }
                 state = decoded
                 latestRecordAt = Self.max(latestRecordAt, decoded.recordedAt)
             case ("solstone.location.fix/1", _):
-                let decoded = try decoder.decode(FixLine.self, from: line)
-                fixes.append(decoded.fix)
-                latestRecordAt = Self.max(latestRecordAt, decoded.fix.t)
+                do {
+                    let decoded = try decoder.decode(FixLine.self, from: line)
+                    fixes.append(decoded.fix)
+                    latestRecordAt = Self.max(latestRecordAt, decoded.fix.t)
+                } catch {
+                    guard state != nil else { throw error }
+                    droppedLineCount += 1
+                }
             case ("solstone.location.visit/1", _):
-                let decoded = try decoder.decode(VisitLine.self, from: line)
-                visits.append(decoded.visit)
-                latestRecordAt = Self.max(latestRecordAt, decoded.visit.departure ?? decoded.visit.arrival)
+                do {
+                    let decoded = try decoder.decode(VisitLine.self, from: line)
+                    visits.append(decoded.visit)
+                    latestRecordAt = Self.max(latestRecordAt, decoded.visit.departure ?? decoded.visit.arrival)
+                } catch {
+                    guard state != nil else { throw error }
+                    droppedLineCount += 1
+                }
             default:
-                throw MobileSegmentLocationLiveRecoveryError.unknownRecord(schema: probe.schema, kind: probe.kind)
+                guard state != nil else {
+                    throw MobileSegmentLocationLiveRecoveryError.unknownRecord(schema: probe.schema, kind: probe.kind)
+                }
+                droppedLineCount += 1
             }
         }
 
@@ -370,7 +391,8 @@ nonisolated enum MobileSegmentLocationWriter {
             fixes: fixes,
             visits: visits,
             gap: state.gap,
-            latestRecordAt: latestRecordAt ?? state.recordedAt
+            latestRecordAt: latestRecordAt ?? state.recordedAt,
+            droppedLineCount: droppedLineCount
         )
     }
 
@@ -439,7 +461,6 @@ nonisolated enum MobileSegmentLocationWriter {
 
 nonisolated enum MobileSegmentLocationLiveRecoveryError: Error, Equatable, Sendable {
     case missingState
-    case segmentMismatch
     case corruptRecord
     case unknownRecord(schema: String, kind: String?)
 }

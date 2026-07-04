@@ -7,6 +7,7 @@ import Observation
 import os
 
 nonisolated private let uploaderLog = Logger(subsystem: "app.solstone.swift", category: "uploader")
+private let mobileSegmentMaxRequeueAttempts = 5
 
 nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
     let segment: String
@@ -1109,6 +1110,14 @@ private extension ObserverUploader {
             self.mobileSegmentTaskByTaskID.removeValue(forKey: taskID)
             self.responseDataByTaskID.removeValue(forKey: taskID)
         }
+        self.deleteMobileSegmentBody(for: segmentID)
+    }
+
+    private func deleteMobileSegmentBody(for segmentID: UUID) {
+        let bodyURL = self.cacheRootURL
+            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            .appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
+        try? self.fileManager.removeItem(at: bodyURL)
     }
 
     func resumePendingFiles(sessionID: UUID) async throws {
@@ -1326,7 +1335,8 @@ private extension ObserverUploader {
                     prefix: self.registrationPrefixProvider(),
                     httpStatus: nil,
                     transportError: nil
-                )
+                ),
+                forceTerminal: false
             )
             return
         }
@@ -1350,6 +1360,7 @@ private extension ObserverUploader {
             if self.mobileSegmentDroppedIDs.remove(segmentID) != nil {
                 uploaderLog.info("mobile segment drop consumed during registration window (throw) \(segmentID.uuidString, privacy: .public)")
                 self.lastError = nil
+                self.deleteMobileSegmentBody(for: segmentID)
                 self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
                 return
             }
@@ -1366,13 +1377,15 @@ private extension ObserverUploader {
                     prefix: self.registrationPrefixProvider(),
                     httpStatus: nil,
                     transportError: nil
-                )
+                ),
+                forceTerminal: false
             )
             return
         }
         if self.mobileSegmentDroppedIDs.remove(segmentID) != nil {
             uploaderLog.info("mobile segment drop consumed during registration window (success) \(segmentID.uuidString, privacy: .public)")
             self.lastError = nil
+            self.deleteMobileSegmentBody(for: segmentID)
             self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
             return
         }
@@ -1392,7 +1405,8 @@ private extension ObserverUploader {
                     prefix: prefix,
                     httpStatus: nil,
                     transportError: nil
-                )
+                ),
+                forceTerminal: false
             )
             return
         }
@@ -1402,6 +1416,7 @@ private extension ObserverUploader {
 
         guard self.mobileSegmentDroppedIDs.remove(segmentID) == nil else {
             self.lastError = nil
+            self.deleteMobileSegmentBody(for: segmentID)
             self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
             return
         }
@@ -1446,6 +1461,7 @@ private extension ObserverUploader {
             let segmentID = mobileDescriptor.segmentID
             if self.mobileSegmentDroppedIDs.remove(segmentID) != nil {
                 self.clearMobileSegmentTaskState(taskID: task.taskIdentifier, segmentID: segmentID)
+                self.deleteMobileSegmentBody(for: segmentID)
                 uploaderLog.info("mobile segment completion ignored after drop \(segmentID.uuidString, privacy: .public)")
                 self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.cancelled)
                 return
@@ -1662,6 +1678,25 @@ private extension ObserverUploader {
             if isCancelled || isStalePort {
                 let attempt = self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID, default: 0] + 1
                 self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID] = attempt
+                if attempt >= mobileSegmentMaxRequeueAttempts {
+                    await self.handleMobileSegmentUploadFailure(
+                        segmentID: info.segmentID,
+                        requestBodyURL: info.requestBodyURL,
+                        boundary: info.boundary,
+                        reason: "requeue_cap_exceeded",
+                        context: UploadFailureContext(
+                            stage: "reconnect-requeued",
+                            severity: .error,
+                            sourceType: info.sourceType,
+                            localPort: info.localPort,
+                            prefix: info.prefix,
+                            httpStatus: nil,
+                            transportError: "requeue_cap_exceeded"
+                        ),
+                        forceTerminal: true
+                    )
+                    return
+                }
                 let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
                 let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
                 self.appendUploadDiagnostic(
@@ -1698,6 +1733,7 @@ private extension ObserverUploader {
                         }
                     }
                     self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
+                    // Reconnect requeues reuse the existing background request body.
                     await self.scheduleMobileSegmentUpload(
                         segmentID: info.segmentID,
                         requestBodyURL: info.requestBodyURL,
@@ -1719,7 +1755,8 @@ private extension ObserverUploader {
                     prefix: info.prefix,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
                     transportError: String(describing: error)
-                )
+                ),
+                forceTerminal: false
             )
             DrainSignpost.event(
                 .uploadCompletion,
@@ -1755,6 +1792,7 @@ private extension ObserverUploader {
             self.lastError = nil
             self.recentErrorCount = 0
             uploaderLog.info("mobile segment uploaded \(info.segmentID.uuidString, privacy: .public)")
+            self.deleteMobileSegmentBody(for: info.segmentID)
             self.mobileSegmentCompletionBySegmentID.removeValue(forKey: info.segmentID)?(.delivered)
             DrainSignpost.event(
                 .uploadCompletion,
@@ -1782,7 +1820,8 @@ private extension ObserverUploader {
                 prefix: info.prefix,
                 httpStatus: statusCode,
                 transportError: nil
-            )
+            ),
+            forceTerminal: false
         )
         DrainSignpost.event(
             .uploadCompletion,
@@ -1841,7 +1880,8 @@ private extension ObserverUploader {
         requestBodyURL: URL,
         boundary: String,
         reason: String,
-        context: UploadFailureContext
+        context: UploadFailureContext,
+        forceTerminal: Bool
     ) async {
         self.mobileSegmentRequeueAttemptCountBySegmentID.removeValue(forKey: segmentID)
         let nextAttempt = self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0] + 1
@@ -1861,7 +1901,7 @@ private extension ObserverUploader {
             reason: reason
         )
 
-        if nextAttempt >= self.maxAttempts {
+        if forceTerminal || nextAttempt >= self.maxAttempts {
             self.appendUploadDiagnostic(
                 stage: "retry-exhausted",
                 severity: .error,
@@ -1889,6 +1929,7 @@ private extension ObserverUploader {
                 stage: context.stage,
                 lastAttemptAt: Date()
             )
+            self.deleteMobileSegmentBody(for: segmentID)
             self.mobileSegmentCompletionBySegmentID.removeValue(forKey: segmentID)?(.failed(failure))
             return
         }
@@ -1914,6 +1955,7 @@ private extension ObserverUploader {
             await self.sleep(delay)
             guard !Task.isCancelled else { return }
             self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: segmentID)
+            // Scheduled retries reuse the existing background request body.
             await self.scheduleMobileSegmentUpload(
                 segmentID: segmentID,
                 requestBodyURL: requestBodyURL,

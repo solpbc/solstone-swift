@@ -87,7 +87,7 @@ private extension ScreencastSourceDetailView {
             if presentation.showsRetry {
                 Button(SourceVocabulary.retry) {
                     Task {
-                        await self.mobileSegmentUploader.retryFailed()
+                        await self.mobileSegmentUploader.retryFailed(respectingCooldown: false)
                     }
                 }
                 .buttonStyle(.borderedProminent)

@@ -196,6 +196,51 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(try harness.store.list(.pending).count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.requestBodiesRoot.path))
     }
+
+    func testBoundaryCreateFailureKeepsOldSegmentOpenAndStopFinalizesIt() async throws {
+        let harness = self.makeHarness()
+        let audioURL = try await harness.engine.startAudio(mode: .meeting)
+        try Data("old-audio".utf8).write(to: audioURL, options: .atomic)
+        guard case .open(let oldSegmentID, let oldSources, _) = harness.engine.state else {
+            XCTFail("expected old segment to be open")
+            return
+        }
+        XCTAssertEqual(oldSources, [.audio])
+        try await self.waitFor("initial rotation timer") {
+            self.clock.pendingSleeperCount == 1
+        }
+
+        let activeRoot = harness.store.directoryURL(.active)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: activeRoot.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: activeRoot.path)
+        }
+
+        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+
+        guard case .open(let segmentID, let sources, _) = harness.engine.state else {
+            XCTFail("expected old segment to remain open")
+            return
+        }
+        XCTAssertEqual(segmentID, oldSegmentID)
+        XCTAssertEqual(sources, [.audio])
+        try await self.waitFor("rotation timer restarted after create failure") {
+            self.clock.pendingSleeperCount >= 2
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: activeRoot.path)
+        await harness.engine.stopAudio(finalized: ObserverRecordedChunk(url: audioURL, duration: 42))
+
+        try await self.waitFor("old segment finalizes after create failure") {
+            (try? harness.store.list(.pending).count) == 1
+                && (try? harness.store.list(.active).count) == 0
+        }
+        let finalizedDirectory = try XCTUnwrap(try harness.store.list(.pending).first)
+        let finalized = try harness.store.readManifest(in: finalizedDirectory)
+        XCTAssertEqual(finalized.segmentID, oldSegmentID)
+        XCTAssertEqual(finalized.audio.state, .finalizedArtifact)
+        XCTAssertEqual(finalized.audio.durationS, 42)
+    }
 }
 
 private extension MobileSegmentEngineTests {

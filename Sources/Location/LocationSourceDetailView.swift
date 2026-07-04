@@ -196,7 +196,7 @@ private extension LocationSourceDetailView {
             if summary.showsRetry {
                 Button(SourceVocabulary.retry) {
                     Task {
-                        await self.mobileSegmentUploader.retryFailed()
+                        await self.mobileSegmentUploader.retryFailed(respectingCooldown: false)
                     }
                 }
                 .buttonStyle(.borderedProminent)

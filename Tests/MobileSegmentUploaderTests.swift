@@ -190,7 +190,7 @@ final class MobileSegmentUploaderTests: XCTestCase {
         }
 
         await harness.uploader.resumeFromDisk()
-        await harness.uploader.retryFailed()
+        await harness.uploader.retryFailed(respectingCooldown: false)
 
         XCTAssertGreaterThan(cooperator.checkpointCount, 0)
     }
@@ -224,7 +224,7 @@ final class MobileSegmentUploaderTests: XCTestCase {
                 Data("ok".utf8)
             )
         }
-        await harness.uploader.retryFailed()
+        await harness.uploader.retryFailed(respectingCooldown: false)
         try await self.waitFor("mixed retry upload") {
             MobileSegmentUploaderURLProtocol.callCount == 3
         }
@@ -256,7 +256,7 @@ final class MobileSegmentUploaderTests: XCTestCase {
                 Data("ok".utf8)
             )
         }
-        await harness.uploader.retryFailed()
+        await harness.uploader.retryFailed(respectingCooldown: false)
         try await self.waitFor("screencast retry") {
             MobileSegmentUploaderURLProtocol.callCount == 2
         }
@@ -266,14 +266,87 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertTrue(retryBody.contains("Content-Type: video/mp4"))
     }
 
-    func testMobileReconnectRequeuesCanExceedMaxAttemptsWithoutFailing() async throws {
+    func testRetryFailedRespectingCooldownSkipsRecentThenAllowsAfterWindow() async throws {
+        let port = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let harness = self.makeHarness(
+            connected: true,
+            maxAttempts: 1,
+            localPortProvider: { port.withLock { $0 } }
+        )
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("try later".utf8)
+            )
+        }
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.uploader.resumeFromDisk()
+        try await self.waitFor("initial mobile failure") {
+            harness.uploader.failedCount == 1
+        }
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        try harness.store.writeFailure(
+            MobileSegmentFailureSidecar(
+                reason: "recent failure",
+                httpStatus: nil,
+                transportError: nil,
+                attemptCount: 1,
+                stage: "test",
+                lastAttemptAt: self.clock.now()
+            ),
+            in: failedDirectory
+        )
+
+        port.withLock { $0 = nil }
+        await harness.uploader.retryFailed(respectingCooldown: true)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+
+        self.clock.advance(by: 31)
+        await harness.uploader.retryFailed(respectingCooldown: true)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+    }
+
+    func testRetryFailedBypassIgnoresRecentCooldown() async throws {
+        let harness = self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let activeDirectory = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        var manifest = try harness.store.readManifest(in: activeDirectory)
+        manifest.upload = .failed
+        try harness.store.writeManifest(manifest, in: activeDirectory)
+        try harness.store.writeFailure(
+            MobileSegmentFailureSidecar(
+                reason: "recent failure",
+                httpStatus: nil,
+                transportError: nil,
+                attemptCount: 1,
+                stage: "test",
+                lastAttemptAt: self.clock.now()
+            ),
+            in: activeDirectory
+        )
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .failed)
+
+        await harness.uploader.retryFailed(respectingCooldown: false)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+    }
+
+    func testMobileReconnectRequeueCapsAndMovesToFailed() async throws {
         MobileSegmentUploaderURLProtocol.handler = { _ in
             throw URLError(.cancelled)
         }
         let sleeps = UploaderRecordedSleep()
         let harness = self.makeHarness(
             connected: true,
-            maxAttempts: 2,
+            maxAttempts: 5,
             retryDelays: [1],
             requeueMaxDeferral: 0,
             sleep: { delay in await sleeps.sleep(delay) }
@@ -284,22 +357,27 @@ final class MobileSegmentUploaderTests: XCTestCase {
 
         await harness.uploader.resumeFromDisk()
 
-        for expected in 1...3 {
+        for expected in 1..<5 {
             await sleeps.waitForSleepCount(expected)
             try await self.waitFor("mobile requeue attempt \(expected)") {
                 harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID) == expected
             }
-            if expected < 3 {
-                sleeps.releaseNext()
-            }
+            XCTAssertEqual(harness.uploader.failedCount, 0)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+            sleeps.releaseNext()
         }
 
-        XCTAssertEqual(harness.transport.mobileSegmentAttemptCountForTesting(segmentID: segmentID), 0)
-        XCTAssertEqual(harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID), 3)
-        XCTAssertEqual(harness.uploader.failedCount, 0)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        try await self.waitFor("mobile requeue cap failure") {
+            harness.uploader.failedCount == 1
+        }
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        let failure = try XCTUnwrap(harness.store.loadFailure(in: failedDirectory))
+        XCTAssertEqual(failure.reason, "requeue_cap_exceeded")
+        XCTAssertEqual(failure.transportError, "requeue_cap_exceeded")
+        XCTAssertEqual(failure.stage, "reconnect-requeued")
+        XCTAssertEqual(harness.transport.retryTaskCountForTesting(), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
 
-        harness.uploader.dropSegment(segmentID: segmentID)
         sleeps.releaseAll()
     }
 
@@ -512,6 +590,55 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual(manifest.audio.state, .finalizedArtifact)
         XCTAssertEqual(manifest.location.state, .removed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+    }
+
+    func testFinalizeLiveLocationPartialSalvageRecordsReason() async throws {
+        let harness = self.makeHarness()
+        let startedAt = self.clock.now().addingTimeInterval(-120)
+        let endedAt = self.clock.now()
+        let segmentID = try harness.uploader.openSegment(sources: [.location], startedAt: startedAt, sourceSetVersion: 1)
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        let firstFix = LocationFix(
+            t: startedAt.addingTimeInterval(30),
+            lat: 37.1,
+            lon: -122.0,
+            hAcc: 12,
+            alt: nil,
+            vAcc: nil,
+            speed: nil,
+            course: nil,
+            stationary: false
+        )
+        let secondFix = LocationFix(
+            t: startedAt.addingTimeInterval(90),
+            lat: 37.2,
+            lon: -122.0,
+            hAcc: 12,
+            alt: nil,
+            vAcc: nil,
+            speed: nil,
+            course: nil,
+            stationary: false
+        )
+        try harness.uploader.appendLocationLiveState(
+            segmentID: segmentID,
+            segmentStart: startedAt,
+            tier: .balanced,
+            accuracy: .full,
+            gap: false,
+            recordedAt: startedAt
+        )
+        try harness.uploader.appendLocationLiveFix(segmentID: segmentID, fix: firstFix)
+        try harness.store.appendData(Data("not json\n".utf8), to: harness.store.locationPartURL(in: directory))
+        try harness.uploader.appendLocationLiveFix(segmentID: segmentID, fix: secondFix)
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.reason, "location_live_partial_salvage")
+        XCTAssertEqual(manifest.location.fixCount, 2)
     }
 
     func testDeleteLocationLocalStateRedactsFailedLocationAndPreservesAudioUpload() async throws {
@@ -844,7 +971,8 @@ private extension MobileSegmentUploaderTests {
                     visits: [],
                     gap: false
                 ),
-                endedAt: endedAt
+                endedAt: endedAt,
+                reason: nil
             )
         }
 

@@ -105,7 +105,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         let failedSegmentID = UUID()
         try self.writeMixedBundle(store: harness.store, segmentID: failedSegmentID, lifecycle: .failed)
         harness.mobileSegmentUploader.refreshCounts()
-        await harness.mobileSegmentUploader.retryFailed()
+        await harness.mobileSegmentUploader.retryFailed(respectingCooldown: false)
 
         let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: failedSegmentID)
         XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
@@ -364,7 +364,8 @@ private extension MobileSegmentOwnerSurfaceTests {
                 visits: [],
                 gap: false
             ),
-            endedAt: endedAt
+            endedAt: endedAt,
+            reason: nil
         )
 
         let screenURL = uploader.activeScreencastURL(segmentID: segmentID)

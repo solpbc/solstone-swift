@@ -2021,6 +2021,98 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testMobileSegmentDeliveredDeletesBackgroundBody() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader()
+        let segmentID = UUID()
+        let bodyURL = self.mobileSegmentBodyURL(segmentID: segmentID)
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+
+        try await self.waitFor("mobile delivered body cleanup") {
+            ObserverUploaderURLProtocol.callCount == 1
+                && !FileManager.default.fileExists(atPath: bodyURL.path)
+        }
+    }
+
+    @MainActor
+    func testMobileSegmentRetryExhaustedDeletesBackgroundBody() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data("failure".utf8)
+            )
+        }
+        let uploader = self.makeUploader(maxAttempts: 1)
+        let segmentID = UUID()
+        let bodyURL = self.mobileSegmentBodyURL(segmentID: segmentID)
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+
+        try await self.waitFor("mobile retry exhausted body cleanup") {
+            ObserverUploaderURLProtocol.callCount == 1
+                && !FileManager.default.fileExists(atPath: bodyURL.path)
+        }
+    }
+
+    @MainActor
+    func testCancelMobileSegmentUploadDeletesBackgroundBody() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { _ in true }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in uploadStarted.signal() }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held mobile upload should not complete")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader()
+        let segmentID = UUID()
+        let bodyURL = self.mobileSegmentBodyURL(segmentID: segmentID)
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bodyURL.path))
+
+        uploader.cancelMobileSegmentUpload(segmentID: segmentID)
+
+        try await self.waitFor("mobile cancel body cleanup") {
+            !FileManager.default.fileExists(atPath: bodyURL.path)
+                && ObserverUploaderURLProtocol.stoppedRequests.count == 1
+        }
+    }
+
+    @MainActor
+    func testMobileSegmentReconnectRequeueRetainsBackgroundBody() async throws {
+        ObserverUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let sleeps = UploaderRecordedSleep()
+        let uploader = self.makeUploader(
+            retryDelays: [60],
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let segmentID = UUID()
+        let bodyURL = self.mobileSegmentBodyURL(segmentID: segmentID)
+
+        try await self.seedMobileSegmentUpload(uploader: uploader, segmentID: segmentID)
+        await sleeps.waitForSleepCount(1)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bodyURL.path))
+        XCTAssertEqual(uploader.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID), 1)
+
+        uploader.cancelMobileSegmentUpload(segmentID: segmentID)
+        sleeps.releaseAll()
+    }
+
+    @MainActor
     func testReconcileKeepsCurrentPortMobileSegment() async throws {
         let currentPort = 37_171
         let uploadStarted = DispatchSemaphore(value: 0)
@@ -2340,6 +2432,12 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
     private func sessionDirectoryURL(sessionID: UUID) -> URL {
         self.tempDirectory.appendingPathComponent(sessionID.uuidString, isDirectory: true)
+    }
+
+    private func mobileSegmentBodyURL(segmentID: UUID) -> URL {
+        self.tempDirectory
+            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            .appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
     }
 
     private func pendingAudioURL(sessionID: UUID, chunkID: String) -> URL {

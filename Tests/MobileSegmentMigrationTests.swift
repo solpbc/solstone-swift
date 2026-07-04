@@ -225,7 +225,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
 
         XCTAssertThrowsError(try uploader.openSegment(sources: [.screencast], startedAt: self.clock.now(), sourceSetVersion: 1))
         await uploader.resumeFromDisk()
-        await uploader.retryFailed()
+        await uploader.retryFailed(respectingCooldown: false)
         await uploader.redactScreencastFacet(segmentID: UUID())
 
         XCTAssertEqual(uploader.lastError, "mobile segment storage unavailable source=app-group")

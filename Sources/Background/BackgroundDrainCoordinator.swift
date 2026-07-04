@@ -44,7 +44,7 @@ func driveUploadDrain(
     await omi.reconcilePortAndResume()
     await watch.reconcilePortAndResume()
     await importQueue.resumeFromDisk()
-    await mobileSegment.retryFailed()
+    await mobileSegment.retryFailed(respectingCooldown: true)
     await omi.retryFailed()
     await watch.retryFailed()
     await importQueue.retryFailed()

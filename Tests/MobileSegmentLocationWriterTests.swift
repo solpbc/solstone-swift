@@ -30,9 +30,10 @@ final class MobileSegmentLocationWriterTests: XCTestCase {
 
         XCTAssertEqual(recovered.fixes, [completeFix])
         XCTAssertEqual(recovered.visits, [])
+        XCTAssertEqual(recovered.droppedLineCount, 0)
     }
 
-    func testCompleteUnknownLiveLineFailsRecovery() throws {
+    func testCompleteUnknownLiveLineDropsAfterState() throws {
         let segmentID = UUID()
         let startedAt = Date(timeIntervalSince1970: 1_780_480_800)
         var data = try MobileSegmentLocationWriter.liveStateLine(
@@ -46,7 +47,86 @@ final class MobileSegmentLocationWriterTests: XCTestCase {
         data.append(Data(#"{"kind":"mystery","schema":"solstone.location.live.mystery/1"}"#.utf8))
         data.append(0x0A)
 
-        XCTAssertThrowsError(try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: data))
+        let recovered = try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: data)
+
+        XCTAssertEqual(recovered.droppedLineCount, 1)
+        XCTAssertEqual(recovered.fixes, [])
+    }
+
+    func testLiveRecoverySkipsInteriorCorruptLinesAndKeepsValidBeforeAndAfter() throws {
+        let segmentID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 1_780_480_800)
+        let firstFix = Self.fix(at: startedAt.addingTimeInterval(30), lat: 37.1)
+        let secondFix = Self.fix(at: startedAt.addingTimeInterval(90), lat: 37.2)
+        var data = try MobileSegmentLocationWriter.liveStateLine(
+            segmentID: segmentID,
+            segmentStart: startedAt,
+            tier: .balanced,
+            accuracy: .full,
+            gap: false,
+            recordedAt: startedAt
+        )
+        data.append(try MobileSegmentLocationWriter.liveFixLine(firstFix))
+        data.append(Data("not json\n".utf8))
+        data.append(Data(#"{"kind":"mystery","schema":"solstone.location.live.mystery/1"}"#.utf8))
+        data.append(0x0A)
+        data.append(try MobileSegmentLocationWriter.liveFixLine(secondFix))
+
+        let recovered = try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: data)
+
+        XCTAssertEqual(recovered.fixes, [firstFix, secondFix])
+        XCTAssertEqual(recovered.droppedLineCount, 2)
+    }
+
+    func testLiveRecoverySkipsSegmentMismatchStateWithoutCountingDrop() throws {
+        let segmentID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 1_780_480_800)
+        let fix = Self.fix(at: startedAt.addingTimeInterval(30))
+        var data = try MobileSegmentLocationWriter.liveStateLine(
+            segmentID: UUID(),
+            segmentStart: startedAt,
+            tier: .balanced,
+            accuracy: .full,
+            gap: false,
+            recordedAt: startedAt
+        )
+        data.append(try MobileSegmentLocationWriter.liveStateLine(
+            segmentID: segmentID,
+            segmentStart: startedAt,
+            tier: .balanced,
+            accuracy: .full,
+            gap: false,
+            recordedAt: startedAt
+        ))
+        data.append(try MobileSegmentLocationWriter.liveFixLine(fix))
+
+        let recovered = try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: data)
+
+        XCTAssertEqual(recovered.fixes, [fix])
+        XCTAssertEqual(recovered.droppedLineCount, 0)
+    }
+
+    func testLiveRecoveryCorruptAndMissingStateRemainFatal() throws {
+        let segmentID = UUID()
+        let startedAt = Date(timeIntervalSince1970: 1_780_480_800)
+        let stateLine = String(decoding: try MobileSegmentLocationWriter.liveStateLine(
+            segmentID: segmentID,
+            segmentStart: startedAt,
+            tier: .balanced,
+            accuracy: .full,
+            gap: false,
+            recordedAt: startedAt
+        ), as: UTF8.self)
+        let corruptState = stateLine.replacingOccurrences(of: #""tier":"balanced""#, with: #""tier":"bogus""#)
+
+        XCTAssertThrowsError(try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: Data(corruptState.utf8))) { error in
+            XCTAssertEqual(error as? MobileSegmentLocationLiveRecoveryError, .corruptRecord)
+        }
+
+        let fixOnly = try MobileSegmentLocationWriter.liveFixLine(Self.fix(at: startedAt.addingTimeInterval(30)))
+        XCTAssertThrowsError(try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: fixOnly)) { error in
+            XCTAssertEqual(error as? MobileSegmentLocationLiveRecoveryError, .missingState)
+        }
     }
 
     func testFreezeFromLiveMatchesFreezeFromBufferBytes() throws {
@@ -105,6 +185,7 @@ final class MobileSegmentLocationWriterTests: XCTestCase {
 
         XCTAssertEqual(liveFrozen.data, bufferFrozen.data)
         XCTAssertEqual(liveFrozen.fixCount, bufferFrozen.fixCount)
+        XCTAssertEqual(recovered.droppedLineCount, 0)
     }
 
     private static func fix(at date: Date, lat: Double = 37.3349) -> LocationFix {

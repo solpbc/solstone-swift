@@ -666,6 +666,8 @@ private extension MobileSegmentEngine {
             self.lastError(error)
             if case .finalizing(_, let activeSegmentID?, let activeSources, let activeStartedAt?, _) = self.state {
                 self.activateSegment(segmentID: activeSegmentID, sources: activeSources, startedAt: activeStartedAt, startTimer: true)
+            } else if case .open(let segmentID, let sources, let startedAt) = self.state {
+                self.activateSegment(segmentID: segmentID, sources: sources, startedAt: startedAt, startTimer: true)
             } else {
                 self.state = .idle
                 self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
@@ -739,7 +741,7 @@ private extension MobileSegmentEngine {
             visits: buffer.visits,
             gap: buffer.gap
         )
-        try self.uploader.recordLocationFinalized(segmentID: segmentID, batch: batch, endedAt: endedAt)
+        try self.uploader.recordLocationFinalized(segmentID: segmentID, batch: batch, endedAt: endedAt, reason: nil)
     }
 
     func startTimer() {
