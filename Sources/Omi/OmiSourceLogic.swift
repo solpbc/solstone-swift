@@ -65,6 +65,8 @@ nonisolated enum OmiReconnectDecision: Equatable, Sendable {
 nonisolated enum OmiRestoreAction: Equatable, Sendable {
     case rearmConnect
     case discoverServices
+    case readCodec
+    case needsAttention(OmiAttention)
     case subscribeAudio
     case alreadyLive
 }
@@ -186,6 +188,10 @@ nonisolated enum OmiAudioHealth: Equatable, Sendable {
 }
 
 nonisolated enum OmiSourceLogic {
+    static let audioSilenceAttentionWindow: TimeInterval = 5 * 60
+    // Reconnect misses are harder failures than quiet subscribed audio, so surface them sooner.
+    static let reconnectAttentionDeadline: TimeInterval = 2 * 60
+
     static func reconnectDecision(
         isManualDisconnect: Bool,
         isReconnecting: Bool
@@ -219,7 +225,8 @@ nonisolated enum OmiSourceLogic {
     static func restoreAction(
         peripheralState: CBPeripheralState,
         hasAudioService: Bool,
-        isAudioNotifying: Bool
+        isAudioNotifying: Bool,
+        codec: BLEReadState<BLEAudioCodecInfo>
     ) -> OmiRestoreAction {
         guard peripheralState == .connected else {
             return .rearmConnect
@@ -227,10 +234,17 @@ nonisolated enum OmiSourceLogic {
         guard hasAudioService else {
             return .discoverServices
         }
-        guard isAudioNotifying else {
-            return .subscribeAudio
+        switch codec {
+        case .notRead:
+            return .readCodec
+        case .unavailable:
+            return .needsAttention(.codecNotOpus)
+        case .value(let info):
+            guard info.isOpus else {
+                return .needsAttention(.codecNotOpus)
+            }
+            return isAudioNotifying ? .alreadyLive : .subscribeAudio
         }
-        return .alreadyLive
     }
 
     /// Single decision point + sole producer of the `.audioUnavailable → .connected`
@@ -338,6 +352,53 @@ nonisolated enum OmiSourceLogic {
         return isAudioSubscribed && !alreadyFired
     }
 
+    static func audioUnsubscribedWhileConnectedFault(
+        connectionState: OmiSourceState,
+        isAudioNotifying: Bool
+    ) -> Bool {
+        guard case .connected = connectionState else {
+            return false
+        }
+        return !isAudioNotifying
+    }
+
+    static func effectiveConnectionState(
+        connectionState: OmiSourceState,
+        writerFaulted: Bool,
+        audioUnsubscribedWhileConnected: Bool,
+        reconnectStartedAt: Date?,
+        isAudioSubscribed: Bool,
+        lastAudioAt: Date?,
+        connectedSince: Date?,
+        now: Date,
+        audioSilenceAttentionWindow: TimeInterval = Self.audioSilenceAttentionWindow,
+        reconnectAttentionDeadline: TimeInterval = Self.reconnectAttentionDeadline
+    ) -> OmiSourceState {
+        if writerFaulted {
+            return .needsAttention(.audioUnavailable)
+        }
+        if audioUnsubscribedWhileConnected {
+            return .needsAttention(.audioUnavailable)
+        }
+        if case .reconnecting = connectionState,
+           let reconnectStartedAt,
+           now.timeIntervalSince(reconnectStartedAt) > reconnectAttentionDeadline
+        {
+            return .needsAttention(.connectFailed("connection timed out"))
+        }
+        if case .connected = connectionState,
+           isAudioSubscribed,
+           let baseline = Self.audioSilenceBaseline(
+               lastAudioAt: lastAudioAt,
+               connectedSince: connectedSince
+           ),
+           now.timeIntervalSince(baseline) > audioSilenceAttentionWindow
+        {
+            return .needsAttention(.audioUnavailable)
+        }
+        return connectionState
+    }
+
     static func pendantBatteryText(
         reading: OmiSurfacedReading<Int>,
         now: Date
@@ -442,6 +503,13 @@ nonisolated enum OmiSourceLogic {
         case .missing(let fallback):
             return Self.missingText(fallback)
         }
+    }
+
+    private static func audioSilenceBaseline(lastAudioAt: Date?, connectedSince: Date?) -> Date? {
+        if let connectedSince {
+            return lastAudioAt.map { max($0, connectedSince) } ?? connectedSince
+        }
+        return lastAudioAt
     }
 
     private static func missingText(_ fallback: OmiReadingFallback) -> String {

@@ -182,7 +182,10 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
                 ok: 9,
                 errors: 1,
                 gaps: 2,
-                outOfOrder: 3
+                outOfOrder: 3,
+                droppedSamples: 4,
+                failedOpens: 5,
+                malformed: 6
             ),
             pendantBatteryTrend: [
                 OmiDiagnosticsPayload.PendantBatterySample(timestamp: start, level: 88)
@@ -208,13 +211,21 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             "reconnects",
             "disconnect gaps",
             "connected-without-audio gaps",
-            "decode error rate"
+            "decode error rate",
+            "audio gaps",
+            "out of order frames",
+            "malformed audio packets",
+            "dropped audio samples",
+            "audio file open failures"
         ])
-        XCTAssertEqual(rows.count, 5)
+        XCTAssertEqual(rows.count, 10)
         XCTAssertTrue(rows.allSatisfy { !$0.value.isEmpty })
         XCTAssertEqual(rows.first(where: { $0.label == "uptime" })?.value, "50.0%")
         XCTAssertEqual(rows.first(where: { $0.label == "reconnects" })?.value, "1")
         XCTAssertEqual(rows.first(where: { $0.label == "decode error rate" })?.value, "10.0%")
+        XCTAssertEqual(rows.first(where: { $0.label == "malformed audio packets" })?.value, "6")
+        XCTAssertEqual(rows.first(where: { $0.label == "dropped audio samples" })?.value, "4")
+        XCTAssertEqual(rows.first(where: { $0.label == "audio file open failures" })?.value, "5")
     }
 
     func testExportSummaryContainsRequiredMetricLines() {
@@ -269,6 +280,9 @@ nonisolated final class OmiDiagnosticsLogicTests: XCTestCase {
             "decode frames:",
             "audio gaps:",
             "out of order frames:",
+            "malformed audio packets:",
+            "dropped audio samples:",
+            "audio file open failures:",
             "pendant battery:",
             "pendant signal:",
             "phone battery:",

@@ -8,53 +8,91 @@ import XCTest
 nonisolated final class OmiSourceRestoreTests: XCTestCase {
     func testRestoreActionDisconnectedRearmsConnect() {
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
-                peripheralState: .disconnected,
-                hasAudioService: false,
-                isAudioNotifying: false
-            ),
-            .rearmConnect
+                OmiSourceLogic.restoreAction(
+                    peripheralState: .disconnected,
+                    hasAudioService: false,
+                    isAudioNotifying: false,
+                    codec: .notRead
+                ),
+                .rearmConnect
         )
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
-                peripheralState: .connecting,
-                hasAudioService: true,
-                isAudioNotifying: true
-            ),
-            .rearmConnect
+                OmiSourceLogic.restoreAction(
+                    peripheralState: .connecting,
+                    hasAudioService: true,
+                    isAudioNotifying: true,
+                    codec: .value(Self.opusCodec)
+                ),
+                .rearmConnect
         )
     }
 
     func testRestoreActionConnectedWithoutAudioServiceDiscoversServices() {
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
-                peripheralState: .connected,
-                hasAudioService: false,
-                isAudioNotifying: false
-            ),
-            .discoverServices
+                OmiSourceLogic.restoreAction(
+                    peripheralState: .connected,
+                    hasAudioService: false,
+                    isAudioNotifying: false,
+                    codec: .notRead
+                ),
+                .discoverServices
         )
     }
 
-    func testRestoreActionConnectedWithAudioServiceSubscribesWhenNotNotifying() {
+    func testRestoreActionConnectedWithAudioServiceReadsCodecWhenUnknown() {
         XCTAssertEqual(
             OmiSourceLogic.restoreAction(
                 peripheralState: .connected,
                 hasAudioService: true,
-                isAudioNotifying: false
+                isAudioNotifying: false,
+                codec: .notRead
+            ),
+            .readCodec
+        )
+    }
+
+    func testRestoreActionConnectedWithConfirmedOpusSubscribesWhenNotNotifying() {
+        XCTAssertEqual(
+            OmiSourceLogic.restoreAction(
+                peripheralState: .connected,
+                hasAudioService: true,
+                isAudioNotifying: false,
+                codec: .value(Self.opusCodec)
             ),
             .subscribeAudio
         )
     }
 
-    func testRestoreActionConnectedAndNotifyingIsAlreadyLive() {
+    func testRestoreActionConnectedAndConfirmedOpusNotifyingIsAlreadyLive() {
         XCTAssertEqual(
             OmiSourceLogic.restoreAction(
                 peripheralState: .connected,
                 hasAudioService: true,
-                isAudioNotifying: true
+                isAudioNotifying: true,
+                codec: .value(Self.opusCodec)
             ),
             .alreadyLive
+        )
+    }
+
+    func testRestoreActionConnectedWithUnsupportedCodecNeedsAttention() {
+        XCTAssertEqual(
+            OmiSourceLogic.restoreAction(
+                peripheralState: .connected,
+                hasAudioService: true,
+                isAudioNotifying: false,
+                codec: .value(Self.unsupportedCodec)
+            ),
+            .needsAttention(.codecNotOpus)
+        )
+        XCTAssertEqual(
+            OmiSourceLogic.restoreAction(
+                peripheralState: .connected,
+                hasAudioService: true,
+                isAudioNotifying: false,
+                codec: .unavailable
+            ),
+            .needsAttention(.codecNotOpus)
         )
     }
 
@@ -67,4 +105,9 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
         let handler = OmiSourceManager.handleWillRestoreState
         _ = handler
     }
+}
+
+private extension OmiSourceRestoreTests {
+    static let opusCodec = BLEAudioCodecInfo(rawByte: 20, label: "opus")
+    static let unsupportedCodec = BLEAudioCodecInfo(rawByte: 1, label: "pcm")
 }

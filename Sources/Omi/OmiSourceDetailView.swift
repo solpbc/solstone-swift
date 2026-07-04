@@ -153,7 +153,10 @@ private extension OmiSourceDetailView {
     }
 
     var mappedState: (state: SourceState, attention: SourceAttention?) {
-        omiSourceState(for: self.manager.connectionState, enabled: self.manager.enabled)
+        omiSourceState(
+            for: self.manager.effectiveConnectionState(now: Date()),
+            enabled: self.manager.enabled
+        )
     }
 
     func audioText(now: Date) -> String {

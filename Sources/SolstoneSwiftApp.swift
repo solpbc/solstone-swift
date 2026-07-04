@@ -448,6 +448,9 @@ struct SolstoneSwiftApp: App {
         omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
             omiHeardTally.record(day: day, durationS: durationS, identity: identity)
         }
+        omiSegmentWriter.onWriterFault = { [weak omiSource] in
+            omiSource?.noteWriterFault()
+        }
         omiSource.omiSegmentWriter = omiSegmentWriter
         omiSource.onDecodedSamples = { [weak omiSegmentWriter] samples in
             omiSegmentWriter?.append(samples)

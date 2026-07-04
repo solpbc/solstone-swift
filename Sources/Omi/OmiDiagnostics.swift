@@ -6,6 +6,22 @@ import Observation
 import UIKit
 import os
 
+nonisolated protocol OmiDiagnosticsPersistenceSink: Sendable {
+    func write(_ data: Data) throws
+}
+
+nonisolated struct FileOmiDiagnosticsPersistenceSink: OmiDiagnosticsPersistenceSink {
+    let fileURL: URL
+
+    func write(_ data: Data) throws {
+        try FileManager.default.createDirectory(
+            at: self.fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: self.fileURL, options: [.atomic])
+    }
+}
+
 @MainActor
 @Observable
 final class OmiDiagnostics {
@@ -22,16 +38,37 @@ final class OmiDiagnostics {
 
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored private let persistenceSink: any OmiDiagnosticsPersistenceSink
     @ObservationIgnored private let log = Logger(subsystem: "app.solstone.swift", category: "omi-diagnostics")
     @ObservationIgnored private var decodeLastSeen = OmiDiagnosticsPayload.DecodeCounters()
+    @ObservationIgnored private var coalescingDepth = 0
+    @ObservationIgnored private var hasCoalescedChanges = false
 
     init(
         clock: any ObserverClock = SystemObserverClock(),
-        fileURL: URL = OmiDiagnostics.defaultFileURL
+        fileURL: URL = OmiDiagnostics.defaultFileURL,
+        persistenceSink: (any OmiDiagnosticsPersistenceSink)? = nil
     ) {
         self.clock = clock
         self.fileURL = fileURL
+        self.persistenceSink = persistenceSink ?? FileOmiDiagnosticsPersistenceSink(fileURL: fileURL)
         self.payload = (try? Self.loadPayload(from: fileURL)) ?? OmiDiagnosticsPayload()
+    }
+
+    func beginCoalescing() {
+        self.coalescingDepth += 1
+    }
+
+    func endCoalescing() {
+        guard self.coalescingDepth > 0 else {
+            return
+        }
+        self.coalescingDepth -= 1
+        guard self.coalescingDepth == 0, self.hasCoalescedChanges else {
+            return
+        }
+        self.hasCoalescedChanges = false
+        self.persist()
     }
 
     func recordConnected() {
@@ -80,6 +117,10 @@ final class OmiDiagnostics {
             level: level,
             rawByte: rawByte
         ))
+        self.payload.pendantBatteryTrend = OmiDiagnosticsLogic.retainingMostRecent(
+            self.payload.pendantBatteryTrend,
+            limit: OmiDiagnosticsLogic.retainedMinuteSeriesSampleCount
+        )
         self.persist()
     }
 
@@ -90,7 +131,10 @@ final class OmiDiagnostics {
             timestamp: date,
             level: level
         ))
-        self.payload.pendantSignalTrend = samples
+        self.payload.pendantSignalTrend = OmiDiagnosticsLogic.retainingMostRecent(
+            samples,
+            limit: OmiDiagnosticsLogic.retainedMinuteSeriesSampleCount
+        )
         self.persist()
     }
 
@@ -106,7 +150,10 @@ final class OmiDiagnostics {
             latencySeconds: latencySeconds,
             appState: appState
         ))
-        self.payload.subscribeLatencySamples = samples
+        self.payload.subscribeLatencySamples = OmiDiagnosticsLogic.retainingMostRecent(
+            samples,
+            limit: OmiDiagnosticsLogic.retainedEventSeriesCount
+        )
         self.persist()
     }
 
@@ -133,7 +180,10 @@ final class OmiDiagnostics {
             rawHex: rawHex,
             fileCountUnconfirmed: fileCountUnconfirmed
         ))
-        self.payload.storageBacklogSamples = samples
+        self.payload.storageBacklogSamples = OmiDiagnosticsLogic.retainingMostRecent(
+            samples,
+            limit: OmiDiagnosticsLogic.retainedMinuteSeriesSampleCount
+        )
         self.persist()
     }
 
@@ -149,7 +199,10 @@ final class OmiDiagnostics {
             epochBefore: epochBefore,
             epochAfter: epochAfter
         ))
-        self.payload.pendantRebootEvents = events
+        self.payload.pendantRebootEvents = OmiDiagnosticsLogic.retainingMostRecent(
+            events,
+            limit: OmiDiagnosticsLogic.retainedEventSeriesCount
+        )
         self.persist()
     }
 
@@ -183,7 +236,10 @@ final class OmiDiagnostics {
         ok: Int,
         errors: Int,
         gaps: Int,
-        outOfOrder: Int
+        outOfOrder: Int,
+        malformed: Int,
+        droppedSamples: Int,
+        failedOpens: Int
     ) {
         let current = self.payload.decodeCounters
         let lastSeen = self.decodeLastSeen
@@ -207,19 +263,61 @@ final class OmiDiagnostics {
             lastSeen: lastSeen.outOfOrder,
             incoming: outOfOrder
         )
+        let malformedAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.malformed,
+            lastSeen: lastSeen.malformed,
+            incoming: malformed
+        )
+        let droppedSamplesAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.droppedSamples,
+            lastSeen: lastSeen.droppedSamples,
+            incoming: droppedSamples
+        )
+        let failedOpensAcc = OmiDiagnosticsLogic.accumulatedCounter(
+            lifetime: current.failedOpens,
+            lastSeen: lastSeen.failedOpens,
+            incoming: failedOpens
+        )
 
         self.payload.decodeCounters = OmiDiagnosticsPayload.DecodeCounters(
             ok: okAcc.lifetime,
             errors: errorsAcc.lifetime,
             gaps: gapsAcc.lifetime,
-            outOfOrder: outOfOrderAcc.lifetime
+            outOfOrder: outOfOrderAcc.lifetime,
+            droppedSamples: droppedSamplesAcc.lifetime,
+            failedOpens: failedOpensAcc.lifetime,
+            malformed: malformedAcc.lifetime
         )
         self.decodeLastSeen = OmiDiagnosticsPayload.DecodeCounters(
             ok: okAcc.lastSeen,
             errors: errorsAcc.lastSeen,
             gaps: gapsAcc.lastSeen,
-            outOfOrder: outOfOrderAcc.lastSeen
+            outOfOrder: outOfOrderAcc.lastSeen,
+            droppedSamples: droppedSamplesAcc.lastSeen,
+            failedOpens: failedOpensAcc.lastSeen,
+            malformed: malformedAcc.lastSeen
         )
+    }
+
+    func recordDecodeCounters(
+        ok: Int,
+        errors: Int,
+        gaps: Int,
+        outOfOrder: Int,
+        malformed: Int,
+        droppedSamples: Int,
+        failedOpens: Int
+    ) {
+        self.updateDecodeCounters(
+            ok: ok,
+            errors: errors,
+            gaps: gaps,
+            outOfOrder: outOfOrder,
+            malformed: malformed,
+            droppedSamples: droppedSamples,
+            failedOpens: failedOpens
+        )
+        self.persist()
     }
 
     func recordPhoneSample() {
@@ -233,20 +331,24 @@ final class OmiDiagnostics {
             thermalState: Self.thermalStateString(ProcessInfo.processInfo.thermalState),
             batteryState: Self.batteryStateString(UIDevice.current.batteryState)
         ))
+        self.payload.phoneSamples = OmiDiagnosticsLogic.retainingMostRecent(
+            self.payload.phoneSamples,
+            limit: OmiDiagnosticsLogic.retainedMinuteSeriesSampleCount
+        )
         self.persist()
     }
 
     func persist() {
         do {
+            guard self.coalescingDepth == 0 else {
+                self.hasCoalescedChanges = true
+                return
+            }
             self.payload.version = OmiDiagnosticsPayload.currentVersion
-            try FileManager.default.createDirectory(
-                at: self.fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(self.payload)
-            try data.write(to: self.fileURL, options: [.atomic])
+            try self.persistenceSink.write(data)
         } catch {
             self.log.error("omi diagnostics write failed: \(String(describing: error), privacy: .public)")
         }

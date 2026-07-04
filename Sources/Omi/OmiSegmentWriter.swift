@@ -12,6 +12,7 @@ final class OmiSegmentWriter {
 
     private static let chunkDurationSeconds: TimeInterval = 300
     private static let minChunkDurationSeconds = 0.1
+    private static let maxChunkOpenAttempts = 3
     private static let sampleRate: Double = 16_000
     private static let channelCount: AVAudioChannelCount = 1
 
@@ -20,6 +21,10 @@ final class OmiSegmentWriter {
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-writer")
 
     var onChunkFinalized: ((_ day: String, _ durationS: TimeInterval, _ identity: String) -> Void)?
+    var onWriterFault: (() -> Void)?
+
+    private(set) var droppedSamples = 0
+    private(set) var failedOpens = 0
 
     private var sessionID: UUID?
     private var chunkIndex = 0
@@ -28,6 +33,8 @@ final class OmiSegmentWriter {
     private var currentFile: AVAudioFile?
     private var currentURL: URL?
     private var segmentationTask: Task<Void, Never>?
+    private var consecutiveChunkOpenFailures = 0
+    private var didNotifyWriterFaultForCurrentWedge = false
 
     init(
         uploader: ObserverUploader,
@@ -47,7 +54,7 @@ final class OmiSegmentWriter {
             self.startSegmentationTimer()
             self.log.info("omi writer started")
         } catch {
-            self.log.error("omi writer start failed: \(String(describing: error), privacy: .public)")
+            self.noteChunkOpenFailure(error, context: "start")
             self.clearState()
         }
     }
@@ -56,9 +63,10 @@ final class OmiSegmentWriter {
 
     func append(_ samples: [Int16]) {
         guard !samples.isEmpty else { return }
-        guard self.sessionID != nil, self.currentFile != nil else { return }
+        guard self.sessionID != nil else { return }
 
-        self.rotateIfElapsed()
+        _ = self.rotateIfElapsed()
+        guard self.ensureCurrentChunk(droppedSampleCount: samples.count) else { return }
 
         guard let audioFile = self.currentFile else { return }
         guard let buffer = Self.makeBuffer(samples) else {
@@ -131,7 +139,7 @@ private extension OmiSegmentWriter {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                self.rotateIfElapsed()
+                _ = self.rotateIfElapsed()
             }
         }
     }
@@ -153,14 +161,15 @@ private extension OmiSegmentWriter {
         self.currentURL = url
         self.currentChunkStart = self.clock.now()
         self.samplesWritten = 0
+        self.resetChunkOpenFailureState()
     }
 
-    func rotateIfElapsed() {
+    func rotateIfElapsed() -> Bool {
         guard self.currentFile != nil,
               let currentChunkStart,
               self.clock.now().timeIntervalSince(currentChunkStart) >= Self.chunkDurationSeconds
         else {
-            return
+            return true
         }
 
         self.finalizeCurrentChunk()
@@ -168,8 +177,10 @@ private extension OmiSegmentWriter {
 
         do {
             try self.openChunk()
+            return true
         } catch {
-            self.log.error("omi writer rotate failed: \(String(describing: error), privacy: .public)")
+            self.noteChunkOpenFailure(error, context: "rotate")
+            return false
         }
     }
 
@@ -228,7 +239,42 @@ private extension OmiSegmentWriter {
         self.currentFile?.close()
         self.sessionID = nil
         self.chunkIndex = 0
+        self.resetChunkOpenFailureState()
         self.clearCurrentChunk()
+    }
+
+    func ensureCurrentChunk(droppedSampleCount: Int) -> Bool {
+        guard self.currentFile == nil else {
+            return true
+        }
+        while self.currentFile == nil && self.consecutiveChunkOpenFailures < Self.maxChunkOpenAttempts {
+            do {
+                try self.openChunk()
+                return true
+            } catch {
+                self.noteChunkOpenFailure(error, context: "append")
+            }
+        }
+        self.droppedSamples += droppedSampleCount
+        return false
+    }
+
+    func noteChunkOpenFailure(_ error: any Error, context: String) {
+        self.failedOpens += 1
+        self.consecutiveChunkOpenFailures += 1
+        self.log.error("omi writer \(context, privacy: .public) open failed: \(String(describing: error), privacy: .public)")
+        guard self.consecutiveChunkOpenFailures >= Self.maxChunkOpenAttempts,
+              !self.didNotifyWriterFaultForCurrentWedge
+        else {
+            return
+        }
+        self.didNotifyWriterFaultForCurrentWedge = true
+        self.onWriterFault?()
+    }
+
+    func resetChunkOpenFailureState() {
+        self.consecutiveChunkOpenFailures = 0
+        self.didNotifyWriterFaultForCurrentWedge = false
     }
 
     static func chunkID(sessionID: UUID, index: Int) -> String {

@@ -30,7 +30,15 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
 
         diagnostics.recordConnected()
         diagnostics.noteDecodedSamples(at: start.addingTimeInterval(1))
-        diagnostics.updateDecodeCounters(ok: 8, errors: 2, gaps: 1, outOfOrder: 3)
+        diagnostics.updateDecodeCounters(
+            ok: 8,
+            errors: 2,
+            gaps: 1,
+            outOfOrder: 3,
+            malformed: 4,
+            droppedSamples: 5,
+            failedOpens: 6
+        )
         diagnostics.recordBattery(level: 87, at: start.addingTimeInterval(2))
         diagnostics.recordSignal(level: -62, at: start.addingTimeInterval(3))
         diagnostics.recordDisconnected(event: OmiSourceEvent(
@@ -54,7 +62,15 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         XCTAssertEqual(payload.reconnectEvents.count, 1)
         XCTAssertEqual(payload.reconnectEvents.first?.reason, "link lost")
         XCTAssertEqual(payload.reconnectEvents.first?.timeToReconnect, 4)
-        XCTAssertEqual(payload.decodeCounters, OmiDiagnosticsPayload.DecodeCounters(ok: 8, errors: 2, gaps: 1, outOfOrder: 3))
+        XCTAssertEqual(payload.decodeCounters, OmiDiagnosticsPayload.DecodeCounters(
+            ok: 8,
+            errors: 2,
+            gaps: 1,
+            outOfOrder: 3,
+            droppedSamples: 5,
+            failedOpens: 6,
+            malformed: 4
+        ))
         XCTAssertEqual(payload.pendantBatteryTrend, [
             OmiDiagnosticsPayload.PendantBatterySample(timestamp: start.addingTimeInterval(2), level: 87)
         ])
@@ -158,6 +174,116 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadsV2PayloadWithDecodeCountersDefaultingV3Fields() throws {
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let v2JSON = """
+        {
+          "version": 2,
+          "firstObservedAt": "2024-05-21T08:00:00Z",
+          "uptime": {
+            "connectedSince": "2024-05-21T08:45:00Z",
+            "accumulatedConnectedSeconds": 2700
+          },
+          "reconnectEvents": [
+            {
+              "timestamp": "2024-05-21T08:10:00Z",
+              "reason": "link lost",
+              "appStateAtDrop": "foreground",
+              "timeToReconnect": 3.25
+            }
+          ],
+          "decodeCounters": {
+            "ok": 52,
+            "errors": 3,
+            "gaps": 4,
+            "outOfOrder": 2
+          },
+          "pendantBatteryTrend": [
+            {
+              "timestamp": "2024-05-21T08:05:00Z",
+              "level": 81,
+              "rawByte": 81
+            }
+          ],
+          "pendantSignalTrend": [
+            {
+              "timestamp": "2024-05-21T08:06:00Z",
+              "level": -64
+            }
+          ],
+          "phoneSamples": [
+            {
+              "timestamp": "2024-05-21T08:07:00Z",
+              "batteryLevel": 0.66,
+              "thermalState": "nominal",
+              "batteryState": "unplugged"
+            }
+          ],
+          "gapTallies": {
+            "disconnectGapCount": 1,
+            "disconnectGapSeconds": 3.25,
+            "connectedSilentGapCount": 2,
+            "connectedSilentGapSeconds": 120,
+            "connectedSilentForegroundSeconds": 60,
+            "connectedSilentBackgroundSeconds": 45,
+            "connectedSilentLockedSeconds": 15
+          },
+          "lastDecodedSampleAt": "2024-05-21T08:08:00Z",
+          "openDisconnectStartedAt": null,
+          "openConnectedSilentStartedAt": "2024-05-21T08:46:00Z",
+          "subscribeLatencySamples": [
+            {
+              "timestamp": "2024-05-21T08:09:00Z",
+              "latencySeconds": 1.5,
+              "appState": "foreground"
+            }
+          ],
+          "storageBacklogSamples": [
+            {
+              "timestamp": "2024-05-21T08:11:00Z",
+              "usedBytes": 1024,
+              "rawHex": "00000400",
+              "fileCountUnconfirmed": 2
+            }
+          ],
+          "pendantRebootEvents": [
+            {
+              "observedAt": "2024-05-21T08:12:00Z",
+              "epochBefore": 2000,
+              "epochAfter": 100
+            }
+          ],
+          "mtuAtConnect": 185,
+          "mtuAtSubscribeConfirm": 185,
+          "connectToFirstAudioSeconds": 2.75
+        }
+        """
+        try Data(v2JSON.utf8).write(to: fileURL)
+
+        let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
+        let payload = diagnostics.payload
+
+        XCTAssertEqual(payload.version, 2)
+        XCTAssertEqual(payload.firstObservedAt, Self.date("2024-05-21T08:00:00Z"))
+        XCTAssertEqual(payload.decodeCounters.ok, 52)
+        XCTAssertEqual(payload.decodeCounters.errors, 3)
+        XCTAssertEqual(payload.decodeCounters.gaps, 4)
+        XCTAssertEqual(payload.decodeCounters.outOfOrder, 2)
+        XCTAssertEqual(payload.decodeCounters.malformed, 0)
+        XCTAssertEqual(payload.decodeCounters.droppedSamples, 0)
+        XCTAssertEqual(payload.decodeCounters.failedOpens, 0)
+        XCTAssertEqual(payload.pendantBatteryTrend.count, 1)
+        XCTAssertEqual(payload.pendantSignalTrend?.first?.level, -64)
+        XCTAssertEqual(payload.phoneSamples.first?.batteryState, "unplugged")
+        XCTAssertEqual(payload.subscribeLatencySamples?.first?.latencySeconds, 1.5)
+        XCTAssertEqual(payload.storageBacklogSamples?.first?.usedBytes, 1024)
+        XCTAssertEqual(payload.pendantRebootEvents?.first?.epochAfter, 100)
+        XCTAssertEqual(payload.mtuAtConnect, 185)
+        XCTAssertEqual(payload.mtuAtSubscribeConfirm, 185)
+        XCTAssertEqual(payload.connectToFirstAudioSeconds, 2.75)
+    }
+
+    @MainActor
     func testNoteDecodedSamplesDoesNotPersistPerFrame() throws {
         let start = Date(timeIntervalSince1970: 1_713_624_100)
         let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
@@ -179,16 +305,19 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
         let diagnostics = OmiDiagnostics(clock: clock, fileURL: fileURL)
 
-        diagnostics.updateDecodeCounters(ok: 2, errors: 1, gaps: 1, outOfOrder: 0)
-        diagnostics.updateDecodeCounters(ok: 5, errors: 1, gaps: 2, outOfOrder: 1)
-        diagnostics.updateDecodeCounters(ok: 9, errors: 2, gaps: 4, outOfOrder: 3)
-        diagnostics.updateDecodeCounters(ok: 3, errors: 0, gaps: 1, outOfOrder: 2)
+        diagnostics.updateDecodeCounters(ok: 2, errors: 1, gaps: 1, outOfOrder: 0, malformed: 1, droppedSamples: 2, failedOpens: 0)
+        diagnostics.updateDecodeCounters(ok: 5, errors: 1, gaps: 2, outOfOrder: 1, malformed: 1, droppedSamples: 5, failedOpens: 1)
+        diagnostics.updateDecodeCounters(ok: 9, errors: 2, gaps: 4, outOfOrder: 3, malformed: 3, droppedSamples: 8, failedOpens: 2)
+        diagnostics.updateDecodeCounters(ok: 3, errors: 0, gaps: 1, outOfOrder: 2, malformed: 1, droppedSamples: 1, failedOpens: 1)
 
         let expected = OmiDiagnosticsPayload.DecodeCounters(
             ok: 12,
             errors: 2,
             gaps: 5,
-            outOfOrder: 5
+            outOfOrder: 5,
+            droppedSamples: 9,
+            failedOpens: 3,
+            malformed: 4
         )
         XCTAssertEqual(diagnostics.payload.decodeCounters, expected)
 
@@ -201,6 +330,100 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         XCTAssertTrue(report.contains("decode frames: 12 ok, 2 errors"), report)
         XCTAssertTrue(report.contains("audio gaps: 5"), report)
         XCTAssertTrue(report.contains("out of order frames: 5"), report)
+        XCTAssertTrue(report.contains("malformed audio packets: 4"), report)
+        XCTAssertTrue(report.contains("dropped audio samples: 9"), report)
+        XCTAssertTrue(report.contains("audio file open failures: 3"), report)
+    }
+
+    @MainActor
+    func testCoalescingFlushesOneWriteForSynchronousRecords() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_175)
+        let sink = CountingOmiDiagnosticsPersistenceSink()
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let diagnostics = OmiDiagnostics(
+            clock: MockObserverClock(now: start),
+            fileURL: fileURL,
+            persistenceSink: sink
+        )
+
+        diagnostics.beginCoalescing()
+        diagnostics.recordConnected()
+        diagnostics.recordDecodeCounters(ok: 1, errors: 2, gaps: 3, outOfOrder: 4, malformed: 5, droppedSamples: 6, failedOpens: 7)
+        diagnostics.recordBattery(level: 87, at: start, rawByte: 87)
+        diagnostics.recordSignal(level: -60, at: start)
+        diagnostics.appendSubscribeLatency(timestamp: start, latencySeconds: 1.25, appState: "foreground")
+        diagnostics.appendStorageBacklogSample(timestamp: start, usedBytes: 100, rawHex: "64000000", fileCountUnconfirmed: 1)
+        diagnostics.appendPendantRebootEvent(observedAt: start, epochBefore: 2_000, epochAfter: 1_000)
+
+        XCTAssertEqual(sink.writeCount, 0)
+        diagnostics.endCoalescing()
+        XCTAssertEqual(sink.writeCount, 1)
+    }
+
+    @MainActor
+    func testPersistOutsideCoalescingWritesImmediately() throws {
+        let sink = CountingOmiDiagnosticsPersistenceSink()
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let diagnostics = OmiDiagnostics(
+            clock: MockObserverClock(),
+            fileURL: fileURL,
+            persistenceSink: sink
+        )
+
+        diagnostics.recordBattery(level: 88, at: Date(timeIntervalSince1970: 1_713_624_176))
+
+        XCTAssertEqual(sink.writeCount, 1)
+    }
+
+    @MainActor
+    func testSeriesCapsRetainMostRecentSamples() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_180)
+        let clock = MockObserverClock(now: start)
+        let sink = CountingOmiDiagnosticsPersistenceSink()
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let diagnostics = OmiDiagnostics(clock: clock, fileURL: fileURL, persistenceSink: sink)
+        let minuteLimit = OmiDiagnosticsLogic.retainedMinuteSeriesSampleCount
+        let eventLimit = OmiDiagnosticsLogic.retainedEventSeriesCount
+
+        diagnostics.beginCoalescing()
+        for index in 0..<(minuteLimit + 5) {
+            let date = start.addingTimeInterval(TimeInterval(index * 60))
+            diagnostics.recordBattery(level: index % 100, at: date, rawByte: UInt8(index % 100))
+            diagnostics.recordSignal(level: -80 + (index % 40), at: date)
+            diagnostics.appendStorageBacklogSample(
+                timestamp: date,
+                usedBytes: UInt32(index),
+                rawHex: "00000000",
+                fileCountUnconfirmed: UInt32(index % 10)
+            )
+            diagnostics.recordPhoneSample()
+            clock.advance(by: 60)
+        }
+        for index in 0..<(eventLimit + 5) {
+            let date = start.addingTimeInterval(TimeInterval(index))
+            diagnostics.appendSubscribeLatency(
+                timestamp: date,
+                latencySeconds: TimeInterval(index),
+                appState: "foreground"
+            )
+            diagnostics.appendPendantRebootEvent(
+                observedAt: date,
+                epochBefore: UInt32(index + 1_000),
+                epochAfter: UInt32(index)
+            )
+        }
+        diagnostics.endCoalescing()
+
+        XCTAssertEqual(diagnostics.payload.pendantBatteryTrend.count, minuteLimit)
+        XCTAssertEqual(diagnostics.payload.pendantSignalTrend?.count, minuteLimit)
+        XCTAssertEqual(diagnostics.payload.storageBacklogSamples?.count, minuteLimit)
+        XCTAssertEqual(diagnostics.payload.phoneSamples.count, minuteLimit)
+        XCTAssertEqual(diagnostics.payload.subscribeLatencySamples?.count, eventLimit)
+        XCTAssertEqual(diagnostics.payload.pendantRebootEvents?.count, eventLimit)
+        XCTAssertEqual(diagnostics.payload.pendantBatteryTrend.first?.timestamp, start.addingTimeInterval(5 * 60))
+        XCTAssertEqual(diagnostics.payload.storageBacklogSamples?.first?.usedBytes, 5)
+        XCTAssertEqual(diagnostics.payload.subscribeLatencySamples?.first?.latencySeconds, 5)
+        XCTAssertEqual(sink.writeCount, 1)
     }
 
     @MainActor
@@ -329,7 +552,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         let diagnostics = OmiDiagnostics(clock: clock, fileURL: fileURL)
 
         diagnostics.recordConnected()
-        diagnostics.updateDecodeCounters(ok: 9, errors: 1, gaps: 2, outOfOrder: 0)
+        diagnostics.updateDecodeCounters(ok: 9, errors: 1, gaps: 2, outOfOrder: 0, malformed: 3, droppedSamples: 4, failedOpens: 5)
         diagnostics.recordBattery(level: 92, at: start)
         diagnostics.recordSignal(level: -58, at: start.addingTimeInterval(1))
         diagnostics.recordDisconnected(event: OmiSourceEvent(
@@ -360,6 +583,9 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
             "decode frames:",
             "audio gaps:",
             "out of order frames:",
+            "malformed audio packets:",
+            "dropped audio samples:",
+            "audio file open failures:",
             "pendant battery:",
             "pendant signal:",
             "phone battery:",
@@ -382,5 +608,20 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
 
     private static func date(_ string: String) -> Date {
         ISO8601DateFormatter().date(from: string)!
+    }
+}
+
+private final class CountingOmiDiagnosticsPersistenceSink: OmiDiagnosticsPersistenceSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var writeCount: Int {
+        self.lock.withLock { self.count }
+    }
+
+    func write(_ data: Data) throws {
+        self.lock.withLock {
+            self.count += 1
+        }
     }
 }

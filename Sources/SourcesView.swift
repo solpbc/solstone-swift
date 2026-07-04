@@ -202,11 +202,12 @@ private extension SourcesView {
     }
 
     var omiSource: Source {
+        let now = self.now
+        let effectiveState = self.omiSourceManager.effectiveConnectionState(now: now)
         let mapped = omiSourceState(
-            for: self.omiSourceManager.connectionState,
+            for: effectiveState,
             enabled: self.omiSourceManager.enabled
         )
-        let now = Date()
         let battery = OmiSourceLogic.surfacedBattery(
             live: self.omiSourceManager.battery,
             lastKnown: self.omiSourceManager.lastKnownBattery

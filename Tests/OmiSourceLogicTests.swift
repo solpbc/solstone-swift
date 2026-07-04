@@ -441,6 +441,128 @@ nonisolated final class OmiSourceLogicTests: XCTestCase {
         ))
     }
 
+    @MainActor
+    func testEffectiveConnectionStateSurfacesWriterFaultFirst() {
+        let clock = MockObserverClock()
+
+        XCTAssertEqual(
+            OmiSourceLogic.effectiveConnectionState(
+                connectionState: .reconnecting,
+                writerFaulted: true,
+                audioUnsubscribedWhileConnected: true,
+                reconnectStartedAt: clock.now().addingTimeInterval(-1_000),
+                isAudioSubscribed: true,
+                lastAudioAt: nil,
+                connectedSince: clock.now().addingTimeInterval(-1_000),
+                now: clock.now()
+            ),
+            .needsAttention(.audioUnavailable)
+        )
+    }
+
+    @MainActor
+    func testEffectiveConnectionStateSurfacesAudioUnsubscribedFault() {
+        let clock = MockObserverClock()
+
+        XCTAssertEqual(
+            OmiSourceLogic.effectiveConnectionState(
+                connectionState: .connected,
+                writerFaulted: false,
+                audioUnsubscribedWhileConnected: true,
+                reconnectStartedAt: nil,
+                isAudioSubscribed: false,
+                lastAudioAt: nil,
+                connectedSince: clock.now(),
+                now: clock.now()
+            ),
+            .needsAttention(.audioUnavailable)
+        )
+    }
+
+    @MainActor
+    func testEffectiveConnectionStateKeepsReconnectEnrollingBeforeDeadline() {
+        let clock = MockObserverClock()
+        let startedAt = clock.now()
+        clock.advance(by: OmiSourceLogic.reconnectAttentionDeadline)
+
+        XCTAssertEqual(
+            OmiSourceLogic.effectiveConnectionState(
+                connectionState: .reconnecting,
+                writerFaulted: false,
+                audioUnsubscribedWhileConnected: false,
+                reconnectStartedAt: startedAt,
+                isAudioSubscribed: false,
+                lastAudioAt: nil,
+                connectedSince: nil,
+                now: clock.now()
+            ),
+            .reconnecting
+        )
+    }
+
+    @MainActor
+    func testEffectiveConnectionStateSurfacesReconnectPastDeadline() {
+        let clock = MockObserverClock()
+        let startedAt = clock.now()
+        clock.advance(by: OmiSourceLogic.reconnectAttentionDeadline + 1)
+
+        XCTAssertEqual(
+            OmiSourceLogic.effectiveConnectionState(
+                connectionState: .reconnecting,
+                writerFaulted: false,
+                audioUnsubscribedWhileConnected: false,
+                reconnectStartedAt: startedAt,
+                isAudioSubscribed: false,
+                lastAudioAt: nil,
+                connectedSince: nil,
+                now: clock.now()
+            ),
+            .needsAttention(.connectFailed("connection timed out"))
+        )
+    }
+
+    @MainActor
+    func testEffectiveConnectionStateKeepsSubscribedSilenceActiveWithinWindow() {
+        let clock = MockObserverClock()
+        let connectedAt = clock.now()
+        clock.advance(by: OmiSourceLogic.audioSilenceAttentionWindow)
+
+        XCTAssertEqual(
+            OmiSourceLogic.effectiveConnectionState(
+                connectionState: .connected,
+                writerFaulted: false,
+                audioUnsubscribedWhileConnected: false,
+                reconnectStartedAt: nil,
+                isAudioSubscribed: true,
+                lastAudioAt: nil,
+                connectedSince: connectedAt,
+                now: clock.now()
+            ),
+            .connected
+        )
+    }
+
+    @MainActor
+    func testEffectiveConnectionStateSurfacesSubscribedSilencePastWindow() {
+        let clock = MockObserverClock()
+        let connectedAt = clock.now()
+        clock.advance(by: OmiSourceLogic.audioSilenceAttentionWindow + 1)
+
+        XCTAssertEqual(
+            OmiSourceLogic.effectiveConnectionState(
+                connectionState: .connected,
+                writerFaulted: false,
+                audioUnsubscribedWhileConnected: false,
+                reconnectStartedAt: nil,
+                isAudioSubscribed: true,
+                lastAudioAt: nil,
+                connectedSince: connectedAt,
+                now: clock.now()
+            ),
+            .needsAttention(.audioUnavailable)
+        )
+    }
+
     func testAudioHealthStaysSilentAfterRecoveryAttemptFlagChanges() {
         let start = Date(timeIntervalSince1970: 1_100)
         let now = start.addingTimeInterval(90)

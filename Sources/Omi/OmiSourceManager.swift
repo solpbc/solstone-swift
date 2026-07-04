@@ -31,6 +31,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var battery: BLEReadState<Int> = .notRead
     var codec: BLEReadState<BLEAudioCodecInfo> = .notRead
     var isAudioSubscribed = false
+    var writerFaulted = false
+    var audioUnsubscribedWhileConnected = false
     var audioPackets = 0
     var audioFrames = 0
     var audioDecodeOK = 0
@@ -155,6 +157,24 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.omiSegmentWriter?.start()
     }
 
+    func noteWriterFault() {
+        self.writerFaulted = true
+        self.refreshDiagnosticDecodeCounters(persist: true)
+    }
+
+    func effectiveConnectionState(now: Date) -> OmiSourceState {
+        OmiSourceLogic.effectiveConnectionState(
+            connectionState: self.connectionState,
+            writerFaulted: self.writerFaulted,
+            audioUnsubscribedWhileConnected: self.audioUnsubscribedWhileConnected,
+            reconnectStartedAt: self.reconnectStartedAt,
+            isAudioSubscribed: self.isAudioSubscribed,
+            lastAudioAt: self.lastAudioAt,
+            connectedSince: self.diagnostics.payload.uptime.connectedSince,
+            now: now
+        )
+    }
+
     func disable() {
         self.enabled = false
         self.persistEnabled(false)
@@ -169,6 +189,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
         self.omiSegmentWriter?.stop()
         self.clearConnectionArtifacts()
+        self.writerFaulted = false
+        self.audioUnsubscribedWhileConnected = false
         self.uptime.noteDisconnected(at: self.clock.now())
         self.connectionState = .disconnected
         self.log.info("omi stopped")
@@ -393,6 +415,7 @@ private extension OmiSourceManager {
     func handleRestoredPeripheral(_ peripheral: CBPeripheral) {
         self.peripheralsByID[peripheral.identifier] = peripheral
         peripheral.delegate = self
+        self.cacheRestoredCharacteristics(in: peripheral)
 
         let audioCharacteristic = self.audioCharacteristic(in: peripheral)
         let hasAudioService = peripheral.services?.contains {
@@ -401,7 +424,8 @@ private extension OmiSourceManager {
         let action = OmiSourceLogic.restoreAction(
             peripheralState: peripheral.state,
             hasAudioService: hasAudioService,
-            isAudioNotifying: audioCharacteristic?.isNotifying == true
+            isAudioNotifying: audioCharacteristic?.isNotifying == true,
+            codec: self.codec
         )
 
         self.log.info("omi restore action: \(String(describing: action), privacy: .public)")
@@ -416,6 +440,27 @@ private extension OmiSourceManager {
                 expectsSubscribeConfirm: true
             )
             peripheral.discoverServices(self.restoreServiceUUIDs)
+        case .readCodec:
+            self.adoptConnectedPeripheral(peripheral)
+            self.connectionState = .connected
+            self.beginConnectionInstrumentation(
+                now: self.clock.now(),
+                expectsSubscribeConfirm: true
+            )
+            if let codecCharacteristic = self.characteristic(for: BLEDiagnosticUUIDs.codecCharacteristic),
+               codecCharacteristic.properties.contains(.read)
+            {
+                peripheral.readValue(for: codecCharacteristic)
+            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioService) }) {
+                peripheral.discoverCharacteristics(nil, for: audioService)
+            } else {
+                self.connectionState = .needsAttention(.audioUnavailable)
+                self.log.error("omi audio unavailable after restore")
+            }
+        case .needsAttention(let attention):
+            self.adoptConnectedPeripheral(peripheral)
+            self.connectionState = .needsAttention(attention)
+            self.log.error("omi restore needs attention: \(attention.displayString, privacy: .public)")
         case .subscribeAudio:
             self.adoptConnectedPeripheral(peripheral)
             self.connectionState = .connected
@@ -472,6 +517,8 @@ private extension OmiSourceManager {
         self.lastAudioAt = nil
         self.silentEpisodeRecoveryFired = false
         self.lastLoggedAudioHealth = nil
+        self.writerFaulted = false
+        self.audioUnsubscribedWhileConnected = false
         self.resetReadState()
         self.clearAudioState()
         self.characteristicsByID.removeAll()
@@ -628,6 +675,7 @@ private extension OmiSourceManager {
 
         if characteristic.isNotifying {
             self.isAudioSubscribed = true
+            self.audioUnsubscribedWhileConnected = false
             self.appendSubscribeLatencyIfNeeded(at: self.clock.now())
             self.resetAudioLiveState()
             self.buildOpusDecoder()
@@ -640,6 +688,12 @@ private extension OmiSourceManager {
             }
         } else {
             self.isAudioSubscribed = false
+            if OmiSourceLogic.audioUnsubscribedWhileConnectedFault(
+                connectionState: self.connectionState,
+                isAudioNotifying: false
+            ) {
+                self.audioUnsubscribedWhileConnected = true
+            }
             self.opusDecoder = nil
             self.log.info("omi audio stream disabled")
         }
@@ -702,12 +756,7 @@ private extension OmiSourceManager {
         self.audioDecodeOK += deltas.decodeOK
         self.audioDecodeErrors += deltas.decodeErrors
         self.applyAudioCounterSnapshot()
-        self.diagnostics.updateDecodeCounters(
-            ok: self.audioDecodeOK,
-            errors: self.audioDecodeErrors,
-            gaps: self.audioGaps,
-            outOfOrder: self.audioOutOfOrder
-        )
+        self.refreshDiagnosticDecodeCounters(persist: false)
         if deltas.decodeOK > 0 {
             self.startSegmentWriterIfNeeded()
             let now = self.clock.now()
@@ -932,6 +981,8 @@ private extension OmiSourceManager {
         self.silentEpisodeRecoveryFired = false
         self.didAttemptWriterStart = false
         self.lastLoggedAudioHealth = nil
+        self.writerFaulted = false
+        self.audioUnsubscribedWhileConnected = false
         self.resetReadState()
         self.clearAudioState()
         self.clearPerConnectionInstrumentationState()
@@ -945,6 +996,7 @@ private extension OmiSourceManager {
         self.silentEpisodeRecoveryFired = false
         self.didAttemptWriterStart = false
         self.lastLoggedAudioHealth = nil
+        self.audioUnsubscribedWhileConnected = false
         self.clearPerConnectionInstrumentationState()
     }
 
@@ -981,6 +1033,32 @@ private extension OmiSourceManager {
         self.audioMarkers = snapshot.markers
         self.audioDecodeOK = snapshot.decodeOK
         self.audioDecodeErrors = snapshot.decodeErrors
+    }
+
+    func refreshDiagnosticDecodeCounters(persist: Bool) {
+        let droppedSamples = self.omiSegmentWriter?.droppedSamples ?? 0
+        let failedOpens = self.omiSegmentWriter?.failedOpens ?? 0
+        if persist {
+            self.diagnostics.recordDecodeCounters(
+                ok: self.audioDecodeOK,
+                errors: self.audioDecodeErrors,
+                gaps: self.audioGaps,
+                outOfOrder: self.audioOutOfOrder,
+                malformed: self.audioMalformed,
+                droppedSamples: droppedSamples,
+                failedOpens: failedOpens
+            )
+        } else {
+            self.diagnostics.updateDecodeCounters(
+                ok: self.audioDecodeOK,
+                errors: self.audioDecodeErrors,
+                gaps: self.audioGaps,
+                outOfOrder: self.audioOutOfOrder,
+                malformed: self.audioMalformed,
+                droppedSamples: droppedSamples,
+                failedOpens: failedOpens
+            )
+        }
     }
 
     func resetReadState() {
@@ -1020,10 +1098,17 @@ private extension OmiSourceManager {
 
             while self.enabled {
                 let now = self.clock.now()
-                self.diagnostics.recordPhoneSample()
+                do {
+                    self.diagnostics.beginCoalescing()
+                    defer {
+                        self.diagnostics.endCoalescing()
+                    }
+                    self.refreshDiagnosticDecodeCounters(persist: true)
+                    self.diagnostics.recordPhoneSample()
+                    self.attributeOpenConnectedSilentGap(at: now)
+                }
                 self.refreshPendantReadings()
                 self.refreshStorageBacklogReading()
-                self.attributeOpenConnectedSilentGap(at: now)
                 self.evaluateAudioRecovery(now: now)
                 do {
                     try await self.clock.sleep(for: .seconds(60))
@@ -1210,6 +1295,14 @@ private extension OmiSourceManager {
         peripheral.services?
             .flatMap { $0.characteristics ?? [] }
             .first { uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) }
+    }
+
+    func cacheRestoredCharacteristics(in peripheral: CBPeripheral) {
+        for service in peripheral.services ?? [] {
+            for characteristic in service.characteristics ?? [] {
+                self.characteristicsByID[self.characteristicID(characteristic)] = characteristic
+            }
+        }
     }
 
     var currentAppStateString: String {

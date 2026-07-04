@@ -70,17 +70,47 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         var errors: Int
         var gaps: Int
         var outOfOrder: Int
+        var droppedSamples: Int
+        var failedOpens: Int
+        var malformed: Int
 
         init(
             ok: Int = 0,
             errors: Int = 0,
             gaps: Int = 0,
-            outOfOrder: Int = 0
+            outOfOrder: Int = 0,
+            droppedSamples: Int = 0,
+            failedOpens: Int = 0,
+            malformed: Int = 0
         ) {
             self.ok = ok
             self.errors = errors
             self.gaps = gaps
             self.outOfOrder = outOfOrder
+            self.droppedSamples = droppedSamples
+            self.failedOpens = failedOpens
+            self.malformed = malformed
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case ok
+            case errors
+            case gaps
+            case outOfOrder
+            case droppedSamples
+            case failedOpens
+            case malformed
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.ok = try container.decodeIfPresent(Int.self, forKey: .ok) ?? 0
+            self.errors = try container.decodeIfPresent(Int.self, forKey: .errors) ?? 0
+            self.gaps = try container.decodeIfPresent(Int.self, forKey: .gaps) ?? 0
+            self.outOfOrder = try container.decodeIfPresent(Int.self, forKey: .outOfOrder) ?? 0
+            self.droppedSamples = try container.decodeIfPresent(Int.self, forKey: .droppedSamples) ?? 0
+            self.failedOpens = try container.decodeIfPresent(Int.self, forKey: .failedOpens) ?? 0
+            self.malformed = try container.decodeIfPresent(Int.self, forKey: .malformed) ?? 0
         }
     }
 
@@ -149,7 +179,7 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         }
     }
 
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     var version: Int
     var firstObservedAt: Date?
@@ -281,6 +311,8 @@ nonisolated struct StorageBacklogProjection: Equatable, Sendable {
 
 nonisolated enum OmiDiagnosticsLogic {
     static let connectedSilenceThreshold: TimeInterval = 30
+    static let retainedMinuteSeriesSampleCount = 24 * 60
+    static let retainedEventSeriesCount = OmiEventRing.capacity
 
     static func appStateBucket(
         applicationStateIsActive: Bool,
@@ -458,6 +490,13 @@ nonisolated enum OmiDiagnosticsLogic {
         return (lifetime + incoming, incoming)
     }
 
+    static func retainingMostRecent<Element>(_ values: [Element], limit: Int) -> [Element] {
+        guard limit > 0, values.count > limit else {
+            return values
+        }
+        return Array(values.suffix(limit))
+    }
+
     static func diagnosticRows(payload: OmiDiagnosticsPayload, asOf date: Date) -> [(label: String, value: String)] {
         let uptimePercent = payload.firstObservedAt
             .flatMap { payload.uptime.connectedFraction(since: $0, asOf: date) }
@@ -473,7 +512,12 @@ nonisolated enum OmiDiagnosticsLogic {
             ("reconnects", "\(reconnects.count)"),
             ("disconnect gaps", "\(payload.gapTallies.disconnectGapCount)"),
             ("connected-without-audio gaps", "\(payload.gapTallies.connectedSilentGapCount)"),
-            ("decode error rate", "\(String(format: "%.1f", decodeRate * 100))%")
+            ("decode error rate", "\(String(format: "%.1f", decodeRate * 100))%"),
+            ("audio gaps", "\(payload.decodeCounters.gaps)"),
+            ("out of order frames", "\(payload.decodeCounters.outOfOrder)"),
+            ("malformed audio packets", "\(payload.decodeCounters.malformed)"),
+            ("dropped audio samples", "\(payload.decodeCounters.droppedSamples)"),
+            ("audio file open failures", "\(payload.decodeCounters.failedOpens)")
         ]
     }
 
@@ -570,6 +614,9 @@ nonisolated enum OmiDiagnosticsLogic {
         lines.append("decode frames: \(payload.decodeCounters.ok) ok, \(payload.decodeCounters.errors) errors")
         lines.append("audio gaps: \(payload.decodeCounters.gaps)")
         lines.append("out of order frames: \(payload.decodeCounters.outOfOrder)")
+        lines.append("malformed audio packets: \(payload.decodeCounters.malformed)")
+        lines.append("dropped audio samples: \(payload.decodeCounters.droppedSamples)")
+        lines.append("audio file open failures: \(payload.decodeCounters.failedOpens)")
         lines.append("pendant battery: \(Self.pendantBatteryText(payload.pendantBatteryTrend))")
         lines.append("pendant signal: \(Self.pendantSignalText(payload.pendantSignalTrend))")
         lines.append("phone battery: \(Self.phoneBatteryText(payload.phoneSamples))")
