@@ -80,6 +80,7 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
             }
             return .solChatFold(useID: useID)
         default:
+            resolutionLog.notice("unknown notification category=\(categoryId, privacy: .public)")
             return .today
         }
     }

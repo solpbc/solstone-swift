@@ -149,9 +149,71 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         XCTAssertEqual(manager.registrationState, .registered(token: "deadbeef"))
     }
 
+    @MainActor
+    func testReregisterIfAuthorizedUsesInjectedRegisterClosureOnlyForAuthorizedStates() {
+        let cases: [(PushNotificationManager.PermissionState, Int)] = [
+            (.authorized, 1),
+            (.provisional, 1),
+            (.denied, 0),
+            (.notDetermined, 0),
+        ]
+
+        for (permissionState, expectedCount) in cases {
+            let registerCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+            let manager = self.makeManager(
+                register: {
+                    registerCount.withLock { $0 += 1 }
+                }
+            )
+
+            manager.setPermissionStateForTesting(permissionState)
+            manager.reregisterIfAuthorized()
+
+            XCTAssertEqual(registerCount.withLock { $0 }, expectedCount)
+        }
+    }
+
+    func testApsEnvironmentExtractsWrappedProfilePlist() {
+        XCTAssertEqual(
+            PushNotificationManager.apsEnvironment(fromProfile: Self.profileBytes(environment: "development")),
+            "development"
+        )
+    }
+
+    @MainActor
+    func testEnvironmentUsesSimulatorDevelopmentBeforeProfile() async throws {
+        try await self.assertRegisteredEnvironment(
+            expected: "development",
+            isSimulator: true,
+            profileBytes: { Self.profileBytes(environment: "production") }
+        )
+    }
+
+    @MainActor
+    func testEnvironmentUsesProfileApsEnvironmentWhenNotSimulator() async throws {
+        try await self.assertRegisteredEnvironment(
+            expected: "development",
+            isSimulator: false,
+            profileBytes: { Self.profileBytes(environment: "development") }
+        )
+    }
+
+    @MainActor
+    func testEnvironmentFallsBackToProductionWithoutSimulatorOrProfile() async throws {
+        try await self.assertRegisteredEnvironment(
+            expected: "production",
+            isSimulator: false,
+            profileBytes: { nil }
+        )
+    }
+
     @MainActor private func makeManager(
         retryDelays: [UInt64] = [1, 2, 3],
-        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in }
+        sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
+        environmentOverride: String? = "development",
+        register: @escaping @MainActor @Sendable () -> Void = {},
+        isSimulator: Bool = false,
+        profileBytes: @escaping @Sendable () -> Data? = { nil }
     ) -> PushNotificationManager {
         PushNotificationManager(
             defaults: self.defaults,
@@ -159,7 +221,46 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             retryDelays: retryDelays,
             sleep: sleep,
             bundleIdentifierOverride: "app.solstone.swift",
-            environmentOverride: "development"
+            environmentOverride: environmentOverride,
+            register: register,
+            isSimulator: isSimulator,
+            profileBytes: profileBytes
+        )
+    }
+
+    @MainActor private func assertRegisteredEnvironment(
+        expected: String,
+        isSimulator: Bool,
+        profileBytes: @escaping @Sendable () -> Data?
+    ) async throws {
+        PushManagerURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(requestBody(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+            XCTAssertEqual(json["environment"], expected)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+
+        let manager = self.makeManager(
+            environmentOverride: nil,
+            isSimulator: isSimulator,
+            profileBytes: profileBytes
+        )
+        await MainActor.run {
+            manager.activeLocalPort = 8474
+        }
+
+        await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+    }
+
+    nonisolated private static func profileBytes(environment: String) -> Data {
+        Data(
+            """
+            prefix<plist version="1.0"><dict><key>Entitlements</key><dict><key>aps-environment</key><string>\(environment)</string></dict></dict></plist>suffix
+            """.utf8
         )
     }
 }

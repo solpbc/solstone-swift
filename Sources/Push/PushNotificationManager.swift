@@ -43,22 +43,24 @@ final class PushNotificationManager {
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let bundleIdentifierOverride: String?
     @ObservationIgnored private let environmentOverride: String?
+    @ObservationIgnored private let register: @MainActor @Sendable () -> Void
+    @ObservationIgnored private let isSimulator: Bool
+    @ObservationIgnored private let profileBytes: @Sendable () -> Data?
     @ObservationIgnored private var tokenContinuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
-    init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
-        self.defaults = defaults
-        self.session = session
-        self.retryDelays = [
-            2_000_000_000,
-            4_000_000_000,
-            8_000_000_000,
-        ]
-        self.sleep = { delay in
-            try? await Task.sleep(nanoseconds: delay)
-        }
-        self.bundleIdentifierOverride = nil
-        self.environmentOverride = nil
-        self.restorePersistedState()
+    convenience init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
+        self.init(
+            defaults: defaults,
+            session: session,
+            retryDelays: [
+                2_000_000_000,
+                4_000_000_000,
+                8_000_000_000,
+            ],
+            sleep: { delay in
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        )
     }
 
     init(
@@ -67,7 +69,19 @@ final class PushNotificationManager {
         retryDelays: [UInt64],
         sleep: @escaping @Sendable (UInt64) async -> Void,
         bundleIdentifierOverride: String? = nil,
-        environmentOverride: String? = nil
+        environmentOverride: String? = nil,
+        register: @escaping @MainActor @Sendable () -> Void = { UIApplication.shared.registerForRemoteNotifications() },
+        isSimulator: Bool = {
+#if targetEnvironment(simulator)
+            true
+#else
+            false
+#endif
+        }(),
+        profileBytes: @escaping @Sendable () -> Data? = {
+            guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") else { return nil }
+            return try? Data(contentsOf: url)
+        }
     ) {
         self.defaults = defaults
         self.session = session
@@ -75,6 +89,9 @@ final class PushNotificationManager {
         self.sleep = sleep
         self.bundleIdentifierOverride = bundleIdentifierOverride
         self.environmentOverride = environmentOverride
+        self.register = register
+        self.isSimulator = isSimulator
+        self.profileBytes = profileBytes
         self.restorePersistedState()
     }
 
@@ -91,6 +108,15 @@ final class PushNotificationManager {
             .notDetermined
         @unknown default:
             .notDetermined
+        }
+    }
+
+    func reregisterIfAuthorized() {
+        switch self.permissionState {
+        case .authorized, .provisional:
+            self.register()
+        case .denied, .notDetermined:
+            break
         }
     }
 
@@ -118,7 +144,7 @@ final class PushNotificationManager {
             )
             await self.refreshPermissionState()
             if granted {
-                UIApplication.shared.registerForRemoteNotifications()
+                self.register()
                 log.info("push authorization granted")
             } else {
                 log.info("push authorization denied")
@@ -263,6 +289,31 @@ final class PushNotificationManager {
             }
         }
     }
+
+    nonisolated static func apsEnvironment(fromProfile profile: Data) -> String? {
+        let openTag = Data("<plist".utf8)
+        let closeTag = Data("</plist>".utf8)
+        guard let start = profile.range(of: openTag)?.lowerBound else { return nil }
+        guard let closeRange = profile.range(of: closeTag, in: start..<profile.endIndex) else { return nil }
+
+        let plistData = Data(profile[start..<closeRange.upperBound])
+        let entitlementsKey = "entitlements".capitalized
+        guard let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil),
+              let dict = plist as? [String: Any],
+              let entitlements = dict[entitlementsKey] as? [String: Any],
+              let environment = entitlements["aps-environment"] as? String,
+              !environment.isEmpty
+        else {
+            return nil
+        }
+        return environment
+    }
+
+#if DEBUG
+    func setPermissionStateForTesting(_ permissionState: PermissionState) {
+        self.permissionState = permissionState
+    }
+#endif
 }
 
 private extension PushNotificationManager {
@@ -276,11 +327,15 @@ private extension PushNotificationManager {
         if let environmentOverride = self.environmentOverride {
             return environmentOverride
         }
-#if DEBUG
-        return "development"
-#else
+        if self.isSimulator {
+            return "development"
+        }
+        if let profile = self.profileBytes(),
+           let environment = Self.apsEnvironment(fromProfile: profile)
+        {
+            return environment
+        }
         return "production"
-#endif
     }
 
     func restorePersistedState() {

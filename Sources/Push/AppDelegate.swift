@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             center.delegate = self.tapRouter
             center.setNotificationCategories(PushCategory.unCategories())
             await self.pushManager.refreshPermissionState()
+            self.pushManager.reregisterIfAuthorized()
 
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--integration-test-push-register") {
