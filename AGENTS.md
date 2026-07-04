@@ -1,34 +1,39 @@
 # solstone-swift
 
-Native iOS app for solstone — the private, AI-powered personal journal from sol pbc. Hybrid SwiftUI shell with embedded WKWebView portal and WebRTC voice. Universal iPhone + iPad. Bundle ID: `app.solstone.swift`.
-
-> **Wave 5 — onboarding, pairing, offline, and terminology landed.** The app now gates only native onboarding, lets the shell open before a journal is connected, persists pair/session state, surfaces Day-0/Day-1 and no-journal states, and adds a single offline banner plus file-backed portal cache metadata. Existing Wave 4 observer/voice separation remains enforced by the negative assertions in `make integration-test-observer` and `make integration-test-onboarding`.
+Native iOS app for solstone — the private, AI-powered journal from sol pbc. Native SwiftUI observer + importer + control center that syncs to the owner's solstone journal over a private loopback tunnel. Universal iPhone + iPad. Bundle ID: `app.solstone.swift`.
 
 ## Principles
 
-- **Privacy is an architecture decision.** Voice audio flows P2P phone ↔ OpenAI Realtime — acceptable tradeoff for low-latency voice, disclosed clearly. Observer audio goes to the owner's journal server, never sol pbc. No analytics, no crash reporting, no telemetry. No phone-home.
+- **Privacy is an architecture decision.** Observations sync only to the owner's journal server, never to sol pbc. No analytics, no crash reporting, no telemetry. No phone-home.
 - **Agent-native.** All builds, tests, deploys, and diagnostics happen through Makefile targets — no freeform `xcodebuild` / `simctl` / `devicectl` composition. `make sim-json` pipes through xcsift for structured JSON errors an agent can parse.
-- **Swift 6.2 strict concurrency.** `@MainActor` by default. `nonisolated` where it belongs (NIO handlers, WebRTC callbacks, WKScriptMessageHandler). Never `nonisolated(unsafe)` — fix the isolation. `@Observable`, not `ObservableObject`. `NavigationStack`, not `NavigationView`. `async/await`, no completion handlers.
-- **`os.Logger` only.** `.info` / `.error` / `.debug` survive from any thread. `print()` and `NSLog()` silently drop from NIO dispatch queues — don't use them. Subsystem: `app.solstone.swift`.
-- **WKScriptMessageHandler is the only bridge.** URL-scheme handler (`fetch('solstone://…')`) fails cross-origin from the `http://127.0.0.1` portal. Do NOT re-introduce it.
-- **Universal always.** `.sidebarAdaptable` on the TabView; size-class-aware SwiftUI. No iPhone-only hardcoding.
+- **Swift 6 language mode, strict (complete) concurrency.** `@MainActor` by default. `nonisolated` where it belongs, including the `WKNavigationDelegate` callbacks in `Sources/Portal/InAppJournalView.swift`. Never `nonisolated(unsafe)` — fix the isolation. `@Observable`, not `ObservableObject`. `NavigationStack`, not `NavigationView`. `async/await`, no completion handlers.
+- **`os.Logger` only.** `.info` / `.error` / `.debug` survive from any thread. `print()` and `NSLog()` silently drop from background threads/queues — don't use them. Subsystem: `app.solstone.swift`.
+- **Universal always.** Universal iPhone + iPad, size-class-aware SwiftUI. No iPhone-only hardcoding.
 - **KISS / YAGNI.** Build for the wave's scope; don't add speculative machinery, options, or fallbacks for cases that don't exist yet. No backwards-compatibility shims — update call sites directly when you rename or move something.
-- **Verify before you claim.** Recall is a hypothesis — verify convey/portal contracts, OpenAI Realtime behavior, and SDK shapes against the live source, and exercise the real serialization boundary in tests rather than mocking both sides.
+- **Verify before you claim.** Recall is a hypothesis — verify journal/convey API + journal-web contracts and SDK shapes against the live source, and exercise the real serialization boundary in tests rather than mocking both sides.
 
 ## Architecture
 
-Three-layer design:
+Native SwiftUI observer + importer + control center. The phone observes mic audio, location, screen via a ReplayKit broadcast extension, an Omi BLE pendant, and a paired Apple Watch, bundles observations into 5-minute segments, and uploads to the owner's journal over the tunnel. Owner-directed imports arrive via the system share-sheet extension.
 
-1. **Native SwiftUI shell** — `MainTabView` with tabs (Today / Ask / Sense / More), floating voice button overlay, keyboard shortcuts, `.sidebarAdaptable` iPad behavior.
-2. **WKWebView portal** — Today and Ask route a shared webview; Sense and More are native. Portal content is served by convey's purpose-built mobile SPA endpoint (co-developed with this app wave-by-wave).
-3. **WebRTC voice** — peer connection direct to OpenAI Realtime (raw stasel/WebRTC so `call_id` is controllable), ephemeral keys via the journal server, sideband tool dispatch on the server side.
+Local-first observation works unpaired. Captured data is held durably on-phone and drains to the journal once a pairing + tunnel exist. `AppConfig`'s `isPaired` (`Sources/Services/AppConfig.swift`) gates journal features, never observation.
 
-**Native ↔ web bridge:**
-- Native → web: `webView.evaluateJavaScript("window.location.hash = ...")`
-- Web → native: `window.webkit.messageHandlers.solstone.postMessage({type, data})` handled by `PortalPage`'s `WKScriptMessageHandler`
-- Routes are hash-fragment; sync is bidirectional and idempotent.
+The UI shell has no tab bar. `Sources/ContentView.swift` gates on `onboardingFlow.isCompleted`, then renders `RootShellView` (`Sources/RootShellView.swift`), a `NavigationStack` over `DayHomeView` (`Sources/DayHomeView.swift`). The sources control center (`SourcesView`, `Sources/SourcesView.swift`), chat (`ChatView`, `Sources/Chat/ChatView.swift`), the embedded journal web view (`InAppJournalView`, `Sources/Portal/InAppJournalView.swift`), and more (`MoreView`, `Sources/MoreView.swift`) are presented as sheets / navigation destinations, not tabs.
 
-**Tunnel** — NIOSSH with Ed25519 keychain keys, LAN-first / WAN-fallback, host-key pinning, keepalive + reconnect. Self-hosted journals go through the tunnel; hosted tier is direct HTTPS.
+Capture pipelines:
+- `Sources/Observer/` — audio recorder/manager + shared background-URLSession uploader.
+- `Sources/MobileSegment/` — `Sources/MobileSegment/MobileSegmentEngine.swift`, `Sources/MobileSegment/MobileSegmentStore.swift`, and `Sources/MobileSegment/MobileSegmentUploader.swift` are the 5-minute segment core.
+- `Sources/Location/` — `Sources/Location/LocationManager.swift`.
+- `Sources/Screencast/` — `Sources/Screencast/ScreencastManager.swift` is the ReplayKit control side; the broadcast extension writes into the active segment through the app group.
+- `Sources/Omi/` — `Sources/Omi/OmiSourceManager.swift` for the BLE pendant.
+- `Sources/WatchCapture/` + `Watch/Sources/` — Apple Watch companion, both halves.
+- `Sources/ImportQueue/` (`Sources/ImportQueue/ImportQueue.swift`) + `SolstoneShareExtension/` (`SolstoneShareExtension/ShareViewController.swift`) — share-sheet imports.
+
+Embedded journal web: `Sources/Portal/InAppJournalView.swift` is a plain `WKWebView` with `WKNavigationDelegate` callbacks only. There are no script message handlers and no URL-scheme handler. There is no JavaScript bridge; native ↔ journal communication is HTTP over the loopback port.
+
+Chat: `Sources/Chat/` is a native SwiftUI surface over the journal chat API with an SSE stream. The parser is `Sources/Chat/ServerSentEventParser.swift`; the transport is `Sources/Chat/ConveyChatTransport.swift`.
+
+Transport / tunnel: `Sources/SPLTunnel/` is a self-built static framework. It contains pairing crypto (`Sources/SPLTunnel/Crypto/`), relay dial over WebSocket (`Sources/SPLTunnel/Dial/DialClient.swift`), inner mTLS TLS 1.3 with a client cert + CA pinning (`Sources/SPLTunnel/TLS/InnerTLS.swift`), a framed multiplexer (`Sources/SPLTunnel/Framing/` + `Sources/SPLTunnel/Mux/`), and a loopback proxy (`Sources/SPLTunnel/Loopback/LoopbackProxy.swift`). `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over it — connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH — the tunnel is mTLS with a framed multiplexer.
 
 ## Build
 
@@ -58,36 +63,28 @@ make clean         # remove build artifacts
 
 ## Dependencies
 
-- `swift-nio-ssh` (Apple) — SSH protocol
-- `swift-nio-transport-services` (Apple) — iOS-native NIO transport
-- `stasel/WebRTC` — raw WebRTC bindings (chosen over Realtime SDKs so we control `call_id`)
+- `apple/swift-crypto` — used by the pairing/mTLS crypto in `Sources/SPLTunnel/Crypto/`.
+- `alta/swift-opus` (product `Opus`) — Opus decode for the BLE pendant audio; used in `Sources/Omi/` and `Sources/BLEDiagnostic/BLEOpusAudioDecoder.swift`.
+- `stasel/WebRTC` — not load-bearing; scheduled for removal.
 
 ## Swift 6 concurrency
 
-- Types are `@MainActor`-isolated by default. Mark `nonisolated` explicitly (NIO channel handlers, WebRTC callbacks).
+- Types are `@MainActor`-isolated by default. Mark `nonisolated` explicitly; the `WKNavigationDelegate` callbacks in `Sources/Portal/InAppJournalView.swift` are `nonisolated`.
 - Never `nonisolated(unsafe)` — fix isolation instead.
-- `WKScriptMessageHandler` callback is `nonisolated` by design; wrap work in `Task { @MainActor }`.
 - All `Sendable` conformance explicit.
-- NIO event loops are `Sendable` — safe to share across actors.
 
 ## Logging
 
 - Always `os.Logger`. All levels surface in `log collect` (sudo). `.debug` is silent on `devicectl --console` and `pymobiledevice3 syslog` — that's fine for production, use `log collect` for post-hoc.
-- `print()` / `NSLog()` silently drop from NIO threads — do not use them in production code.
+- `print()` / `NSLog()` silently drop from background threads/queues — do not use them in production code.
 - Subsystem: `app.solstone.swift`.
 
 ## Safety rails
 
 - **Never run `security` keychain commands without operator approval.** `make signing-check` and `make unlock` are approved read-only targets. No `set-key-partition-list`, `delete-*`, or `dump-keychain` without asking.
 - **Never force-push a branch someone else might be working on.**
-- **Never reintroduce the URL scheme handler bridge** — cross-origin policy blocks it from `http://127.0.0.1`. `WKScriptMessageHandler` is the contract.
 - **Don't delete `DerivedData/`** — breaks SPM cache resolution.
 - **All product changes go through Makefile targets.** Don't compose `xcodebuild` / `devicectl` / `simctl` by hand.
-
-## Known exceptions
-
-- `Sources/Services/SSHTransport.swift` `remoteHubSpawnCommand` is currently a generic stub. The real spawn command (path + flags) is owned by the journal server repo, not the iOS app, and will be wired in once the server exposes the `solstone-hub` interface.
-- Owner-visible copy must avoid surveillance verbs (capture / record / recording / watch / monitor / track / collect) and the labels keeper / assistant / server / service. Non-UI Apple framework names and internal implementation identifiers (e.g. `AVAudioSession.Category.record`, `requestRecordPermission`, `AVCaptureMetadataOutput`, `UNUserNotificationCenter`, `ObserverRecorder`, `recordingID`) are fine — keep them out of user-visible strings.
 
 ## Agent skills (install on the Mac)
 
@@ -104,3 +101,4 @@ make clean         # remove build artifacts
 - Sync shipped brand assets with `make brand-sync` (set `BRAND_DIR=/path/to/brand` to point at the canon).
 - `Tests/BrandColorTests.swift` is the tripwire for canonical `solOrange`, `solGold`, `orangeInk`, and `AccentColor`.
 - Keep `Sources/Design/Colors.swift` numeric triples locked; update brand assets through `make brand-sync`, not ad hoc edits.
+- Owner-visible copy must avoid surveillance verbs (capture / record / recording / watch / monitor / track / collect) and the labels keeper / assistant / server / service. Non-UI Apple framework names and internal implementation identifiers (e.g. `AVAudioSession.Category`, `requestRecordPermission`, `UNUserNotificationCenter`, `LiveObserverRecorder`, `recordAudioFinalized`) are fine — keep them out of user-visible strings.
