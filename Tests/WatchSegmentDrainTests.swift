@@ -343,6 +343,23 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
     }
 
     @MainActor
+    func testDrainDropsFilesLessStagedSegmentAndRemovesStaging() async throws {
+        let stagingRoot = self.stagingRootURL(name: "files-less-staging")
+        let ledger = WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "files-less-ledger"))
+        let manifest = self.makeManifest()
+        ledger.recordReceived(id: manifest.id)
+        try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest)
+        let drain = try self.makeDrain(stagingRoot: stagingRoot, ledger: ledger)
+
+        await drain.drain()
+
+        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        XCTAssertTrue(ledger.isTerminal(id: manifest.id))
+        XCTAssertEqual(ledger.nonTerminalCount, 0)
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+    }
+
+    @MainActor
     func testDrainTripsMaintenanceCheckpointsForLargeStagedBacklog() async throws {
         WatchDrainURLProtocol.handler = Self.okResponse
         let stagingRoot = self.stagingRootURL(name: "checkpoint-staging")

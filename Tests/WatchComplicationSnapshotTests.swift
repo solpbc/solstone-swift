@@ -75,6 +75,17 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.handoffRole)
     }
 
+    func testConfirmingCountDoesNotSurfaceInComplicationHandoff() {
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, confirmingCount: 1),
+            isReachable: false
+        )
+
+        XCTAssertNil(snapshot.handoffLine)
+        XCTAssertNil(snapshot.handoffSubtext)
+        XCTAssertNil(snapshot.handoffRole)
+    }
+
     func testWaitingForPhoneWordingUsesVocabulary() {
         let snapshot = WatchComplicationSnapshot(
             presentation: WatchCaptureOwnerPresentation(status: .off, queuedCount: 1),

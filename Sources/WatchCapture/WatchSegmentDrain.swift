@@ -135,7 +135,8 @@ private extension WatchSegmentDrain {
             }
 
             watchSegmentDrainLog.debug("watch drain staged segment has no files id=\(id.uuidString, privacy: .public)")
-            self.inFlight.remove(id)
+            self.ledger.recordDropped(id: id)
+            self.removeStaged(id)
         } catch {
             watchSegmentDrainLog.error("watch drain failed id=\(id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
             self.inFlight.remove(id)

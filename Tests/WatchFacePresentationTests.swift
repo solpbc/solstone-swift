@@ -62,6 +62,7 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
                 status: .active,
                 queuedCount: 2,
                 transferringCount: 0,
+                confirmingCount: 1,
                 handedOffCount: 4
             ),
             isReachable: false
@@ -70,7 +71,19 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             mixed.detailRows,
             [
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: 2),
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineHandedOff, value: 4),
+            ]
+        )
+
+        let confirmingOnly = watchFaceModel(
+            for: WatchCaptureOwnerPresentation(status: .active, queuedCount: 0, confirmingCount: 1),
+            isReachable: false
+        )
+        XCTAssertEqual(
+            confirmingOnly.detailRows,
+            [
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
             ]
         )
 
@@ -79,6 +92,7 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
                 status: .active,
                 queuedCount: 2,
                 transferringCount: 3,
+                confirmingCount: 1,
                 handedOffCount: 4
             ),
             isReachable: false
@@ -88,6 +102,7 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             [
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: 2),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSending, value: 3),
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineHandedOff, value: 4),
             ]
         )
@@ -167,10 +182,11 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             .off,
         ]
         let countCases = [
-            (queued: 0, transferring: 0, handedOff: 0),
-            (queued: 1, transferring: 0, handedOff: 0),
-            (queued: 0, transferring: 1, handedOff: 0),
-            (queued: 1, transferring: 1, handedOff: 1),
+            (queued: 0, transferring: 0, confirming: 0, handedOff: 0),
+            (queued: 1, transferring: 0, confirming: 0, handedOff: 0),
+            (queued: 0, transferring: 1, confirming: 0, handedOff: 0),
+            (queued: 0, transferring: 0, confirming: 1, handedOff: 0),
+            (queued: 1, transferring: 1, confirming: 1, handedOff: 1),
         ]
 
         for status in statuses {
@@ -181,6 +197,7 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
                             status: status,
                             queuedCount: counts.queued,
                             transferringCount: counts.transferring,
+                            confirmingCount: counts.confirming,
                             handedOffCount: counts.handedOff
                         ),
                         isReachable: isReachable

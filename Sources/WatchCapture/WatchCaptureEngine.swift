@@ -36,6 +36,7 @@ final class WatchCaptureEngine {
     private var runtimeAttention: ObserverError?
     private var queuedCount = 0
     private var transferringCount = 0
+    private var confirmingCount = 0
     private var handedOffCount = 0
 
     init(
@@ -68,6 +69,7 @@ final class WatchCaptureEngine {
             status: self.status,
             queuedCount: self.queuedCount,
             transferringCount: self.transferringCount,
+            confirmingCount: self.confirmingCount,
             handedOffCount: self.handedOffCount,
             isSessionRunning: self.activeSegment != nil,
             sessionStartedAt: self.sessionStartedAt
@@ -708,8 +710,9 @@ private extension WatchCaptureEngine {
         let entries = try self.storage.scanManifests()
         self.queuedCount = entries.filter { $0.manifest.state == .queued }.count
         self.transferringCount = entries.filter { $0.manifest.state == .transferring }.count
+        self.confirmingCount = entries.filter { $0.manifest.state == .delivered }.count
         self.handedOffCount = entries.filter {
-            $0.manifest.state == .delivered || $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
+            $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
         }.count
     }
 }

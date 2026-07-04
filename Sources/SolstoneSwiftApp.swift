@@ -529,6 +529,9 @@ struct SolstoneSwiftApp: App {
                 migrateLegacyAudioKeys: {
                     _ = await omiUploader.migrateLegacySegmentKeys()
                 },
+                replayWatchACKs: {
+                    watchRelayReceiver?.replayACKsForCommittedSegments()
+                },
                 drainWatch: {
                     await watchSegmentDrain?.drain()
                 },

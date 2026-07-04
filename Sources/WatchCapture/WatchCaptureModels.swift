@@ -32,6 +32,7 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
     var fixCount: Int
     var state: WatchSegmentState
     var failureReason: String?
+    var deliveredAt: Date? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -46,6 +47,7 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
         case fixCount = "fix_count"
         case state
         case failureReason = "failure_reason"
+        case deliveredAt = "delivered_at"
     }
 }
 
@@ -100,6 +102,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let status: WatchCaptureRuntimeStatus
     let queuedCount: Int
     let transferringCount: Int
+    let confirmingCount: Int
     let handedOffCount: Int
     let isSessionRunning: Bool
     let sessionStartedAt: Date?
@@ -108,6 +111,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         status: WatchCaptureRuntimeStatus,
         queuedCount: Int,
         transferringCount: Int = 0,
+        confirmingCount: Int = 0,
         handedOffCount: Int = 0,
         isSessionRunning: Bool = false,
         sessionStartedAt: Date? = nil
@@ -115,6 +119,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         self.status = status
         self.queuedCount = queuedCount
         self.transferringCount = transferringCount
+        self.confirmingCount = confirmingCount
         self.handedOffCount = handedOffCount
         self.isSessionRunning = isSessionRunning
         self.sessionStartedAt = sessionStartedAt
@@ -140,6 +145,9 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
             if self.queuedCount > 0 {
                 return SourceVocabulary.watchPipelineSaved
             }
+            if self.confirmingCount > 0 {
+                return SourceVocabulary.watchPipelineConfirming
+            }
             if self.handedOffCount > 0 {
                 return SourceVocabulary.watchPipelineHandedOff
             }
@@ -154,6 +162,9 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         }
         if self.queuedCount > 0 {
             parts.append(SourceVocabulary.watchSavedOnWatchCount(self.queuedCount))
+        }
+        if self.confirmingCount > 0 {
+            parts.append(SourceVocabulary.watchConfirmingCount(self.confirmingCount))
         }
         if self.handedOffCount > 0 {
             parts.append(SourceVocabulary.watchHandedToPhoneCount(self.handedOffCount))

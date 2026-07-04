@@ -21,15 +21,26 @@ nonisolated enum WatchRelayACK {
 
 @MainActor
 final class WatchRelaySender {
+    // 15 min — normal transfer→stage→ACK is seconds; 900s sits between the reducer
+    // relay/handoff-stuck (600s) and orphan (1800s) thresholds so a stranded
+    // .delivered self-heals before the orphan alarm without fighting a merely-slow ACK.
+    // One constant, no config.
+    private static let deliveredDeadline: TimeInterval = 900
+
     var onStateChanged: (@MainActor () -> Void)?
-    private(set) var consecutiveFailureCounts: [UUID: Int] = [:]
 
     private let storage: WatchCaptureStorage
     private let session: any WatchConnectivitySession
+    private let clock: @MainActor @Sendable () -> Date
 
-    init(storage: WatchCaptureStorage, session: any WatchConnectivitySession) {
+    init(
+        storage: WatchCaptureStorage,
+        session: any WatchConnectivitySession,
+        clock: @escaping @MainActor @Sendable () -> Date = Date.init
+    ) {
         self.storage = storage
         self.session = session
+        self.clock = clock
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
         }
@@ -45,7 +56,9 @@ final class WatchRelaySender {
                 switch entry.manifest.state {
                 case .acked, .safeToDelete:
                     try self.deleteIfSafe(entry)
-                case .captured, .persisted, .finalized, .queued, .transferring, .delivered:
+                case .delivered:
+                    try self.refreshDeliveredDeadline(entry)
+                case .captured, .persisted, .finalized, .queued, .transferring:
                     break
                 }
             }
@@ -132,17 +145,15 @@ private extension WatchRelaySender {
                 manifest.state = .queued
                 try self.storage.writeManifest(manifest, in: entry.directoryURL)
                 self.notifyStateChanged()
-                let failureCount = (self.consecutiveFailureCounts[id] ?? 0) + 1
-                self.consecutiveFailureCounts[id] = failureCount
-                watchRelaySenderLog.notice("watch relay transfer failed id=\(id.uuidString, privacy: .public) count=\(failureCount, privacy: .public): \(errorDescription, privacy: .public)")
+                watchRelaySenderLog.notice("watch relay transfer failed id=\(id.uuidString, privacy: .public): \(errorDescription, privacy: .public)")
                 return
             }
 
             guard manifest.state == .transferring || manifest.state == .queued else { return }
             manifest.state = .delivered
+            manifest.deliveredAt = self.clock()
             try self.storage.writeManifest(manifest, in: entry.directoryURL)
             self.notifyStateChanged()
-            self.consecutiveFailureCounts.removeValue(forKey: id)
         } catch {
             watchRelaySenderLog.error("watch relay finish handling failed: \(String(describing: error), privacy: .public)")
         }
@@ -179,6 +190,28 @@ private extension WatchRelaySender {
         }
         try self.storage.fileWriter.removeItem(at: entry.directoryURL)
         try? self.storage.fileWriter.removeItem(at: self.bundleURL(for: manifest.id))
+        self.notifyStateChanged()
+    }
+
+    func refreshDeliveredDeadline(_ entry: WatchCaptureStorage.ManifestEntry) throws {
+        guard entry.manifest.state == .delivered else { return }
+        var manifest = entry.manifest
+        let now = self.clock()
+
+        guard let deliveredAt = manifest.deliveredAt else {
+            manifest.deliveredAt = now
+            try self.storage.writeManifest(manifest, in: entry.directoryURL)
+            self.notifyStateChanged()
+            return
+        }
+
+        guard now.timeIntervalSince(deliveredAt) >= Self.deliveredDeadline else {
+            return
+        }
+
+        manifest.state = .queued
+        manifest.deliveredAt = nil
+        try self.storage.writeManifest(manifest, in: entry.directoryURL)
         self.notifyStateChanged()
     }
 

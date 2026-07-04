@@ -140,7 +140,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(statuses.isEmpty)
     }
 
-    func testAC9DeliveredSegmentsCountAsHandedOff() throws {
+    func testAC9DeliveredSegmentsCountAsConfirmingAndTerminalStatesAsHandedOff() throws {
         let harness = try self.makeHarness()
         let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
         _ = try self.writeManifest(
@@ -164,7 +164,8 @@ final class WatchCaptureTests: XCTestCase {
 
         harness.engine.refreshRelayCountsFromDisk()
 
-        XCTAssertEqual(harness.engine.ownerPresentation.handedOffCount, 3)
+        XCTAssertEqual(harness.engine.ownerPresentation.confirmingCount, 1)
+        XCTAssertEqual(harness.engine.ownerPresentation.handedOffCount, 2)
     }
 
     func testStartStopPublishObservingStoppingAndIdle() async throws {
@@ -582,6 +583,10 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(transferring.headline, "sending")
         XCTAssertEqual(transferring.countsLine, "1 sending · 2 saved on your watch")
 
+        let confirming = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, confirmingCount: 1)
+        XCTAssertEqual(confirming.headline, "confirming with your iphone")
+        XCTAssertEqual(confirming.countsLine, "1 confirming with your iphone")
+
         let handedOff = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, handedOffCount: 1)
         XCTAssertEqual(handedOff.headline, "handed to your iphone")
         XCTAssertEqual(handedOff.countsLine, "1 handed to your iphone")
@@ -590,10 +595,11 @@ final class WatchCaptureTests: XCTestCase {
             status: .needsAttention(.diskFull),
             queuedCount: 1,
             transferringCount: 1,
+            confirmingCount: 1,
             handedOffCount: 1
         )
         XCTAssertEqual(attention.headline, "storage is full")
-        XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 handed to your iphone")
+        XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 confirming with your iphone · 1 handed to your iphone")
         XCTAssertEqual(attention.attentionLine, "storage is full")
 
         let off = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, isSessionRunning: false)
@@ -606,6 +612,7 @@ final class WatchCaptureTests: XCTestCase {
             active.headline, active.countsLine, active.attentionLine,
             queued.headline, queued.countsLine, queued.attentionLine,
             transferring.headline, transferring.countsLine, transferring.attentionLine,
+            confirming.headline, confirming.countsLine, confirming.attentionLine,
             handedOff.headline, handedOff.countsLine, handedOff.attentionLine,
             attention.headline, attention.countsLine, attention.attentionLine,
             off.headline, off.countsLine, off.attentionLine,

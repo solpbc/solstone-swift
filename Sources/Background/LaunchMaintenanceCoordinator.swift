@@ -16,6 +16,7 @@ final class LaunchMaintenanceCoordinator {
         var migrateLegacyMobileItems: @MainActor () async throws -> Void
         var resumeMobileSegments: @MainActor () async throws -> Void
         var migrateLegacyAudioKeys: @MainActor () async throws -> Void
+        var replayWatchACKs: @MainActor () async throws -> Void
         var drainWatch: @MainActor () async throws -> Void
         var endStaleObserverActivitiesIfIdle: @MainActor () async throws -> Void
     }
@@ -106,6 +107,11 @@ final class LaunchMaintenanceCoordinator {
             if migrated && !Task.isCancelled {
                 self.defaults.set(true, forKey: Self.audioMigrationKey)
             }
+        }
+        guard !Task.isCancelled else { return }
+
+        passSucceeded = await self.run("replayWatchACKs", passSucceeded: passSucceeded) {
+            try await self.operations.replayWatchACKs()
         }
         guard !Task.isCancelled else { return }
 

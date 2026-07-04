@@ -136,6 +136,16 @@ final class WatchSegmentLedger {
         return latest
     }
 
+    var committedOrTerminalSegmentIDs: [UUID] {
+        // load() does not prune, so launch sweep size is bounded in practice by
+        // persisted mutations and the 7-day terminal prune interval, not by a read-only load.
+        self.store.entries.compactMap { key, entry in
+            guard entry.isTerminal || entry.receivedAt != nil else { return nil }
+            return UUID(uuidString: key)
+        }
+        .sorted { $0.uuidString < $1.uuidString }
+    }
+
     func recordReceived(id: UUID) {
         let key = id.uuidString
         var entry = self.store.entries[key] ?? WatchSegmentLedgerStore.Entry()

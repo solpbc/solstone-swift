@@ -94,6 +94,12 @@ final class WatchRelayReceiver {
             watchRelayReceiverLog.error("watch relay staging failed id=\(id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
+
+    func replayACKsForCommittedSegments() {
+        for id in self.ledger.committedOrTerminalSegmentIDs {
+            self.sendACK(id: id)
+        }
+    }
 }
 
 private extension WatchRelayReceiver {

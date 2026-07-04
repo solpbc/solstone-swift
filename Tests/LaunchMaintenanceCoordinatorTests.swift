@@ -10,7 +10,7 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
     private let mobileKey = "didMigrateLegacyMobileSegmentsV1"
     private let audioKey = "didMigrateLegacyAudioSegmentKeysV1"
 
-    func testForegroundPassRunsAllSevenOpsInOrder() async throws {
+    func testForegroundPassRunsAllEightOpsInOrder() async throws {
         let harness = try self.makeHarness()
 
         await harness.coordinator.runForegroundMaintenance()
@@ -192,6 +192,7 @@ private extension LaunchMaintenanceCoordinatorTests {
         "migrateMobile",
         "reconcile:mobileSegmentResume",
         "migrateAudio",
+        "replayWatchACKs",
         "drainWatch",
         "stale",
     ]
@@ -254,6 +255,16 @@ private extension LaunchMaintenanceCoordinatorTests {
             migrateLegacyAudioKeys: {
                 try await self.perform(
                     "migrateAudio",
+                    log: log,
+                    failures: failures,
+                    blockers: blockers,
+                    cancelLabels: cancelLabels,
+                    cancelBox: cancelBox
+                )
+            },
+            replayWatchACKs: {
+                try await self.perform(
+                    "replayWatchACKs",
                     log: log,
                     failures: failures,
                     blockers: blockers,

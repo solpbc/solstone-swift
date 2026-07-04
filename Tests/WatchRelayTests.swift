@@ -363,6 +363,31 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(ledger.lifetimeReceived, 1)
     }
 
+    func testReplayACKsForCommittedSegmentsIncludesReceivedAndTerminalIDsWithoutStaging() throws {
+        let stagingRoot = self.tempDirectory.appendingPathComponent("replay-ack-staging", isDirectory: true)
+        let phoneSession = MockWatchConnectivitySession()
+        let ledger = self.makeLedger("replay-ack-ledger")
+        let receivedID = UUID()
+        let handedID = UUID()
+        let droppedID = UUID()
+        ledger.recordReceived(id: receivedID)
+        ledger.recordHanded(id: handedID)
+        ledger.recordDropped(id: droppedID)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+        var stagedIDs: [UUID] = []
+        receiver.onSegmentStaged = { stagedIDs.append($0) }
+        defer { withExtendedLifetime(receiver) {} }
+
+        receiver.replayACKsForCommittedSegments()
+
+        XCTAssertEqual(
+            phoneSession.transferredUserInfos.compactMap { $0[WatchRelayACK.idKey] as? String }.sorted(),
+            [receivedID.uuidString, handedID.uuidString, droppedID.uuidString].sorted()
+        )
+        XCTAssertTrue(stagedIDs.isEmpty)
+        XCTAssertTrue(try self.stagedEntryIDs(at: stagingRoot).isEmpty)
+    }
+
     func testAC8CorruptLedgerStillStagesAndACKs() throws {
         let storage = try self.makeStorage("ac8-corrupt-ledger")
         let stagingRoot = self.tempDirectory.appendingPathComponent("ac8-corrupt-staging", isDirectory: true)
@@ -469,7 +494,8 @@ final class WatchRelayTests: XCTestCase {
     func testAC3DidFinishMatrixUpdatesOnlyExpectedStates() throws {
         let storage = try self.makeStorage("ac3-finish-matrix")
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let sender = WatchRelaySender(storage: storage, session: watchSession, clock: { now })
         watchSession.activate()
 
         let successID = UUID()
@@ -483,6 +509,7 @@ final class WatchRelayTests: XCTestCase {
         watchSession.finishTransfer(id: successID, error: nil)
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: successID), .delivered)
+        XCTAssertEqual(try self.manifest(storage: storage, id: successID)?.deliveredAt, now)
         XCTAssertTrue(storage.fileWriter.fileExists(at: successDirectory))
         XCTAssertTrue(storage.fileWriter.fileExists(at: successBundleURL))
         XCTAssertEqual(stateChanges, 1)
@@ -491,6 +518,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try self.writeSegment(storage: storage, id: queuedSuccessID, index: 1)
         watchSession.finishTransfer(id: queuedSuccessID, error: nil)
         XCTAssertEqual(try self.manifestState(storage: storage, id: queuedSuccessID), .delivered)
+        XCTAssertEqual(try self.manifest(storage: storage, id: queuedSuccessID)?.deliveredAt, now)
         XCTAssertEqual(stateChanges, 2)
 
         watchSession.finishTransfer(id: queuedSuccessID, error: nil)
@@ -505,23 +533,22 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: failureID), .queued)
         XCTAssertEqual(watchSession.transferredFiles.count, transferCountBeforeFailure)
-        XCTAssertEqual(sender.consecutiveFailureCounts[failureID], 1)
 
         watchSession.finishTransfer(id: successID, error: "late failure")
         XCTAssertEqual(try self.manifestState(storage: storage, id: successID), .delivered)
-        XCTAssertEqual(sender.consecutiveFailureCounts[successID], nil)
 
         watchSession.finishTransfer(id: UUID(), error: nil)
         watchSession.finishTransfer(id: UUID(), error: "missing")
         XCTAssertEqual(watchSession.transferredFiles.count, transferCountBeforeFailure)
     }
 
-    func testAC4DeliveredNeverRetransfers() throws {
-        let storage = try self.makeStorage("ac4-delivered")
+    func testAC4DeliveredWithoutTimestampStampsAndDoesNotRetransfer() throws {
+        let storage = try self.makeStorage("ac4-delivered-nil")
         let id = UUID()
         _ = try self.writeSegment(storage: storage, id: id, index: 0, state: .delivered)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let sender = WatchRelaySender(storage: storage, session: watchSession, clock: { now })
         let bundleURL = sender.bundleURL(for: id)
         try FileManager.default.createDirectory(at: bundleURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let marker = Data("existing bundle".utf8)
@@ -532,10 +559,62 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertTrue(watchSession.transferredFiles.isEmpty)
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .delivered)
+        XCTAssertEqual(try self.manifest(storage: storage, id: id)?.deliveredAt, now)
         XCTAssertEqual(try Data(contentsOf: bundleURL), marker)
     }
 
-    func testAC5FailureRetryViaNaturalDrainCountsFailures() throws {
+    func testAC4DeliveredWithinDeadlineDoesNotRetransfer() throws {
+        let storage = try self.makeStorage("ac4-delivered-fresh")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let deliveredAt = now.addingTimeInterval(-60)
+        _ = try self.writeSegment(
+            storage: storage,
+            id: id,
+            index: 0,
+            state: .delivered,
+            deliveredAt: deliveredAt
+        )
+        let watchSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession, clock: { now })
+        let bundleURL = sender.bundleURL(for: id)
+        try FileManager.default.createDirectory(at: bundleURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let marker = Data("existing bundle".utf8)
+        try marker.write(to: bundleURL, options: .atomic)
+
+        watchSession.activate()
+        sender.drain()
+
+        XCTAssertTrue(watchSession.transferredFiles.isEmpty)
+        XCTAssertEqual(try self.manifestState(storage: storage, id: id), .delivered)
+        XCTAssertEqual(try self.manifest(storage: storage, id: id)?.deliveredAt, deliveredAt)
+        XCTAssertEqual(try Data(contentsOf: bundleURL), marker)
+    }
+
+    func testAC4DeliveredPastDeadlineRequeuesAndRetransfers() throws {
+        let storage = try self.makeStorage("ac4-delivered-expired")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        _ = try self.writeSegment(
+            storage: storage,
+            id: id,
+            index: 0,
+            state: .delivered,
+            deliveredAt: now.addingTimeInterval(-900)
+        )
+        let watchSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession, clock: { now })
+
+        watchSession.activate()
+        sender.drain()
+
+        XCTAssertEqual(watchSession.transferredFiles.count, 1)
+        XCTAssertEqual(watchSession.transferredFiles.first?.1["id"] as? String, id.uuidString)
+        XCTAssertEqual(try self.manifestState(storage: storage, id: id), .transferring)
+        XCTAssertNil(try self.manifest(storage: storage, id: id)?.deliveredAt)
+    }
+
+    func testAC5FailureRetryViaNaturalDrainRequeuesAndRetries() throws {
         let storage = try self.makeStorage("ac5-failure-retry")
         let id = UUID()
         _ = try self.writeSegment(storage: storage, id: id, index: 0)
@@ -548,7 +627,6 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.finishTransfer(id: id, error: "first failure")
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .queued)
-        XCTAssertEqual(sender.consecutiveFailureCounts[id], 1)
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
 
         sender.drain()
@@ -556,7 +634,6 @@ final class WatchRelayTests: XCTestCase {
         watchSession.finishTransfer(id: id, error: "second failure")
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .queued)
-        XCTAssertEqual(sender.consecutiveFailureCounts[id], 2)
     }
 
     func testAC6BidirectionalReconcileHandlesOutstandingSnapshots() throws {
@@ -689,6 +766,11 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(transferring.countsLine, "1 sending · 1 saved on your watch")
         XCTAssertNil(transferring.attentionLine)
 
+        let confirming = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, confirmingCount: 1)
+        XCTAssertEqual(confirming.headline, "confirming with your iphone")
+        XCTAssertEqual(confirming.countsLine, "1 confirming with your iphone")
+        XCTAssertNil(confirming.attentionLine)
+
         let handedOff = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, handedOffCount: 1)
         XCTAssertEqual(handedOff.headline, "handed to your iphone")
         XCTAssertEqual(handedOff.countsLine, "1 handed to your iphone")
@@ -698,10 +780,11 @@ final class WatchRelayTests: XCTestCase {
             status: .needsAttention(.diskFull),
             queuedCount: 1,
             transferringCount: 1,
+            confirmingCount: 1,
             handedOffCount: 1
         )
         XCTAssertEqual(attention.headline, "storage is full")
-        XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 handed to your iphone")
+        XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 confirming with your iphone · 1 handed to your iphone")
         XCTAssertEqual(attention.attentionLine, "storage is full")
     }
 }
@@ -767,7 +850,8 @@ private extension WatchRelayTests {
         storage: WatchCaptureStorage,
         id: UUID,
         index: Int,
-        state: WatchSegmentState = .queued
+        state: WatchSegmentState = .queued,
+        deliveredAt: Date? = nil
     ) throws -> URL {
         let startedAt = Date(timeIntervalSince1970: 1_713_624_000 + Double(index * 60))
         let day = storage.dayString(for: startedAt)
@@ -785,7 +869,8 @@ private extension WatchRelayTests {
             gap: false,
             fixCount: 0,
             state: state,
-            failureReason: nil
+            failureReason: nil,
+            deliveredAt: deliveredAt
         )
         try Data("audio-\(index)".utf8).write(to: storage.audioURL(directory: directory), options: .atomic)
         try storage.writeManifest(manifest, in: directory)

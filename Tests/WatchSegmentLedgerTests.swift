@@ -90,6 +90,34 @@ final class WatchSegmentLedgerTests: XCTestCase {
         XCTAssertNil(emptyLedger.oldestNonTerminalReceivedAt)
     }
 
+    func testCommittedOrTerminalSegmentIDsIncludesReceivedAndTerminalEntries() throws {
+        let fileURL = self.ledgerFileURL("committed-or-terminal")
+        let receivedID = UUID()
+        let handedID = UUID()
+        let droppedID = UUID()
+        let ignoredID = UUID()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let store = WatchSegmentLedgerStore(
+            entries: [
+                receivedID.uuidString: WatchSegmentLedgerStore.Entry(receivedAt: now),
+                handedID.uuidString: WatchSegmentLedgerStore.Entry(receivedAt: now, handedAt: now),
+                droppedID.uuidString: WatchSegmentLedgerStore.Entry(droppedAt: now),
+                ignoredID.uuidString: WatchSegmentLedgerStore.Entry(),
+                "not-a-uuid": WatchSegmentLedgerStore.Entry(receivedAt: now),
+            ],
+            lifetimeReceived: 4,
+            lifetimeHanded: 1
+        )
+        try self.writeStore(store, to: fileURL)
+
+        let ledger = WatchSegmentLedger(fileURL: fileURL)
+
+        XCTAssertEqual(
+            ledger.committedOrTerminalSegmentIDs.map(\.uuidString),
+            [receivedID.uuidString, handedID.uuidString, droppedID.uuidString].sorted()
+        )
+    }
+
     func testAC6aUnknownIDBackfillsHandAndDropCounters() throws {
         let handedID = UUID()
         let droppedID = UUID()
