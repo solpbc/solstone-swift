@@ -289,7 +289,7 @@ struct SolstoneSwiftApp: App {
             )
             omiCacheRoot = appGroupOmiRoot
         } catch {
-            let diagnostic = "omi observer storage unavailable source=app-group"
+            let diagnostic = "omi spool storage unavailable source=app-group"
             Logger(subsystem: "app.solstone.swift", category: "uploader")
                 .error("\(diagnostic, privacy: .public)")
             omiMigrationDiagnostics = [diagnostic]
