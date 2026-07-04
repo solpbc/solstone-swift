@@ -7,7 +7,7 @@ nonisolated enum OmiHeardRollupLogic {
     static let rowLabel = "heard today"
 
     static func todayKey(now: Date) -> String {
-        OmiSegmentWriter.dayString(for: now)
+        ObserverSegmentNaming.dayString(for: now)
     }
 
     static func durationText(seconds: TimeInterval) -> String {

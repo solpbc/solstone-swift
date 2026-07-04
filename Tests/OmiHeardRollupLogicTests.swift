@@ -17,7 +17,7 @@ nonisolated final class OmiHeardRollupLogicTests: XCTestCase {
 
     func testHeardTextZeroAndNonZero() {
         let now = Self.date("2026-06-23T12:00:00Z")
-        let day = OmiSegmentWriter.dayString(for: now)
+        let day = ObserverSegmentNaming.dayString(for: now)
 
         XCTAssertEqual(OmiHeardRollupLogic.rowLabel, "heard today")
         XCTAssertEqual(OmiHeardRollupLogic.heardText(tally: [:], now: now), "nothing yet")
@@ -43,8 +43,8 @@ nonisolated final class OmiHeardRollupLogicTests: XCTestCase {
 
     func testHeardTextUsesTodayKeyAndIgnoresYesterdayEntry() {
         let now = Self.date("2026-06-23T12:00:00Z")
-        let today = OmiSegmentWriter.dayString(for: now)
-        let yesterday = OmiSegmentWriter.dayString(for: now.addingTimeInterval(-86_400))
+        let today = ObserverSegmentNaming.dayString(for: now)
+        let yesterday = ObserverSegmentNaming.dayString(for: now.addingTimeInterval(-86_400))
         let tally: OmiHeardTallyPayload = [
             yesterday: OmiHeardDayTally(totalSeconds: 14_100, seenIdentities: ["old"]),
             today: OmiHeardDayTally(totalSeconds: 60, seenIdentities: ["new"]),

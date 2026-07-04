@@ -90,6 +90,14 @@ final class OmiSegmentWriter {
         self.log.info("omi writer stopped")
     }
 
+    func finalizeOpenChunk() async {
+        let hadOpenChunk = self.currentURL != nil
+        await self.finalizeCurrentChunkAwaitingEnqueue()
+        if hadOpenChunk {
+            self.chunkIndex += 1
+        }
+    }
+
     static func makeBuffer(_ samples: [Int16]) -> AVAudioPCMBuffer? {
         guard !samples.isEmpty, samples.count <= Int(UInt32.max) else { return nil }
         guard let format = AVAudioFormat(
@@ -185,13 +193,28 @@ private extension OmiSegmentWriter {
     }
 
     func finalizeCurrentChunk() {
+        guard let finalizedChunk = self.takeFinalizedChunk() else { return }
+        let uploader = self.uploader
+        Task { @MainActor [uploader, finalizedChunk] in
+            await uploader.enqueue(chunkURL: finalizedChunk.url, sidecar: finalizedChunk.sidecar)
+        }
+        self.notifyChunkFinalized(finalizedChunk)
+    }
+
+    func finalizeCurrentChunkAwaitingEnqueue() async {
+        guard let finalizedChunk = self.takeFinalizedChunk() else { return }
+        await self.uploader.enqueue(chunkURL: finalizedChunk.url, sidecar: finalizedChunk.sidecar)
+        self.notifyChunkFinalized(finalizedChunk)
+    }
+
+    func takeFinalizedChunk() -> FinalizedChunk? {
         guard let sessionID = self.sessionID,
               let url = self.currentURL,
               let startedAt = self.currentChunkStart
         else {
             self.currentFile?.close()
             self.clearCurrentChunk()
-            return
+            return nil
         }
 
         let chunkIndex = self.chunkIndex
@@ -202,12 +225,13 @@ private extension OmiSegmentWriter {
         let duration = Double(samplesWritten) / Self.sampleRate
         guard samplesWritten > 0, duration >= Self.minChunkDurationSeconds else {
             try? FileManager.default.removeItem(at: url)
-            return
+            return nil
         }
 
+        let day = ObserverSegmentNaming.dayString(for: startedAt)
         let sidecar = ChunkSidecar(
-            segment: Self.segmentString(for: startedAt, durationSeconds: duration),
-            day: Self.dayString(for: startedAt),
+            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: duration),
+            day: day,
             chunkIndex: chunkIndex,
             startedAt: startedAt,
             durationS: duration,
@@ -215,14 +239,20 @@ private extension OmiSegmentWriter {
             mode: .meeting,
             locationJSONL: nil
         )
-        let uploader = self.uploader
-        Task { @MainActor [uploader, url, sidecar] in
-            await uploader.enqueue(chunkURL: url, sidecar: sidecar)
-        }
+        return FinalizedChunk(
+            url: url,
+            sidecar: sidecar,
+            day: day,
+            durationS: duration,
+            identity: Self.chunkID(sessionID: sessionID, index: chunkIndex)
+        )
+    }
+
+    func notifyChunkFinalized(_ finalizedChunk: FinalizedChunk) {
         self.onChunkFinalized?(
-            Self.dayString(for: startedAt),
-            duration,
-            Self.chunkID(sessionID: sessionID, index: chunkIndex)
+            finalizedChunk.day,
+            finalizedChunk.durationS,
+            finalizedChunk.identity
         )
     }
 
@@ -280,19 +310,12 @@ private extension OmiSegmentWriter {
     static func chunkID(sessionID: UUID, index: Int) -> String {
         "\(sessionID.uuidString.lowercased())-\(index)"
     }
-
 }
 
-extension OmiSegmentWriter {
-    nonisolated static func dayString(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyyMMdd"
-        return formatter.string(from: date)
-    }
-
-    static func segmentString(for date: Date, durationSeconds: Double) -> String {
-        ChunkSidecar.segmentString(for: date, durationSeconds: durationSeconds)
-    }
+private struct FinalizedChunk: Sendable {
+    let url: URL
+    let sidecar: ChunkSidecar
+    let day: String
+    let durationS: TimeInterval
+    let identity: String
 }

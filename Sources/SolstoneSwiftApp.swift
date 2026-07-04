@@ -275,8 +275,26 @@ struct SolstoneSwiftApp: App {
             withIdentifier: OmiSegmentWriter.backgroundSessionIdentifier
         )
         omiUploadConfiguration.waitsForConnectivity = true
-        let omiCacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let legacyOmiRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
             .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+        let omiCacheRoot: URL
+        let omiMigrationDiagnostics: [String]
+        do {
+            let appGroupOmiRoot = try AppGroupContainer.rootURL()
+                .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+            omiMigrationDiagnostics = ObserverSpoolRootMigrator.migrateSpoolRoot(
+                fromLegacyCachesRoot: legacyOmiRoot,
+                toAppGroupRoot: appGroupOmiRoot,
+                flagKey: ObserverSpoolRootMigrator.omiAppGroupRootMigrationFlag
+            )
+            omiCacheRoot = appGroupOmiRoot
+        } catch {
+            let diagnostic = "omi observer storage unavailable source=app-group"
+            Logger(subsystem: "app.solstone.swift", category: "uploader")
+                .error("\(diagnostic, privacy: .public)")
+            omiMigrationDiagnostics = [diagnostic]
+            omiCacheRoot = legacyOmiRoot
+        }
         let omiUploader = ObserverUploader(
             cacheRootURL: omiCacheRoot,
             sessionConfiguration: omiUploadConfiguration,
@@ -295,6 +313,9 @@ struct SolstoneSwiftApp: App {
             diagnosticLog: log,
             sourceType: "omi-audio"
         )
+        if omiUploader.lastError == nil {
+            omiUploader.lastError = omiMigrationDiagnostics.first
+        }
         let omiHealthBeacon = ObserverHealthBeacon(
             registration: omiRegistration,
             uploader: omiUploader,
@@ -711,6 +732,9 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .background:
+                let omiFinalizeTask = Task { @MainActor in
+                    await self.omiSourceManager.finalizeOpenChunkForBackground()
+                }
                 Task {
                     await self.screencastManager.prepareForBackground()
                 }
@@ -762,6 +786,7 @@ struct SolstoneSwiftApp: App {
                     asserter: UIBackgroundTaskAsserter()
                 )
                 self.backgroundDrainTask = Task {
+                    await omiFinalizeTask.value
                     await coordinator.run()
                 }
             default:

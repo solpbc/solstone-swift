@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
 import Foundation
 import os
 import XCTest
@@ -1181,6 +1182,95 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testResumeFromDiskRecoversDecodableInProgressAndParksTruncatedFiles() async throws {
+        let uploader = self.makeUploader(isJournalConfigured: { false }, sourceType: "omi-audio")
+        let sessionID = UUID()
+        let decodableChunkID = "\(sessionID.uuidString.lowercased())-0"
+        let zeroByteChunkID = "\(sessionID.uuidString.lowercased())-1"
+        let truncatedChunkID = "\(sessionID.uuidString.lowercased())-2"
+        let startedAt = Date(timeIntervalSince1970: 1_780_480_800)
+        let decodableURL = self.inProgressAudioURL(sessionID: sessionID, chunkID: decodableChunkID)
+        let zeroByteURL = self.inProgressAudioURL(sessionID: sessionID, chunkID: zeroByteChunkID)
+        let truncatedURL = self.inProgressAudioURL(sessionID: sessionID, chunkID: truncatedChunkID)
+        try FileManager.default.createDirectory(at: decodableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try self.writeDecodableAudioFile(at: decodableURL, frameCount: 3200)
+        try FileManager.default.setAttributes(
+            [.creationDate: startedAt, .modificationDate: startedAt.addingTimeInterval(0.2)],
+            ofItemAtPath: decodableURL.path
+        )
+        XCTAssertTrue(FileManager.default.createFile(atPath: zeroByteURL.path, contents: nil))
+        try Data([0x00, 0x01, 0x02, 0x03, 0x04]).write(to: truncatedURL, options: .atomic)
+
+        await uploader.resumeFromDisk()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: decodableURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zeroByteURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: truncatedURL.path))
+        let pendingAudio = self.pendingAudioURL(sessionID: sessionID, chunkID: decodableChunkID)
+        let pendingSidecar = self.pendingSidecarURL(sessionID: sessionID, chunkID: decodableChunkID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingAudio.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingSidecar.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingAudioURL(sessionID: sessionID, chunkID: truncatedChunkID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: truncatedChunkID).path))
+        let sidecar = try self.decodeSidecar(at: pendingSidecar)
+        XCTAssertEqual(sidecar.sessionID, sessionID)
+        XCTAssertEqual(sidecar.chunkIndex, 0)
+        XCTAssertEqual(sidecar.startedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(sidecar.durationS, 0.2, accuracy: 0.01)
+        XCTAssertEqual(sidecar.day, ObserverSegmentNaming.dayString(for: startedAt))
+        XCTAssertEqual(sidecar.segment, ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: sidecar.durationS))
+        XCTAssertEqual(sidecar.mode, .meeting)
+        XCTAssertNil(sidecar.locationJSONL)
+        XCTAssertEqual(uploader.pendingCount, 1)
+    }
+
+    @MainActor
+    func testMigratedOmiPendingPairIsPickedUpFromAppGroupRootOnResume() async throws {
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/app/observer/ingest")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let legacyRoot = self.tempDirectory.appendingPathComponent("LegacyOmiObserver", isDirectory: true)
+        let appGroupRoot = self.tempDirectory
+            .appendingPathComponent("AppGroup", isDirectory: true)
+            .appendingPathComponent("OmiObserver", isDirectory: true)
+        let sessionID = UUID()
+        let chunkID = "\(sessionID.uuidString.lowercased())-0"
+        try self.writePendingChunk(rootURL: legacyRoot, sessionID: sessionID, chunkID: chunkID)
+
+        let diagnostics = ObserverSpoolRootMigrator.migrateSpoolRoot(
+            fromLegacyCachesRoot: legacyRoot,
+            toAppGroupRoot: appGroupRoot,
+            flagKey: ObserverSpoolRootMigrator.omiAppGroupRootMigrationFlag,
+            defaults: nil
+        )
+        XCTAssertEqual(diagnostics, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingAudioURL(
+            rootURL: legacyRoot,
+            sessionID: sessionID,
+            chunkID: chunkID
+        ).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.pendingAudioURL(
+            rootURL: appGroupRoot,
+            sessionID: sessionID,
+            chunkID: chunkID
+        ).path))
+
+        let uploader = self.makeUploader(cacheRootURL: appGroupRoot, sourceType: "omi-audio")
+        await uploader.resumeFromDisk()
+
+        try await self.waitFor("migrated omi pending upload") {
+            ObserverUploaderURLProtocol.callCount == 1
+                && uploader.pendingCount == 0
+                && uploader.lastUploadAt != nil
+        }
+    }
+
+    @MainActor
     func testOmiSourceTypeYieldsOmiIDAndSourceLabel() throws {
         let uploader = self.makeUploader(sourceType: "omi-audio")
         let sessionID = UUID()
@@ -1506,7 +1596,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             for duration in durations {
                 let canonical = ChunkSidecar.segmentString(for: date, durationSeconds: duration)
                 XCTAssertEqual(ObserverManager.segmentString(for: date, durationSeconds: duration), canonical)
-                XCTAssertEqual(OmiSegmentWriter.segmentString(for: date, durationSeconds: duration), canonical)
+                XCTAssertEqual(ObserverSegmentNaming.segmentString(for: date, durationSeconds: duration), canonical)
             }
         }
     }
@@ -2416,11 +2506,15 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     private func writePendingChunk(sessionID: UUID, chunkID: String) throws {
-        let audioURL = self.pendingAudioURL(sessionID: sessionID, chunkID: chunkID)
+        try self.writePendingChunk(rootURL: self.tempDirectory, sessionID: sessionID, chunkID: chunkID)
+    }
+
+    private func writePendingChunk(rootURL: URL, sessionID: UUID, chunkID: String) throws {
+        let audioURL = self.pendingAudioURL(rootURL: rootURL, sessionID: sessionID, chunkID: chunkID)
         try FileManager.default.createDirectory(at: audioURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("audio".utf8).write(to: audioURL)
         try self.makeEncoder().encode(self.makeSidecar(sessionID: sessionID, chunkIndex: 0))
-            .write(to: self.pendingSidecarURL(sessionID: sessionID, chunkID: chunkID))
+            .write(to: self.pendingSidecarURL(rootURL: rootURL, sessionID: sessionID, chunkID: chunkID))
     }
 
     private func makeEncoder() -> JSONEncoder {
@@ -2441,15 +2535,61 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     private func pendingAudioURL(sessionID: UUID, chunkID: String) -> URL {
-        self.sessionDirectoryURL(sessionID: sessionID)
+        self.pendingAudioURL(rootURL: self.tempDirectory, sessionID: sessionID, chunkID: chunkID)
+    }
+
+    private func pendingAudioURL(rootURL: URL, sessionID: UUID, chunkID: String) -> URL {
+        rootURL.appendingPathComponent(sessionID.uuidString, isDirectory: true)
             .appendingPathComponent("pending", isDirectory: true)
             .appendingPathComponent("\(chunkID).m4a", isDirectory: false)
     }
 
     private func pendingSidecarURL(sessionID: UUID, chunkID: String) -> URL {
-        self.sessionDirectoryURL(sessionID: sessionID)
+        self.pendingSidecarURL(rootURL: self.tempDirectory, sessionID: sessionID, chunkID: chunkID)
+    }
+
+    private func pendingSidecarURL(rootURL: URL, sessionID: UUID, chunkID: String) -> URL {
+        rootURL.appendingPathComponent(sessionID.uuidString, isDirectory: true)
             .appendingPathComponent("pending", isDirectory: true)
             .appendingPathComponent("\(chunkID).json", isDirectory: false)
+    }
+
+    private func inProgressAudioURL(sessionID: UUID, chunkID: String) -> URL {
+        self.sessionDirectoryURL(sessionID: sessionID)
+            .appendingPathComponent("in-progress", isDirectory: true)
+            .appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+    }
+
+    private func writeDecodableAudioFile(at url: URL, frameCount: Int) throws {
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ),
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)),
+            let channel = buffer.int16ChannelData?[0]
+        else {
+            XCTFail("Failed to create test audio buffer")
+            return
+        }
+        for index in 0..<frameCount {
+            channel[index] = Int16(index % 128)
+        }
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 16_000,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 32_000,
+            ],
+            commonFormat: .pcmFormatInt16,
+            interleaved: false
+        )
+        try file.write(from: buffer)
+        file.close()
     }
 
     private func writeFailedPair(

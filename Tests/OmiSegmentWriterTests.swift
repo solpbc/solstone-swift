@@ -50,6 +50,60 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     }
 
     @MainActor
+    func testFinalizeOpenChunkContinuesSessionWithNextChunkIndex() async throws {
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: MockObserverClock())
+
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        await writer.finalizeOpenChunk()
+
+        try await self.waitForPendingCount(1, uploader: uploader)
+        var chunks = try self.pendingChunks()
+        let first = try XCTUnwrap(chunks.first)
+        XCTAssertEqual(first.sidecar.chunkIndex, 0)
+        XCTAssertNoThrow(try AVAudioFile(forReading: first.audioURL))
+
+        writer.append(self.samples(count: 3200))
+        await writer.finalizeOpenChunk()
+
+        try await self.waitForPendingCount(2, uploader: uploader)
+        chunks = try self.pendingChunks()
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0, 1])
+        XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
+    }
+
+    @MainActor
+    func testFinalizeOpenChunkSkipsEmptyChunk() async throws {
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: MockObserverClock())
+
+        writer.start()
+        await writer.finalizeOpenChunk()
+
+        XCTAssertEqual(uploader.pendingCount, 0)
+        XCTAssertTrue(try self.files(withExtension: "m4a").isEmpty)
+    }
+
+    @MainActor
+    func testFinalizeOpenChunkIsIdempotentWithoutIndexGaps() async throws {
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(uploader: uploader, clock: MockObserverClock())
+
+        writer.start()
+        writer.append(self.samples(count: 3200))
+        await writer.finalizeOpenChunk()
+        await writer.finalizeOpenChunk()
+        writer.append(self.samples(count: 3200))
+        await writer.finalizeOpenChunk()
+
+        try await self.waitForPendingCount(2, uploader: uploader)
+        let chunks = try self.pendingChunks()
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0, 1])
+        XCTAssertEqual(Set(chunks.map(\.sidecar.chunkIndex)).count, chunks.count)
+    }
+
+    @MainActor
     func testEmptyChunksAreSkippedAndRemoved() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
@@ -173,9 +227,9 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         let date = try self.fixedLocalDate(hour: 10, minute: 43, second: 55)
 
         let segments = [
-            OmiSegmentWriter.segmentString(for: date, durationSeconds: 300.0),
-            OmiSegmentWriter.segmentString(for: date, durationSeconds: 0.4),
-            OmiSegmentWriter.segmentString(for: date, durationSeconds: 47.6),
+            ObserverSegmentNaming.segmentString(for: date, durationSeconds: 300.0),
+            ObserverSegmentNaming.segmentString(for: date, durationSeconds: 0.4),
+            ObserverSegmentNaming.segmentString(for: date, durationSeconds: 47.6),
         ]
 
         XCTAssertEqual(segments[0], "104355_300")
@@ -344,19 +398,11 @@ private extension OmiSegmentWriterTests {
     }
 
     func segmentString(for date: Date, durationSeconds: Double) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.dateFormat = String(repeating: "h".uppercased(), count: 2) + "mmss"
-        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
+        ObserverSegmentNaming.segmentString(for: date, durationSeconds: durationSeconds)
     }
 
     func dayString(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyyMMdd"
-        return formatter.string(from: date)
+        ObserverSegmentNaming.dayString(for: date)
     }
 
     func fixedLocalDate(hour: Int, minute: Int, second: Int) throws -> Date {

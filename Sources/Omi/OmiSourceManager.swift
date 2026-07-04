@@ -264,8 +264,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         isReconnecting: Bool,
         error: (any Error)?
     ) {
-        MainActor.assumeIsolated {
-            self.handleDisconnected(
+        Task { @MainActor [weak self] in
+            await self?.handleDisconnected(
                 peripheral,
                 timestamp: timestamp,
                 isReconnecting: isReconnecting,
@@ -541,7 +541,8 @@ private extension OmiSourceManager {
         timestamp: CFAbsoluteTime,
         isReconnecting: Bool,
         error: (any Error)?
-    ) {
+    ) async {
+        await self.omiSegmentWriter?.finalizeOpenChunk()
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
         self.lastDisconnectedAt = disconnectedAt
         self.uptime.noteDisconnected(at: disconnectedAt)
@@ -1329,6 +1330,12 @@ private extension OmiSourceManager {
 
     func displayName(for id: UUID) -> String {
         String(id.uuidString.prefix(8)).lowercased()
+    }
+}
+
+extension OmiSourceManager {
+    func finalizeOpenChunkForBackground() async {
+        await self.omiSegmentWriter?.finalizeOpenChunk()
     }
 }
 
