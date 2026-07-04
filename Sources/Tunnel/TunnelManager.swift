@@ -338,6 +338,7 @@ final class TunnelManager {
 
     private func connectWithReactiveTokenRefresh() async throws -> Int {
         var didReactiveRefresh = false
+        var didHandshakeRefresh = false
         var retryPairing: StoredPairing?
         while true {
             do {
@@ -349,6 +350,21 @@ final class TunnelManager {
                 didReactiveRefresh = true
                 await self.transport.disconnect()
                 switch await self.refreshAfterTokenExpired() {
+                case .retry(let updated):
+                    retryPairing = updated
+                    continue
+                case .revoked:
+                    throw SessionError.revoked
+                case .unreachable:
+                    throw SessionError.unreachable
+                }
+            } catch SessionError.revoked {
+                guard !didHandshakeRefresh else {
+                    throw SessionError.unreachable
+                }
+                didHandshakeRefresh = true
+                await self.transport.disconnect()
+                switch await self.refreshAfterHandshakeRevoked() {
                 case .retry(let updated):
                     retryPairing = updated
                     continue
@@ -409,6 +425,31 @@ final class TunnelManager {
             return .retry(updated)
         case .notNeeded:
             return .revoked
+        case .transientFailure:
+            return .unreachable
+        case .definitiveAuthFailure:
+            return .revoked
+        }
+    }
+
+    private func refreshAfterHandshakeRevoked() async -> ReactiveTokenRefreshDecision {
+        let pairing: StoredPairing
+        do {
+            guard let loaded = try self.loadPairing() else {
+                return .revoked
+            }
+            pairing = loaded
+        } catch {
+            log.error("[solstone-swift] handshake-revoked refresh load pairing failed: \(String(describing: error), privacy: .public)")
+            return .unreachable
+        }
+
+        switch await self.deviceTokenRefresher.refreshNow(pairing: pairing) {
+        case .refreshed(let updated):
+            self.persistRefreshedPairing(updated)
+            return .retry(updated)
+        case .notNeeded:
+            return .unreachable
         case .transientFailure:
             return .unreachable
         case .definitiveAuthFailure:

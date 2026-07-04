@@ -118,12 +118,17 @@ nonisolated final class DeviceTokenRefresherTests: XCTestCase {
             statusCode: 401,
             responseData: Data(#"{"reason":"expired"}"#.utf8)
         )
-        await assertRefreshResult(.definitiveAuthFailure, statusCode: 403)
-        await assertRefreshResult(.definitiveAuthFailure, statusCode: 404)
+        await assertRefreshResult(
+            .definitiveAuthFailure,
+            statusCode: 403,
+            responseData: Data(#"{"error":"instance revoked"}"#.utf8)
+        )
     }
 
     func testTransientFailures() async {
         await assertRefreshResult(.transientFailure(Self.pairing()), error: URLError(.cannotConnectToHost))
+        await assertRefreshResult(.transientFailure(Self.pairing()), statusCode: 403)
+        await assertRefreshResult(.transientFailure(Self.pairing()), statusCode: 404)
         await assertRefreshResult(.transientFailure(Self.pairing()), statusCode: 500)
         await assertRefreshResult(.transientFailure(Self.pairing()), responseData: Data("bad-json".utf8))
     }

@@ -83,11 +83,15 @@ public struct DeviceTokenRefresher: Sendable {
                 return .definitiveAuthFailure
             }
             return .transientFailure(pairing)
-        case 403, 404:
-            return .definitiveAuthFailure
+        case 403:
+            if Self.errorField(from: data) == "instance revoked" {
+                return .definitiveAuthFailure
+            }
+            return .transientFailure(pairing)
         case 500...599:
             return .transientFailure(pairing)
         default:
+            // 404/unknown-instance and other statuses are transient here, never destructive.
             return .transientFailure(pairing)
         }
     }
@@ -104,6 +108,10 @@ public struct DeviceTokenRefresher: Sendable {
     private static func errorReason(from data: Data) -> String? {
         try? JSONDecoder().decode(RelayErrorResponse.self, from: data).reason
     }
+
+    private static func errorField(from data: Data) -> String? {
+        try? JSONDecoder().decode(RelayErrorResponse.self, from: data).error
+    }
 }
 
 private struct RelayRefreshRequest: Encodable {
@@ -115,6 +123,7 @@ private struct RelayRefreshRequest: Encodable {
 }
 
 private struct RelayErrorResponse: Decodable {
+    let error: String?
     let reason: String?
 }
 

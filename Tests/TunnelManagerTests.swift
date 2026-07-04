@@ -246,6 +246,217 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testHandshakeRevokedRefreshesThenRetriesStaysRetryable() async {
+        let newToken = Self.validFutureDeviceToken + "x"
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.revoked),
+            .failure(SessionError.revoked),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)))
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        // Handshake 401 and 403 both surface as SessionError.revoked here, so this covers both.
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertEqual(transport.connectCallCount, 2)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 1)
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    func testHandshakeRevokedBodyConfirmedRevocationDestroys() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.revoked),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(
+            responseData: Data(#"{"error":"instance revoked"}"#.utf8),
+            statusCode: 403
+        ))
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertTrue(didDeletePairing.withLock { $0 })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    func testHandshakeRevokedExpiredReasonRevocationDestroys() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.revoked),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(
+            responseData: Data(#"{"error":"invalid device_token","reason":"expired"}"#.utf8),
+            statusCode: 401
+        ))
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertTrue(didDeletePairing.withLock { $0 })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    func testHandshakeRevokedWafCoincidenceStaysRetryable() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(statusCode: 403))
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        for _ in 0..<3 {
+            transport.queuedResults = [
+                .failure(SessionError.revoked),
+            ]
+            await manager.connect()
+            XCTAssertEqual(manager.state, .error(.unreachable))
+        }
+
+        XCTAssertEqual(transport.connectCallCount, 3)
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    func testHandshakeRevoked404StaysRetryable() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.revoked),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(statusCode: 404))
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    func testHandshakeRevokedNotNeededStaysRetryable() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let enrolledPairing = Self.fixturePairing()
+        let nonEnrolledPairing = StoredPairing(
+            instanceID: enrolledPairing.instanceID,
+            homeLabel: enrolledPairing.homeLabel,
+            relayEndpoint: enrolledPairing.relayEndpoint,
+            fingerprint: enrolledPairing.fingerprint,
+            clientCertPEM: enrolledPairing.clientCertPEM,
+            clientKeyPEM: enrolledPairing.clientKeyPEM,
+            caChainPEM: enrolledPairing.caChainPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: enrolledPairing.localEndpoints,
+            pairedAt: enrolledPairing.pairedAt
+        )
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: enrolledPairing)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.revoked),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession())
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            loadPairing: {
+                let count = loadCount.withLock { value in
+                    let current = value
+                    value += 1
+                    return current
+                }
+                return count == 0 ? enrolledPairing : nonEnrolledPairing
+            },
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    func testMissingPairingAtConnectTerminatesRevoked() async {
+        let transport = MockCFTunnelTransport()
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession())
+        let manager = makeManager(
+            transport: transport,
+            loadPairing: { nil },
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertEqual(transport.connectCallCount, 0)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
+    }
+
+    @MainActor
     func testUnreachablePropagatesAsUIError() async {
         let transport = MockCFTunnelTransport()
         transport.nextResult = .failure(.unreachable)
