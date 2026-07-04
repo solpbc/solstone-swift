@@ -20,7 +20,7 @@ nonisolated final class LocationTierTests: XCTestCase {
 
         XCTAssertEqual(LocationTier.full.requiredAuthorization, .always)
         XCTAssertTrue(LocationTier.full.requiresFullAccuracy)
-        XCTAssertEqual(LocationTier.full.modes, [.liveUpdates])
+        XCTAssertEqual(LocationTier.full.modes, [.liveUpdates, .significantChanges])
     }
 
     func testTierLabelsAndBodies() {

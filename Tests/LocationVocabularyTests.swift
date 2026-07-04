@@ -31,7 +31,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.tierChangeFraming, "changes apply from now on — nothing already in your journal is altered.")
         XCTAssertEqual(LocationVocabulary.deliveryNeedsAttentionTemplate, "{N} location {update} {needs} attention.")
         XCTAssertEqual(LocationVocabulary.deliverySendingTemplate, "{N} location {update} on the way to your journal.")
-        XCTAssertEqual(LocationVocabulary.deliveryLastSavedTemplate, "last saved to your journal at {time}.")
         XCTAssertEqual(LocationVocabulary.deliveryQuietLine, "nothing waiting right now.")
         XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — sol never fills them in.")
         XCTAssertEqual(LocationVocabulary.openSettingsAction, "open iOS Settings")
@@ -68,10 +67,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.deliveryNeedsAttention(count: 2), "2 location updates need attention.")
         XCTAssertEqual(LocationVocabulary.deliverySending(count: 1), "1 location update on the way to your journal.")
         XCTAssertEqual(LocationVocabulary.deliverySending(count: 3), "3 location updates on the way to your journal.")
-        XCTAssertEqual(
-            LocationVocabulary.deliveryLastSaved(time: "3:42 PM"),
-            "last saved to your journal at 3:42 PM."
-        )
     }
 
     func testRetiredLocationOwnerVisibleCopyStaysRetired() {
@@ -89,7 +84,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
     }
 
     private var allOwnerVisibleStrings: [String] {
-        let deliveryDate = Date(timeIntervalSince1970: 1_713_624_000)
         let tierStrings = LocationTier.allCases.flatMap { tier in
             [
                 tier.label,
@@ -97,10 +91,9 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             ]
         }
         let presentationStrings = [
-            LocationDetailPresentation.deliverySummary(pending: 0, failed: 1, lastUploadAt: deliveryDate).line,
-            LocationDetailPresentation.deliverySummary(pending: 1, failed: 0, lastUploadAt: deliveryDate).line,
-            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0, lastUploadAt: deliveryDate).line,
-            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0, lastUploadAt: nil).line,
+            LocationDetailPresentation.deliverySummary(pending: 0, failed: 1).line,
+            LocationDetailPresentation.deliverySummary(pending: 1, failed: 0).line,
+            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0).line,
             LocationDetailPresentation.recoveryButtonLabel(for: .openSettings),
             LocationDetailPresentation.recoveryButtonLabel(for: .matchToAllowed(suggestedTier: .light)),
             LocationDetailPresentation.tierFraming,
@@ -139,7 +132,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.tierChangeFraming,
             LocationVocabulary.deliveryNeedsAttentionTemplate,
             LocationVocabulary.deliverySendingTemplate,
-            LocationVocabulary.deliveryLastSavedTemplate,
             LocationVocabulary.deliveryQuietLine,
             LocationVocabulary.downgradeBodyTemplate,
             LocationVocabulary.openSettingsAction,
@@ -155,7 +147,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.deliveryNeedsAttention(count: 2),
             LocationVocabulary.deliverySending(count: 1),
             LocationVocabulary.deliverySending(count: 3),
-            LocationVocabulary.deliveryLastSaved(time: "3:42 PM"),
         ] + tierStrings + presentationStrings + mappingStrings + sharingStatusStrings
     }
 

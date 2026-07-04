@@ -7,27 +7,16 @@ import XCTest
 
 nonisolated final class LocationDetailPresentationTests: XCTestCase {
     func testDeliverySummaryBranches() {
-        let lastUploadAt = Date(timeIntervalSince1970: 1_713_624_000)
-
         XCTAssertEqual(
-            LocationDetailPresentation.deliverySummary(pending: 2, failed: 1, lastUploadAt: lastUploadAt),
+            LocationDetailPresentation.deliverySummary(pending: 2, failed: 1),
             LocationDeliverySummary(line: LocationVocabulary.deliveryNeedsAttention(count: 1), showsRetry: true)
         )
         XCTAssertEqual(
-            LocationDetailPresentation.deliverySummary(pending: 2, failed: 0, lastUploadAt: lastUploadAt),
+            LocationDetailPresentation.deliverySummary(pending: 2, failed: 0),
             LocationDeliverySummary(line: LocationVocabulary.deliverySending(count: 2), showsRetry: false)
         )
         XCTAssertEqual(
-            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0, lastUploadAt: lastUploadAt),
-            LocationDeliverySummary(
-                line: LocationVocabulary.deliveryLastSaved(
-                    time: LocationDetailPresentation.shortTimeLabel(for: lastUploadAt)
-                ),
-                showsRetry: false
-            )
-        )
-        XCTAssertEqual(
-            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0, lastUploadAt: nil),
+            LocationDetailPresentation.deliverySummary(pending: 0, failed: 0),
             LocationDeliverySummary(line: LocationVocabulary.deliveryQuietLine, showsRetry: false)
         )
     }

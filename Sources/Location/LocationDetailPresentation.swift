@@ -11,8 +11,7 @@ nonisolated struct LocationDeliverySummary: Equatable, Sendable {
 nonisolated enum LocationDetailPresentation {
     static func deliverySummary(
         pending: Int,
-        failed: Int,
-        lastUploadAt: Date?
+        failed: Int
     ) -> LocationDeliverySummary {
         if failed > 0 {
             return LocationDeliverySummary(
@@ -24,13 +23,6 @@ nonisolated enum LocationDetailPresentation {
         if pending > 0 {
             return LocationDeliverySummary(
                 line: LocationVocabulary.deliverySending(count: pending),
-                showsRetry: false
-            )
-        }
-
-        if let lastUploadAt {
-            return LocationDeliverySummary(
-                line: LocationVocabulary.deliveryLastSaved(time: self.shortTimeLabel(for: lastUploadAt)),
                 showsRetry: false
             )
         }
@@ -52,19 +44,5 @@ nonisolated enum LocationDetailPresentation {
 
     static var tierFraming: String {
         LocationVocabulary.tierChangeFraming
-    }
-
-    static func shortTimeLabel(
-        for date: Date,
-        locale: Locale = .current,
-        timeZone: TimeZone = .current
-    ) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
     }
 }

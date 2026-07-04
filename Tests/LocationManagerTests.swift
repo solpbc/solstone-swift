@@ -126,6 +126,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
             return XCTFail("Expected active state")
         }
         XCTAssertFalse(manager.isSustainingBackground)
+        XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
     }
 
     @MainActor
@@ -166,6 +167,104 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testAlwaysTierDeclineResolvesAfterBoundedWait() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 1)
+        await self.waitForPendingSleeperCount(1)
+
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(manager.recoveryActions, [.openSettings, .matchToAllowed(suggestedTier: .light)])
+    }
+
+    @MainActor
+    func testAlwaysTierGrantBeforeBoundedWaitKeepsActive() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.waitForPendingSleeperCount(1)
+
+        self.provider.emitAuthorization(.always(accuracy: .reduced))
+        await self.yieldToMainActor()
+        let startCallCount = self.provider.startCallCount
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state after bounded wait")
+        }
+        XCTAssertEqual(self.provider.startCallCount, startCallCount)
+    }
+
+    @MainActor
+    func testAlwaysTierBoundedWaitCancelledOnStop() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.waitForPendingSleeperCount(1)
+
+        await manager.stop()
+        XCTAssertEqual(manager.state, .idle)
+
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertEqual(self.clock.pendingSleeperCount, 0)
+    }
+
+    @MainActor
+    func testResumeIfEnabledRepollsStartingAndActivatesWithAlwaysGrant() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.waitForPendingSleeperCount(1)
+
+        self.provider.capability = .always(accuracy: .reduced)
+        await manager.resumeIfEnabled()
+        let startCallCount = self.provider.startCallCount
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state after bounded wait")
+        }
+        XCTAssertEqual(self.provider.startCallCount, startCallCount)
+    }
+
+    @MainActor
+    func testResumeIfEnabledRepollsStartingAndErrorsWhenStillWhenInUse() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.waitForPendingSleeperCount(1)
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+    }
+
+    @MainActor
     func testFullRequiresAlwaysFullAccuracy() async {
         let manager = self.makeManager()
 
@@ -181,7 +280,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
         self.provider.emitAuthorization(.always(accuracy: .full))
         await self.yieldToMainActor()
-        XCTAssertEqual(self.provider.currentStartedModes, [.liveUpdates])
+        XCTAssertEqual(self.provider.currentStartedModes, [.liveUpdates, .significantChanges])
         XCTAssertEqual(manager.sourceState, .active)
     }
 
@@ -280,7 +379,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testGapOnlySegmentCreatesEmptyMobileSegmentTombstone() async throws {
+    func testGapOnlySegmentCreatesHeaderOnlyMobileSegmentBundle() async throws {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
@@ -291,8 +390,12 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
-        XCTAssertEqual(try self.emptyTombstoneCount(), 1)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(try self.emptyTombstoneCount(), 0)
+        let manifest = try self.pendingLocationManifest()
+        XCTAssertEqual(manifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.fixCount, 0)
+        try self.assertHeaderOnlyGapPayload()
     }
 
     @MainActor
@@ -364,8 +467,12 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.clock.advance(by: 300)
         await self.yieldToMainActor()
 
-        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 0)
-        XCTAssertEqual(try self.emptyTombstoneCount(), 2)
+        XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(try self.emptyTombstoneCount(), 1)
+        let manifest = try self.pendingLocationManifest()
+        XCTAssertEqual(manifest.location.state, .finalizedArtifact)
+        XCTAssertEqual(manifest.location.fixCount, 0)
+        try self.assertHeaderOnlyGapPayload()
     }
 
     @MainActor
@@ -396,7 +503,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, pendingBefore)
         XCTAssertEqual(manager.tier, .full)
         XCTAssertEqual(self.defaults.string(forKey: "location.tier"), "full")
-        XCTAssertEqual(self.provider.currentStartedModes, [.liveUpdates])
+        XCTAssertEqual(self.provider.currentStartedModes, [.liveUpdates, .significantChanges])
     }
 
     @MainActor
@@ -672,6 +779,19 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    private func waitForPendingSleeperCount(
+        _ count: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<20 {
+            if self.clock.pendingSleeperCount == count { return }
+            await self.yieldToMainActor()
+        }
+        XCTAssertEqual(self.clock.pendingSleeperCount, count, file: file, line: line)
+    }
+
+    @MainActor
     private func pendingLocationManifest() throws -> MobileSegmentManifest {
         let directory = try XCTUnwrap(try self.mobileSegmentDirectories(lifecycle: "pending").first)
         let decoder = JSONDecoder()
@@ -689,6 +809,20 @@ nonisolated final class LocationManagerTests: XCTestCase {
             decoding: try Data(contentsOf: directory.appendingPathComponent("location.jsonl")),
             as: UTF8.self
         )
+    }
+
+    @MainActor
+    private func assertHeaderOnlyGapPayload(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let payload = try self.pendingLocationPayload()
+        XCTAssertEqual(payload.split(separator: "\n").count, 1, file: file, line: line)
+        XCTAssertTrue(payload.contains("solstone.location.segment"), file: file, line: line)
+        XCTAssertTrue(payload.contains(#""gap":true"#), file: file, line: line)
+        XCTAssertTrue(payload.contains(#""fix_count":0"#), file: file, line: line)
+        XCTAssertFalse(payload.contains("solstone.location.fix"), file: file, line: line)
+        XCTAssertFalse(payload.contains("solstone.location.visit"), file: file, line: line)
     }
 
     @MainActor

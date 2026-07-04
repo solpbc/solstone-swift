@@ -44,6 +44,8 @@ nonisolated enum LocationRecovery: Sendable, Equatable {
 @MainActor
 @Observable
 final class LocationManager {
+    static let alwaysAuthorizationResolutionInterval: Duration = .seconds(10)
+
     var state: LocationState = .idle
     var tier: LocationTier
 
@@ -56,6 +58,7 @@ final class LocationManager {
     @ObservationIgnored private var sessionStartedAt: Date?
     @ObservationIgnored private var currentSegmentIndex = 0
     @ObservationIgnored private var hasRequestedAlwaysForCurrentStart = false
+    @ObservationIgnored private var alwaysDeclineWait: Task<Void, Never>?
     private var lastCapability: LocationCapability
 
     private enum Key {
@@ -180,7 +183,10 @@ final class LocationManager {
         switch self.state {
         case .idle, .error:
             break
-        case .starting, .active, .stopping:
+        case .starting:
+            await self.advanceStartFlow(with: self.effectiveCapability())
+            return
+        case .active, .stopping:
             return
         }
 
@@ -287,6 +293,8 @@ private extension LocationManager {
 
         if case .active = self.state, !self.tier.isSatisfied(by: self.effectiveCapability()) {
             self.markGap()
+            // Deliberately asymmetric: a re-grant while active does not re-begin sustain in this pass.
+            await self.provider.endBackgroundSustain()
         }
 
         switch self.state {
@@ -317,11 +325,26 @@ private extension LocationManager {
                 } else {
                     self.hasRequestedAlwaysForCurrentStart = true
                     self.provider.requestAlwaysAuthorization()
+                    self.alwaysDeclineWait?.cancel()
+                    self.alwaysDeclineWait = nil
+                    // Declining the Always upgrade in-place produces no authorization callback,
+                    // so this bounded wait is the resolver for a stranded .starting state.
+                    self.alwaysDeclineWait = Task { [weak self] in
+                        try? await self?.clock.sleep(for: Self.alwaysAuthorizationResolutionInterval)
+                        guard !Task.isCancelled else { return }
+                        await self?.resolveAlwaysDeclineIfStillStranded()
+                    }
                 }
             }
         case .always:
             await self.activateSessionIfAllowed(capability: capability)
         }
+    }
+
+    func resolveAlwaysDeclineIfStillStranded() async {
+        guard case .starting = self.state else { return }
+        guard !self.tier.isSatisfied(by: self.effectiveCapability()) else { return }
+        self.state = .error(.capabilityInsufficient)
     }
 
     func activateSessionIfAllowed(capability: LocationCapability) async {
@@ -426,9 +449,13 @@ private extension LocationManager {
     }
 
     func cancelTasks() {
+        self.alwaysDeclineWait?.cancel()
+        self.alwaysDeclineWait = nil
     }
 
     func resetRuntime() {
+        self.alwaysDeclineWait?.cancel()
+        self.alwaysDeclineWait = nil
         self.currentSessionID = nil
         self.sessionStartedAt = nil
         self.currentSegmentIndex = 0

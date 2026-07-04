@@ -184,8 +184,7 @@ private extension LocationSourceDetailView {
         let bundleSummary = self.mobileSegmentUploader.summary(for: .location)
         let summary = LocationDetailPresentation.deliverySummary(
             pending: bundleSummary.pendingCount,
-            failed: bundleSummary.failedCount,
-            lastUploadAt: bundleSummary.lastUploadAt
+            failed: bundleSummary.failedCount
         )
 
         return VStack(alignment: .leading, spacing: 10) {

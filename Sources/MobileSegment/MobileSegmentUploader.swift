@@ -291,34 +291,36 @@ final class MobileSegmentUploader {
         guard manifest.openedWithSources.contains(.location) else { return }
 
         guard !batch.fixes.isEmpty || !batch.visits.isEmpty else {
-            let resolution = MobileSegmentSourceResolution(
-                state: .noArtifact,
-                startedAt: batch.segmentStart,
-                endedAt: endedAt,
-                durationS: TimeInterval(batch.coveredSeconds),
-                reason: reason ?? (batch.gap ? "authorization_gap_only" : "location_no_fixes_or_visits"),
-                fixCount: 0
-            )
-            try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
-            self.removeLocationLiveFiles(in: directory)
+            if batch.gap {
+                try self.writeLocationArtifact(
+                    batch: batch,
+                    directory: directory,
+                    endedAt: endedAt,
+                    reason: reason,
+                    manifest: &manifest
+                )
+            } else {
+                let resolution = MobileSegmentSourceResolution(
+                    state: .noArtifact,
+                    startedAt: batch.segmentStart,
+                    endedAt: endedAt,
+                    durationS: TimeInterval(batch.coveredSeconds),
+                    reason: reason ?? "location_no_fixes_or_visits",
+                    fixCount: 0
+                )
+                try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+                self.removeLocationLiveFiles(in: directory)
+            }
             return
         }
 
-        let frozen = try MobileSegmentLocationWriter.freeze(batch)
-        let target = self.store.locationURL(in: directory)
-        try self.store.writeData(frozen.data, to: target)
-        let resolution = MobileSegmentSourceResolution(
-            state: .finalizedArtifact,
-            artifactFilename: target.lastPathComponent,
-            bytes: self.store.fileSize(at: target),
-            startedAt: batch.segmentStart,
+        try self.writeLocationArtifact(
+            batch: batch,
+            directory: directory,
             endedAt: endedAt,
-            durationS: TimeInterval(batch.coveredSeconds),
             reason: reason,
-            fixCount: frozen.fixCount
+            manifest: &manifest
         )
-        try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
-        self.removeLocationLiveFiles(in: directory)
     }
 
     func appendLocationLiveState(
@@ -944,6 +946,30 @@ private extension MobileSegmentUploader {
         guard let storageDisabledReason else { return }
         self.lastError = storageDisabledReason
         throw MobileSegmentUploaderError.storageUnavailable(storageDisabledReason)
+    }
+
+    func writeLocationArtifact(
+        batch: LocationSegmentBatch,
+        directory: URL,
+        endedAt: Date,
+        reason: String?,
+        manifest: inout MobileSegmentManifest
+    ) throws {
+        let frozen = try MobileSegmentLocationWriter.freeze(batch)
+        let target = self.store.locationURL(in: directory)
+        try self.store.writeData(frozen.data, to: target)
+        let resolution = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: target.lastPathComponent,
+            bytes: self.store.fileSize(at: target),
+            startedAt: batch.segmentStart,
+            endedAt: endedAt,
+            durationS: TimeInterval(batch.coveredSeconds),
+            reason: reason,
+            fixCount: frozen.fixCount
+        )
+        try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+        self.removeLocationLiveFiles(in: directory)
     }
 
     func removeLocationLiveFiles(in directory: URL) {

@@ -237,8 +237,7 @@ private extension SourceDetailView {
         let summary = self.mobileSegmentUploader.summary(for: .audio)
         let presentation = LocationDetailPresentation.deliverySummary(
             pending: summary.pendingCount,
-            failed: summary.failedCount,
-            lastUploadAt: summary.lastUploadAt
+            failed: summary.failedCount
         )
 
         return VStack(alignment: .leading, spacing: 10) {

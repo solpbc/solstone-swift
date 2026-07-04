@@ -28,7 +28,6 @@ nonisolated enum LocationVocabulary {
     static let tierChangeFraming = "changes apply from now on — nothing already in your journal is altered."
     static let deliveryNeedsAttentionTemplate = "{N} location {update} {needs} attention."
     static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
-    static let deliveryLastSavedTemplate = "last saved to your journal at {time}."
     static let deliveryQuietLine = "nothing waiting right now."
     static let downgradeBodyTemplate = "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — sol never fills them in."
     static let openSettingsAction = "open iOS Settings"
@@ -79,10 +78,6 @@ nonisolated enum LocationVocabulary {
         self.deliverySendingTemplate
             .replacingOccurrences(of: "{N}", with: String(count))
             .replacingOccurrences(of: "{update}", with: self.updateNoun(count: count))
-    }
-
-    static func deliveryLastSaved(time: String) -> String {
-        self.deliveryLastSavedTemplate.replacingOccurrences(of: "{time}", with: time)
     }
 
     private static func updateNoun(count: Int) -> String {

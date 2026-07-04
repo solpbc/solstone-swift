@@ -58,7 +58,7 @@ nonisolated enum LocationTier: String, CaseIterable, Sendable, Equatable {
         case .balanced:
             [.visits, .significantChanges]
         case .full:
-            [.liveUpdates]
+            [.liveUpdates, .significantChanges]
         }
     }
 
