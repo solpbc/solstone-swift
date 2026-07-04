@@ -7,6 +7,8 @@ import Observation
 import os
 
 private let managerLog = Logger(subsystem: "app.solstone.swift", category: "observer")
+private let observerWatchdogTickPeriod: Duration = .seconds(10)
+private let observerWatchdogStrikeLimit = 2
 
 struct ObserverSession: Equatable, Sendable {
     let sessionID: UUID
@@ -34,6 +36,8 @@ final class ObserverManager {
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let liveActivity: any ObserverLiveActivitying
     @ObservationIgnored private var elapsedTask: Task<Void, Never>?
+    @ObservationIgnored private var interruptionDeadlineTask: Task<Void, Never>?
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var lastLiveActivitySecond: Int?
     @ObservationIgnored private var interruptionStartedAt: Date?
     @ObservationIgnored private var currentSessionID: UUID?
@@ -42,6 +46,10 @@ final class ObserverManager {
     @ObservationIgnored private var currentChunkIndex = 0
     @ObservationIgnored private var silenceWindowStart: TimeInterval?
     @ObservationIgnored private var startCancelled = false
+    @ObservationIgnored private var configChangedDuringPause = false
+    @ObservationIgnored private var tapProgressCount = 0
+    @ObservationIgnored private var watchdogAnchorCount = 0
+    @ObservationIgnored private var watchdogStrikes = 0
 
     init(
         recorder: any ObserverRecording = LiveObserverRecorder(),
@@ -68,6 +76,11 @@ final class ObserverManager {
         self.recorder.onInterruption = { [weak self] event in
             Task { @MainActor [weak self] in
                 await self?.handleInterruption(event)
+            }
+        }
+        self.recorder.onEngineFault = { [weak self] fault in
+            Task { @MainActor [weak self] in
+                await self?.handleEngineFault(fault)
             }
         }
     }
@@ -116,6 +129,10 @@ final class ObserverManager {
             self.currentChunkIndex = 0
             self.silenceWindowStart = nil
             self.interruptionStartedAt = nil
+            self.tapProgressCount = 0
+            self.watchdogAnchorCount = 0
+            self.watchdogStrikes = 0
+            self.configChangedDuringPause = false
             self.state = .active(ObserverSession(
                 sessionID: sessionID,
                 mode: mode,
@@ -125,6 +142,7 @@ final class ObserverManager {
             ))
             await self.liveActivity.start(mode: mode, sessionID: sessionID, elapsed: 0)
             self.startElapsedTask()
+            self.startWatchdogTask()
         } catch let observerError as ObserverError {
             self.state = .error(observerError)
         } catch {
@@ -223,9 +241,9 @@ private extension ObserverManager {
     }
 
     func handleMeter(level: Float, duration: TimeInterval) {
-        guard case .active(let session) = self.state,
-              session.mode == .voiceMemo
-        else { return }
+        guard case .active(let session) = self.state else { return }
+        self.tapProgressCount += 1
+        guard session.mode == .voiceMemo else { return }
 
         if level <= -50 {
             if self.silenceWindowStart == nil {
@@ -241,16 +259,61 @@ private extension ObserverManager {
         }
     }
 
+    func handleEngineFault(_ fault: ObserverEngineFault) async {
+        guard case .active = self.state else { return }
+        switch fault {
+        case .configurationChange:
+            guard self.interruptionStartedAt == nil else {
+                self.configChangedDuringPause = true
+                return
+            }
+            do {
+                try await self.recorder.restart()
+                self.rearmWatchdog()
+            } catch {
+                managerLog.error("observer: engine restart failed")
+                await self.stopSession()
+                self.state = .error(.audioSessionConflict)
+            }
+        case .mediaServicesReset:
+            managerLog.error("observer: media services reset")
+            await self.stopSession()
+            self.state = .error(.audioSessionConflict)
+        }
+    }
+
     func handleInterruption(_ event: ObserverInterruptionEvent) async {
+        guard case .active = self.state else { return }
         switch event {
         case .began:
             self.interruptionStartedAt = self.clock.now()
             await self.recorder.pause()
+            self.armInterruptionDeadline()
+            self.watchdogTask?.cancel()
+            self.watchdogTask = nil
         case .ended:
-            let interruptionDuration = self.clock.now().timeIntervalSince(self.interruptionStartedAt ?? self.clock.now())
+            self.interruptionDeadlineTask?.cancel()
+            self.interruptionDeadlineTask = nil
+            guard self.interruptionStartedAt != nil else { return }
+            let started = self.interruptionStartedAt!
+            let interruptionDuration = self.clock.now().timeIntervalSince(started)
+            let rebuild = self.configChangedDuringPause
             self.interruptionStartedAt = nil
+            self.configChangedDuringPause = false
             if interruptionDuration <= 60 {
-                try? await self.recorder.resume()
+                do {
+                    if rebuild {
+                        try await self.recorder.restart()
+                    } else {
+                        try await self.recorder.resume()
+                    }
+                    self.rearmWatchdog()
+                    self.startWatchdogTask()
+                } catch {
+                    managerLog.error("observer: resume after interruption failed")
+                    await self.stopSession()
+                    self.state = .error(.audioSessionConflict)
+                }
             } else {
                 await self.stopSession()
                 self.state = .error(.audioSessionConflict)
@@ -258,9 +321,73 @@ private extension ObserverManager {
         }
     }
 
+    func armInterruptionDeadline() {
+        self.interruptionDeadlineTask?.cancel()
+        self.interruptionDeadlineTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: .seconds(60))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, self.interruptionStartedAt != nil else { return }
+            managerLog.error("observer: interruption end never delivered")
+            await self.stopSession()
+            self.state = .error(.audioSessionConflict)
+        }
+    }
+
+    func startWatchdogTask() {
+        self.watchdogTask?.cancel()
+        self.watchdogTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    try await self.clock.sleep(for: observerWatchdogTickPeriod)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                if await self.watchdogTick() {
+                    return
+                }
+            }
+        }
+    }
+
+    func watchdogTick() async -> Bool {
+        guard case .active = self.state, self.interruptionStartedAt == nil else {
+            self.watchdogStrikes = 0
+            self.watchdogAnchorCount = self.tapProgressCount
+            return false
+        }
+        if self.tapProgressCount != self.watchdogAnchorCount {
+            self.watchdogAnchorCount = self.tapProgressCount
+            self.watchdogStrikes = 0
+            return false
+        }
+        self.watchdogStrikes += 1
+        if self.watchdogStrikes >= observerWatchdogStrikeLimit {
+            managerLog.error("observer: tap-write stall — stopping")
+            await self.stopSession()
+            self.state = .error(.audioSessionConflict)
+            return true
+        }
+        return false
+    }
+
+    func rearmWatchdog() {
+        self.watchdogStrikes = 0
+        self.watchdogAnchorCount = self.tapProgressCount
+    }
+
     func cancelTasks() {
         self.elapsedTask?.cancel()
         self.elapsedTask = nil
+        self.watchdogTask?.cancel()
+        self.watchdogTask = nil
+        self.interruptionDeadlineTask?.cancel()
+        self.interruptionDeadlineTask = nil
     }
 
     func resetRuntime(preserveStartCancelled: Bool = false) {
@@ -273,6 +400,10 @@ private extension ObserverManager {
         self.silenceWindowStart = nil
         self.startCancelled = preserveStartCancelled
         self.lastLiveActivitySecond = nil
+        self.configChangedDuringPause = false
+        self.tapProgressCount = 0
+        self.watchdogAnchorCount = 0
+        self.watchdogStrikes = 0
     }
 }
 

@@ -9,6 +9,7 @@ import Foundation
 final class MockObserverRecorder: ObserverRecording {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
+    var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)?
     var permissionGranted = true
     var permissionDelay: Duration?
     var startCallCount = 0
@@ -16,10 +17,13 @@ final class MockObserverRecorder: ObserverRecording {
     var stopCallCount = 0
     var pauseCallCount = 0
     var resumeCallCount = 0
+    var restartCallCount = 0
     var didActivateSession = true
     var startError: (any Error)?
     var rotateError: (any Error)?
     var stopError: (any Error)?
+    var resumeError: (any Error)?
+    var restartError: (any Error)?
     var lastStartURL: URL?
     var lastRotateURL: URL?
     var currentURL: URL?
@@ -64,6 +68,12 @@ final class MockObserverRecorder: ObserverRecording {
 
     func resume() async throws {
         self.resumeCallCount += 1
+        if let resumeError { throw resumeError }
+    }
+
+    func restart() async throws {
+        self.restartCallCount += 1
+        if let restartError { throw restartError }
     }
 
     func emitMeter(level: Float, duration: TimeInterval) {
@@ -72,5 +82,9 @@ final class MockObserverRecorder: ObserverRecording {
 
     func emitInterruption(_ event: ObserverInterruptionEvent) {
         self.onInterruption?(event)
+    }
+
+    func emitEngineFault(_ fault: ObserverEngineFault) {
+        self.onEngineFault?(fault)
     }
 }

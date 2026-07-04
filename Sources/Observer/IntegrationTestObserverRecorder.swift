@@ -9,6 +9,7 @@ import Foundation
 final class IntegrationTestObserverRecorder: ObserverRecording {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
+    var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)?
 
     private let session: any ObserverAudioSession
     private let permissionGranted: Bool
@@ -59,6 +60,8 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
     func pause() async {}
 
     func resume() async throws {}
+
+    func restart() async throws {}
 }
 
 private extension IntegrationTestObserverRecorder {

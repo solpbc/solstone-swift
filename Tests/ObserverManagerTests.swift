@@ -320,6 +320,218 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testConfigurationChangeRestartsOncePerFaultAndStaysActive() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.restartCallCount, 1)
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.restartCallCount, 2)
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+    }
+
+    @MainActor
+    func testConfigurationChangeRestartFailureStopsAndDoesNotRetry() async {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.restartError = ObserverManagerTestError.restartFailed
+
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.restartCallCount, 1)
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+
+        self.clock.advance(by: 30)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.restartCallCount, 1)
+    }
+
+    @MainActor
+    func testMediaServicesResetStopsWithConflictError() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitEngineFault(.mediaServicesReset)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+    }
+
+    @MainActor
+    func testEngineFaultsAreInertWhileIdle() async {
+        XCTAssertEqual(self.manager.state, .idle)
+
+        self.recorder.emitEngineFault(.mediaServicesReset)
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.recorder.restartCallCount, 0)
+    }
+
+    @MainActor
+    func testConfigurationChangeDuringInterruptionRebuildsOnEndedPath() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began)
+        await self.drainManagerTasks()
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.restartCallCount, 0)
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        self.clock.advance(by: 5)
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.restartCallCount, 1)
+        XCTAssertEqual(self.recorder.resumeCallCount, 0)
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+    }
+
+    @MainActor
+    func testResumeFailureAfterInterruptionStopsWithConflictError() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began)
+        await self.drainManagerTasks()
+        self.recorder.resumeError = ObserverManagerTestError.resumeFailed
+        self.clock.advance(by: 5)
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+    }
+
+    @MainActor
+    func testMissingInterruptionEndedDeadlineStopsAndLateEndedIsNoOp() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 61)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.recorder.resumeCallCount, 0)
+
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.recorder.resumeCallCount, 0)
+    }
+
+    @MainActor
+    func testInterruptionEndedBeforeDeadlineCancelsDeadline() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 30)
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.recorder.resumeCallCount, 1)
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        self.clock.advance(by: 60)
+        await self.drainManagerTasks()
+
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+    }
+
+    @MainActor
+    func testWatchdogStallStopsMeetingModeWithConflictError() async {
+        await self.manager.startSession(mode: .meeting)
+        await self.drainManagerTasks()
+
+        // AC8: meeting is the non-voiceMemo mode; watchdog liveness is mode-independent.
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+    }
+
+    @MainActor
+    func testWatchdogDoesNotFireWhileInterrupted() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+    }
+
+    @MainActor
+    func testWatchdogRearmsAfterSuccessfulResume() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 30)
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+
+        guard case .active = self.manager.state else {
+            return XCTFail("Expected active state")
+        }
+
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+    }
+
+    @MainActor
+    func testWatchdogPendingTickRechecksStateAfterStop() async {
+        await self.manager.startSession(mode: .meeting)
+        await self.drainManagerTasks()
+
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+        await self.manager.stopSession()
+        self.clock.advance(by: 11)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .idle)
+    }
+
+    @MainActor
     func testTapToCancelDuringStarting() async {
         self.recorder.permissionDelay = .milliseconds(100)
         let task = Task {
@@ -422,6 +634,8 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 private enum ObserverManagerTestError: Error {
     case startFailed
     case stopFailed
+    case resumeFailed
+    case restartFailed
 }
 
 private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable {
@@ -461,6 +675,10 @@ private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable
 }
 
 private extension ObserverManagerTests {
+    func drainManagerTasks() async {
+        try? await Task.sleep(for: .milliseconds(40))
+    }
+
     func fixedLocalDate(hour: Int, minute: Int, second: Int) throws -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current

@@ -12,6 +12,11 @@ enum ObserverInterruptionEvent: Sendable {
     case ended
 }
 
+enum ObserverEngineFault: Sendable {
+    case configurationChange
+    case mediaServicesReset
+}
+
 nonisolated struct ObserverRecordedChunk: Sendable {
     let url: URL
     let duration: TimeInterval
@@ -25,6 +30,7 @@ struct ObserverRecordingStartResult: Sendable {
 protocol ObserverRecording: AnyObject {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)? { get set }
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)? { get set }
+    var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)? { get set }
 
     func requestPermission() async -> Bool
     func start(url: URL, mode: ObserverMode) async throws -> ObserverRecordingStartResult
@@ -32,6 +38,7 @@ protocol ObserverRecording: AnyObject {
     func stop() async throws -> ObserverRecordedChunk?
     func pause() async
     func resume() async throws
+    func restart() async throws
 }
 
 @MainActor
@@ -77,6 +84,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     }
 
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
+    var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)?
 
     private let engine: AVAudioEngine
     private let session: any ObserverAudioSession
@@ -85,6 +93,8 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     private let tapState = ObserverTapWriter()
     private var didActivateSession = false
     private var interruptionObserver: NSObjectProtocol?
+    private var configurationChangeObserver: NSObjectProtocol?
+    private var mediaServicesResetObserver: NSObjectProtocol?
 
     init(
         engine: AVAudioEngine = AVAudioEngine(),
@@ -121,9 +131,17 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
 
         try self.installTap(initialURL: url)
         self.installInterruptionObserver()
-        if !self.engine.isRunning {
-            self.engine.prepare()
-            try self.engine.start()
+        self.installEngineFaultObservers()
+        do {
+            if !self.engine.isRunning {
+                self.engine.prepare()
+                try self.engine.start()
+            }
+        } catch {
+            self.removeInterruptionObserver()
+            self.removeEngineFaultObservers()
+            self.engine.inputNode.removeTap(onBus: 0)
+            throw error
         }
         return ObserverRecordingStartResult(didActivateSession: self.didActivateSession)
     }
@@ -136,6 +154,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         self.engine.inputNode.removeTap(onBus: 0)
         self.engine.stop()
         self.removeInterruptionObserver()
+        self.removeEngineFaultObservers()
 
         let finalized = self.tapState.finalizeAndReset()
 
@@ -155,6 +174,18 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
             self.engine.prepare()
             try self.engine.start()
         }
+    }
+
+    func restart() async throws {
+        self.engine.inputNode.removeTap(onBus: 0)
+        self.engine.stop()
+        let inputNode = self.engine.inputNode
+        guard let format = Self.validatedTapFormat(inputNode.inputFormat(forBus: 0)) else {
+            throw ObserverError.unavailable(reason: "audio input unavailable")
+        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: self.tapState.makeTapBlock())
+        self.engine.prepare()
+        try self.engine.start()
     }
 
     nonisolated static func validatedTapFormat(_ format: AVAudioFormat?) -> AVAudioFormat? {
@@ -218,7 +249,46 @@ private extension LiveObserverRecorder {
             self.interruptionObserver = nil
         }
     }
+}
 
+extension LiveObserverRecorder {
+    func installEngineFaultObservers() {
+        self.removeEngineFaultObservers()
+        self.configurationChangeObserver = self.notificationCenter.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: self.engine,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let handler = self?.onEngineFault else { return }
+                handler(.configurationChange)
+            }
+        }
+        self.mediaServicesResetObserver = self.notificationCenter.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let handler = self?.onEngineFault else { return }
+                handler(.mediaServicesReset)
+            }
+        }
+    }
+
+    func removeEngineFaultObservers() {
+        if let configurationChangeObserver {
+            self.notificationCenter.removeObserver(configurationChangeObserver)
+            self.configurationChangeObserver = nil
+        }
+        if let mediaServicesResetObserver {
+            self.notificationCenter.removeObserver(mediaServicesResetObserver)
+            self.mediaServicesResetObserver = nil
+        }
+    }
+}
+
+private extension LiveObserverRecorder {
     nonisolated static func decibels(for buffer: AVAudioPCMBuffer) -> Float {
         guard let samples = buffer.floatChannelData?[0] else { return -160 }
         let frameLength = Int(buffer.frameLength)

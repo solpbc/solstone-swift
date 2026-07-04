@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import AVFoundation
+import os
 import XCTest
 
 nonisolated final class ObserverRecorderTests: XCTestCase {
@@ -105,6 +106,56 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
         _ = try? await recorder.stop()
 
         XCTAssertFalse(spy.setActiveCalls.contains(false))
+    }
+
+    @MainActor
+    func testEngineConfigurationChangeObserverEmitsFault() async {
+        let center = NotificationCenter()
+        let engine = AVAudioEngine()
+        let recorder = LiveObserverRecorder(
+            engine: engine,
+            session: SpyAudioSession(category: .record),
+            notificationCenter: center
+        )
+        let faults = OSAllocatedUnfairLock<[ObserverEngineFault]>(initialState: [])
+        recorder.onEngineFault = { fault in
+            faults.withLock { $0.append(fault) }
+        }
+
+        recorder.installEngineFaultObservers()
+        center.post(name: .AVAudioEngineConfigurationChange, object: engine)
+        try? await Task.sleep(for: .milliseconds(40))
+
+        let received = faults.withLock { $0 }
+        XCTAssertEqual(received.count, 1)
+        guard case .configurationChange? = received.first else {
+            return XCTFail("Expected configuration-change fault")
+        }
+    }
+
+    @MainActor
+    func testMediaServicesResetObserverEmitsFaultWithoutObjectFilter() async {
+        let center = NotificationCenter()
+        let engine = AVAudioEngine()
+        let recorder = LiveObserverRecorder(
+            engine: engine,
+            session: SpyAudioSession(category: .record),
+            notificationCenter: center
+        )
+        let faults = OSAllocatedUnfairLock<[ObserverEngineFault]>(initialState: [])
+        recorder.onEngineFault = { fault in
+            faults.withLock { $0.append(fault) }
+        }
+
+        recorder.installEngineFaultObservers()
+        center.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+        try? await Task.sleep(for: .milliseconds(40))
+
+        let received = faults.withLock { $0 }
+        XCTAssertEqual(received.count, 1)
+        guard case .mediaServicesReset? = received.first else {
+            return XCTFail("Expected media-services-reset fault")
+        }
     }
 }
 
