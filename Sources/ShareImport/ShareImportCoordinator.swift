@@ -11,6 +11,7 @@ protocol ShareItemProvider: AnyObject {
     func suggestedFilename() -> String?
     func loadFileRepresentation() async throws -> URL
     func loadText() async throws -> String
+    func cleanupScratch()
 }
 
 @MainActor
@@ -33,6 +34,72 @@ nonisolated enum ShareImportCopy {
 
     static func failureMessage(plainReason: String) -> String {
         "couldn't save this — \(plainReason). nothing was added."
+    }
+
+    static func batchCounts(for results: [ShareImportResult]) -> (saved: Int, failed: Int) {
+        var saved = 0
+        var failed = 0
+        for result in results {
+            switch result {
+            case .success:
+                saved += 1
+            case .failure:
+                failed += 1
+            case .dropped:
+                break
+            }
+        }
+        return (saved, failed)
+    }
+
+    static func batchStatus(saved: Int, failed: Int) -> String {
+        switch (saved, failed) {
+        case (0, 0):
+            ""
+        case (1, 0):
+            Self.savedAccessibilityLabel
+        case (let saved, 0) where saved > 1:
+            "saved \(saved) of \(saved)"
+        case (let saved, let failed) where saved > 0 && failed > 0:
+            "\(saved) saved · \(failed) couldn't"
+        case (0, 1):
+            // The caller renders the single failed item's reason-rich copy directly.
+            ""
+        case (0, let failed) where failed > 1:
+            "couldn't save \(failed) items — nothing was added."
+        default:
+            ""
+        }
+    }
+}
+
+nonisolated enum ShareScratch {
+    static let staleAge: TimeInterval = 60 * 60
+
+    static func sweepStaleChildren(in root: URL, fileManager: FileManager, now: Date = Date()) {
+        let cutoff = now.addingTimeInterval(-Self.staleAge)
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for entry in entries {
+            guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
+                  values.isDirectory == true,
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff
+            else {
+                continue
+            }
+            try? fileManager.removeItem(at: entry)
+        }
+    }
+
+    static func removeParentDirectory(of fileURL: URL, fileManager: FileManager) {
+        try? fileManager.removeItem(at: fileURL.deletingLastPathComponent())
     }
 }
 
@@ -130,7 +197,7 @@ final class ShareImportCoordinator {
             return self.fail(.unreadable)
         }
         defer {
-            try? self.fileManager.removeItem(at: fileURL)
+            provider.cleanupScratch()
         }
 
         var enqueueFileURL = fileURL
@@ -153,7 +220,7 @@ final class ShareImportCoordinator {
         }
         defer {
             if let extraCleanupURL {
-                try? self.fileManager.removeItem(at: extraCleanupURL)
+                ShareScratch.removeParentDirectory(of: extraCleanupURL, fileManager: self.fileManager)
             }
         }
 
@@ -201,6 +268,15 @@ final class ShareImportCoordinator {
 }
 
 extension ShareImportCoordinator {
+    func accept(providers: [any ShareItemProvider]) async -> [ShareImportResult] {
+        var results: [ShareImportResult] = []
+        results.reserveCapacity(providers.count)
+        for provider in providers {
+            results.append(await self.accept(provider: provider))
+        }
+        return results
+    }
+
     nonisolated static func supportedContentType(from identifiers: [String]) -> String? {
         identifiers.first { self.isSupportedContentType($0) }
     }
@@ -300,7 +376,7 @@ private extension ShareImportCoordinator {
             return self.fail(.unreadable)
         }
         defer {
-            try? self.fileManager.removeItem(at: fileURL)
+            ShareScratch.removeParentDirectory(of: fileURL, fileManager: self.fileManager)
         }
 
         do {
@@ -386,9 +462,10 @@ private extension ShareImportCoordinator {
     }
 
     func scratchFileURL(filename: String) throws -> URL {
-        let directory = self.fileManager.temporaryDirectory
+        let root = self.fileManager.temporaryDirectory
             .appendingPathComponent("SolstoneShareImport", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        ShareScratch.sweepStaleChildren(in: root, fileManager: self.fileManager)
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent(filename, isDirectory: false)
     }

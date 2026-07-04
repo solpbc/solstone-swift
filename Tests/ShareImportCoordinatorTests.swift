@@ -51,7 +51,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         let itemJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: itemJSONData) as? [String: Any])
         XCTAssertEqual(itemJSON["source"] as? String, "document")
         XCTAssertEqual(itemJSON["target_journal"] as? String, "")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(recorder.events(), [
             .resolved,
             .precheckPassed,
@@ -150,6 +150,92 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testBatchAcceptReturnsOrderedPerItemResults() async throws {
+        let queue = CapturingShareImportQueue()
+        let coordinator = ShareImportCoordinator(queue: queue)
+        let image = try self.makeFile(named: "image.jpg", data: Data("image".utf8))
+        let providers: [any ShareItemProvider] = [
+            StubShareItemProvider(contentType: "public.jpeg", filename: "image.jpg", fileURL: image),
+            StubShareItemProvider(contentType: "public.url", filename: "link.url", fileURL: nil),
+            StubShareItemProvider(contentType: "public.plain-text", filename: "note.txt", fileURL: nil, text: " \n\t "),
+        ]
+
+        let results = await coordinator.accept(providers: providers)
+
+        XCTAssertEqual(results.count, 3)
+        guard case .success = results[0] else {
+            XCTFail("Expected first batch result to succeed")
+            return
+        }
+        XCTAssertEqual(results[1], .failure(.unsupported))
+        XCTAssertEqual(results[2], .dropped)
+        XCTAssertEqual(queue.enqueueCallCount, 1)
+    }
+
+    @MainActor
+    func testBatchStatusExactStrings() {
+        XCTAssertEqual(ShareImportCopy.batchStatus(saved: 1, failed: 0), "saved")
+        XCTAssertEqual(ShareImportCopy.batchStatus(saved: 3, failed: 0), "saved 3 of 3")
+        let partial = ShareImportCopy.batchStatus(saved: 2, failed: 1)
+        XCTAssertEqual(partial, "2 saved · 1 couldn't")
+        let partialBytes = Array(partial.utf8)
+        XCTAssertTrue(partialBytes.indices.dropLast().contains { partialBytes[$0] == 0xC2 && partialBytes[$0 + 1] == 0xB7 })
+        XCTAssertEqual(ShareImportCopy.batchStatus(saved: 0, failed: 3), "couldn't save 3 items — nothing was added.")
+        XCTAssertEqual(ShareImportCopy.batchStatus(saved: 0, failed: 1), "")
+
+        let id = UUID()
+        let counts = ShareImportCopy.batchCounts(for: [
+            .success(id),
+            .failure(.unsupported),
+            .dropped,
+            .success(UUID()),
+        ])
+        XCTAssertEqual(counts.saved, 2)
+        XCTAssertEqual(counts.failed, 1)
+    }
+
+    @MainActor
+    func testScratchParentRemovedAfterEnqueue() async throws {
+        let fileManager = TemporaryDirectoryFileManager(temporaryDirectory: self.tempDirectory)
+        let queue = CapturingShareImportQueue()
+        let coordinator = ShareImportCoordinator(queue: queue, fileManager: fileManager)
+        let provider = StubShareItemProvider(contentType: "public.plain-text", filename: "note.txt", fileURL: nil, text: "hello")
+
+        let result = await coordinator.accept(provider: provider)
+
+        guard case .success = result else {
+            XCTFail("Expected text import to succeed")
+            return
+        }
+        let scratchRoot = self.tempDirectory.appendingPathComponent("SolstoneShareImport", isDirectory: true)
+        let entries = try FileManager.default.contentsOfDirectory(at: scratchRoot, includingPropertiesForKeys: nil)
+        XCTAssertEqual(entries, [])
+    }
+
+    @MainActor
+    func testProviderCleanupScratchInvokedAfterEnqueue() async throws {
+        let source = try self.makeFile(named: "share.pdf", data: Data("pdf".utf8))
+        let provider = StubShareItemProvider(contentType: "com.adobe.pdf", filename: "share.pdf", fileURL: source)
+        let queue = CapturingShareImportQueue()
+        var enqueueCompletedBeforeCleanup = false
+        queue.onEnqueue = {
+            XCTAssertEqual(provider.cleanupCallCount, 0)
+            enqueueCompletedBeforeCleanup = true
+        }
+        let coordinator = ShareImportCoordinator(queue: queue)
+
+        let result = await coordinator.accept(provider: provider)
+
+        guard case .success = result else {
+            XCTFail("Expected file import to succeed")
+            return
+        }
+        XCTAssertTrue(enqueueCompletedBeforeCleanup)
+        XCTAssertEqual(provider.cleanupCallCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @MainActor
     func testContentTypesMapToImporterSources() async throws {
         let cases: [(String, String)] = [
             ("com.adobe.pdf", "document"),
@@ -194,7 +280,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.failureMessage, "couldn't save this — couldn't read the image. nothing was added.")
         XCTAssertEqual(queue.enqueueCallCount, 0)
         XCTAssertEqual(recorder.events(), [.resolved, .failed(.undecodable)])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
     }
 
     @MainActor
@@ -226,7 +312,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
             .failed(.unreadable),
         ])
         XCTAssertFalse(recorder.events().contains(.saveCommitted))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         try self.assertQueueDirectoriesEmpty(root: queueRoot)
     }
 
@@ -249,7 +335,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         XCTAssertFalse(recorder.events().contains(.enqueueStarted))
         XCTAssertTrue(recorder.events().contains(.failed(expectedFailure)))
         if let fileURL = provider.fileURL {
-            XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         }
     }
 
@@ -275,6 +361,7 @@ private final class StubShareItemProvider: ShareItemProvider {
     let fileURL: URL?
     let text: String
     let loadError: Error?
+    private(set) var cleanupCallCount = 0
 
     init(
         contentType: String?,
@@ -314,6 +401,10 @@ private final class StubShareItemProvider: ShareItemProvider {
         }
         return self.text
     }
+
+    func cleanupScratch() {
+        self.cleanupCallCount += 1
+    }
 }
 
 @MainActor
@@ -352,6 +443,7 @@ private final class CapturingShareImportQueue: ShareImportQueueing {
     var lastContentType: String?
     var lastOriginalFilename: String?
     var lastFileText: String?
+    var onEnqueue: (@MainActor () -> Void)?
 
     func enqueue(
         fileURL: URL,
@@ -366,6 +458,7 @@ private final class CapturingShareImportQueue: ShareImportQueueing {
         self.lastContentType = contentType
         self.lastOriginalFilename = originalFilename
         self.lastFileText = try? String(contentsOf: fileURL, encoding: .utf8)
+        self.onEnqueue?()
         return UUID()
     }
 }
@@ -380,6 +473,19 @@ private final class CoordinatorNoteWriteFailingFileManager: FileManager, @unchec
             return false
         }
         return super.createFile(atPath: path, contents: data, attributes: attr)
+    }
+}
+
+private final class TemporaryDirectoryFileManager: FileManager, @unchecked Sendable {
+    private let directory: URL
+
+    init(temporaryDirectory: URL) {
+        self.directory = temporaryDirectory
+        super.init()
+    }
+
+    override var temporaryDirectory: URL {
+        self.directory
     }
 }
 

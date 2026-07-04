@@ -9,11 +9,11 @@ import UIKit
 final class ShareViewController: UIViewController {
     enum Screen: Equatable {
         case working
-        case success
+        case success(String)
         case failure(String)
     }
 
-    private lazy var queue = ImportQueue(startPathMonitor: false)
+    private lazy var queue = ImportQueue(mode: .enqueueOnly, startPathMonitor: false)
     private lazy var coordinator = ShareImportCoordinator(queue: self.queue)
     private var hostingController: UIHostingController<ShareExtensionView>?
 
@@ -24,23 +24,30 @@ final class ShareViewController: UIViewController {
     }
 
     private func prepare() {
-        guard let provider = self.firstProvider(), provider.registeredContentType() != nil else {
-            self.render(.failure(ShareImportFailure.unsupported.message))
+        let providers = self.allProviders()
+        guard !providers.isEmpty else {
+            self.complete()
             return
         }
 
         self.render(.working)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = await self.coordinator.accept(provider: provider)
-            switch result {
-            case .success:
+            let results = await self.coordinator.accept(providers: providers)
+            let counts = ShareImportCopy.batchCounts(for: results)
+            if counts.saved > 0 {
                 self.coordinator.saveCommitted()
-                self.render(.success)
-            case .failure(let failure):
-                self.render(.failure(failure.message))
-            case .dropped:
+                self.render(.success(ShareImportCopy.batchStatus(saved: counts.saved, failed: counts.failed)))
+            } else if counts.failed == 0 {
                 self.complete()
+            } else if counts.failed == 1,
+                      case .failure(let failure)? = results.first(where: { result in
+                          if case .failure = result { return true }
+                          return false
+                      }) {
+                self.render(.failure(failure.message))
+            } else {
+                self.render(.failure(ShareImportCopy.batchStatus(saved: 0, failed: counts.failed)))
             }
         }
     }
@@ -79,17 +86,13 @@ final class ShareViewController: UIViewController {
         self.extensionContext?.completeRequest(returningItems: nil)
     }
 
-    private func firstProvider() -> (any ShareItemProvider)? {
+    private func allProviders() -> [any ShareItemProvider] {
         let items = self.extensionContext?.inputItems.compactMap { $0 as? NSExtensionItem } ?? []
+        var providers: [any ShareItemProvider] = []
         for item in items {
-            for attachment in item.attachments ?? [] {
-                let provider = ShareExtensionItemProvider(provider: attachment)
-                if provider.registeredContentType() != nil {
-                    return provider
-                }
-            }
+            providers.append(contentsOf: (item.attachments ?? []).map { ShareExtensionItemProvider(provider: $0) })
         }
-        return nil
+        return providers
     }
 }
 
@@ -104,16 +107,23 @@ private struct ShareExtensionView: View {
             case .working:
                 ProgressView()
                     .accessibilityLabel(SourceVocabulary.shareSendingProgress)
-            case .success:
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(Color.solSavedGreen)
-                    .symbolEffect(.bounce)
-                    .accessibilityLabel(ShareImportCopy.savedAccessibilityLabel)
-                    .task {
-                        try? await Task.sleep(for: .seconds(0.9))
-                        await self.onAutoDismiss()
-                    }
+            case .success(let status):
+                VStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 64))
+                        .foregroundStyle(Color.solSavedGreen)
+                        .symbolEffect(.bounce)
+                        .accessibilityHidden(true)
+                    Text(status)
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(status)
+                .task {
+                    try? await Task.sleep(for: .seconds(0.9))
+                    self.onAutoDismiss()
+                }
             case .failure(let message):
                 Text(message)
                     .font(.body)
@@ -132,6 +142,7 @@ private struct ShareExtensionView: View {
 @MainActor
 private final class ShareExtensionItemProvider: ShareItemProvider {
     private let provider: NSItemProvider
+    private var scratchDirectory: URL?
 
     init(provider: NSItemProvider) {
         self.provider = provider
@@ -151,7 +162,7 @@ private final class ShareExtensionItemProvider: ShareItemProvider {
         }
         let suggestedFilename = self.suggestedFilename()
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let scratchURL: URL = try await withCheckedThrowingContinuation { continuation in
             self.provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { sourceURL, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -174,6 +185,8 @@ private final class ShareExtensionItemProvider: ShareItemProvider {
                 }
             }
         }
+        self.scratchDirectory = scratchURL.deletingLastPathComponent()
+        return scratchURL
     }
 
     func loadText() async throws -> String {
@@ -187,6 +200,12 @@ private final class ShareExtensionItemProvider: ShareItemProvider {
             return text
         }
         return try await self.loadTextItem(typeIdentifier: typeIdentifier)
+    }
+
+    func cleanupScratch() {
+        guard let scratchDirectory else { return }
+        try? FileManager.default.removeItem(at: scratchDirectory)
+        self.scratchDirectory = nil
     }
 
     private func loadTextData(typeIdentifier: String) async throws -> String {
@@ -246,19 +265,25 @@ private final class ShareExtensionItemProvider: ShareItemProvider {
         suggestedFilename: String?
     ) throws -> URL {
         let fileManager = FileManager.default
-        let scratchDirectory = fileManager.temporaryDirectory
+        let scratchRoot = fileManager.temporaryDirectory
             .appendingPathComponent("SolstoneShareExtension", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        ShareScratch.sweepStaleChildren(in: scratchRoot, fileManager: fileManager)
+        let scratchDirectory = scratchRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
 
-        let fallbackName = sourceURL.lastPathComponent.isEmpty ? "shared-item" : sourceURL.lastPathComponent
-        let filename = suggestedFilename?.isEmpty == false ? suggestedFilename! : fallbackName
-        let targetURL = scratchDirectory.appendingPathComponent(filename, isDirectory: false)
-        if fileManager.fileExists(atPath: targetURL.path) {
-            try fileManager.removeItem(at: targetURL)
+        do {
+            let fallbackName = sourceURL.lastPathComponent.isEmpty ? "shared-item" : sourceURL.lastPathComponent
+            let filename = suggestedFilename?.isEmpty == false ? suggestedFilename! : fallbackName
+            let targetURL = scratchDirectory.appendingPathComponent(filename, isDirectory: false)
+            if fileManager.fileExists(atPath: targetURL.path) {
+                try fileManager.removeItem(at: targetURL)
+            }
+            try fileManager.copyItem(at: sourceURL, to: targetURL)
+            return targetURL
+        } catch {
+            try? fileManager.removeItem(at: scratchDirectory)
+            throw error
         }
-        try fileManager.copyItem(at: sourceURL, to: targetURL)
-        return targetURL
     }
 }
 

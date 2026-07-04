@@ -42,6 +42,29 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testEnqueueOnlyDoesNotBuildBackgroundConfigurationNorSchedule() async throws {
+        let queue = ImportQueue(
+            cacheRootURL: self.tempDirectory,
+            mode: .enqueueOnly,
+            startPathMonitor: false
+        )
+        XCTAssertFalse(queue.builtBackgroundConfiguration)
+        let source = try self.makeSourceFile(named: "enqueue-only.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.rawURL(itemID: itemID, status: "pending").path))
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.inFlightCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+    }
+
+    @MainActor
     func testEnqueueWritesPendingArtifactsWithImporterDescriptor() async throws {
         let queue = self.makeQueue(ensureRegistered: { throw ImportQueueError.registrationUnavailable })
         let source = try self.makeSourceFile(named: "source.pdf", data: Data("pdf".utf8))
@@ -66,6 +89,27 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertEqual(descriptor.contentType, "application/pdf")
         let note = try self.readNote(itemID: itemID, status: "pending")
         XCTAssertEqual(note["source"] as? String, "document")
+    }
+
+    @MainActor
+    func testEnqueuePublishesOnlyFinalPendingDirectory() async throws {
+        let queue = self.makeQueue(isJournalConfigured: { false })
+        let source = try self.makeSourceFile(named: "staged-source.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf",
+            originalFilename: "staged-source.pdf"
+        ).uuidString.lowercased()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.rawURL(itemID: itemID, status: "pending").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.noteURL(itemID: itemID, status: "pending").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.descriptorURL(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "staging").path))
+        XCTAssertEqual(queue.pendingCount, 1)
+        XCTAssertEqual(queue.failedCount, 0)
     }
 
     @MainActor
@@ -1002,6 +1046,93 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminal409WritesMarkerAndFreshScanNeedsAttention() async throws {
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (
+                Self.response(for: request, statusCode: 409),
+                Data(#"{"error":"import_client_id_conflict","detail":"client id belongs to another import"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "terminal-conflict.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("terminal marker failure") {
+            queue.failedCount == 1
+        }
+        let marker = try self.readFailureRecord(itemID: itemID, status: "failed")
+        XCTAssertEqual(marker.classification, .terminal)
+        let freshQueue = self.makeQueue(isJournalConfigured: { false })
+        let item = try XCTUnwrap(self.loadedItems(from: freshQueue.onThisPhoneSourceSnapshot()).first { $0.id == itemID })
+        XCTAssertEqual(item.sendState, .needsAttention)
+        XCTAssertEqual(item.retryAvailable, false)
+    }
+
+    @MainActor
+    func testTerminalDecodeWritesMarkerAndFreshScanNeedsAttention() async throws {
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"start","path":"/imports/missing-client","timestamp":"2026-04-20T12:00:00Z"}"#.utf8)
+            )
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "terminal-decode.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("terminal decode marker failure") {
+            queue.failedCount == 1
+        }
+        let marker = try self.readFailureRecord(itemID: itemID, status: "failed")
+        XCTAssertEqual(marker.classification, .terminal)
+        let freshQueue = self.makeQueue(isJournalConfigured: { false })
+        let item = try XCTUnwrap(self.loadedItems(from: freshQueue.onThisPhoneSourceSnapshot()).first { $0.id == itemID })
+        XCTAssertEqual(item.sendState, .needsAttention)
+        XCTAssertEqual(item.retryAvailable, false)
+    }
+
+    @MainActor
+    func testTransient5xxStaysRetryable() async throws {
+        ImportQueueURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/app/import/api/save")
+            return (Self.response(for: request, statusCode: 503), Data("service unavailable".utf8))
+        }
+        let queue = self.makeQueue(maxAttempts: 1)
+        let source = try self.makeSourceFile(named: "transient.pdf", data: Data("pdf".utf8))
+
+        let itemID = try await queue.enqueue(
+            fileURL: source,
+            source: "document",
+            targetJournal: "home",
+            contentType: "com.adobe.pdf"
+        ).uuidString.lowercased()
+
+        try await self.waitFor("transient marker failure") {
+            queue.failedCount == 1
+        }
+        let marker = try self.readFailureRecord(itemID: itemID, status: "failed")
+        XCTAssertEqual(marker.classification, .transient)
+        let freshQueue = self.makeQueue(isJournalConfigured: { false })
+        let item = try XCTUnwrap(self.loadedItems(from: freshQueue.onThisPhoneSourceSnapshot()).first { $0.id == itemID })
+        XCTAssertEqual(item.sendState, .savedOnThisPhone)
+        XCTAssertEqual(item.retryAvailable, true)
+    }
+
+    @MainActor
     func testAudioContentTypesInferAudioFilenameAndMIMEViaEnqueue() async throws {
         let queue = self.makeQueue(isJournalConfigured: { false })
         let cases: [(String, String, String, String)] = [
@@ -1330,6 +1461,21 @@ nonisolated final class ImportQueueTests: XCTestCase {
     }
 
     @MainActor
+    func testResumeIgnoresStagedButUnrenamedItem() async throws {
+        let itemID = try self.writeLocalItem(status: "staging")
+        let queue = self.makeQueue()
+
+        await queue.resumeFromDisk()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "staging").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: itemID, status: "failed").path))
+        XCTAssertEqual(queue.pendingCount, 0)
+        XCTAssertEqual(queue.failedCount, 0)
+        XCTAssertEqual(ImportQueueURLProtocol.callCount, 0)
+    }
+
+    @MainActor
     func testRetryFailedMovesFailedItemsToPendingAndUploads() async throws {
         self.installSuccessfulImportHandler()
         let itemIDs = try [
@@ -1404,6 +1550,26 @@ nonisolated final class ImportQueueTests: XCTestCase {
         XCTAssertEqual(Set(ledger.keys), [pendingItemID, failedItemID])
         XCTAssertEqual(ledger.count, 2)
         XCTAssertEqual(try self.directoryEntries(status: "failed"), [])
+    }
+
+    @MainActor
+    func testRetryFailedSkipsTerminalItems() async throws {
+        self.installSuccessfulImportHandler()
+        let terminalID = try self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000030")
+        let transientID = try self.writeLocalItem(status: "failed", itemID: "00000000-0000-0000-0000-000000000031")
+        try self.writeFailureRecord(itemID: terminalID, status: "failed", classification: .terminal)
+        try self.writeFailureRecord(itemID: transientID, status: "failed", classification: .transient)
+        let queue = self.makeQueue()
+
+        await queue.retryFailed()
+
+        try await self.waitFor("transient retry completed") {
+            queue.failedCount == 1 && ImportQueueURLProtocol.callCount == 2
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: terminalID, status: "failed").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: terminalID, status: "pending").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: transientID, status: "failed").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(itemID: transientID, status: "pending").path))
     }
 
     @MainActor
@@ -1795,6 +1961,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
         fileManager: FileManager = .default,
         retryDelays: [UInt64] = [0],
         maxAttempts: Int = 5,
+        mode: ImportQueueMode = .uploading,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
@@ -1810,6 +1977,7 @@ nonisolated final class ImportQueueTests: XCTestCase {
             cacheRootURL: cacheRootURL ?? self.tempDirectory,
             fileManager: fileManager,
             sessionConfiguration: configuration,
+            mode: mode,
             ensureRegistered: ensureRegistered,
             isJournalConfigured: isJournalConfigured,
             localPortProvider: localPortProvider,
@@ -1920,6 +2088,10 @@ nonisolated final class ImportQueueTests: XCTestCase {
         self.itemDirectory(itemID: itemID, status: status).appendingPathComponent("save.json")
     }
 
+    private func failureRecordURL(itemID: String, status: String) -> URL {
+        self.itemDirectory(itemID: itemID, status: status).appendingPathComponent("failure.json")
+    }
+
     private func saveUploadURL(itemID: String, status: String) -> URL {
         self.itemDirectory(itemID: itemID, status: status).appendingPathComponent("save.upload")
     }
@@ -1953,6 +2125,37 @@ nonisolated final class ImportQueueTests: XCTestCase {
     private func readLedgerIfPresent() throws -> [String: TestLedgerEntry] {
         guard self.ledgerExists() else { return [:] }
         return try self.readLedger()
+    }
+
+    private func readFailureRecord(itemID: String, status: String) throws -> ImportFailureRecord {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ImportFailureRecord.self, from: Data(contentsOf: self.failureRecordURL(itemID: itemID, status: status)))
+    }
+
+    private func writeFailureRecord(
+        itemID: String,
+        status: String,
+        classification: ImportFailureClassification,
+        reason: String = "test failure"
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let record = ImportFailureRecord(
+            classification: classification,
+            reason: reason,
+            failedAt: Date(timeIntervalSince1970: 1_713_624_000)
+        )
+        try encoder.encode(record).write(to: self.failureRecordURL(itemID: itemID, status: status), options: .atomic)
+    }
+
+    private func loadedItems(from result: OnThisPhoneSourceResult) throws -> [OnThisPhoneItem] {
+        guard case .loaded(let items) = result else {
+            XCTFail("Expected loaded snapshot")
+            return []
+        }
+        return items
     }
 
     private func ledgerExists() -> Bool {

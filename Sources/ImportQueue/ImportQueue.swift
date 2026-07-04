@@ -9,6 +9,22 @@ import UniformTypeIdentifiers
 
 private let importQueueLog = Logger(subsystem: "app.solstone.swift", category: "import-queue")
 
+nonisolated enum ImportQueueMode: Sendable {
+    case uploading
+    case enqueueOnly
+}
+
+nonisolated enum ImportFailureClassification: String, Codable, Sendable {
+    case terminal
+    case transient
+}
+
+nonisolated struct ImportFailureRecord: Codable, Sendable {
+    let classification: ImportFailureClassification
+    let reason: String
+    let failedAt: Date
+}
+
 final class ImportQueueSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
     private struct WeakOwner: Sendable {
         weak var value: ImportQueue?
@@ -59,6 +75,7 @@ final class ImportQueue {
     var failedCount = 0
     var lastDeliveredAt: Date?
     var lastError: String?
+    nonisolated let builtBackgroundConfiguration: Bool
     private let throughputMeter = ThroughputMeter()
 
     var inFlightCount: Int {
@@ -71,6 +88,7 @@ final class ImportQueue {
 
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let cacheRootURL: URL
+    @ObservationIgnored private let mode: ImportQueueMode
     @ObservationIgnored private let sessionDelegate: ImportQueueSessionDelegate
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
@@ -107,6 +125,7 @@ final class ImportQueue {
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
         sessionConfiguration: URLSessionConfiguration? = nil,
+        mode: ImportQueueMode = .uploading,
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = {
             throw ImportQueueError.registrationUnavailable
         },
@@ -125,6 +144,7 @@ final class ImportQueue {
     ) {
         self.fileManager = fileManager
         self.cacheRootURL = cacheRootURL ?? Self.defaultCacheRootURL(fileManager: fileManager)
+        self.mode = mode
         self.ensureRegistered = ensureRegistered
         self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
@@ -141,7 +161,20 @@ final class ImportQueue {
         self.decoder.dateDecodingStrategy = .iso8601
 
         self.sessionDelegate = ImportQueueSessionDelegate()
-        let configuration = sessionConfiguration ?? Self.makeBackgroundConfiguration()
+        let configuration: URLSessionConfiguration
+        switch mode {
+        case .enqueueOnly:
+            configuration = .ephemeral
+            self.builtBackgroundConfiguration = false
+        case .uploading:
+            if let sessionConfiguration {
+                configuration = sessionConfiguration
+                self.builtBackgroundConfiguration = false
+            } else {
+                configuration = Self.makeBackgroundConfiguration()
+                self.builtBackgroundConfiguration = true
+            }
+        }
         self.session = URLSession(configuration: configuration, delegate: self.sessionDelegate, delegateQueue: nil)
         self.sessionDelegate.setOwner(self)
 
@@ -163,7 +196,8 @@ final class ImportQueue {
     ) async throws -> UUID {
         let itemID = UUID()
         let itemIDString = Self.itemIDString(itemID)
-        let itemDirectory = self.pendingItemDirectoryURL(itemID: itemIDString)
+        let stagingDirectory = self.stagingItemDirectoryURL(itemID: itemIDString)
+        let pendingDirectory = self.pendingItemDirectoryURL(itemID: itemIDString)
 
         do {
             try self.ensureRootDirectories()
@@ -189,29 +223,30 @@ final class ImportQueue {
             )
             let descriptorData = try self.encoder.encode(descriptor)
 
-            try self.fileManager.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
-            try self.fileManager.copyItem(at: fileURL, to: self.rawURL(itemID: itemIDString, status: .pending))
+            try self.fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+            try self.fileManager.copyItem(at: fileURL, to: self.rawURL(itemID: itemIDString, status: .staging))
             guard self.fileManager.createFile(
-                atPath: self.noteURL(itemID: itemIDString, status: .pending).path,
+                atPath: self.noteURL(itemID: itemIDString, status: .staging).path,
                 contents: noteData,
                 attributes: nil
             ) else {
-                throw ImportQueueError.writeFailed(path: self.noteURL(itemID: itemIDString, status: .pending).path)
+                throw ImportQueueError.writeFailed(path: self.noteURL(itemID: itemIDString, status: .staging).path)
             }
             guard self.fileManager.createFile(
-                atPath: self.descriptorURL(itemID: itemIDString, status: .pending).path,
+                atPath: self.descriptorURL(itemID: itemIDString, status: .staging).path,
                 contents: descriptorData,
                 attributes: nil
             ) else {
-                throw ImportQueueError.writeFailed(path: self.descriptorURL(itemID: itemIDString, status: .pending).path)
+                throw ImportQueueError.writeFailed(path: self.descriptorURL(itemID: itemIDString, status: .staging).path)
             }
+            try self.fileManager.moveItem(at: stagingDirectory, to: pendingDirectory)
 
             importQueueLog.info("import item enqueued \(itemIDString, privacy: .public)")
             self.refreshCounts()
             await self.scheduleUpload(itemID: itemIDString)
             return itemID
         } catch {
-            try? self.fileManager.removeItem(at: itemDirectory)
+            try? self.fileManager.removeItem(at: stagingDirectory)
             let detail = String(describing: error)
             importQueueLog.error("failed to enqueue import item \(itemIDString, privacy: .public): \(detail, privacy: .public)")
             self.lastError = detail
@@ -246,7 +281,8 @@ final class ImportQueue {
                 guard self.requiredFilesExist(itemID: itemID, status: .pending) else {
                     try self.movePendingItemToFailed(
                         itemID: itemID,
-                        reason: "import item missing required artifact"
+                        reason: "import item missing required artifact",
+                        classification: .terminal
                     )
                     continue
                 }
@@ -280,6 +316,7 @@ final class ImportQueue {
             try self.fileManager.removeItem(at: pendingURL)
         }
         try self.fileManager.moveItem(at: failedURL, to: pendingURL)
+        try? self.fileManager.removeItem(at: self.failureRecordURL(itemID: itemIDString, status: .pending))
         self.attemptCountByItemID.removeValue(forKey: itemIDString)
         self.retryTasksByItemID[itemIDString]?.cancel()
         self.retryTasksByItemID.removeValue(forKey: itemIDString)
@@ -301,6 +338,9 @@ final class ImportQueue {
             await self.cooperator.step()
             if Task.isCancelled { break }
             guard let itemID = UUID(uuidString: directory.lastPathComponent) else { continue }
+            if self.loadFailureRecordIfPresent(itemID: directory.lastPathComponent, status: .failed)?.classification == .terminal {
+                continue
+            }
             do {
                 try await self.requeueFailedItem(itemID: itemID)
             } catch {
@@ -444,6 +484,7 @@ final class ImportQueue {
 
 private extension ImportQueue {
     enum ItemStatus {
+        case staging
         case pending
         case failed
     }
@@ -762,6 +803,7 @@ private extension ImportQueue {
     }
 
     func scheduleUpload(itemID: String) async {
+        guard self.mode == .uploading else { return }
         guard self.activeTaskIDByItemID[itemID] == nil else { return }
         guard !self.schedulingItemIDs.contains(itemID) else { return }
         self.schedulingItemIDs.insert(itemID)
@@ -808,7 +850,11 @@ private extension ImportQueue {
 
             if let saveResult {
                 guard saveResult.recommendedAction == RecommendedAction.start.rawValue else {
-                    await self.handleUploadFailure(itemID: itemID, reason: "persisted save result is not startable")
+                    await self.handleUploadFailure(
+                        itemID: itemID,
+                        reason: "persisted save result is not startable",
+                        classification: .terminal
+                    )
                     try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
                     try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
                     return
@@ -912,7 +958,7 @@ private extension ImportQueue {
                 )
             )
         } catch {
-            await self.handleUploadFailure(itemID: itemID, reason: String(describing: error))
+            await self.handleUploadFailure(itemID: itemID, reason: String(describing: error), classification: .terminal)
             try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
             try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
         }
@@ -966,7 +1012,11 @@ private extension ImportQueue {
                 self.refreshCounts()
                 return
             }
-            await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))
+            await self.handleUploadFailure(
+                itemID: info.itemID,
+                reason: String(describing: error),
+                classification: .transient
+            )
             try? self.fileManager.removeItem(at: info.bodyURL)
             DrainSignpost.event(
                 .uploadCompletion,
@@ -1028,7 +1078,8 @@ private extension ImportQueue {
         }
         await self.handleUploadFailure(
             itemID: info.itemID,
-            reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)"
+            reason: body.isEmpty ? "HTTP \(statusCode)" : "HTTP \(statusCode): \(body)",
+            classification: (500..<600).contains(statusCode) ? .transient : .terminal
         )
         try? self.fileManager.removeItem(at: info.bodyURL)
         DrainSignpost.event(
@@ -1048,7 +1099,7 @@ private extension ImportQueue {
         do {
             let response = try self.decoder.decode(SaveResponse.self, from: responseData)
             guard response.clientItemID == info.itemID else {
-                await self.handleUploadFailure(itemID: info.itemID, reason: "client_item_id mismatch")
+                await self.handleUploadFailure(itemID: info.itemID, reason: "client_item_id mismatch", classification: .terminal)
                 try? self.fileManager.removeItem(at: info.bodyURL)
                 return
             }
@@ -1056,7 +1107,7 @@ private extension ImportQueue {
             switch response.recommendedAction {
             case .start:
                 guard let path = response.path, let timestamp = response.timestamp else {
-                    await self.handleUploadFailure(itemID: info.itemID, reason: "missing path/timestamp")
+                    await self.handleUploadFailure(itemID: info.itemID, reason: "missing path/timestamp", classification: .terminal)
                     try? self.fileManager.removeItem(at: info.bodyURL)
                     return
                 }
@@ -1080,14 +1131,14 @@ private extension ImportQueue {
                 )
             }
         } catch {
-            await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error))
+            await self.handleUploadFailure(itemID: info.itemID, reason: String(describing: error), classification: .terminal)
             try? self.fileManager.removeItem(at: info.bodyURL)
         }
     }
 
     func handleStartSuccess(info: TaskInfo, responseData: Data) async {
         guard let saveResult = info.saveResult else {
-            await self.handleUploadFailure(itemID: info.itemID, reason: "missing save result")
+            await self.handleUploadFailure(itemID: info.itemID, reason: "missing save result", classification: .terminal)
             try? self.fileManager.removeItem(at: info.bodyURL)
             return
         }
@@ -1096,7 +1147,7 @@ private extension ImportQueue {
               let taskID = response.taskID,
               !taskID.isEmpty
         else {
-            await self.handleUploadFailure(itemID: info.itemID, reason: "invalid start response")
+            await self.handleUploadFailure(itemID: info.itemID, reason: "invalid start response", classification: .terminal)
             try? self.fileManager.removeItem(at: info.bodyURL)
             return
         }
@@ -1140,14 +1191,18 @@ private extension ImportQueue {
         self.refreshCounts()
     }
 
-    func handleUploadFailure(itemID: String, reason: String) async {
+    func handleUploadFailure(
+        itemID: String,
+        reason: String,
+        classification: ImportFailureClassification
+    ) async {
         let nextAttempt = self.attemptCountByItemID[itemID, default: 0] + 1
         self.attemptCountByItemID[itemID] = nextAttempt
         self.lastError = reason
 
         if nextAttempt >= self.maxAttempts {
             do {
-                try self.movePendingItemToFailed(itemID: itemID, reason: reason)
+                try self.movePendingItemToFailed(itemID: itemID, reason: reason, classification: classification)
             } catch {
                 self.lastError = String(describing: error)
             }
@@ -1174,7 +1229,11 @@ private extension ImportQueue {
         await self.releaseInFlightSlot(itemID: itemID)
     }
 
-    func movePendingItemToFailed(itemID: String, reason: String) throws {
+    func movePendingItemToFailed(
+        itemID: String,
+        reason: String,
+        classification: ImportFailureClassification
+    ) throws {
         let pendingURL = self.pendingItemDirectoryURL(itemID: itemID)
         let failedURL = self.failedItemDirectoryURL(itemID: itemID)
         try self.fileManager.createDirectory(at: self.failedDirectoryURL(), withIntermediateDirectories: true)
@@ -1185,6 +1244,16 @@ private extension ImportQueue {
             try? self.fileManager.removeItem(at: self.saveUploadURL(itemID: itemID, status: .pending))
             try? self.fileManager.removeItem(at: self.startUploadURL(itemID: itemID, status: .pending))
             try self.fileManager.moveItem(at: pendingURL, to: failedURL)
+            let failureRecord = ImportFailureRecord(
+                classification: classification,
+                reason: reason,
+                failedAt: self.now()
+            )
+            self.writeFailureRecord(
+                failureRecord,
+                itemID: itemID,
+                status: .failed
+            )
         }
         importQueueLog.error("import item moved to failed \(itemID, privacy: .public): \(reason, privacy: .private)")
         self.lastError = reason
@@ -1298,7 +1367,8 @@ private extension ImportQueue {
         let object = self.readNoteObject(itemID: itemID, status: status)
         let rawURL = self.rawURL(itemID: itemID, status: status)
         let rawFileURL = self.fileManager.fileExists(atPath: rawURL.path) ? rawURL : nil
-        let canRetry = location == .failed
+        let failureRecord = location == .failed ? self.loadFailureRecordIfPresent(itemID: itemID, status: status) : nil
+        let canRetry = location == .failed && failureRecord?.classification != .terminal
 
         return OnThisPhoneItem(
             id: itemID,
@@ -1316,7 +1386,9 @@ private extension ImportQueue {
             segment: nil,
             deliveredAt: nil,
             rawFileURL: rawFileURL,
-            retryAvailable: canRetry
+            failureReason: failureRecord?.reason,
+            retryAvailable: canRetry,
+            lastAttemptAt: failureRecord?.failedAt
         )
     }
 
@@ -1478,8 +1550,13 @@ private extension ImportQueue {
     }
 
     func ensureRootDirectories() throws {
+        try self.fileManager.createDirectory(at: self.stagingDirectoryURL(), withIntermediateDirectories: true)
         try self.fileManager.createDirectory(at: self.pendingDirectoryURL(), withIntermediateDirectories: true)
         try self.fileManager.createDirectory(at: self.failedDirectoryURL(), withIntermediateDirectories: true)
+    }
+
+    func stagingDirectoryURL() -> URL {
+        self.cacheRootURL.appendingPathComponent("staging", isDirectory: true)
     }
 
     func pendingDirectoryURL() -> URL {
@@ -1496,11 +1573,17 @@ private extension ImportQueue {
 
     func itemDirectoryURL(itemID: String, status: ItemStatus) -> URL {
         switch status {
+        case .staging:
+            self.stagingItemDirectoryURL(itemID: itemID)
         case .pending:
             self.pendingItemDirectoryURL(itemID: itemID)
         case .failed:
             self.failedItemDirectoryURL(itemID: itemID)
         }
+    }
+
+    func stagingItemDirectoryURL(itemID: String) -> URL {
+        self.stagingDirectoryURL().appendingPathComponent(itemID, isDirectory: true)
     }
 
     func pendingItemDirectoryURL(itemID: String) -> URL {
@@ -1525,6 +1608,10 @@ private extension ImportQueue {
 
     func saveResultURL(itemID: String, status: ItemStatus) -> URL {
         self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("save.json", isDirectory: false)
+    }
+
+    func failureRecordURL(itemID: String, status: ItemStatus) -> URL {
+        self.itemDirectoryURL(itemID: itemID, status: status).appendingPathComponent("failure.json", isDirectory: false)
     }
 
     func saveUploadURL(itemID: String, status: ItemStatus) -> URL {
@@ -1554,6 +1641,22 @@ private extension ImportQueue {
     func saveSaveResult(_ saveResult: SaveResult, itemID: String, status: ItemStatus) throws {
         let data = try self.encoder.encode(saveResult)
         try data.write(to: self.saveResultURL(itemID: itemID, status: status), options: .atomic)
+    }
+
+    func loadFailureRecordIfPresent(itemID: String, status: ItemStatus) -> ImportFailureRecord? {
+        let url = self.failureRecordURL(itemID: itemID, status: status)
+        guard self.fileManager.fileExists(atPath: url.path) else { return nil }
+        return try? self.decoder.decode(ImportFailureRecord.self, from: Data(contentsOf: url))
+    }
+
+    func writeFailureRecord(_ record: ImportFailureRecord, itemID: String, status: ItemStatus) {
+        do {
+            let data = try self.encoder.encode(record)
+            try data.write(to: self.failureRecordURL(itemID: itemID, status: status), options: .atomic)
+        } catch {
+            let detail = String(describing: error)
+            importQueueLog.error("import failure record write failed \(itemID, privacy: .public): \(detail, privacy: .public)")
+        }
     }
 
     func loadLedgerStub(itemID: String, status: ItemStatus) throws -> LedgerStub {
