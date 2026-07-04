@@ -49,4 +49,34 @@ nonisolated final class ServerSentEventParserTests: XCTestCase {
 
         XCTAssertEqual(parser.finish(), [ServerSentEvent(event: nil, data: "pending")])
     }
+
+    func testDecodesMultibyteStreamedOneBytePerAppend() {
+        let payload = "café — 日本語 🎉"
+        let bytes = Data("data: \(payload)\n\n".utf8)
+        var parser = ServerSentEventParser()
+        var events: [ServerSentEvent] = []
+
+        for byte in bytes {
+            events.append(contentsOf: parser.append(Data([byte])))
+        }
+
+        XCTAssertEqual(events, [ServerSentEvent(event: nil, data: payload)])
+        XCTAssertFalse(events.first?.data.contains("\u{FFFD}") ?? true)
+    }
+
+    func testDecodesMultibyteAcrossEveryTwoAppendSplit() {
+        let payload = "café — 日本語 🎉"
+        let bytes = Array(Data("data: \(payload)\n\n".utf8))
+
+        for splitIndex in 0...bytes.count {
+            var parser = ServerSentEventParser()
+            var events: [ServerSentEvent] = []
+
+            events.append(contentsOf: parser.append(Data(bytes[..<splitIndex])))
+            events.append(contentsOf: parser.append(Data(bytes[splitIndex...])))
+
+            XCTAssertEqual(events, [ServerSentEvent(event: nil, data: payload)], "split \(splitIndex)")
+            XCTAssertFalse(events.first?.data.contains("\u{FFFD}") ?? true, "split \(splitIndex)")
+        }
+    }
 }

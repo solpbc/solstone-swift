@@ -6,22 +6,22 @@ nonisolated struct ServerSentEvent: Sendable, Equatable {
 }
 
 nonisolated struct ServerSentEventParser: Sendable {
-    private var partialLine = ""
+    private var partialLine: [UInt8] = []
     private var eventName: String?
     private var dataLines: [String] = []
 
     mutating func append(_ data: Data) -> [ServerSentEvent] {
         guard !data.isEmpty else { return [] }
 
-        self.partialLine += String(decoding: data, as: UTF8.self)
+        self.partialLine.append(contentsOf: data)
         var events: [ServerSentEvent] = []
 
-        while let newline = self.partialLine.firstIndex(of: "\n") {
-            var line = String(self.partialLine[..<newline])
+        while let newline = self.partialLine.firstIndex(of: 0x0A) {
+            let lineEnd = newline > self.partialLine.startIndex && self.partialLine[self.partialLine.index(before: newline)] == 0x0D
+                ? self.partialLine.index(before: newline)
+                : newline
+            let line = String(decoding: self.partialLine[..<lineEnd], as: UTF8.self)
             self.partialLine.removeSubrange(...newline)
-            if line.hasSuffix("\r") {
-                line.removeLast()
-            }
             if let event = self.consume(line: line) {
                 events.append(event)
             }
@@ -33,11 +33,11 @@ nonisolated struct ServerSentEventParser: Sendable {
     mutating func finish() -> [ServerSentEvent] {
         var events: [ServerSentEvent] = []
         if !self.partialLine.isEmpty {
-            var line = self.partialLine
-            self.partialLine = ""
-            if line.hasSuffix("\r") {
-                line.removeLast()
-            }
+            let lineEnd = self.partialLine.last == 0x0D
+                ? self.partialLine.index(before: self.partialLine.endIndex)
+                : self.partialLine.endIndex
+            let line = String(decoding: self.partialLine[..<lineEnd], as: UTF8.self)
+            self.partialLine.removeAll(keepingCapacity: true)
             if let event = self.consume(line: line) {
                 events.append(event)
             }
