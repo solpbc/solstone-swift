@@ -424,7 +424,7 @@ final class TunnelManager {
             self.persistRefreshedPairing(updated)
             return .retry(updated)
         case .notNeeded:
-            // "Nothing to refresh" (the reloaded pairing has no relay enrollment) must
+            // nothing-to-refresh (the reloaded pairing has no relay enrollment) must
             // never destroy the pairing — unreachable, not revoked.
             return .unreachable
         case .transientFailure:
