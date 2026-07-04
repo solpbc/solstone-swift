@@ -246,6 +246,49 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testReactiveTokenExpiredNotNeededStaysRetryable() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let enrolledPairing = Self.fixturePairing(localEndpoints: [])
+        let nonEnrolledPairing = StoredPairing(
+            instanceID: enrolledPairing.instanceID,
+            homeLabel: enrolledPairing.homeLabel,
+            relayEndpoint: enrolledPairing.relayEndpoint,
+            fingerprint: enrolledPairing.fingerprint,
+            clientCertPEM: enrolledPairing.clientCertPEM,
+            clientKeyPEM: enrolledPairing.clientKeyPEM,
+            caChainPEM: enrolledPairing.caChainPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: enrolledPairing.localEndpoints,
+            pairedAt: enrolledPairing.pairedAt
+        )
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.tokenExpired),
+        ]
+        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession())
+        let manager = makeManager(
+            transport: transport,
+            loadPairing: {
+                let count = loadCount.withLock { value in
+                    let current = value
+                    value += 1
+                    return current
+                }
+                return count == 0 ? enrolledPairing : nonEnrolledPairing
+            },
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+    }
+
+    @MainActor
     func testHandshakeRevokedRefreshesThenRetriesStaysRetryable() async {
         let newToken = Self.validFutureDeviceToken + "x"
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
