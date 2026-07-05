@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+#if DEBUG
 import CoreBluetooth
 import Foundation
 import SwiftUI
@@ -543,3 +544,4 @@ struct BLEDiagnosticView: View {
         "\(value) bytes"
     }
 }
+#endif

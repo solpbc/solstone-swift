@@ -135,9 +135,11 @@ struct SolstoneSwiftApp: App {
         Self.purgeLegacyKeychainEntries()
         Self.migrateLegacyIngestPrefixes()
         InnerTLS.purgeOrphanedIdentities()
+#if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
             Self.resetOnboardingIntegrationState()
         }
+#endif
         let log = DiagnosticLog()
         let appConfig = AppConfig()
         let observerClock = SystemObserverClock()

@@ -103,6 +103,7 @@ final class AppConfig {
         nil
     }
 
+#if DEBUG
     func seedUITestPairing(
         host: String = "journal.local",
         port: Int = 22,
@@ -142,6 +143,7 @@ final class AppConfig {
         self.deviceID = deviceID
         self.serverVersion = "ui-test"
     }
+#endif
 
     private func applyDerivedState(from pairing: StoredPairing) {
         let firstEndpoint = pairing.localEndpoints.first

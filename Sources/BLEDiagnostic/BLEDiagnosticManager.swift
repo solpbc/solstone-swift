@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+#if DEBUG
 @preconcurrency import CoreBluetooth
 import Foundation
 import Observation
@@ -1777,3 +1778,4 @@ private extension BLEDiagnosticManager {
 private func uuidMatches(_ lhs: CBUUID, _ rhs: CBUUID) -> Bool {
     lhs.uuidString.caseInsensitiveCompare(rhs.uuidString) == .orderedSame
 }
+#endif

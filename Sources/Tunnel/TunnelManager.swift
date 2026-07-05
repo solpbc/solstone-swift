@@ -525,6 +525,7 @@ final class TunnelManager {
         self.ownerConnectSuccessBannerArmed = true
     }
 
+#if DEBUG
     // Integration tests use this to bypass real tunnel startup.
     func forceConnected(port: Int, via: ConnectionEndpoint) { self.state = .connected(localPort: port, via: via) }
 
@@ -543,6 +544,7 @@ final class TunnelManager {
         self.isNetworkSatisfied = isSatisfied
         self.currentInterfaceIsWiFi = isWiFi
     }
+#endif
 
     func cancelReconnect() {
         self.retryTask?.cancel()

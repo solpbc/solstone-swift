@@ -124,6 +124,7 @@ struct ContentView: View {
             self.presentPairingIfHandoffPending()
         }
         .onAppear {
+#if DEBUG
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("--ui-test") {
                 let port = Self.uiTestPort
@@ -161,7 +162,6 @@ struct ContentView: View {
                     self.onboardingFlow.markCompletedForUITest()
                 }
 
-#if DEBUG
                 if arguments.contains("--ui-test-mark-confirm") {
                     self.appConfig.seedUITestPairing(
                         journalRoot: journalRoot,
@@ -198,7 +198,6 @@ struct ContentView: View {
                     self.connectionSyncModel.refreshNow()
                     return
                 }
-#endif
 
                 if shouldSeedPairing {
                     if arguments.contains("--ui-test-shell-disconnected") {
@@ -229,7 +228,6 @@ struct ContentView: View {
                 }
                 return
             }
-#if DEBUG
             if arguments.contains("--integration-test") {
                 let mockPort = Int(ProcessInfo.processInfo.environment["MOCK_PORT"] ?? "") ?? 7071
                 self.appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:\(mockPort)")
