@@ -140,7 +140,7 @@ private extension ConveyChatTransport {
 
     func url(path: String) async -> URL? {
         guard let port = await self.currentLocalPort() else { return nil }
-        return ConveyChatURL.url(localPort: port, path: path)
+        return ConveyURL.url(localPort: port, path: path)
     }
 
     func postNoBody(path: String) async -> Bool {
@@ -182,7 +182,7 @@ private extension ConveyChatTransport {
     }
 
     func emitSessionSnapshot(localPort: Int, continuation: AsyncStream<ChatEvent>.Continuation) async {
-        guard let url = ConveyChatURL.url(localPort: localPort, path: "/api/chat/session") else { return }
+        guard let url = ConveyURL.url(localPort: localPort, path: "/api/chat/session") else { return }
         do {
             let (data, response) = try await self.session.data(from: url)
             guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { return }
@@ -195,7 +195,7 @@ private extension ConveyChatTransport {
     }
 
     func streamEvents(localPort: Int, continuation: AsyncStream<ChatEvent>.Continuation) async throws {
-        guard let url = ConveyChatURL.url(localPort: localPort, path: "/sse/events") else { return }
+        guard let url = ConveyURL.url(localPort: localPort, path: "/sse/events") else { return }
         let (bytes, response) = try await self.session.bytes(from: url)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             throw URLError(.badServerResponse)

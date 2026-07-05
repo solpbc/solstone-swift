@@ -16,8 +16,6 @@ struct MoreView: View {
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
-    @Environment(VoiceManager.self) private var voiceManager
-    @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(PushNotificationManager.self) private var pushManager
@@ -394,9 +392,7 @@ struct MoreView: View {
 
     private func copySnapshot() {
         let text = self.diagnosticLog.snapshot(
-            tunnel: self.tunnelManager,
-            voice: self.voiceManager,
-            brain: self.brainStatusMonitor
+            tunnel: self.tunnelManager
         )
         UIPasteboard.general.string = text
         if UserSettings.haptics {

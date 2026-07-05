@@ -10,7 +10,7 @@ nonisolated final class DiagnosticsFiltersTests: XCTestCase {
         let info = DiagnosticEvent(category: .upload, severity: .info, message: "info")
         let warning = DiagnosticEvent(category: .upload, severity: .warning, message: "warning")
         let error = DiagnosticEvent(category: .upload, severity: .error, message: "error")
-        let excludedCategory = DiagnosticEvent(category: .voice, severity: .error, message: "voice")
+        let excludedCategory = DiagnosticEvent(category: .network, severity: .error, message: "network")
 
         XCTAssertFalse(DiagnosticsEventFilter.matches(info, categories: [.upload], problemsOnly: true))
         XCTAssertTrue(DiagnosticsEventFilter.matches(warning, categories: [.upload], problemsOnly: true))

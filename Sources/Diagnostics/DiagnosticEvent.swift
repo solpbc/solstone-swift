@@ -5,10 +5,8 @@ import Foundation
 
 enum DiagnosticCategory: String, CaseIterable, Sendable {
     case tunnel
-    case voice
     case network
     case upload
-    case brain
     case diagnostics
 }
 

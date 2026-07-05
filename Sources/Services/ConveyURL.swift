@@ -3,8 +3,8 @@
 
 import Foundation
 
-/// Builds loopback URLs into the connected journal's convey web UI, opened in
-/// system Safari (never embedded). Mirrors `VoiceServerURL`.
+/// Builds loopback URLs into the connected journal's convey web UI, presented
+/// in-app via `InAppJournalView`.
 nonisolated enum ConveyURL {
     /// Journal root (`/`). Returns nil when there is no live loopback port.
     static func rootURL(activeLocalPort: Int?) -> URL? {

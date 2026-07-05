@@ -21,8 +21,6 @@ struct DiagnosticsView: View {
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
-    @Environment(VoiceManager.self) private var voiceManager
-    @Environment(BrainStatusMonitor.self) private var brainStatusMonitor
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
 
     @State private var enabledCategories: Set<DiagnosticCategory> = Set(DiagnosticCategory.allCases)
@@ -274,9 +272,7 @@ struct DiagnosticsView: View {
 
     private func copySnapshot() {
         let text = self.log.snapshot(
-            tunnel: self.tunnelManager,
-            voice: self.voiceManager,
-            brain: self.brainStatusMonitor
+            tunnel: self.tunnelManager
         )
         UIPasteboard.general.string = text
         if UserSettings.haptics {
@@ -298,9 +294,7 @@ struct DiagnosticsView: View {
 
     private func refreshDiagnosticsExport() {
         self.diagnosticsExportURL = self.log.exportFileURL(
-            tunnel: self.tunnelManager,
-            voice: self.voiceManager,
-            brain: self.brainStatusMonitor
+            tunnel: self.tunnelManager
         )
     }
 
@@ -353,10 +347,8 @@ private struct EventRow: View {
     private var categoryIconName: String {
         switch self.event.category {
         case .tunnel: "antenna.radiowaves.left.and.right"
-        case .voice: "mic"
         case .network: "wifi"
         case .upload: "arrow.up.circle"
-        case .brain: "brain"
         case .diagnostics: "doc.text.magnifyingglass"
         }
     }
@@ -364,10 +356,8 @@ private struct EventRow: View {
     private var normalCategoryColor: Color {
         switch self.event.category {
         case .tunnel: .orange
-        case .voice: .blue
         case .network: .gray
         case .upload: .green
-        case .brain: .purple
         case .diagnostics: .teal
         }
     }

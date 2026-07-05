@@ -12,7 +12,6 @@ TARGETS=(
   Sources/Home
   Sources/Location
   Sources/MoreView.swift
-  Sources/Voice/VoiceButton.swift
 )
 
 status=0

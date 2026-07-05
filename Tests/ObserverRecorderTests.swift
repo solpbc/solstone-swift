@@ -77,7 +77,7 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
     }
 
     @MainActor
-    func testEnsureActiveRecordSessionReusesActiveVoiceSession() throws {
+    func testEnsureActiveRecordSessionReusesActivePlayAndRecordSession() throws {
         let spy = SpyAudioSession(category: .playAndRecord)
 
         let didActivate = try ObserverAudioActivator.ensureActiveRecordSession(spy)

@@ -13,7 +13,6 @@ struct RootShellView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
-    @Environment(VoiceManager.self) private var voiceManager
     @Environment(ObserverManager.self) private var observerManager
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
@@ -59,10 +58,6 @@ struct RootShellView: View {
                 sourcesBadgeVisible: self.sourcesBadgeVisible,
                 foldBadgeVisible: self.foldBadgeVisible
             )
-        }
-        .overlay(alignment: .top) {
-            VoiceHUDOverlay(voiceManager: self.voiceManager)
-                .allowsHitTesting(true)
         }
         .sheet(isPresented: self.$showingChat) {
             ChatView()

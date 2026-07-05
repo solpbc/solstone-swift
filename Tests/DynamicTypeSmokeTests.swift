@@ -13,7 +13,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
 
         let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
         let diagnosticLog = DiagnosticLog()
-        let brainStatusMonitor = BrainStatusMonitor()
         let observerRegistration = ObserverRegistration(
             hostname: "test-device",
             version: "1.0",
@@ -123,10 +122,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             ensureRegistered: { throw ImportQueueError.registrationUnavailable },
             startPathMonitor: false
         )
-        let voiceManager = VoiceManager(
-            webrtc: MockWebRTCConnector(),
-            diagnosticLog: diagnosticLog
-        )
         let chatManager = ChatManager(
             transport: ScriptedChatTransport(),
             isReachable: { true },
@@ -176,8 +171,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(OnboardingFlow())
             .environment(tunnelManager)
             .environment(connectionSyncModel)
-            .environment(voiceManager)
-            .environment(brainStatusMonitor)
             .environment(diagnosticLog)
             .environment(problemReportsManager)
             .environment(PushNotificationManager())

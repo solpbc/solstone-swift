@@ -149,14 +149,11 @@ ui-test: generate
 		-derivedDataPath $(DERIVED)
 
 integration-test: PORT ?= 7071
-integration-test: VOICE_PORT ?= 7072
 integration-test: sim
 	@set -eu; \
 	MOCK_PID=""; \
-	VOICE_MOCK_PID=""; \
 	LAUNCH_PID=""; \
 	MOCK_LOG=$$(mktemp -t solstone-swift-mock.XXXXXX); \
-	VOICE_MOCK_LOG=$$(mktemp -t solstone-swift-voice-mock.XXXXXX); \
 	APP_LOG=$$(mktemp -t solstone-swift-app.XXXXXX); \
 	BOOT_LOG=$$(mktemp -t solstone-swift-boot.XXXXXX); \
 	cleanup() { \
@@ -164,8 +161,7 @@ integration-test: sim
 		if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
 		if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
 		if [ -n "$$MOCK_PID" ] && kill -0 "$$MOCK_PID" 2>/dev/null; then kill "$$MOCK_PID" 2>/dev/null; fi; \
-		if [ -n "$$VOICE_MOCK_PID" ] && kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then kill "$$VOICE_MOCK_PID" 2>/dev/null; fi; \
-		rm -f "$$MOCK_LOG" "$$VOICE_MOCK_LOG" "$$APP_LOG" "$$BOOT_LOG"; \
+		rm -f "$$MOCK_LOG" "$$APP_LOG" "$$BOOT_LOG"; \
 		exit $$status; \
 	}; \
 	trap cleanup EXIT INT TERM; \
@@ -177,8 +173,6 @@ integration-test: sim
 	fi; \
 	python3 test/mock_hub_phone.py --port $(PORT) >"$$MOCK_LOG" 2>&1 & \
 	MOCK_PID=$$!; \
-	python3 test/mock_voice_server.py --port $(VOICE_PORT) >"$$VOICE_MOCK_LOG" 2>&1 & \
-	VOICE_MOCK_PID=$$!; \
 	ready=0; \
 	for _ in 1 2 3 4 5; do \
 		if grep -q "^READY:$(PORT)$$" "$$MOCK_LOG"; then \
@@ -197,49 +191,27 @@ integration-test: sim
 		cat "$$MOCK_LOG"; \
 		exit 1; \
 	fi; \
-	voice_ready=0; \
-	for _ in 1 2 3 4 5; do \
-		if grep -q "^READY:$(VOICE_PORT)$$" "$$VOICE_MOCK_LOG"; then \
-			voice_ready=1; \
+	xcrun simctl install booted $(SIM_APP); \
+	SIMCTL_CHILD_MOCK_PORT=$(PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test >"$$APP_LOG" 2>&1 & \
+	LAUNCH_PID=$$!; \
+	pulse_seen=0; \
+	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		if grep -q '"GET /app/home/api/pulse HTTP/1.1"' "$$MOCK_LOG"; then \
+			pulse_seen=1; \
 			break; \
-		fi; \
-		if ! kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then \
-			echo "mock voice server exited before becoming ready (port $(VOICE_PORT) may be in use):"; \
-			cat "$$VOICE_MOCK_LOG"; \
-			exit 1; \
 		fi; \
 		sleep 1; \
 	done; \
-	if [ "$$voice_ready" -ne 1 ]; then \
-		echo "mock voice server did not become ready"; \
-		cat "$$VOICE_MOCK_LOG"; \
+	if [ "$$pulse_seen" -ne 1 ]; then \
+		echo "integration-test failed: missing home pulse request"; \
+		echo "--- subsystem log tail ---"; \
+		xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
+		echo "--- app log tail ---"; \
+		tail -n 80 "$$APP_LOG"; \
+		echo "--- mock log ---"; \
+		cat "$$MOCK_LOG"; \
 		exit 1; \
 	fi; \
-	xcrun simctl install booted $(SIM_APP); \
-	SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test >"$$APP_LOG" 2>&1 & \
-	LAUNCH_PID=$$!; \
-	for pattern in "voice session starting" "listening" "brain: status ready"; do \
-		matched=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-			if xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "$$pattern"; then \
-				matched=1; \
-				break; \
-			fi; \
-			sleep 1; \
-		done; \
-		if [ "$$matched" -ne 1 ]; then \
-			echo "integration-test failed: missing log pattern $$pattern"; \
-			echo "--- subsystem log tail ---"; \
-				xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
-			echo "--- app log tail ---"; \
-			tail -n 80 "$$APP_LOG"; \
-			echo "--- mock log ---"; \
-			cat "$$MOCK_LOG"; \
-			echo "--- voice mock log ---"; \
-			cat "$$VOICE_MOCK_LOG"; \
-			exit 1; \
-		fi; \
-	done; \
 	echo "--- subsystem log tail ---"; \
 	xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 20; \
 	echo "integration-test passed"; \
@@ -275,7 +247,6 @@ integration-test-live: sim
 		tail -n 40 "$$APP_LOG"
 
 integration-test-push: PORT ?= 7071
-integration-test-push: VOICE_PORT ?= 7072
 integration-test-push: PUSH_PORT ?= 8474
 integration-test-push: PUSH_TAP ?= briefing
 integration-test-push: PUSH_ASSERT ?= routed to today
@@ -283,11 +254,9 @@ integration-test-push: PUSH_TARGET_NAME ?= integration-test-push
 integration-test-push: sim
 	@set -eu; \
 		MOCK_PID=""; \
-		VOICE_MOCK_PID=""; \
 		PUSH_MOCK_PID=""; \
 		LAUNCH_PID=""; \
 		MOCK_LOG=$$(mktemp -t solstone-swift-mock.XXXXXX); \
-		VOICE_MOCK_LOG=$$(mktemp -t solstone-swift-voice-mock.XXXXXX); \
 		PUSH_MOCK_LOG=$$(mktemp -t solstone-swift-push-mock.XXXXXX); \
 		PUSH_COUNT=$$(mktemp -t solstone-swift-push-count.XXXXXX); \
 		APP_LOG=$$(mktemp -t solstone-swift-push-app.XXXXXX); \
@@ -297,9 +266,8 @@ integration-test-push: sim
 			if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
 			if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
 			if [ -n "$$MOCK_PID" ] && kill -0 "$$MOCK_PID" 2>/dev/null; then kill "$$MOCK_PID" 2>/dev/null; fi; \
-			if [ -n "$$VOICE_MOCK_PID" ] && kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then kill "$$VOICE_MOCK_PID" 2>/dev/null; fi; \
 			if [ -n "$$PUSH_MOCK_PID" ] && kill -0 "$$PUSH_MOCK_PID" 2>/dev/null; then kill "$$PUSH_MOCK_PID" 2>/dev/null; fi; \
-			rm -f "$$MOCK_LOG" "$$VOICE_MOCK_LOG" "$$PUSH_MOCK_LOG" "$$PUSH_COUNT" "$$APP_LOG" "$$BOOT_LOG"; \
+			rm -f "$$MOCK_LOG" "$$PUSH_MOCK_LOG" "$$PUSH_COUNT" "$$APP_LOG" "$$BOOT_LOG"; \
 			exit $$status; \
 		}; \
 		trap cleanup EXIT INT TERM; \
@@ -309,7 +277,7 @@ integration-test-push: sim
 				exit 1; \
 			fi; \
 		fi; \
-		for port in $(PORT) $(VOICE_PORT) $(PUSH_PORT); do \
+		for port in $(PORT) $(PUSH_PORT); do \
 			pids=$$(lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null || true); \
 			if [ -n "$$pids" ]; then \
 				kill $$pids 2>/dev/null || true; \
@@ -318,8 +286,6 @@ integration-test-push: sim
 		done; \
 		python3 test/mock_hub_phone.py --port $(PORT) >"$$MOCK_LOG" 2>&1 & \
 		MOCK_PID=$$!; \
-		python3 test/mock_voice_server.py --port $(VOICE_PORT) >"$$VOICE_MOCK_LOG" 2>&1 & \
-		VOICE_MOCK_PID=$$!; \
 		python3 test/mock_push_server.py --port $(PUSH_PORT) --count-file "$$PUSH_COUNT" >"$$PUSH_MOCK_LOG" 2>&1 & \
 		PUSH_MOCK_PID=$$!; \
 		ready=0; \
@@ -329,13 +295,6 @@ integration-test-push: sim
 			sleep 1; \
 		done; \
 		[ "$$ready" -eq 1 ] || { echo "mock hub-phone did not become ready"; cat "$$MOCK_LOG"; exit 1; }; \
-		voice_ready=0; \
-		for _ in 1 2 3 4 5; do \
-			if grep -q "^READY:$(VOICE_PORT)$$" "$$VOICE_MOCK_LOG"; then voice_ready=1; break; fi; \
-			if ! kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then cat "$$VOICE_MOCK_LOG"; exit 1; fi; \
-			sleep 1; \
-		done; \
-		[ "$$voice_ready" -eq 1 ] || { echo "mock voice server did not become ready"; cat "$$VOICE_MOCK_LOG"; exit 1; }; \
 		push_ready=0; \
 		for _ in 1 2 3 4 5; do \
 			if grep -q "^READY:$(PUSH_PORT)$$" "$$PUSH_MOCK_LOG"; then push_ready=1; break; fi; \
@@ -344,7 +303,7 @@ integration-test-push: sim
 		done; \
 		[ "$$push_ready" -eq 1 ] || { echo "mock push server did not become ready"; cat "$$PUSH_MOCK_LOG"; exit 1; }; \
 		xcrun simctl install booted $(SIM_APP); \
-		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-push-register --integration-test-push-tap=$(PUSH_TAP) >"$$APP_LOG" 2>&1 & \
+		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-push-register --integration-test-push-tap=$(PUSH_TAP) >"$$APP_LOG" 2>&1 & \
 		LAUNCH_PID=$$!; \
 		positive=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10; do \
@@ -352,17 +311,6 @@ integration-test-push: sim
 			sleep 1; \
 		done; \
 		[ "$$positive" -eq 1 ] || { echo "$(PUSH_TARGET_NAME) failed: missing $(PUSH_ASSERT) log"; xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; exit 1; }; \
-		sleep 10; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
-			echo "$(PUSH_TARGET_NAME) failed: unexpected voice session start"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
-			exit 1; \
-		fi; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "listening"; then \
-			echo "$(PUSH_TARGET_NAME) failed: unexpected listening log"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
-			exit 1; \
-		fi; \
 		if ! curl -s "http://127.0.0.1:$(PUSH_PORT)/api/push/status" | grep -Eq '"registration_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
 			echo "$(PUSH_TARGET_NAME) failed: mock push server never saw registration"; \
 			cat "$$PUSH_COUNT"; \
@@ -378,24 +326,20 @@ integration-test-push-chat:
 	$(MAKE) integration-test-push PUSH_TAP=chat "PUSH_ASSERT=chat presented" PUSH_TARGET_NAME=integration-test-push-chat
 
 integration-test-observer: PORT ?= 7071
-integration-test-observer: VOICE_PORT ?= 7072
 integration-test-observer: PUSH_PORT ?= 8474
 integration-test-observer: OBSERVER_PORT ?= 8575
 integration-test-observer: sim
 	@set -eu; \
 		MOCK_PID=""; \
-		VOICE_MOCK_PID=""; \
 		PUSH_MOCK_PID=""; \
 		OBSERVER_MOCK_PID=""; \
 		LAUNCH_PID=""; \
 		MOCK_LOG=$$(mktemp -t solstone-swift-mock.XXXXXX); \
-		VOICE_MOCK_LOG=$$(mktemp -t solstone-swift-voice-mock.XXXXXX); \
 		PUSH_MOCK_LOG=$$(mktemp -t solstone-swift-push-mock.XXXXXX); \
 		OBSERVER_MOCK_LOG=$$(mktemp -t solstone-swift-observer-mock.XXXXXX); \
 		PUSH_COUNT=$$(mktemp -t solstone-swift-push-count.XXXXXX); \
 		OBSERVER_COUNT=$$(mktemp -t solstone-swift-observer-count.XXXXXX); \
 		SENSE_APP_LOG=$$(mktemp -t solstone-swift-observer-sense.XXXXXX); \
-		VOICE_APP_LOG=$$(mktemp -t solstone-swift-observer-voice.XXXXXX); \
 		BOOT_LOG=$$(mktemp -t solstone-swift-observer-boot.XXXXXX); \
 		observer_upload_count() { \
 			curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | python3 -c 'import json,sys; data=sys.stdin.read(); print((json.loads(data).get("upload_count", 0) if data else 0))' 2>/dev/null || echo 0; \
@@ -405,10 +349,9 @@ integration-test-observer: sim
 			if xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1; then :; fi; \
 			if [ -n "$$LAUNCH_PID" ] && kill -0 "$$LAUNCH_PID" 2>/dev/null; then kill "$$LAUNCH_PID" 2>/dev/null; fi; \
 			if [ -n "$$MOCK_PID" ] && kill -0 "$$MOCK_PID" 2>/dev/null; then kill "$$MOCK_PID" 2>/dev/null; fi; \
-			if [ -n "$$VOICE_MOCK_PID" ] && kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then kill "$$VOICE_MOCK_PID" 2>/dev/null; fi; \
 			if [ -n "$$PUSH_MOCK_PID" ] && kill -0 "$$PUSH_MOCK_PID" 2>/dev/null; then kill "$$PUSH_MOCK_PID" 2>/dev/null; fi; \
 			if [ -n "$$OBSERVER_MOCK_PID" ] && kill -0 "$$OBSERVER_MOCK_PID" 2>/dev/null; then kill "$$OBSERVER_MOCK_PID" 2>/dev/null; fi; \
-			rm -f "$$MOCK_LOG" "$$VOICE_MOCK_LOG" "$$PUSH_MOCK_LOG" "$$OBSERVER_MOCK_LOG" "$$PUSH_COUNT" "$$OBSERVER_COUNT" "$$SENSE_APP_LOG" "$$VOICE_APP_LOG" "$$BOOT_LOG"; \
+			rm -f "$$MOCK_LOG" "$$PUSH_MOCK_LOG" "$$OBSERVER_MOCK_LOG" "$$PUSH_COUNT" "$$OBSERVER_COUNT" "$$SENSE_APP_LOG" "$$BOOT_LOG"; \
 			exit $$status; \
 		}; \
 		trap cleanup EXIT INT TERM; \
@@ -418,7 +361,7 @@ integration-test-observer: sim
 				exit 1; \
 			fi; \
 		fi; \
-		for port in $(PORT) $(VOICE_PORT) $(PUSH_PORT) $(OBSERVER_PORT); do \
+		for port in $(PORT) $(PUSH_PORT) $(OBSERVER_PORT); do \
 			pids=$$(lsof -tiTCP:$$port -sTCP:LISTEN 2>/dev/null || true); \
 			if [ -n "$$pids" ]; then \
 				kill $$pids 2>/dev/null || true; \
@@ -427,8 +370,6 @@ integration-test-observer: sim
 		done; \
 		python3 test/mock_hub_phone.py --port $(PORT) >"$$MOCK_LOG" 2>&1 & \
 		MOCK_PID=$$!; \
-		python3 test/mock_voice_server.py --port $(VOICE_PORT) --enable-observer-actions >"$$VOICE_MOCK_LOG" 2>&1 & \
-		VOICE_MOCK_PID=$$!; \
 		python3 test/mock_push_server.py --port $(PUSH_PORT) --count-file "$$PUSH_COUNT" >"$$PUSH_MOCK_LOG" 2>&1 & \
 		PUSH_MOCK_PID=$$!; \
 		python3 test/mock_observer_server.py --port $(OBSERVER_PORT) --count-file "$$OBSERVER_COUNT" >"$$OBSERVER_MOCK_LOG" 2>&1 & \
@@ -440,13 +381,6 @@ integration-test-observer: sim
 			sleep 1; \
 		done; \
 		[ "$$ready" -eq 1 ] || { echo "mock hub-phone did not become ready"; cat "$$MOCK_LOG"; exit 1; }; \
-		voice_ready=0; \
-		for _ in 1 2 3 4 5; do \
-			if grep -q "^READY:$(VOICE_PORT)$$" "$$VOICE_MOCK_LOG"; then voice_ready=1; break; fi; \
-			if ! kill -0 "$$VOICE_MOCK_PID" 2>/dev/null; then cat "$$VOICE_MOCK_LOG"; exit 1; fi; \
-			sleep 1; \
-		done; \
-		[ "$$voice_ready" -eq 1 ] || { echo "mock voice server did not become ready"; cat "$$VOICE_MOCK_LOG"; exit 1; }; \
 		push_ready=0; \
 		for _ in 1 2 3 4 5; do \
 			if grep -q "^READY:$(PUSH_PORT)$$" "$$PUSH_MOCK_LOG"; then push_ready=1; break; fi; \
@@ -462,7 +396,7 @@ integration-test-observer: sim
 		done; \
 		[ "$$observer_ready" -eq 1 ] || { echo "mock observer server did not become ready"; cat "$$OBSERVER_MOCK_LOG"; exit 1; }; \
 		xcrun simctl install booted $(SIM_APP); \
-		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-reset-registration --integration-test-observer-tap=sense >"$$SENSE_APP_LOG" 2>&1 & \
+		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-reset-registration --integration-test-observer-tap=sense >"$$SENSE_APP_LOG" 2>&1 & \
 		LAUNCH_PID=$$!; \
 		sense_started=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10; do \
@@ -478,17 +412,6 @@ integration-test-observer: sim
 			sleep 1; \
 		done; \
 		[ "$$sense_uploaded" -eq 1 ] || { echo "integration-test-observer failed: sense path never uploaded mobile segment"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; tail -n 80 "$$SENSE_APP_LOG"; exit 1; }; \
-		sleep 10; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
-			echo "integration-test-observer failed: sense path unexpectedly started voice"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
-			exit 1; \
-		fi; \
-		if xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "listening"; then \
-			echo "integration-test-observer failed: sense path unexpectedly emitted listening"; \
-			xcrun simctl spawn booted log show --info --last 20s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
-			exit 1; \
-		fi; \
 		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"upload_count"[[:space:]]*:[[:space:]]*[1-9]'; then \
 			echo "integration-test-observer failed: sense path upload missing"; \
 			cat "$$OBSERVER_COUNT"; \
@@ -501,34 +424,6 @@ integration-test-observer: sim
 			cat "$$OBSERVER_MOCK_LOG"; \
 			exit 1; \
 		fi; \
-		xcrun simctl terminate booted $(BUNDLE_ID) >/dev/null 2>&1 || true; \
-		LAUNCH_PID=""; \
-		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_VOICE_PORT=$(VOICE_PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-tap=voice >"$$VOICE_APP_LOG" 2>&1 & \
-		LAUNCH_PID=$$!; \
-		voice_action=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "voice"' 2>/dev/null | grep -q "voice-observer-action received"; then voice_action=1; break; fi; \
-			sleep 1; \
-		done; \
-		[ "$$voice_action" -eq 1 ] || { echo "integration-test-observer failed: voice path never received observer action"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
-		voice_observer_started=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "observer"' 2>/dev/null | grep -q "observer: session starting"; then voice_observer_started=1; break; fi; \
-			sleep 1; \
-		done; \
-		[ "$$voice_observer_started" -eq 1 ] || { echo "integration-test-observer failed: voice path never started observer"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 100; tail -n 80 "$$VOICE_APP_LOG"; exit 1; }; \
-		voice_log_snapshot=$$(mktemp -t solstone-swift-observer-voice-log.XXXXXX); \
-		xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null >"$$voice_log_snapshot"; \
-		action_line=$$(grep -n "voice-observer-action received" "$$voice_log_snapshot" | tail -n 1 | cut -d: -f1); \
-		start_line=$$(grep -n "observer: session starting" "$$voice_log_snapshot" | tail -n 1 | cut -d: -f1); \
-		[ -n "$$action_line" ] && [ -n "$$start_line" ] && [ "$$start_line" -gt "$$action_line" ] || { echo "integration-test-observer failed: observer start did not follow voice action"; cat "$$voice_log_snapshot"; rm -f "$$voice_log_snapshot"; exit 1; }; \
-		rm -f "$$voice_log_snapshot"; \
-		voice_reused=0; \
-		for _ in 1 2 3 4 5 6 7 8 9 10; do \
-			if xcrun simctl spawn booted log show --info --last 8s --predicate 'subsystem == "$(LOG_SUB)" AND category == "observer"' 2>/dev/null | grep -q "observer: reused active voice session"; then voice_reused=1; break; fi; \
-			sleep 1; \
-		done; \
-		[ "$$voice_reused" -eq 1 ] || { echo "integration-test-observer failed: voice path did not reuse active voice session"; xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 100; exit 1; }; \
 		sleep 5; \
 		registration_count=$$(xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null | grep -c "observer registration succeeded" || true); \
 		[ "$$registration_count" -eq 1 ] || { echo "integration-test-observer failed: registration logged $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null; exit 1; }; \
@@ -538,16 +433,10 @@ integration-test-observer: sim
 			cat "$$OBSERVER_MOCK_LOG"; \
 			exit 1; \
 		fi; \
-		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"upload_count"[[:space:]]*:[[:space:]]*[2-9]'; then \
-			echo "integration-test-observer failed: expected both observer uploads"; \
-			cat "$$OBSERVER_COUNT"; \
-			cat "$$OBSERVER_MOCK_LOG"; \
-			exit 1; \
-		fi; \
 		echo "--- subsystem log tail ---"; \
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
-			echo "integration-test-observer passed"; \
-			tail -n 20 "$$VOICE_APP_LOG"
+		echo "integration-test-observer passed"; \
+		tail -n 20 "$$SENSE_APP_LOG"
 
 integration-test-onboarding: PAIRING_PORT ?= 8676
 integration-test-onboarding: sim
@@ -598,11 +487,6 @@ integration-test-onboarding: sim
 		echo "$$PAIRING_STATUS" | grep -Eq '"confirm_count"[[:space:]]*:[[:space:]]*0' || { echo "integration-test-onboarding failed: onboarding unexpectedly confirmed pairing"; echo "$$PAIRING_STATUS"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
 		echo "$$PAIRING_STATUS" | grep -Eq '"push_register_count"[[:space:]]*:[[:space:]]*0' || { echo "integration-test-onboarding failed: onboarding unexpectedly registered for push"; echo "$$PAIRING_STATUS"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
 		echo "$$PAIRING_STATUS" | grep -Eq '"briefing_updates"[[:space:]]*:[[:space:]]*\[\]' || { echo "integration-test-onboarding failed: onboarding unexpectedly updated briefing time"; echo "$$PAIRING_STATUS"; cat "$$PAIRING_MOCK_LOG"; exit 1; }; \
-		if xcrun simctl spawn booted log show --info --start "$$ONBOARDING_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | grep -q "voice session starting"; then \
-			echo "integration-test-onboarding failed: unexpected voice session start during onboarding"; \
-			xcrun simctl spawn booted log show --info --start "$$ONBOARDING_START" --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 120; \
-			exit 1; \
-		fi; \
 		echo "--- subsystem log tail ---"; \
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 		echo "integration-test-onboarding passed"; \

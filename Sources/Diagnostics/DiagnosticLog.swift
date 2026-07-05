@@ -51,11 +51,7 @@ final class DiagnosticLog {
         return self.events.filter { categories.contains($0.category) }
     }
 
-    func snapshot(
-        tunnel: TunnelManager,
-        voice: VoiceManager,
-        brain: BrainStatusMonitor
-    ) -> String {
+    func snapshot(tunnel: TunnelManager) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
 
@@ -88,8 +84,6 @@ final class DiagnosticLog {
         let iosVersion = UIDevice.current.systemVersion
         lines.append("app: \(version) (\(build)) / iOS \(iosVersion)")
 
-        lines.append("voice: \(voice.state)")
-        lines.append("brain: \(brain.status)")
         lines.append("---")
 
         if self.events.isEmpty {
@@ -132,15 +126,11 @@ final class DiagnosticLog {
         return output
     }
 
-    func exportFileURL(
-        tunnel: TunnelManager,
-        voice: VoiceManager,
-        brain: BrainStatusMonitor
-    ) -> URL? {
+    func exportFileURL(tunnel: TunnelManager) -> URL? {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(Self.exportFileName, isDirectory: false)
         do {
-            let report = self.snapshot(tunnel: tunnel, voice: voice, brain: brain)
+            let report = self.snapshot(tunnel: tunnel)
             try Data(report.utf8).write(to: url, options: [.atomic])
             return url
         } catch {

@@ -71,7 +71,6 @@ WatchHomeView.swift|SolRingAlert
 *|OnboardingRootView
 *|ContentView
 *|WiFi
-WebRTCManager.swift|Location
 ObserverMode.swift|Meeting
 ObserverMode.swift|Voice memo
 SourceVocabulary.swift|Meeting keeps going

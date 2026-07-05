@@ -63,9 +63,7 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "Sources/MobileSegment/MobileSegmentUploader.swift",
             "Sources/MobileSegment/MobileSegmentEngine.swift",
             "ObserverUploader.swift",
-            "Sources/Voice",
             "Sources/Tunnel",
-            "WebRTC",
             "swift-nio",
             "SwiftUI",
             "Observation",
@@ -88,7 +86,7 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "CFBundleVersion: $(CURRENT_PROJECT_VERSION)",
             "DEVELOPMENT_TEAM: 7QCG8V4M6H",
             #"MARKETING_VERSION: "0.1.0""#,
-            "CURRENT_PROJECT_VERSION: 48",
+            "CURRENT_PROJECT_VERSION: 49",
             "SWIFT_STRICT_CONCURRENCY: complete",
             #"SWIFT_VERSION: "6.0""#,
         ] {

@@ -65,7 +65,6 @@ make clean         # remove build artifacts
 
 - `apple/swift-crypto` — used by the pairing/mTLS crypto in `Sources/SPLTunnel/Crypto/`.
 - `alta/swift-opus` (product `Opus`) — Opus decode for the BLE pendant audio; used in `Sources/Omi/` and `Sources/BLEDiagnostic/BLEOpusAudioDecoder.swift`.
-- `stasel/WebRTC` — not load-bearing; scheduled for removal.
 
 ## Swift 6 concurrency
 

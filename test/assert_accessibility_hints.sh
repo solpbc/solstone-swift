@@ -26,7 +26,6 @@ required_hints=(
   'Sources/Location/LocationSourceDetailView.swift:Chooses the complete picture for location.'
   'Sources/MoreView.swift:Turns interface haptics on or off'
   'Sources/MoreView.swift:Clears this device pairing and returns to onboarding'
-  'Sources/Voice/VoiceButton.swift:starts a voice session'
 )
 
 for entry in "${required_hints[@]}"; do

@@ -39,16 +39,16 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
     @MainActor
     func testFilterByCategory() {
         self.log.append(category: .tunnel, message: "tunnel event")
-        self.log.append(category: .voice, message: "voice event")
-        self.log.append(category: .brain, message: "brain event")
+        self.log.append(category: .network, message: "network event")
+        self.log.append(category: .upload, message: "upload event")
         self.log.append(category: .tunnel, message: "tunnel event 2")
 
         let tunnelOnly = self.log.filtered(by: [.tunnel])
         XCTAssertEqual(tunnelOnly.count, 2)
         XCTAssertTrue(tunnelOnly.allSatisfy { $0.category == .tunnel })
 
-        let voiceAndBrain = self.log.filtered(by: [.voice, .brain])
-        XCTAssertEqual(voiceAndBrain.count, 2)
+        let networkAndUpload = self.log.filtered(by: [.network, .upload])
+        XCTAssertEqual(networkAndUpload.count, 2)
 
         let all = self.log.filtered(by: Set(DiagnosticCategory.allCases))
         XCTAssertEqual(all.count, 4)
@@ -65,13 +65,13 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
     @MainActor
     func testEventProperties() {
         self.log.append(
-            category: .voice,
+            category: .upload,
             severity: .error,
             message: "failed",
             detail: "timeout after 5s"
         )
         let event = self.log.events[0]
-        XCTAssertEqual(event.category, .voice)
+        XCTAssertEqual(event.category, .upload)
         XCTAssertEqual(event.severity, .error)
         XCTAssertEqual(event.message, "failed")
         XCTAssertEqual(event.detail, "timeout after 5s")
@@ -88,11 +88,7 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
             detail: "secret=hunter2 around diagnostic text"
         )
 
-        let snapshot = self.log.snapshot(
-            tunnel: TunnelManager(),
-            voice: VoiceManager(),
-            brain: BrainStatusMonitor()
-        )
+        let snapshot = self.log.snapshot(tunnel: TunnelManager())
 
         XCTAssertFalse(snapshot.contains("abc123TOKEN"))
         XCTAssertFalse(snapshot.contains("hunter2"))
@@ -110,11 +106,7 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
             .other: 1,
         ]
 
-        let snapshot = self.log.snapshot(
-            tunnel: manager,
-            voice: VoiceManager(),
-            brain: BrainStatusMonitor()
-        )
+        let snapshot = self.log.snapshot(tunnel: manager)
 
         XCTAssertTrue(snapshot.contains("tunnel reconnects: 3 ("))
         XCTAssertTrue(snapshot.contains("transport closed 2"))
@@ -130,11 +122,7 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
             "<unspecified>": 1,
         ]
 
-        let snapshot = self.log.snapshot(
-            tunnel: manager,
-            voice: VoiceManager(),
-            brain: BrainStatusMonitor()
-        )
+        let snapshot = self.log.snapshot(tunnel: manager)
         let line = "tunnel inbound-closed faults: <unspecified> 1, streamReset(streamID: 3) 2"
 
         XCTAssertTrue(snapshot.contains(line))
@@ -150,11 +138,7 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
             detail: "Authorization: Bearer abc123TOKEN secret=hunter2"
         )
 
-        let exportURL = try XCTUnwrap(self.log.exportFileURL(
-            tunnel: TunnelManager(),
-            voice: VoiceManager(),
-            brain: BrainStatusMonitor()
-        ))
+        let exportURL = try XCTUnwrap(self.log.exportFileURL(tunnel: TunnelManager()))
         let report = try String(contentsOf: exportURL, encoding: .utf8)
 
         XCTAssertFalse(report.contains("abc123TOKEN"))
