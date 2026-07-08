@@ -86,7 +86,7 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "CFBundleVersion: $(CURRENT_PROJECT_VERSION)",
             "DEVELOPMENT_TEAM: 7QCG8V4M6H",
             #"MARKETING_VERSION: "0.1.0""#,
-            "CURRENT_PROJECT_VERSION: 50",
+            "CURRENT_PROJECT_VERSION: 51",
             "SWIFT_STRICT_CONCURRENCY: complete",
             #"SWIFT_VERSION: "6.0""#,
         ] {
