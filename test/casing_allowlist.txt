@@ -107,3 +107,8 @@ WatchCaptureStorage.swift|"WatchCapture"
 WatchComplicationSnapshot.swift|SolstoneWatchStatus
 WatchCaptureStorage.swift|"HHmmss"
 ShareImportCoordinator.swift|SolstoneShareImport
+
+# TransferKit internal transport/build identifiers
+TransferSpool.swift|"Transfers"
+TransferTransport.swift|Boundary-
+ObserverIngestMultipartBody.swift|Content-Disposition

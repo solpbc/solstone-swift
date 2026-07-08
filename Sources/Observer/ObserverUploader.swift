@@ -2399,62 +2399,26 @@ private extension ObserverUploader {
 
         let interval = DrainSignpost.begin(.multipartBodyBuild, source: source)
         do {
-            var body = Data()
-            body.append(self.multipartField(named: "segment", value: metadata.segment, boundary: boundary))
-            body.append(self.multipartField(named: "day", value: metadata.day, boundary: boundary))
-            body.append(self.multipartField(named: "platform", value: self.platform, boundary: boundary))
-
-            var metaObject: [String: Any] = [
-                "segment": metadata.segment,
-                "day": metadata.day,
-                "started_at": ISO8601DateFormatter().string(from: metadata.startedAt),
-                "duration_s": metadata.durationS,
-                "sources": metadata.sources,
-            ]
-            if let chunkIndex = metadata.chunkIndex {
-                metaObject["chunk_index"] = chunkIndex
-            }
-            if let sessionID = metadata.sessionID {
-                metaObject["session_id"] = sessionID.uuidString
-            }
-            if let mode = metadata.mode {
-                metaObject["mode"] = mode.rawValue
-            }
-            if let segmentID = metadata.segmentID {
-                metaObject["segment_id"] = segmentID.uuidString
-            }
-            let meta = try JSONSerialization.data(withJSONObject: metaObject, options: [.sortedKeys])
-            body.append(self.multipartField(
-                named: "meta",
-                value: String(decoding: meta, as: UTF8.self),
-                boundary: boundary
+            let audioData = try audioURL.map { try Data(contentsOf: $0) }
+            let screenData = try screenURL.map { try Data(contentsOf: $0) }
+            let body = try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
+                boundary: boundary,
+                platform: self.platform,
+                segment: metadata.segment,
+                day: metadata.day,
+                startedAt: metadata.startedAt,
+                durationS: metadata.durationS,
+                sources: metadata.sources,
+                chunkIndex: metadata.chunkIndex,
+                sessionID: metadata.sessionID,
+                modeRawValue: metadata.mode?.rawValue,
+                segmentID: metadata.segmentID,
+                artifacts: ObserverIngestMultipartArtifacts(
+                    audioData: audioData,
+                    locationJSONL: locationJSONL,
+                    screenData: screenData
+                )
             ))
-
-            if let audioURL {
-                let audioData = try Data(contentsOf: audioURL)
-                body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                // audio.m4a filename is a hard server-side invariant — pipeline globs audio.* downstream (observe/transcribe, think/cluster, transcripts, retention)
-                body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
-                body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
-                body.append(audioData)
-                body.append("\r\n".data(using: .utf8)!)
-            }
-            if let locationJSONL {
-                body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
-                body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
-                body.append(locationJSONL)
-                body.append("\r\n".data(using: .utf8)!)
-            }
-            if let screenURL {
-                let screenData = try Data(contentsOf: screenURL)
-                body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"screen.mp4\"\r\n".data(using: .utf8)!)
-                body.append("Content-Type: video/mp4\r\n\r\n".data(using: .utf8)!)
-                body.append(screenData)
-                body.append("\r\n".data(using: .utf8)!)
-            }
-            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
             let byteCount = body.count
             try body.write(to: requestBodyURL, options: .atomic)
             DrainSignpost.end(
@@ -2471,10 +2435,6 @@ private extension ObserverUploader {
             )
             throw error
         }
-    }
-
-    func multipartField(named name: String, value: String, boundary: String) -> Data {
-        Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8)
     }
 
     func boundary(for chunkID: String) -> String {
