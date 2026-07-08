@@ -245,6 +245,17 @@ private extension ObserverRegistration {
         if self.registrationPrefix == nil {
             self.registrationPrefix = try? self.loadPrefix()
         }
+        // Backfill: a device with a cached ingest key but no persisted prefix
+        // (registered before prefixes were tracked) derives the prefix locally the
+        // same way the server does (key[:8]) and persists it, so diagnostics and the
+        // health beacon stop rendering prefix=unknown. Gated on a key being present,
+        // so it never interferes with the fresh-mint path that clears the prefix first.
+        if self.registrationPrefix?.isEmpty != false,
+           let key = try? self.loadKey(), !key.isEmpty {
+            let derived = String(key.prefix(8))
+            self.registrationPrefix = derived
+            try? self.savePrefix(derived)
+        }
     }
 }
 

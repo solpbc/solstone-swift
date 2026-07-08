@@ -498,7 +498,10 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual(requeueEvents.count, 4)
         for expected in 1..<5 {
             let event = try XCTUnwrap(requeueEvents.first { ($0.detail ?? "").contains("requeueAttempt=\(expected)") })
-            XCTAssertFalse((event.detail ?? "").contains("attempt=\(expected)/5"))
+            let detail = event.detail ?? ""
+            XCTAssertTrue(detail.contains("segmentID=\(segmentID.uuidString)"))
+            XCTAssertFalse(detail.contains("chunkID="))
+            XCTAssertFalse(detail.contains("attempt=\(expected)/5"))
         }
         let capEvent = try XCTUnwrap(reconnectEvents.first { $0.severity == .error })
         XCTAssertTrue((capEvent.detail ?? "").contains("attempt=1/5"))

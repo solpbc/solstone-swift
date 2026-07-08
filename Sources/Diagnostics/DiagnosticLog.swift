@@ -14,16 +14,33 @@ final class DiagnosticLog {
 
     private(set) var events: [DiagnosticEvent] = []
     private let capacity: Int
+    private let protectedFloor: Int
 
-    init(capacity: Int = 200) {
+    init(capacity: Int = 200, protectedFloor: Int = 40) {
         self.capacity = capacity
+        self.protectedFloor = protectedFloor
     }
 
     func append(_ event: DiagnosticEvent) {
         self.events.append(event)
-        if self.events.count > self.capacity {
-            self.events.removeFirst(self.events.count - self.capacity)
+        while self.events.count > self.capacity {
+            let protectedCount = self.events.reduce(into: 0) {
+                if self.isProtected($1.category) {
+                    $0 += 1
+                }
+            }
+            if protectedCount > self.protectedFloor {
+                self.events.removeFirst()
+            } else if let idx = self.events.firstIndex(where: { !self.isProtected($0.category) }) {
+                self.events.remove(at: idx)
+            } else {
+                self.events.removeFirst()
+            }
         }
+    }
+
+    private func isProtected(_ c: DiagnosticCategory) -> Bool {
+        c == .tunnel || c == .network
     }
 
     func append(

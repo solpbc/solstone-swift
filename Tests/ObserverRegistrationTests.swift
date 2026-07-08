@@ -101,10 +101,37 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         let key = try await registration.ensureRegistered()
 
         XCTAssertEqual(key, "existing-key")
-        XCTAssertNil(registration.registrationPrefix)
+        XCTAssertEqual(registration.registrationPrefix, "existing")
+        XCTAssertEqual(self.storedPrefixBox.withLock { $0 }, "existing")
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 0)
         let state = await MainActor.run { registration.state }
         XCTAssertEqual(state, .registered)
+    }
+
+    @MainActor
+    func testMissingPersistedPrefixBackfillsFromCachedKeyAndPersists() async throws {
+        let key = "ABCDEFGH1234567890"
+        let keyBox = OSAllocatedUnfairLock<String?>(initialState: key)
+        let prefixBox = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+        let registration = self.makeRegistration(
+            keyBox: keyBox,
+            prefixBox: prefixBox
+        )
+
+        XCTAssertEqual(registration.registrationPrefix, "ABCDEFGH")
+        XCTAssertEqual(prefixBox.withLock { $0 }, "ABCDEFGH")
+        let restoredKey = try await registration.ensureRegistered()
+        XCTAssertEqual(restoredKey, key)
+        XCTAssertEqual(registration.registrationPrefix, "ABCDEFGH")
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 0)
+
+        let restored = self.makeRegistration(
+            keyBox: keyBox,
+            prefixBox: prefixBox
+        )
+
+        XCTAssertEqual(restored.registrationPrefix, "ABCDEFGH")
     }
 
     @MainActor

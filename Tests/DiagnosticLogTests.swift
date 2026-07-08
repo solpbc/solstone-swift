@@ -37,6 +37,25 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
     }
 
     @MainActor
+    func testProtectedTunnelEventsSurviveUploadBurst() {
+        for i in 0..<5 {
+            self.log.append(category: .tunnel, message: "tunnel event \(i)")
+        }
+        for i in 0..<250 {
+            self.log.append(category: .upload, message: "upload event \(i)")
+        }
+
+        XCTAssertLessThanOrEqual(self.log.events.count, 200)
+        let tunnelEvents = self.log.filtered(by: [.tunnel])
+        XCTAssertEqual(tunnelEvents.map(\.message), (0..<5).map { "tunnel event \($0)" })
+
+        let snapshot = self.log.snapshot(tunnel: TunnelManager())
+        for i in 0..<5 {
+            XCTAssertTrue(snapshot.contains("tunnel event \(i)"))
+        }
+    }
+
+    @MainActor
     func testFilterByCategory() {
         self.log.append(category: .tunnel, message: "tunnel event")
         self.log.append(category: .network, message: "network event")

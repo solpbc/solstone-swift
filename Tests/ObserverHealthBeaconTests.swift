@@ -123,8 +123,6 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
             SkipCase(label: "unpaired", paired: false, port: 7071, key: "test-observer-key-abc", prefix: source.prefix),
             SkipCase(label: "no port", paired: true, port: nil, key: "test-observer-key-abc", prefix: source.prefix),
             SkipCase(label: "idle", paired: true, port: 7071, key: nil, prefix: source.prefix),
-            SkipCase(label: "nil prefix", paired: true, port: 7071, key: "test-observer-key-abc", prefix: nil),
-            SkipCase(label: "empty prefix", paired: true, port: 7071, key: "test-observer-key-abc", prefix: ""),
         ]
 
         for item in cases {
@@ -155,6 +153,39 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
             XCTAssertEqual(ObserverHealthBeaconURLProtocol.callCount, 0, item.label)
             XCTAssertEqual(ObserverHealthRegistrationURLProtocol.callCount, 0, item.label)
         }
+    }
+
+    @MainActor
+    func testMissingPersistedPrefixBackfillsAndEmitsHealth() async throws {
+        ObserverHealthBeaconURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("{}".utf8)
+            )
+        }
+        let source = SourceKind.all[0]
+        let key = "ABCDEFGH1234567890"
+        let clock = MockObserverClock()
+        let registration = self.makeRegistration(source: source, key: key, prefix: nil, localPort: 7071)
+        let uploader = self.makeUploader(sourceType: source.sourceType)
+        let beacon = ObserverHealthBeacon(
+            registration: registration,
+            uploader: uploader,
+            isJournalConfigured: { true },
+            session: self.makeHealthSession(),
+            clock: clock,
+            interval: .seconds(300)
+        )
+
+        beacon.start()
+        try await self.waitFor("health with backfilled prefix") {
+            ObserverHealthBeaconURLProtocol.callCount == 1
+        }
+        beacon.stop()
+
+        XCTAssertEqual(registration.registrationPrefix, "ABCDEFGH")
+        let body = try self.firstPayload()
+        XCTAssertEqual(body["name"] as? String, "ABCDEFGH")
     }
 
     @MainActor

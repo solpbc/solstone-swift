@@ -1858,6 +1858,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue((success.detail ?? "").contains("localPort=7071"))
         XCTAssertTrue((success.detail ?? "").contains("httpStatus=200"))
         XCTAssertTrue((success.detail ?? "").contains("attempt=1/5"))
+        XCTAssertTrue((success.detail ?? "").contains("chunkID=chunk-success"))
+        XCTAssertTrue((success.detail ?? "").contains("prefix=obs_"))
+        XCTAssertFalse((success.detail ?? "").contains("prefix=unknown"))
 
         for event in self.uploadEvents(in: noPortLog) + self.uploadEvents(in: successLog) {
             XCTAssertFalse(event.message.contains("test-observer-key-abc"))
@@ -1894,6 +1897,10 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(events.contains { $0.message == "observer-audio upload retry-scheduled" && $0.severity == .info })
         XCTAssertTrue(events.contains { $0.message == "observer-audio upload retry-exhausted" && $0.severity == .error })
         XCTAssertTrue(events.contains { ($0.detail ?? "").contains("transportError=") })
+        let retryScheduled = try XCTUnwrap(events.first { $0.message == "observer-audio upload retry-scheduled" })
+        XCTAssertTrue((retryScheduled.detail ?? "").contains("chunkID=chunk-transport"))
+        XCTAssertTrue((retryScheduled.detail ?? "").contains("prefix=obs_"))
+        XCTAssertFalse((retryScheduled.detail ?? "").contains("prefix=unknown"))
         for event in events {
             XCTAssertFalse(event.message.contains("test-observer-key-abc"))
             XCTAssertFalse((event.detail ?? "").contains("test-observer-key-abc"))
