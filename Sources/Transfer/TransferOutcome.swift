@@ -48,6 +48,7 @@ nonisolated enum TransferAttentionReason: Equatable, Sendable {
     case httpClientError(statusCode: Int, detail: String?)
     case decodeFailed(String)
     case missingPayload(String)
+    case malformedManifest(String)
 }
 
 nonisolated enum TransferTransientReason: Equatable, Sendable {

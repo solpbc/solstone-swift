@@ -72,11 +72,16 @@ nonisolated struct TransferManifest: Codable, Equatable, Sendable {
     }
 
     func validated(for state: TransferDiskState) throws -> TransferManifest {
+        let manifest = try self.validatedForScan()
+        guard manifest.diskState == state else {
+            throw TransferManifestError.stateMismatch(expected: state, actual: manifest.diskState)
+        }
+        return manifest
+    }
+
+    func validatedForScan() throws -> TransferManifest {
         guard self.schemaVersion == TransferManifestSchema.current else {
             throw TransferManifestError.unsupportedSchema(self.schemaVersion)
-        }
-        guard self.diskState == state else {
-            throw TransferManifestError.stateMismatch(expected: state, actual: self.diskState)
         }
         guard !self.payloadParts.isEmpty else {
             throw TransferManifestError.emptyPayload

@@ -61,6 +61,18 @@ nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unche
 nonisolated struct TransferSpoolSnapshot: Equatable, Sendable {
     var queued: [TransferStoredItem]
     var attention: [TransferStoredItem]
+    var recoveryMoves: [TransferRecoveryMove]
+}
+
+nonisolated struct TransferRecoveryMove: Equatable, Sendable {
+    var item: TransferStoredItem
+    var previousState: TransferDiskState
+    var reason: String
+    var detail: String
+}
+
+nonisolated enum TransferSpoolError: Error, Equatable, Sendable {
+    case destinationAlreadyExists(String)
 }
 
 nonisolated struct TransferStoredItem: Equatable, Sendable {
@@ -122,6 +134,7 @@ nonisolated struct TransferSpool: Sendable {
 
         var attention = try self.scan(state: .attention)
         var queued: [TransferStoredItem] = []
+        var recoveryMoves: [TransferRecoveryMove] = []
         for item in try self.scan(state: .queued) {
             if let missing = self.firstMissingRequiredPayload(in: item) {
                 let moved = try self.moveQueuedItemToAttention(
@@ -131,11 +144,17 @@ nonisolated struct TransferSpool: Sendable {
                     now: now
                 )
                 attention.append(moved)
+                recoveryMoves.append(TransferRecoveryMove(
+                    item: moved,
+                    previousState: .queued,
+                    reason: "missing_payload",
+                    detail: missing
+                ))
             } else {
                 queued.append(item)
             }
         }
-        return TransferSpoolSnapshot(queued: queued, attention: attention)
+        return TransferSpoolSnapshot(queued: queued, attention: attention, recoveryMoves: recoveryMoves)
     }
 
     func stage(manifest: TransferManifest, payloads: [String: Data]) throws -> TransferStoredItem {
@@ -160,7 +179,7 @@ nonisolated struct TransferSpool: Sendable {
         let sourceURL = self.stagingDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
         let destinationURL = self.queuedDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
         if self.fileSystem.fileExists(atPath: destinationURL.path) {
-            try self.fileSystem.removeItem(at: destinationURL)
+            throw TransferSpoolError.destinationAlreadyExists(destinationURL.path)
         }
         try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
         var manifest = try self.readManifest(in: destinationURL).replacingDiskState(.queued)
@@ -283,7 +302,14 @@ nonisolated struct TransferSpool: Sendable {
         guard self.fileSystem.fileExists(atPath: directory.path) else { return [] }
         var items: [TransferStoredItem] = []
         for url in try self.fileSystem.contentsOfDirectory(at: directory) {
-            guard let manifest = try? self.readManifest(in: url).validated(for: state) else { continue }
+            guard var manifest = try? self.readManifest(in: url).validatedForScan() else { continue }
+            if manifest.diskState != state {
+                manifest = manifest.replacingDiskState(state)
+                if state == .queued {
+                    manifest.attention = nil
+                }
+                try self.writeManifestAtomically(manifest, in: url)
+            }
             items.append(TransferStoredItem(manifest: manifest, directoryURL: url))
         }
         return items.sorted {

@@ -68,28 +68,4 @@ nonisolated enum JSONValue: Codable, Equatable, Sendable {
             try container.encode(object)
         }
     }
-
-    func foundationObject() throws -> Any {
-        switch self {
-        case .null:
-            return NSNull()
-        case .bool(let value):
-            return value
-        case .string(let value):
-            return value
-        case .int(let value):
-            return value
-        case .double(let value):
-            guard value.isFinite else { throw ValueError.nonFiniteDouble }
-            return value
-        case .array(let values):
-            return try values.map { try $0.foundationObject() }
-        case .object(let object):
-            var bridged: [String: Any] = [:]
-            for (key, value) in object {
-                bridged[key] = try value.foundationObject()
-            }
-            return bridged
-        }
-    }
 }

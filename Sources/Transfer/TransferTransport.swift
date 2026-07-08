@@ -59,7 +59,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
                     forHTTPHeaderField: "Content-Type"
                 )
             case .save:
-                request.setValue("multipart/form-data", forHTTPHeaderField: "Content-Type")
+                break
             case .start:
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }

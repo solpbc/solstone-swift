@@ -12,6 +12,8 @@ typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) th
 nonisolated enum TransferBodyBuildError: Error, Equatable, Sendable {
     case missingObserverMetadata
     case missingPayload(String)
+    case malformedManifest(String)
+    case saveRequestUnsupported
 }
 
 nonisolated enum TransferPriorityBand: Int, CaseIterable, Sendable {
@@ -32,14 +34,23 @@ nonisolated enum DefaultTransferBodyBuilder {
             var locationData: Data?
             var screenData: Data?
             for part in item.manifest.payloadParts {
-                let data = try spool.payloadData(for: part, in: item)
+                func dataIfAvailable() throws -> Data? {
+                    do {
+                        return try spool.payloadData(for: part, in: item)
+                    } catch {
+                        if part.requiredForDispatch {
+                            throw TransferBodyBuildError.missingPayload(part.filename)
+                        }
+                        return nil
+                    }
+                }
                 switch part.kind {
                 case .audio:
-                    audioData = data
+                    audioData = try dataIfAvailable()
                 case .location:
-                    locationData = data
+                    locationData = try dataIfAvailable()
                 case .screen:
-                    screenData = data
+                    screenData = try dataIfAvailable()
                 case .file, .text:
                     break
                 }
@@ -64,16 +75,18 @@ nonisolated enum DefaultTransferBodyBuilder {
             ))
         case .saveThenStart:
             if item.manifest.saveThenStart?.phase == .startPending {
+                guard let savedPath = item.manifest.saveThenStart?.savedPath, !savedPath.isEmpty,
+                      let savedTimestamp = item.manifest.saveThenStart?.savedTimestamp, !savedTimestamp.isEmpty
+                else {
+                    throw TransferBodyBuildError.malformedManifest("missing save result")
+                }
                 let body = TransferStartRequestBody(
-                    path: item.manifest.saveThenStart?.savedPath ?? "",
-                    timestamp: item.manifest.saveThenStart?.savedTimestamp ?? ""
+                    path: savedPath,
+                    timestamp: savedTimestamp
                 )
                 return try JSONEncoder().encode(body)
             }
-            guard let first = item.manifest.payloadParts.first else {
-                throw TransferBodyBuildError.missingPayload("payload")
-            }
-            return try spool.payloadData(for: first, in: item)
+            throw TransferBodyBuildError.saveRequestUnsupported
         }
     }
 }
@@ -102,6 +115,7 @@ actor TransferEngine {
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
     private var paused = false
+    private var endpointHeld = false
     private var counters = TransferCounters.empty
     private var lastEventSummary: String?
     private var pendingStatusSnapshot: TransferStatusSnapshot?
@@ -139,6 +153,17 @@ actor TransferEngine {
             inFlightCount: 0,
             deliveredCount: 0
         )
+        for move in snapshot.recoveryMoves {
+            self.emit(
+                item: move.item,
+                previousState: .queued,
+                nextState: .attention,
+                outcome: .needsAttention,
+                attempt: 0,
+                detail: move.detail
+            )
+            transferLog.notice("transfer recovery needs attention \(move.item.manifest.itemID.uuidString, privacy: .public)")
+        }
         self.scheduleStatusUpdate(summary: "queued")
         self.scheduleWork()
     }
@@ -300,11 +325,11 @@ actor TransferEngine {
                 let resolution = await self.endpointResolver.resolve(item.manifest.endpoint)
                 switch resolution {
                 case .available:
+                    self.markEndpointAvailable()
                     self.sourceCursorByBand[band] = sourceIndex + 1
                     return item
                 case .unavailable(let detail):
-                    self.lastEventSummary = "held"
-                    transferLog.notice("transfer item held \(item.manifest.itemID.uuidString, privacy: .public) \(detail, privacy: .public)")
+                    self.markEndpointHeld(detail: detail)
                     continue
                 }
             }
@@ -329,6 +354,14 @@ actor TransferEngine {
         )
         self.scheduleStatusUpdate(summary: "dispatching")
 
+        let phase = self.phase(for: item.manifest)
+        do {
+            try self.preflightBody(phase: phase)
+        } catch {
+            self.handleBodyBuildFailure(error, item: item)
+            return
+        }
+
         let bodyURL: URL
         do {
             if self.spool.bodyCacheExists(for: item) {
@@ -338,16 +371,15 @@ actor TransferEngine {
                 bodyURL = try self.spool.writeBodyCache(body, for: item)
             }
         } catch {
-            self.moveToAttention(item: item, reason: .missingPayload(String(describing: error)), detail: "payload unavailable")
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
-            self.scheduleStatusUpdate(summary: "needs attention")
+            self.handleBodyBuildFailure(error, item: item)
             return
         }
 
-        let phase = self.phase(for: item.manifest)
         let resolution = await self.endpointResolver.resolve(item.manifest.endpoint)
         guard case .available(let endpoint) = resolution else {
+            if case .unavailable(let detail) = resolution {
+                self.markEndpointHeld(detail: detail)
+            }
             self.inFlight.remove(itemID)
             self.counters.inFlightCount = self.inFlight.count
             self.scheduleStatusUpdate(summary: "held")
@@ -410,16 +442,25 @@ actor TransferEngine {
             ))
             let nextAttemptAt = self.clock.wallNow().addingTimeInterval(decision.delay)
             let updatedManifest = item.manifest.replacingNextAttemptAt(nextAttemptAt)
-            if let updated = try? self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL) {
+            var retryItem = item
+            var retryDetail = "retrying"
+            do {
+                let updated = try self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL)
                 self.queuedItems[itemID] = updated
+                retryItem = updated
+            } catch {
+                retryItem = TransferStoredItem(manifest: updatedManifest, directoryURL: item.directoryURL)
+                self.queuedItems[itemID] = retryItem
+                retryDetail = "retry persistence failed"
+                transferLog.notice("transfer retry persistence failed \(itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)")
             }
             self.emit(
-                item: item,
+                item: retryItem,
                 previousState: .dispatching,
                 nextState: .queued,
                 outcome: .retrying,
                 attempt: attempt,
-                detail: "retrying"
+                detail: retryDetail
             )
             transferLog.notice("transfer item retrying \(itemID.uuidString, privacy: .public)")
         case .continueWithStart(let state):
@@ -534,6 +575,47 @@ private extension TransferEngine {
         return lhs.manifest.createdAt < rhs.manifest.createdAt
     }
 
+    func preflightBody(phase: TransferEndpointPhase) throws {
+        switch phase {
+        case .observerIngest:
+            return
+        case .save:
+            throw TransferBodyBuildError.saveRequestUnsupported
+        case .start(let state):
+            guard let savedPath = state?.savedPath, !savedPath.isEmpty,
+                  let savedTimestamp = state?.savedTimestamp, !savedTimestamp.isEmpty
+            else {
+                throw TransferBodyBuildError.malformedManifest("missing save result")
+            }
+        }
+    }
+
+    func handleBodyBuildFailure(_ error: Error, item: TransferStoredItem) {
+        let reason = self.attentionReason(for: error)
+        let detail = self.shortDetail(for: reason)
+        self.moveToAttention(item: item, reason: reason, detail: detail)
+        self.inFlight.remove(item.manifest.itemID)
+        self.counters.inFlightCount = self.inFlight.count
+        transferLog.notice("transfer body unavailable \(item.manifest.itemID.uuidString, privacy: .public) \(detail, privacy: .public)")
+        self.scheduleStatusUpdate(summary: "needs attention")
+    }
+
+    func markEndpointHeld(detail: String) {
+        guard !self.endpointHeld else { return }
+        self.endpointHeld = true
+        self.emitEngineEvent(outcome: .held, detail: "held: endpoint unavailable")
+        transferLog.notice("transfer endpoint unavailable \(detail, privacy: .public)")
+        self.scheduleStatusUpdate(summary: "held")
+    }
+
+    func markEndpointAvailable() {
+        guard self.endpointHeld else { return }
+        self.endpointHeld = false
+        self.emitEngineEvent(outcome: .resumed, detail: "resumed: endpoint available")
+        transferLog.notice("transfer endpoint available")
+        self.scheduleStatusUpdate(summary: "resumed")
+    }
+
     func emit(
         item: TransferStoredItem,
         previousState: TransferRuntimeState,
@@ -561,7 +643,7 @@ private extension TransferEngine {
             source: "engine",
             itemID: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
             previousState: .held,
-            nextState: outcome == .paused ? .paused : .queued,
+            nextState: self.nextState(forEngineOutcome: outcome),
             outcome: outcome,
             attempt: 0,
             shortDetail: detail,
@@ -599,6 +681,36 @@ private extension TransferEngine {
         }
     }
 
+    func nextState(forEngineOutcome outcome: TransferDiagnosticOutcomeSummary) -> TransferRuntimeState {
+        switch outcome {
+        case .paused:
+            return .paused
+        case .held:
+            return .held
+        default:
+            return .queued
+        }
+    }
+
+    func attentionReason(for error: Error) -> TransferAttentionReason {
+        if let bodyError = error as? TransferBodyBuildError {
+            switch bodyError {
+            case .missingObserverMetadata:
+                return .malformedManifest("missing observer metadata")
+            case .missingPayload(let detail):
+                return .missingPayload(detail)
+            case .malformedManifest(let detail):
+                return .malformedManifest(detail)
+            case .saveRequestUnsupported:
+                return .malformedManifest("save request unsupported")
+            }
+        }
+        if error is ObserverIngestMultipartBodyError {
+            return .missingPayload("observer artifact")
+        }
+        return .missingPayload(String(describing: error))
+    }
+
     func reasonCode(for reason: TransferAttentionReason) -> String {
         switch reason {
         case .httpClientError:
@@ -607,6 +719,8 @@ private extension TransferEngine {
             return "decode_failed"
         case .missingPayload:
             return "missing_payload"
+        case .malformedManifest:
+            return "malformed_manifest"
         }
     }
 
@@ -617,6 +731,8 @@ private extension TransferEngine {
         case .decodeFailed(let detail):
             return detail
         case .missingPayload(let detail):
+            return detail
+        case .malformedManifest(let detail):
             return detail
         }
     }
