@@ -86,12 +86,22 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "CFBundleVersion: $(CURRENT_PROJECT_VERSION)",
             "DEVELOPMENT_TEAM: 7QCG8V4M6H",
             #"MARKETING_VERSION: "0.1.0""#,
-            "CURRENT_PROJECT_VERSION: 51",
             "SWIFT_STRICT_CONCURRENCY: complete",
             #"SWIFT_VERSION: "6.0""#,
         ] {
             XCTAssertTrue(block.contains(required), required)
         }
+
+        let appVersion = Self.parseCurrentProjectVersion(in: try Self.baseSettingsBlock())
+        let broadcastVersion = Self.parseCurrentProjectVersion(in: block)
+
+        XCTAssertNotNil(appVersion, "app CURRENT_PROJECT_VERSION present")
+        XCTAssertNotNil(broadcastVersion, "broadcast CURRENT_PROJECT_VERSION present")
+        XCTAssertEqual(
+            appVersion,
+            broadcastVersion,
+            "app and broadcast must share the same build number"
+        )
     }
 }
 
@@ -115,6 +125,30 @@ private extension ScreencastProjectConfigTests {
             throw XCTSkip("SolstoneBroadcastExtension block missing")
         }
         return String(projectYML[start.lowerBound..<end.lowerBound])
+    }
+
+    static func baseSettingsBlock() throws -> String {
+        let projectYML = try self.projectYML()
+        guard let start = projectYML.range(of: "settings:"),
+              let end = projectYML[start.upperBound...].range(of: "packages:")
+        else {
+            throw XCTSkip("base settings block missing")
+        }
+        return String(projectYML[start.lowerBound..<end.lowerBound])
+    }
+
+    static func parseCurrentProjectVersion(in region: String) -> Int? {
+        let pattern = #"(?m)^\s*CURRENT_PROJECT_VERSION:\s*([0-9]+)\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(region.startIndex..<region.endIndex, in: region)
+        guard let match = regex.firstMatch(in: region, range: range),
+              let versionRange = Range(match.range(at: 1), in: region)
+        else {
+            return nil
+        }
+        return Int(region[versionRange])
     }
 
     static func appTargetBlock() throws -> String {
