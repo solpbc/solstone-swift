@@ -126,6 +126,7 @@ final class TunnelManager {
     @ObservationIgnored private let deviceTokenRefresher: DeviceTokenRefresher
     @ObservationIgnored private let probeSession: URLSession
     @ObservationIgnored private let probeURLBuilder: @Sendable (Int) -> URL?
+    @ObservationIgnored private let activeLocalTransferCountProvider: @Sendable @MainActor () -> Int
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var connectWatchdogTask: Task<Void, Never>?
@@ -155,6 +156,7 @@ final class TunnelManager {
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
     @ObservationIgnored private var pendingReconnectReason: ReconnectReasonBucket?
+    @ObservationIgnored private(set) var connectionEpoch: UInt64 = 0
 
     init(
         transport: (any Transporting)? = nil,
@@ -174,6 +176,7 @@ final class TunnelManager {
         },
         probeInterval: Duration = .seconds(15),
         probeFailureThreshold: Int = 2,
+        activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.transport = transport ?? CFTunnelTransport()
@@ -185,6 +188,7 @@ final class TunnelManager {
         self.deviceTokenRefresher = deviceTokenRefresher
         self.probeSession = probeSession
         self.probeURLBuilder = probeURLBuilder
+        self.activeLocalTransferCountProvider = activeLocalTransferCountProvider
         self.initialRetryDelay = initialRetryDelay
         self.connectDeadline = connectDeadline
         self.waitingDeadline = waitingDeadline
@@ -193,6 +197,11 @@ final class TunnelManager {
         self.probeInterval = probeInterval
         self.probeFailureThreshold = probeFailureThreshold
         self.diagnosticLog = diagnosticLog
+    }
+
+    var activeConnection: (port: Int, epoch: UInt64)? {
+        guard case .connected(let port, _) = self.state else { return nil }
+        return (port, self.connectionEpoch)
     }
 
     private func appendStage(_ kind: ConnectionStageKind, detail: String? = nil) {
@@ -268,6 +277,8 @@ final class TunnelManager {
                 self.cancelWaitingTimeout()
                 await Task.yield()
                 let endpoint = self.endpoint(for: self.transport.connectionMode)
+                self.connectionEpoch += 1
+                let epoch = self.connectionEpoch
                 self.state = .connected(localPort: localPort, via: endpoint)
                 self.completeStage(.loopback, detail: "port \(localPort)")
                 self.appendStage(.connected)
@@ -280,7 +291,8 @@ final class TunnelManager {
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,
-                    message: "connected via \(endpoint == .lan ? "local network" : "remote journal") on port \(localPort)"
+                    message: "connected via \(endpoint == .lan ? "local network" : "remote journal") on port \(localPort)",
+                    detail: self.connectionIdentityDetail(port: localPort, epoch: epoch)
                 )
                 if self.ownerConnectSuccessBannerArmed {
                     self.ownerConnectSuccessBannerArmed = false
@@ -460,6 +472,7 @@ final class TunnelManager {
     }
 
     func disconnect() async {
+        let active = self.activeConnection
         self.cancelReconnect()
         self.cancelConnectWatchdog()
         self.cancelWaitingTimeout()
@@ -476,7 +489,11 @@ final class TunnelManager {
         self.connectTask?.cancel()
         self.connectTask = nil
         await self.transport.disconnect()
-        self.diagnosticLog?.append(category: .tunnel, message: "disconnected")
+        self.diagnosticLog?.append(
+            category: .tunnel,
+            message: "disconnected",
+            detail: self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch)
+        )
     }
 
     func cancelConnect() {
@@ -527,7 +544,10 @@ final class TunnelManager {
 
 #if DEBUG
     // Integration tests use this to bypass real tunnel startup.
-    func forceConnected(port: Int, via: ConnectionEndpoint) { self.state = .connected(localPort: port, via: via) }
+    func forceConnected(port: Int, via: ConnectionEndpoint) {
+        self.connectionEpoch += 1
+        self.state = .connected(localPort: port, via: via)
+    }
 
     func forceDisconnectedForUITest() {
         self.state = .disconnected
@@ -603,6 +623,18 @@ final class TunnelManager {
                         self.consecutiveProbeFailures = 0
                         continue
                     }
+                    let activeCount = self.activeLocalTransferCountProvider()
+                    if activeCount > 0 {
+                        let active = self.activeConnection
+                        self.diagnosticLog?.append(
+                            category: .tunnel,
+                            severity: .warning,
+                            message: "probe not reachable during active uploads",
+                            detail: "activeUploads=\(activeCount) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
+                        )
+                        await self.forceReconnect(reason: .probeFailed)
+                        return
+                    }
                     if self.consecutiveProbeFailures >= self.probeFailureThreshold {
                         await self.forceReconnect(reason: .probeFailed)
                         return
@@ -626,6 +658,7 @@ final class TunnelManager {
 
     private func forceReconnect(reason: ReconnectReason) async {
         guard case .connected = self.state else { return }
+        let active = self.activeConnection
         self.pendingReconnectReason = reason.bucket
         let tunnelError = reason.tunnelError
         log.error("[solstone-swift] forcing reconnect: \(reason.logLabel, privacy: .public)")
@@ -633,7 +666,7 @@ final class TunnelManager {
             category: .tunnel,
             severity: .warning,
             message: "forcing reconnect",
-            detail: reason.logLabel
+            detail: "\(reason.logLabel) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
         )
         self.cancelConnectWatchdog()
         self.cancelReconnect()
@@ -702,6 +735,7 @@ final class TunnelManager {
 
     func probeConnection() async -> (alive: Bool, latency: Duration)? {
         guard case .connected(let localPort, _) = self.state else { return nil }
+        let active = self.activeConnection
         let clock = ContinuousClock()
         let start = clock.now
         let alive: Bool
@@ -737,9 +771,13 @@ final class TunnelManager {
         self.diagnosticLog?.append(
             category: .tunnel,
             message: alive ? "probe available" : "probe not reachable",
-            detail: "latency: \(elapsed); \(detail)"
+            detail: "latency: \(elapsed); \(detail); \(self.connectionIdentityDetail(port: active?.port ?? localPort, epoch: active?.epoch))"
         )
         return (alive, elapsed)
+    }
+
+    private func connectionIdentityDetail(port: Int?, epoch: UInt64?) -> String {
+        "port=\(port.map(String.init) ?? "none") epoch=\(epoch.map(String.init) ?? "none")"
     }
 
     private func scheduleReconnect(for error: TunnelError) {

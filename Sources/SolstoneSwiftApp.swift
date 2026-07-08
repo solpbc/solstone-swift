@@ -146,10 +146,6 @@ struct SolstoneSwiftApp: App {
         let healthSession = URLSession(configuration: .default)
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig)
-        let tunnel = TunnelManager(
-            transport: transport,
-            diagnosticLog: log
-        )
         let observerRegistration = ObserverRegistration(
             hostname: UIDevice.current.name,
             version: AppVersion.shortVersion,
@@ -179,6 +175,9 @@ struct SolstoneSwiftApp: App {
             },
             localPortProvider: {
                 observerRegistration.activeLocalPort
+            },
+            activeEpochProvider: {
+                observerRegistration.activeEpoch
             },
             registrationPrefixProvider: {
                 observerRegistration.registrationPrefix
@@ -293,6 +292,9 @@ struct SolstoneSwiftApp: App {
             localPortProvider: {
                 omiRegistration.activeLocalPort
             },
+            activeEpochProvider: {
+                omiRegistration.activeEpoch
+            },
             registrationPrefixProvider: {
                 omiRegistration.registrationPrefix
             },
@@ -354,6 +356,9 @@ struct SolstoneSwiftApp: App {
             localPortProvider: {
                 watchRegistration.activeLocalPort
             },
+            activeEpochProvider: {
+                watchRegistration.activeEpoch
+            },
             registrationPrefixProvider: {
                 watchRegistration.registrationPrefix
             },
@@ -391,6 +396,18 @@ struct SolstoneSwiftApp: App {
             localPortProvider: {
                 observerRegistration.activeLocalPort
             }
+        )
+        let tunnel = TunnelManager(
+            transport: transport,
+            activeLocalTransferCountProvider: {
+                confirmedTransferCount(
+                    observer: observerUploader,
+                    omi: omiUploaderHolder,
+                    watch: watchUploaderHolder,
+                    importQueue: importQueue
+                )
+            },
+            diagnosticLog: log
         )
         let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
             let totals = uploadTotals(
@@ -762,9 +779,13 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(let port, _):
+                let epoch = self.tunnelManager.activeConnection?.epoch
                 self.observerRegistration.activeLocalPort = port
+                self.observerRegistration.activeEpoch = epoch
                 self.omiRegistration.activeLocalPort = port
+                self.omiRegistration.activeEpoch = epoch
                 self.watchRegistration.activeLocalPort = port
+                self.watchRegistration.activeEpoch = epoch
                 Task { await self.foregroundDrainGate.requestDrain() }
 
                 if Self.isIntegrationMode,
@@ -782,8 +803,11 @@ struct SolstoneSwiftApp: App {
                 }
             case .connecting, .waitingForHome, .disconnected, .error:
                 self.observerRegistration.activeLocalPort = nil
+                self.observerRegistration.activeEpoch = nil
                 self.omiRegistration.activeLocalPort = nil
+                self.omiRegistration.activeEpoch = nil
                 self.watchRegistration.activeLocalPort = nil
+                self.watchRegistration.activeEpoch = nil
                 self.integrationObserverStartTask?.cancel()
                 self.integrationObserverStartTask = nil
                 self.integrationObserverStopTask?.cancel()

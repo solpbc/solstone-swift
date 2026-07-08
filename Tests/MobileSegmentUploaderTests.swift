@@ -52,6 +52,44 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual((try self.multipartMeta(in: body)["sources"] as? [String])?.sorted(), ["audio", "location"])
     }
 
+    func testMobileSegmentTaskDescriptionIncludesEpochAndCreatedAtThroughTransport() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        let uploadRelease = DispatchSemaphore(value: 0)
+        let harness = self.makeHarness(
+            connected: true,
+            activeEpochProvider: { 9 }
+        )
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio, .location])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            uploadStarted.signal()
+            _ = uploadRelease.wait(timeout: .now() + 2)
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        let descriptions = await harness.transport.sessionTaskDescriptionsForTesting().compactMap { $0 }
+        let description = try XCTUnwrap(descriptions.first)
+        let json = try self.taskDescriptionJSON(description)
+        XCTAssertEqual(json["kind"] as? String, "mobile-segment")
+        XCTAssertEqual(json["source_type"] as? String, "observer-audio")
+        XCTAssertEqual(json["segment_id"] as? String, segmentID.uuidString)
+        XCTAssertEqual(self.uint64Value(json["epoch"]), 9)
+        XCTAssertNotNil(json["created_at"] as? NSNumber)
+
+        uploadRelease.signal()
+        try await self.waitFor("descriptor upload cleanup") {
+            MobileSegmentUploaderURLProtocol.callCount == 1
+                && !FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path)
+        }
+    }
+
     func testOldManifestWithoutScreencastDecodesAsNotDeclared() throws {
         let segmentID = UUID()
         let json = """
@@ -897,6 +935,7 @@ private extension MobileSegmentUploaderTests {
         maxAttempts: Int = 5,
         retryDelays: [UInt64] = [0],
         localPortProvider: (@Sendable @MainActor () -> Int?)? = nil,
+        activeEpochProvider: @escaping @Sendable @MainActor () -> UInt64? = { 1 },
         diagnosticLog: DiagnosticLog? = nil,
         requeueStabilityPoll: UInt64 = 1,
         requeueStabilityWindow: UInt64 = 2,
@@ -913,6 +952,7 @@ private extension MobileSegmentUploaderTests {
             ensureRegistered: { "test-observer-key-abc" },
             isJournalConfigured: { connected },
             localPortProvider: localPortProvider ?? { connected ? 7071 : nil },
+            activeEpochProvider: activeEpochProvider,
             diagnosticLog: diagnosticLog,
             retryDelays: retryDelays,
             maxAttempts: maxAttempts,
@@ -1148,6 +1188,16 @@ private extension MobileSegmentUploaderTests {
     func multipartMeta(in body: Data) throws -> [String: Any] {
         let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
         return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
+    }
+
+    func taskDescriptionJSON(_ description: String) throws -> [String: Any] {
+        let object = try JSONSerialization.jsonObject(with: Data(description.utf8))
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
+    func uint64Value(_ value: Any?) -> UInt64? {
+        guard let number = value as? NSNumber else { return nil }
+        return number.uint64Value
     }
 
     static func dayString(for date: Date) -> String {

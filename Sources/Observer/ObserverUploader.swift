@@ -148,6 +148,7 @@ final class ObserverUploader {
     @ObservationIgnored private let ensureRegistered: @Sendable @MainActor () async throws -> String
     @ObservationIgnored private let isJournalConfigured: @Sendable @MainActor () -> Bool
     @ObservationIgnored private let localPortProvider: @Sendable @MainActor () -> Int?
+    @ObservationIgnored private let activeEpochProvider: @Sendable @MainActor () -> UInt64?
     @ObservationIgnored private let registrationPrefixProvider: @Sendable @MainActor () -> String?
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
@@ -200,6 +201,7 @@ final class ObserverUploader {
         },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { nil },
+        activeEpochProvider: @escaping @Sendable @MainActor () -> UInt64? = { nil },
         registrationPrefixProvider: @escaping @Sendable @MainActor () -> String? = { nil },
         urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             ObserverServerURL.ingestURL(localPort: localPort)
@@ -226,6 +228,7 @@ final class ObserverUploader {
         self.ensureRegistered = ensureRegistered
         self.isJournalConfigured = isJournalConfigured
         self.localPortProvider = localPortProvider
+        self.activeEpochProvider = activeEpochProvider
         self.registrationPrefixProvider = registrationPrefixProvider
         self.urlBuilder = urlBuilder
         self.diagnosticLog = diagnosticLog
@@ -592,6 +595,10 @@ final class ObserverUploader {
         }
     }
 
+    func sessionTaskDescriptionsForTesting() async -> [String?] {
+        await self.sessionTasks().map(\.taskDescription)
+    }
+
     func mobileSegmentAttemptCountForTesting(segmentID: UUID) -> Int {
         self.mobileSegmentAttemptCountBySegmentID[segmentID, default: 0]
     }
@@ -686,6 +693,8 @@ private extension ObserverUploader {
         let sidecarURL: URL
         let requestBodyURL: URL
         let localPort: Int
+        let epoch: UInt64?
+        let createdAt: Date?
         let prefix: String?
         let sourceType: String
     }
@@ -695,6 +704,8 @@ private extension ObserverUploader {
         let requestBodyURL: URL
         let boundary: String
         let localPort: Int
+        let epoch: UInt64?
+        let createdAt: Date?
         let prefix: String?
         let sourceType: String
     }
@@ -714,6 +725,8 @@ private extension ObserverUploader {
         let chunkID: String
         let sessionID: UUID
         let localPort: Int
+        let epoch: UInt64?
+        let createdAt: Date?
         let prefix: String?
     }
 
@@ -722,6 +735,8 @@ private extension ObserverUploader {
         let sourceType: String
         let segmentID: UUID
         let localPort: Int
+        let epoch: UInt64?
+        let createdAt: Date?
         let prefix: String?
 
         enum CodingKeys: String, CodingKey {
@@ -729,6 +744,8 @@ private extension ObserverUploader {
             case sourceType = "source_type"
             case segmentID = "segment_id"
             case localPort = "local_port"
+            case epoch
+            case createdAt = "created_at"
             case prefix
         }
     }
@@ -896,10 +913,10 @@ private extension ObserverUploader {
     }
 
     func reconcilePortIfNeeded() async {
-        guard let currentPort = self.localPortProvider() else { return }
+        guard self.localPortProvider() != nil else { return }
 
         let staleInMemoryTasks = self.taskInfoByTaskID.compactMap { taskID, info -> (Int, TaskInfo, URLSessionTask?)? in
-            guard info.localPort != currentPort else { return nil }
+            guard self.isStaleUploadIdentity(port: info.localPort, epoch: info.epoch) else { return nil }
             return (taskID, info, self.activeTasksByTaskID[taskID])
         }
         for (taskID, info, task) in staleInMemoryTasks {
@@ -915,11 +932,14 @@ private extension ObserverUploader {
             let requestPort = task.originalRequest?.url?.port
 
             if let descriptor = self.uploadTaskDescriptor(from: task.taskDescription) {
-                let isCurrentPort = descriptor.localPort == currentPort
-                    && (requestPort == nil || requestPort == currentPort)
+                let isCurrentIdentity = !self.isStaleUploadIdentity(
+                    port: descriptor.localPort,
+                    epoch: descriptor.epoch,
+                    requestPort: requestPort
+                )
                 let audioURL = self.pendingAudioURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
                 let sidecarURL = self.pendingSidecarURL(sessionID: descriptor.sessionID, chunkID: descriptor.chunkID)
-                guard isCurrentPort,
+                guard isCurrentIdentity,
                       self.fileManager.fileExists(atPath: audioURL.path),
                       self.fileManager.fileExists(atPath: sidecarURL.path)
                 else {
@@ -937,6 +957,8 @@ private extension ObserverUploader {
                     sidecarURL: sidecarURL,
                     requestBodyURL: requestBodyURL,
                     localPort: descriptor.localPort,
+                    epoch: descriptor.epoch,
+                    createdAt: descriptor.createdAt,
                     prefix: descriptor.prefix,
                     sourceType: descriptor.sourceType
                 )
@@ -946,13 +968,16 @@ private extension ObserverUploader {
             }
 
             if let mobile = self.mobileSegmentUploadTaskDescriptor(from: task.taskDescription) {
-                let isCurrentPort = mobile.localPort == currentPort
-                    && (requestPort == nil || requestPort == currentPort)
+                let isCurrentIdentity = !self.isStaleUploadIdentity(
+                    port: mobile.localPort,
+                    epoch: mobile.epoch,
+                    requestPort: requestPort
+                )
                 let bodyURL = self.cacheRootURL
                     .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
                     .appendingPathComponent("\(mobile.segmentID.uuidString).upload", isDirectory: false)
                 let dropped = self.mobileSegmentDroppedIDs.contains(mobile.segmentID)
-                guard isCurrentPort,
+                guard isCurrentIdentity,
                       !dropped,
                       self.fileManager.fileExists(atPath: bodyURL.path)
                 else {
@@ -966,6 +991,8 @@ private extension ObserverUploader {
                     requestBodyURL: bodyURL,
                     boundary: self.boundary(for: mobile.segmentID.uuidString),
                     localPort: mobile.localPort,
+                    epoch: mobile.epoch,
+                    createdAt: mobile.createdAt,
                     prefix: mobile.prefix,
                     sourceType: mobile.sourceType
                 )
@@ -978,6 +1005,22 @@ private extension ObserverUploader {
             self.clearTaskState(taskID: task.taskIdentifier, chunkID: nil)
             task.cancel()
         }
+    }
+
+    func isStaleUploadIdentity(port: Int, epoch: UInt64?, requestPort: Int? = nil) -> Bool {
+        self.staleUploadIdentityReason(port: port, epoch: epoch, requestPort: requestPort) != nil
+    }
+
+    func staleUploadIdentityReason(port: Int, epoch: UInt64?, requestPort: Int? = nil) -> String? {
+        guard let currentPort = self.localPortProvider() else { return "missing-current-port" }
+        guard port == currentPort else { return "port-stale" }
+        guard let currentEpoch = self.activeEpochProvider() else { return "missing-current-epoch" }
+        guard let epoch else { return "missing-epoch" }
+        guard epoch == currentEpoch else { return "epoch-stale" }
+        if let requestPort, requestPort != currentPort {
+            return "request-port-stale"
+        }
+        return nil
     }
 
     func sessionTasks() async -> [URLSessionTask] {
@@ -1063,6 +1106,8 @@ private extension ObserverUploader {
             sidecarURL: sidecarURL,
             requestBodyURL: requestBodyURL,
             localPort: descriptor.localPort,
+            epoch: descriptor.epoch,
+            createdAt: descriptor.createdAt,
             prefix: descriptor.prefix,
             sourceType: descriptor.sourceType
         )
@@ -1082,6 +1127,8 @@ private extension ObserverUploader {
             requestBodyURL: requestBodyURL,
             boundary: self.boundary(for: descriptor.segmentID.uuidString),
             localPort: descriptor.localPort,
+            epoch: descriptor.epoch,
+            createdAt: descriptor.createdAt,
             prefix: descriptor.prefix,
             sourceType: descriptor.sourceType
         )
@@ -1360,12 +1407,16 @@ private extension ObserverUploader {
                 self.lastError = nil
                 return
             }
+            let createdAt = Date()
+            let epoch = self.activeEpochProvider()
             let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
             task.taskDescription = self.taskDescription(for: UploadTaskDescriptor(
                 sourceType: self.sourceType,
                 chunkID: chunkID,
                 sessionID: sessionID,
                 localPort: localPort,
+                epoch: epoch,
+                createdAt: createdAt,
                 prefix: prefix
             ))
             self.taskInfoByTaskID[task.taskIdentifier] = TaskInfo(
@@ -1375,6 +1426,8 @@ private extension ObserverUploader {
                 sidecarURL: sidecarURL,
                 requestBodyURL: requestBodyURL,
                 localPort: localPort,
+                epoch: epoch,
+                createdAt: createdAt,
                 prefix: prefix,
                 sourceType: self.sourceType
             )
@@ -1516,12 +1569,16 @@ private extension ObserverUploader {
         }
 
         let createResumeStart = DispatchTime.now().uptimeNanoseconds
+        let createdAt = Date()
+        let epoch = self.activeEpochProvider()
         let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
         task.taskDescription = self.taskDescription(for: MobileSegmentUploadTaskDescriptor(
             kind: "mobile-segment",
             sourceType: self.sourceType,
             segmentID: segmentID,
             localPort: localPort,
+            epoch: epoch,
+            createdAt: createdAt,
             prefix: prefix
         ))
         self.mobileSegmentTaskInfoByTaskID[task.taskIdentifier] = MobileSegmentTaskInfo(
@@ -1529,6 +1586,8 @@ private extension ObserverUploader {
             requestBodyURL: requestBodyURL,
             boundary: boundary,
             localPort: localPort,
+            epoch: epoch,
+            createdAt: createdAt,
             prefix: prefix,
             sourceType: self.sourceType
         )
@@ -1552,7 +1611,8 @@ private extension ObserverUploader {
     func armChunkReconnectRequeue(
         _ info: TaskInfo,
         httpStatus: Int? = nil,
-        transportError: String? = nil
+        transportError: String? = nil,
+        staleReason: String? = nil
     ) {
         let attempt = self.requeueAttemptCountByChunkID[info.chunkID, default: 0] + 1
         self.requeueAttemptCountByChunkID[info.chunkID] = attempt
@@ -1569,6 +1629,11 @@ private extension ObserverUploader {
             chunkID: info.chunkID,
             prefix: info.prefix,
             localPort: info.localPort,
+            epoch: info.epoch,
+            currentPort: self.localPortProvider(),
+            currentEpoch: self.activeEpochProvider(),
+            staleReason: staleReason,
+            taskAgeSeconds: info.createdAt.map { Date().timeIntervalSince($0) },
             httpStatus: httpStatus,
             transportError: transportError,
             attempt: attempt,
@@ -1598,7 +1663,7 @@ private extension ObserverUploader {
             }
             let held = self.localPortProvider() == nil || !self.isJournalConfigured()
             if held {
-                self.armChunkReconnectRequeue(info)
+                self.armChunkReconnectRequeue(info, staleReason: staleReason)
                 return
             }
             // Every reassignment cancels the previous retry first, so a non-cancelled retry is the current tracked entry; removing by key cannot delete a successor.
@@ -1610,7 +1675,8 @@ private extension ObserverUploader {
     func armMobileSegmentReconnectRequeue(
         _ info: MobileSegmentTaskInfo,
         httpStatus: Int? = nil,
-        transportError: String? = nil
+        transportError: String? = nil,
+        staleReason: String? = nil
     ) async {
         let attempt = self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID, default: 0] + 1
         self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID] = attempt
@@ -1644,6 +1710,11 @@ private extension ObserverUploader {
             idLabel: "segmentID",
             prefix: info.prefix,
             localPort: info.localPort,
+            epoch: info.epoch,
+            currentPort: self.localPortProvider(),
+            currentEpoch: self.activeEpochProvider(),
+            staleReason: staleReason,
+            taskAgeSeconds: info.createdAt.map { Date().timeIntervalSince($0) },
             httpStatus: httpStatus,
             transportError: transportError,
             attempt: attempt,
@@ -1673,7 +1744,7 @@ private extension ObserverUploader {
             }
             let held = self.localPortProvider() == nil || !self.isJournalConfigured()
             if held {
-                await self.armMobileSegmentReconnectRequeue(info)
+                await self.armMobileSegmentReconnectRequeue(info, staleReason: staleReason)
                 return
             }
             self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
@@ -1738,14 +1809,15 @@ private extension ObserverUploader {
 
         if let error {
             let ns = error as NSError
-            let currentPort = self.localPortProvider()
             let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
-            let isStalePort = currentPort.map { $0 != info.localPort } ?? true
-            if isCancelled || isStalePort {
+            let staleReason = self.staleUploadIdentityReason(port: info.localPort, epoch: info.epoch)
+            let isStale = staleReason != nil
+            if isCancelled || isStale {
                 self.armChunkReconnectRequeue(
                     info,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
-                    transportError: String(describing: error)
+                    transportError: String(describing: error),
+                    staleReason: staleReason ?? "cancelled"
                 )
                 return
             }
@@ -1863,14 +1935,15 @@ private extension ObserverUploader {
     ) async {
         if let error {
             let ns = error as NSError
-            let currentPort = self.localPortProvider()
             let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
-            let isStalePort = currentPort.map { $0 != info.localPort } ?? true
-            if isCancelled || isStalePort {
+            let staleReason = self.staleUploadIdentityReason(port: info.localPort, epoch: info.epoch)
+            let isStale = staleReason != nil
+            if isCancelled || isStale {
                 await self.armMobileSegmentReconnectRequeue(
                     info,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
-                    transportError: String(describing: error)
+                    transportError: String(describing: error),
+                    staleReason: staleReason ?? "cancelled"
                 )
                 return
             }
@@ -2207,6 +2280,11 @@ private extension ObserverUploader {
         idLabel: String = "chunkID",
         prefix: String?,
         localPort: Int?,
+        epoch: UInt64? = nil,
+        currentPort: Int? = nil,
+        currentEpoch: UInt64? = nil,
+        staleReason: String? = nil,
+        taskAgeSeconds: Double? = nil,
         httpStatus: Int?,
         transportError: String?,
         attempt: Int,
@@ -2221,6 +2299,11 @@ private extension ObserverUploader {
             "\(idLabel)=\(chunkID)",
             "prefix=\(prefix?.isEmpty == false ? prefix! : "unknown")",
             "localPort=\(localPort.map(String.init) ?? "none")",
+            "epoch=\(epoch.map(String.init) ?? "none")",
+            "currentPort=\(currentPort.map(String.init) ?? "none")",
+            "currentEpoch=\(currentEpoch.map(String.init) ?? "none")",
+            "staleReason=\(staleReason?.isEmpty == false ? staleReason! : "none")",
+            "taskAgeSeconds=\(taskAgeSeconds.map { String(format: "%.1f", $0) } ?? "none")",
             "httpStatus=\(httpStatus.map(String.init) ?? "none")",
             "transportError=\(safeTransportError?.isEmpty == false ? safeTransportError! : "none")",
             isRequeue ? "requeueAttempt=\(attempt)" : "attempt=\(attempt)/\(self.maxAttempts)",

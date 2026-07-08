@@ -46,6 +46,7 @@ final class ObserverRegistration {
     private(set) var state: State = .idle
     private(set) var registrationPrefix: String?
     var activeLocalPort: Int?
+    var activeEpoch: UInt64?
 
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?

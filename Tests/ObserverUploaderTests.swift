@@ -2103,6 +2103,190 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
+    func testChunkTaskDescriptionIncludesEpochAndCreatedAt() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { _ in true }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in uploadStarted.signal() }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held descriptor upload should not complete")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let uploader = self.makeUploader(
+            activeEpochProvider: { 7 },
+            registrationPrefixProvider: { "obs_" }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-identity-descriptor"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        let descriptions = await uploader.sessionTaskDescriptionsForTesting().compactMap { $0 }
+        let description = try XCTUnwrap(descriptions.first)
+        let json = try self.taskDescriptionJSON(description)
+        XCTAssertEqual(json["sourceType"] as? String, "observer-audio")
+        XCTAssertEqual(json["chunkID"] as? String, chunkID)
+        XCTAssertEqual(self.uint64Value(json["epoch"]), 7)
+        XCTAssertNotNil(json["createdAt"] as? NSNumber)
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+    }
+
+    @MainActor
+    func testOldChunkTaskDescriptionMissingEpochRequeuesAsStale() async throws {
+        let firstStarted = DispatchSemaphore(value: 0)
+        let holdFirst = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { _ in
+            holdFirst.withLock { shouldHold in
+                if shouldHold {
+                    shouldHold = false
+                    return true
+                }
+                return false
+            }
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in firstStarted.signal() }
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            registrationPrefixProvider: { "obs_" },
+            diagnosticLog: log
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-old-missing-epoch"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(firstStarted.wait(timeout: .now() + 2), .success)
+
+        let oldDescription = """
+        {"sourceType":"observer-audio","chunkID":"\(chunkID)","sessionID":"\(sessionID.uuidString)","localPort":7071,"prefix":"obs_"}
+        """
+        await uploader.setAllSessionTaskDescriptionsForTesting(oldDescription)
+        uploader.clearInMemoryUploadStateForTesting()
+        await uploader.reconcilePortAndResume()
+
+        try await self.waitFor("old descriptor missing epoch requeued") {
+            ObserverUploaderURLProtocol.callCount == 2 && uploader.pendingCount == 0
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertTrue(self.uploadEvents(in: log).contains {
+            $0.message == "observer-audio upload reconnect-requeued"
+                && (($0.detail ?? "").contains("staleReason=missing-epoch"))
+        })
+    }
+
+    @MainActor
+    func testSamePortChangedEpochReconcileCancelsAndReschedulesChunk() async throws {
+        let uploadStarted = DispatchSemaphore(value: 0)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { _ in true }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in uploadStarted.signal() }
+        ObserverUploaderURLProtocol.handler = { request in
+            XCTFail("held epoch-stale reconcile upload should not complete normally")
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let activeEpoch = OSAllocatedUnfairLock<UInt64?>(initialState: 1)
+        let uploader = self.makeUploader(
+            activeEpochProvider: { activeEpoch.withLock { $0 } },
+            registrationPrefixProvider: { "obs_" }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-same-port-epoch-reconcile"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(uploadStarted.wait(timeout: .now() + 2), .success)
+
+        activeEpoch.withLock { $0 = 2 }
+        await uploader.reconcilePortAndResume()
+
+        try await self.waitFor("same-port epoch-stale reschedule") {
+            ObserverUploaderURLProtocol.callCount >= 2
+                && ObserverUploaderURLProtocol.stoppedRequests.contains { $0.url?.port == 7071 }
+        }
+        XCTAssertEqual(uploader.failedCount, 0)
+
+        uploader.dropItem(sessionID: sessionID, chunkID: chunkID)
+    }
+
+    @MainActor
+    func testEpochStaleCompletionRequeuesWithoutConsumingAttempt() async throws {
+        let staleStarted = DispatchSemaphore(value: 0)
+        let staleRelease = DispatchSemaphore(value: 0)
+        let shouldTimeout = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldTimeout.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                staleStarted.signal()
+                _ = staleRelease.wait(timeout: .now() + 2)
+                throw URLError(.timedOut)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let activeEpoch = OSAllocatedUnfairLock<UInt64?>(initialState: 1)
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            activeEpochProvider: { activeEpoch.withLock { $0 } },
+            diagnosticLog: log,
+            maxAttempts: 1
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-epoch-stale-timeout"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+        XCTAssertEqual(staleStarted.wait(timeout: .now() + 2), .success)
+
+        activeEpoch.withLock { $0 = 2 }
+        staleRelease.signal()
+
+        try await self.waitFor("epoch-stale completion requeued") {
+            uploader.pendingCount == 0
+                && self.uploadEvents(in: log).contains { $0.message == "observer-audio upload reconnect-requeued" }
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+        let event = try XCTUnwrap(self.uploadEvents(in: log).first {
+            $0.message == "observer-audio upload reconnect-requeued"
+        })
+        let detail = event.detail ?? ""
+        XCTAssertTrue(detail.contains("staleReason=epoch-stale"))
+        XCTAssertTrue(detail.contains("epoch=1"))
+        XCTAssertTrue(detail.contains("currentEpoch=2"))
+        XCTAssertTrue(detail.contains("currentPort=7071"))
+        XCTAssertFalse(detail.contains("taskAgeSeconds=none"))
+    }
+
+    @MainActor
     func testReconcileRebuildsInFlightStateFromTaskDescription() async throws {
         let uploadStarted = DispatchSemaphore(value: 0)
         let uploadRelease = DispatchSemaphore(value: 0)
@@ -2512,12 +2696,119 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testOldMobileSegmentTaskDescriptionMissingEpochRequeuesAsStale() async throws {
+        let firstStarted = DispatchSemaphore(value: 0)
+        let holdFirst = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.heldRequestPredicate = { _ in
+            holdFirst.withLock { shouldHold in
+                if shouldHold {
+                    shouldHold = false
+                    return true
+                }
+                return false
+            }
+        }
+        ObserverUploaderURLProtocol.onHeldRequest = { _ in firstStarted.signal() }
+        ObserverUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(diagnosticLog: log)
+        let segmentID = UUID()
+        let completions = OSAllocatedUnfairLock<[ObserverMobileSegmentTransportResult]>(initialState: [])
+
+        try await self.seedMobileSegmentUpload(
+            uploader: uploader,
+            segmentID: segmentID,
+            onComplete: { result in completions.withLock { $0.append(result) } }
+        )
+        XCTAssertEqual(firstStarted.wait(timeout: .now() + 2), .success)
+
+        let oldDescription = """
+        {"kind":"mobile-segment","source_type":"observer-audio","segment_id":"\(segmentID.uuidString)","local_port":7071,"prefix":null}
+        """
+        await uploader.setAllSessionTaskDescriptionsForTesting(oldDescription)
+        await uploader.reconcilePortAndResume()
+
+        try await self.waitFor("old mobile descriptor missing epoch requeued") {
+            ObserverUploaderURLProtocol.callCount == 2
+                && completions.withLock { $0.contains(.delivered) }
+        }
+        XCTAssertEqual(uploader.mobileSegmentAttemptCountForTesting(segmentID: segmentID), 0)
+        XCTAssertTrue(self.uploadEvents(in: log).contains {
+            $0.message == "observer-audio upload reconnect-requeued"
+                && (($0.detail ?? "").contains("staleReason=missing-epoch"))
+        })
+    }
+
+    @MainActor
+    func testEpochStaleMobileSegmentCompletionRequeuesWithoutImmediateFailure() async throws {
+        let staleStarted = DispatchSemaphore(value: 0)
+        let staleRelease = DispatchSemaphore(value: 0)
+        let shouldTimeout = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldTimeout.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                staleStarted.signal()
+                _ = staleRelease.wait(timeout: .now() + 2)
+                throw URLError(.timedOut)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let activeEpoch = OSAllocatedUnfairLock<UInt64?>(initialState: 1)
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            activeEpochProvider: { activeEpoch.withLock { $0 } },
+            diagnosticLog: log,
+            maxAttempts: 1
+        )
+        let segmentID = UUID()
+        let completions = OSAllocatedUnfairLock<[ObserverMobileSegmentTransportResult]>(initialState: [])
+
+        try await self.seedMobileSegmentUpload(
+            uploader: uploader,
+            segmentID: segmentID,
+            onComplete: { result in completions.withLock { $0.append(result) } }
+        )
+        XCTAssertEqual(staleStarted.wait(timeout: .now() + 2), .success)
+
+        activeEpoch.withLock { $0 = 2 }
+        staleRelease.signal()
+
+        try await self.waitFor("epoch-stale mobile completion requeued") {
+            ObserverUploaderURLProtocol.callCount == 2
+                && completions.withLock { $0.contains(.delivered) }
+        }
+        XCTAssertEqual(uploader.mobileSegmentAttemptCountForTesting(segmentID: segmentID), 0)
+        let event = try XCTUnwrap(self.uploadEvents(in: log).first {
+            $0.message == "observer-audio upload reconnect-requeued"
+        })
+        let detail = event.detail ?? ""
+        XCTAssertTrue(detail.contains("staleReason=epoch-stale"))
+        XCTAssertTrue(detail.contains("epoch=1"))
+        XCTAssertTrue(detail.contains("currentEpoch=2"))
+        XCTAssertTrue(detail.contains("segmentID=\(segmentID.uuidString)"))
+    }
+
     @MainActor private func makeUploader(
         cacheRootURL: URL? = nil,
         retryDelays: [UInt64] = [0],
         ensureRegistered: @escaping @Sendable @MainActor () async throws -> String = { "test-observer-key-abc" },
         isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
         localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
+        activeEpochProvider: @escaping @Sendable @MainActor () -> UInt64? = { 1 },
         registrationPrefixProvider: @escaping @Sendable @MainActor () -> String? = { nil },
         urlBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             ObserverServerURL.ingestURL(localPort: localPort)
@@ -2540,6 +2831,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             ensureRegistered: ensureRegistered,
             isJournalConfigured: isJournalConfigured,
             localPortProvider: localPortProvider,
+            activeEpochProvider: activeEpochProvider,
             registrationPrefixProvider: registrationPrefixProvider,
             urlBuilder: urlBuilder,
             diagnosticLog: diagnosticLog,
@@ -2575,7 +2867,11 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         )
     }
 
-    @MainActor private func seedMobileSegmentUpload(uploader: ObserverUploader, segmentID: UUID) async throws {
+    @MainActor private func seedMobileSegmentUpload(
+        uploader: ObserverUploader,
+        segmentID: UUID,
+        onComplete: @escaping @MainActor @Sendable (ObserverMobileSegmentTransportResult) -> Void = { _ in }
+    ) async throws {
         let metadata = ObserverIngestMultipartMetadata(
             segment: "120000_3",
             day: "20260420",
@@ -2598,7 +2894,7 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
             segmentID: segmentID,
             requestBodyURL: request.requestBodyURL,
             boundary: request.boundary,
-            onComplete: { _ in }
+            onComplete: onComplete
         )
     }
 
@@ -2619,6 +2915,16 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         return encoder
+    }
+
+    private func taskDescriptionJSON(_ description: String) throws -> [String: Any] {
+        let object = try JSONSerialization.jsonObject(with: Data(description.utf8))
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func uint64Value(_ value: Any?) -> UInt64? {
+        guard let number = value as? NSNumber else { return nil }
+        return number.uint64Value
     }
 
     private func sessionDirectoryURL(sessionID: UUID) -> URL {

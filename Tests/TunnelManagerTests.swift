@@ -45,6 +45,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         },
         probeInterval: Duration = .seconds(15),
         probeFailureThreshold: Int = 2,
+        activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil
     ) -> TunnelManager {
         TunnelManager(
@@ -62,6 +63,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             probeURLBuilder: probeURLBuilder,
             probeInterval: probeInterval,
             probeFailureThreshold: probeFailureThreshold,
+            activeLocalTransferCountProvider: activeLocalTransferCountProvider,
             diagnosticLog: diagnosticLog
         )
     }
@@ -79,6 +81,58 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.state, .connected(localPort: 8080, via: .lan))
         XCTAssertEqual(transport.capturedCandidates.count, 2)
+    }
+
+    @MainActor
+    func testConnectionEpochTracksSuccessfulConnectionsAndHidesWhenInactive() async throws {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        transport.nextResult = .success(1111)
+        let manager = makeManager(transport: transport)
+
+        XCTAssertEqual(manager.connectionEpoch, 0)
+        XCTAssertNil(manager.activeConnection)
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.connectionEpoch, 1)
+        let first = try XCTUnwrap(manager.activeConnection)
+        XCTAssertEqual(first.port, 1111)
+        XCTAssertEqual(first.epoch, 1)
+
+        await manager.disconnect()
+
+        XCTAssertEqual(manager.connectionEpoch, 1)
+        XCTAssertNil(manager.activeConnection)
+
+        transport.connectionMode = .plViaSpl
+        transport.nextResult = .success(1111)
+        await manager.connect()
+
+        XCTAssertEqual(manager.connectionEpoch, 2)
+        let second = try XCTUnwrap(manager.activeConnection)
+        XCTAssertEqual(second.port, 1111)
+        XCTAssertEqual(second.epoch, 2)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testForceConnectedAdvancesConnectionEpoch() throws {
+        let manager = makeManager(transport: MockCFTunnelTransport())
+
+        manager.forceConnected(port: 8080, via: .lan)
+
+        XCTAssertEqual(manager.connectionEpoch, 1)
+        let first = try XCTUnwrap(manager.activeConnection)
+        XCTAssertEqual(first.port, 8080)
+        XCTAssertEqual(first.epoch, 1)
+
+        manager.forceConnected(port: 8080, via: .lan)
+
+        XCTAssertEqual(manager.connectionEpoch, 2)
+        let second = try XCTUnwrap(manager.activeConnection)
+        XCTAssertEqual(second.port, 8080)
+        XCTAssertEqual(second.epoch, 2)
     }
 
     @MainActor
@@ -1751,6 +1805,86 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testLivenessProbeEscalatesActiveTransfersOnFirstFailureWithoutInboundDelta() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        transport.inboundActivitySnapshotValue = 42
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            probeFailureThreshold: 99,
+            activeLocalTransferCountProvider: { 1 },
+            diagnosticLog: diagnosticLog
+        )
+
+        await manager.connect()
+        let didForceReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(2))
+
+        XCTAssertTrue(didForceReconnect)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
+        let escalation = try XCTUnwrap(diagnosticLog.events.last {
+            $0.category == .tunnel && $0.message == "probe not reachable during active uploads"
+        })
+        XCTAssertEqual(escalation.severity, .warning)
+        XCTAssertTrue((escalation.detail ?? "").contains("activeUploads=1"))
+        XCTAssertTrue((escalation.detail ?? "").contains("port=54321"))
+        XCTAssertTrue((escalation.detail ?? "").contains("epoch=1"))
+        let reconnect = try XCTUnwrap(diagnosticLog.events.last {
+            $0.category == .tunnel && $0.message == "forcing reconnect"
+        })
+        XCTAssertTrue((reconnect.detail ?? "").contains("probe failed"))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testLivenessProbeActiveTransfersStillYieldToInboundAdvance() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        transport.inboundActivitySnapshots = Array(0...100)
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            probeFailureThreshold: 1,
+            activeLocalTransferCountProvider: { 1 }
+        )
+
+        await manager.connect()
+        let didRunRepeatedFailedProbes = await Self.waitUntil({
+            TunnelProbeURLProtocol.capturedRequests.count >= 3
+        }, timeout: .seconds(2))
+
+        XCTAssertTrue(didRunRepeatedFailedProbes)
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
+        XCTAssertNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
+        await manager.disconnect()
+    }
+
+    @MainActor
     func testLivenessProbeEscalatesBusyButStuckWithoutInboundDelta() async throws {
         TunnelProbeURLProtocol.reset()
         TunnelProbeURLProtocol.handler = { _ in
@@ -1947,7 +2081,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let reconnectEvents = diagnosticLog.events.filter {
             $0.category == .tunnel && $0.message == "forcing reconnect"
         }
-        XCTAssertEqual(reconnectEvents.last?.detail, "keepalive missed")
+        XCTAssertEqual(reconnectEvents.last?.detail, "keepalive missed port=54321 epoch=1")
         await manager.disconnect()
     }
 
@@ -2227,7 +2361,7 @@ private final class TunnelProbeURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         Self.capturedRequestsBox.withLock { $0.append(self.request) }
         guard let handler = Self.handler else {
-            XCTFail("TunnelProbeURLProtocol handler not set")
+            self.client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
             return
         }
 
