@@ -1549,6 +1549,142 @@ private extension ObserverUploader {
         self.responseDataByTaskID[taskIdentifier, default: Data()].append(data)
     }
 
+    func armChunkReconnectRequeue(
+        _ info: TaskInfo,
+        httpStatus: Int? = nil,
+        transportError: String? = nil
+    ) {
+        let attempt = self.requeueAttemptCountByChunkID[info.chunkID, default: 0] + 1
+        self.requeueAttemptCountByChunkID[info.chunkID] = attempt
+        let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
+        let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
+        // Re-enqueue correctness assumes a chunk that reached the server before reconnect
+        // re-uploads to 2xx (sha256 dedup -> 200 duplicate). This branch owns
+        // a delayed, un-counted re-drive; revisit if ingest ever returns 4xx
+        // for duplicates.
+        self.appendUploadDiagnostic(
+            stage: "reconnect-requeued",
+            severity: .info,
+            sourceType: info.sourceType,
+            chunkID: info.chunkID,
+            prefix: info.prefix,
+            localPort: info.localPort,
+            httpStatus: httpStatus,
+            transportError: transportError,
+            attempt: attempt,
+            reason: "reconnect requeued",
+            isRequeue: true
+        )
+        self.retryTasksByChunkID[info.chunkID]?.cancel()
+        self.retryTasksByChunkID[info.chunkID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.sleep(requeueDelay)
+            guard !Task.isCancelled else { return }
+            var waited: UInt64 = 0
+            var lastPort = self.localPortProvider()
+            var stableFor: UInt64 = 0
+            while waited < self.requeueMaxDeferral {
+                await self.sleep(self.requeueStabilityPoll)
+                guard !Task.isCancelled else { return }
+                waited += self.requeueStabilityPoll
+                let port = self.localPortProvider()
+                if let port, port == lastPort {
+                    stableFor += self.requeueStabilityPoll
+                    if stableFor >= self.requeueStabilityWindow { break }
+                } else {
+                    stableFor = 0
+                    lastPort = port
+                }
+            }
+            let held = self.localPortProvider() == nil || !self.isJournalConfigured()
+            if held {
+                self.armChunkReconnectRequeue(info)
+                return
+            }
+            // Every reassignment cancels the previous retry first, so a non-cancelled retry is the current tracked entry; removing by key cannot delete a successor.
+            self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
+            await self.scheduleUpload(chunkID: info.chunkID, sessionID: info.sessionID)
+        }
+    }
+
+    func armMobileSegmentReconnectRequeue(
+        _ info: MobileSegmentTaskInfo,
+        httpStatus: Int? = nil,
+        transportError: String? = nil
+    ) async {
+        let attempt = self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID, default: 0] + 1
+        self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID] = attempt
+        if attempt >= mobileSegmentMaxRequeueAttempts {
+            await self.handleMobileSegmentUploadFailure(
+                segmentID: info.segmentID,
+                requestBodyURL: info.requestBodyURL,
+                boundary: info.boundary,
+                reason: "requeue_cap_exceeded",
+                context: UploadFailureContext(
+                    stage: "reconnect-requeued",
+                    severity: .error,
+                    sourceType: info.sourceType,
+                    localPort: info.localPort,
+                    prefix: info.prefix,
+                    httpStatus: nil,
+                    transportError: "requeue_cap_exceeded"
+                ),
+                forceTerminal: true
+            )
+            self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
+            return
+        }
+        let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
+        let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
+        self.appendUploadDiagnostic(
+            stage: "reconnect-requeued",
+            severity: .info,
+            sourceType: info.sourceType,
+            chunkID: info.segmentID.uuidString,
+            prefix: info.prefix,
+            localPort: info.localPort,
+            httpStatus: httpStatus,
+            transportError: transportError,
+            attempt: attempt,
+            reason: "reconnect requeued",
+            isRequeue: true
+        )
+        self.mobileSegmentRetryTasksBySegmentID[info.segmentID]?.cancel()
+        self.mobileSegmentRetryTasksBySegmentID[info.segmentID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.sleep(requeueDelay)
+            guard !Task.isCancelled else { return }
+            var waited: UInt64 = 0
+            var lastPort = self.localPortProvider()
+            var stableFor: UInt64 = 0
+            while waited < self.requeueMaxDeferral {
+                await self.sleep(self.requeueStabilityPoll)
+                guard !Task.isCancelled else { return }
+                waited += self.requeueStabilityPoll
+                let port = self.localPortProvider()
+                if let port, port == lastPort {
+                    stableFor += self.requeueStabilityPoll
+                    if stableFor >= self.requeueStabilityWindow { break }
+                } else {
+                    stableFor = 0
+                    lastPort = port
+                }
+            }
+            let held = self.localPortProvider() == nil || !self.isJournalConfigured()
+            if held {
+                await self.armMobileSegmentReconnectRequeue(info)
+                return
+            }
+            self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
+            // Reconnect requeues reuse the existing background request body.
+            await self.scheduleMobileSegmentUpload(
+                segmentID: info.segmentID,
+                requestBodyURL: info.requestBodyURL,
+                boundary: info.boundary
+            )
+        }
+    }
+
     func handleCompletion(for task: URLSessionTask, error: (any Error)?) async {
         let start = DispatchTime.now().uptimeNanoseconds
         if let mobileDescriptor = self.mobileSegmentUploadTaskDescriptor(from: task.taskDescription) {
@@ -1605,51 +1741,11 @@ private extension ObserverUploader {
             let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
             let isStalePort = currentPort.map { $0 != info.localPort } ?? true
             if isCancelled || isStalePort {
-                let attempt = self.requeueAttemptCountByChunkID[info.chunkID, default: 0] + 1
-                self.requeueAttemptCountByChunkID[info.chunkID] = attempt
-                let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
-                let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
-                // Re-enqueue correctness assumes a chunk that reached the server before reconnect
-                // re-uploads to 2xx (sha256 dedup -> 200 duplicate). This branch owns
-                // a delayed, un-counted re-drive; revisit if ingest ever returns 4xx
-                // for duplicates.
-                self.appendUploadDiagnostic(
-                    stage: "reconnect-requeued",
-                    severity: .info,
-                    sourceType: info.sourceType,
-                    chunkID: info.chunkID,
-                    prefix: info.prefix,
-                    localPort: info.localPort,
+                self.armChunkReconnectRequeue(
+                    info,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
-                    transportError: String(describing: error),
-                    attempt: attempt,
-                    reason: "reconnect requeued"
+                    transportError: String(describing: error)
                 )
-                self.retryTasksByChunkID[info.chunkID]?.cancel()
-                self.retryTasksByChunkID[info.chunkID] = Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    await self.sleep(requeueDelay)
-                    guard !Task.isCancelled else { return }
-                    var waited: UInt64 = 0
-                    var lastPort = self.localPortProvider()
-                    var stableFor: UInt64 = 0
-                    while waited < self.requeueMaxDeferral {
-                        await self.sleep(self.requeueStabilityPoll)
-                        guard !Task.isCancelled else { return }
-                        waited += self.requeueStabilityPoll
-                        let port = self.localPortProvider()
-                        if let port, port == lastPort {
-                            stableFor += self.requeueStabilityPoll
-                            if stableFor >= self.requeueStabilityWindow { break }
-                        } else {
-                            stableFor = 0
-                            lastPort = port
-                        }
-                    }
-                    // Every reassignment cancels the previous retry first, so a non-cancelled retry is the current tracked entry; removing by key cannot delete a successor.
-                    self.retryTasksByChunkID.removeValue(forKey: info.chunkID)
-                    await self.scheduleUpload(chunkID: info.chunkID, sessionID: info.sessionID)
-                }
                 return
             }
             await self.handleUploadFailure(
@@ -1770,70 +1866,11 @@ private extension ObserverUploader {
             let isCancelled = ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
             let isStalePort = currentPort.map { $0 != info.localPort } ?? true
             if isCancelled || isStalePort {
-                let attempt = self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID, default: 0] + 1
-                self.mobileSegmentRequeueAttemptCountBySegmentID[info.segmentID] = attempt
-                if attempt >= mobileSegmentMaxRequeueAttempts {
-                    await self.handleMobileSegmentUploadFailure(
-                        segmentID: info.segmentID,
-                        requestBodyURL: info.requestBodyURL,
-                        boundary: info.boundary,
-                        reason: "requeue_cap_exceeded",
-                        context: UploadFailureContext(
-                            stage: "reconnect-requeued",
-                            severity: .error,
-                            sourceType: info.sourceType,
-                            localPort: info.localPort,
-                            prefix: info.prefix,
-                            httpStatus: nil,
-                            transportError: "requeue_cap_exceeded"
-                        ),
-                        forceTerminal: true
-                    )
-                    return
-                }
-                let delayIndex = min(attempt - 1, max(self.retryDelays.count - 1, 0))
-                let requeueDelay = self.retryDelays.isEmpty ? 0 : self.retryDelays[delayIndex]
-                self.appendUploadDiagnostic(
-                    stage: "reconnect-requeued",
-                    severity: .info,
-                    sourceType: info.sourceType,
-                    chunkID: info.segmentID.uuidString,
-                    prefix: info.prefix,
-                    localPort: info.localPort,
+                await self.armMobileSegmentReconnectRequeue(
+                    info,
                     httpStatus: (task.response as? HTTPURLResponse)?.statusCode,
-                    transportError: String(describing: error),
-                    attempt: attempt,
-                    reason: "reconnect requeued"
+                    transportError: String(describing: error)
                 )
-                self.mobileSegmentRetryTasksBySegmentID[info.segmentID]?.cancel()
-                self.mobileSegmentRetryTasksBySegmentID[info.segmentID] = Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    await self.sleep(requeueDelay)
-                    guard !Task.isCancelled else { return }
-                    var waited: UInt64 = 0
-                    var lastPort = self.localPortProvider()
-                    var stableFor: UInt64 = 0
-                    while waited < self.requeueMaxDeferral {
-                        await self.sleep(self.requeueStabilityPoll)
-                        guard !Task.isCancelled else { return }
-                        waited += self.requeueStabilityPoll
-                        let port = self.localPortProvider()
-                        if let port, port == lastPort {
-                            stableFor += self.requeueStabilityPoll
-                            if stableFor >= self.requeueStabilityWindow { break }
-                        } else {
-                            stableFor = 0
-                            lastPort = port
-                        }
-                    }
-                    self.mobileSegmentRetryTasksBySegmentID.removeValue(forKey: info.segmentID)
-                    // Reconnect requeues reuse the existing background request body.
-                    await self.scheduleMobileSegmentUpload(
-                        segmentID: info.segmentID,
-                        requestBodyURL: info.requestBodyURL,
-                        boundary: info.boundary
-                    )
-                }
                 return
             }
             await self.handleMobileSegmentUploadFailure(
@@ -2167,7 +2204,8 @@ private extension ObserverUploader {
         httpStatus: Int?,
         transportError: String?,
         attempt: Int,
-        reason: String
+        reason: String,
+        isRequeue: Bool = false
     ) {
         let source = sourceType ?? self.sourceType
         let safeTransportError = transportError.map { self.redactedFailureDetail($0) }
@@ -2179,7 +2217,7 @@ private extension ObserverUploader {
             "localPort=\(localPort.map(String.init) ?? "none")",
             "httpStatus=\(httpStatus.map(String.init) ?? "none")",
             "transportError=\(safeTransportError?.isEmpty == false ? safeTransportError! : "none")",
-            "attempt=\(attempt)/\(self.maxAttempts)",
+            isRequeue ? "requeueAttempt=\(attempt)" : "attempt=\(attempt)/\(self.maxAttempts)",
             "reason=\(safeReason)",
         ].joined(separator: " ")
         self.diagnosticLog?.append(

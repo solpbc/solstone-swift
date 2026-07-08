@@ -433,9 +433,9 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
         let events = self.uploadEvents(in: log).filter { $0.message == "observer-audio upload reconnect-requeued" }
         XCTAssertEqual(events.count, 3)
-        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=1/1") })
-        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=2/1") })
-        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=3/1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("requeueAttempt=1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("requeueAttempt=2") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("requeueAttempt=3") })
         XCTAssertEqual(sleeps.recordedDelays(), [2, 4, 8])
         XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
 
@@ -490,6 +490,96 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
 
         XCTAssertEqual(sleepDurations.withLock { $0 }, [0, 1, 1, 1])
         XCTAssertEqual(uploader.failedCount, 0)
+    }
+
+    @MainActor
+    func testReconnectRequeueHeldNilPortRearmsAndDrainsWhenPortReturns() async throws {
+        let shouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        ObserverUploaderURLProtocol.handler = { request in
+            if shouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let deliveredSessions = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let sleeps = UploaderRecordedSleep()
+        let log = DiagnosticLog()
+        let uploader = self.makeUploader(
+            retryDelays: [0],
+            localPortProvider: { localPort.withLock { $0 } },
+            diagnosticLog: log,
+            onSegmentDelivered: { sessionID in
+                deliveredSessions.withLock { $0.append(sessionID) }
+            },
+            requeueStabilityPoll: 1,
+            requeueStabilityWindow: 2,
+            requeueMaxDeferral: 2,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let sessionID = UUID()
+        let chunkID = "chunk-requeue-held-nil-port"
+
+        await uploader.enqueue(
+            chunkURL: try self.makeChunkFile(named: chunkID),
+            sidecar: self.makeSidecar(sessionID: sessionID, chunkIndex: 0)
+        )
+
+        try await self.waitFor("first reconnect requeue armed") {
+            sleeps.recordedDelays().count >= 1
+                && uploader.requeueAttemptCountForTesting(chunkID: chunkID) == 1
+                && uploader.retryTaskCountForTesting() == 1
+        }
+        localPort.withLock { $0 = nil }
+        sleeps.releaseNext()
+
+        try await self.waitFor("first nil-port deferral poll") {
+            sleeps.recordedDelays().count >= 2
+        }
+        sleeps.releaseNext()
+        try await self.waitFor("second nil-port deferral poll") {
+            sleeps.recordedDelays().count >= 3
+        }
+        sleeps.releaseNext()
+
+        try await self.waitFor("nil-port reconnect rearmed") {
+            sleeps.recordedDelays().count >= 4
+                && uploader.requeueAttemptCountForTesting(chunkID: chunkID) == 2
+                && uploader.retryTaskCountForTesting() == 1
+        }
+        XCTAssertEqual(uploader.attemptCountForTesting(chunkID: chunkID), 0)
+        XCTAssertEqual(uploader.failedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.failureSidecarURL(sessionID: sessionID, chunkID: chunkID).path))
+
+        localPort.withLock { $0 = 7071 }
+        sleeps.releaseNext()
+        try await self.waitFor("first restored-port stability poll") {
+            sleeps.recordedDelays().count >= 5
+        }
+        sleeps.releaseNext()
+        try await self.waitFor("second restored-port stability poll") {
+            sleeps.recordedDelays().count >= 6
+        }
+        sleeps.releaseNext()
+
+        try await self.waitFor("held reconnect drains after port returns") {
+            uploader.pendingCount == 0
+                && ObserverUploaderURLProtocol.callCount == 2
+                && deliveredSessions.withLock({ $0.contains(sessionID) })
+        }
+        let events = self.uploadEvents(in: log)
+        XCTAssertTrue(events.contains { $0.message == "synced to your journal" })
+        XCTAssertEqual(uploader.retryTaskCountForTesting(), 0)
+        sleeps.releaseAll()
     }
 
     @MainActor

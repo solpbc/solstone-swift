@@ -381,6 +381,131 @@ final class MobileSegmentUploaderTests: XCTestCase {
         sleeps.releaseAll()
     }
 
+    func testMobileReconnectRequeueHeldNilPortRearmsToCapAndRetryFailedRedrives() async throws {
+        let firstRequestShouldCancel = OSAllocatedUnfairLock<Bool>(initialState: true)
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            if firstRequestShouldCancel.withLock({ value in
+                if value {
+                    value = false
+                    return true
+                }
+                return false
+            }) {
+                throw URLError(.cancelled)
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let sleeps = UploaderRecordedSleep()
+        let harness = self.makeHarness(
+            connected: true,
+            retryDelays: [0],
+            localPortProvider: { localPort.withLock { $0 } },
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.uploader.resumeFromDisk()
+
+        for expected in 1..<5 {
+            try await self.waitFor("mobile held requeue attempt \(expected)") {
+                sleeps.recordedDelays().count >= expected
+                    && harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID) == expected
+                    && harness.transport.retryTaskCountForTesting() == 1
+            }
+            if expected == 1 {
+                localPort.withLock { $0 = nil }
+            }
+            sleeps.releaseNext()
+        }
+
+        try await self.waitFor("mobile held requeue cap failure") {
+            harness.uploader.failedCount == 1
+        }
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        let failure = try XCTUnwrap(harness.store.loadFailure(in: failedDirectory))
+        XCTAssertEqual(failure.reason, "requeue_cap_exceeded")
+        XCTAssertEqual(failure.transportError, "requeue_cap_exceeded")
+        XCTAssertEqual(failure.stage, "reconnect-requeued")
+        XCTAssertEqual(harness.transport.retryTaskCountForTesting(), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+
+        localPort.withLock { $0 = 7071 }
+        MobileSegmentUploaderURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        await harness.uploader.retryFailed(respectingCooldown: false)
+        await harness.uploader.resumeFromDisk()
+
+        try await self.waitFor("mobile failed re-drive") {
+            MobileSegmentUploaderURLProtocol.callCount == 2
+                && harness.uploader.lastUploadAt != nil
+                && harness.uploader.failedCount == 0
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        sleeps.releaseAll()
+    }
+
+    func testMobileReconnectRequeueDiagnosticsDistinguishRequeueCounterFromCapAttempt() async throws {
+        MobileSegmentUploaderURLProtocol.handler = { _ in
+            throw URLError(.cancelled)
+        }
+        let localPort = OSAllocatedUnfairLock<Int?>(initialState: 7071)
+        let log = DiagnosticLog()
+        let sleeps = UploaderRecordedSleep()
+        let harness = self.makeHarness(
+            connected: true,
+            maxAttempts: 5,
+            retryDelays: [0],
+            localPortProvider: { localPort.withLock { $0 } },
+            diagnosticLog: log,
+            requeueMaxDeferral: 0,
+            sleep: { delay in await sleeps.sleep(delay) }
+        )
+        let segmentID = UUID()
+        _ = try self.createFinalizedActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio])
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.uploader.resumeFromDisk()
+
+        for expected in 1..<5 {
+            try await self.waitFor("mobile diagnostic requeue attempt \(expected)") {
+                sleeps.recordedDelays().count >= expected
+                    && harness.transport.mobileSegmentRequeueAttemptCountForTesting(segmentID: segmentID) == expected
+            }
+            if expected == 1 {
+                localPort.withLock { $0 = nil }
+            }
+            sleeps.releaseNext()
+        }
+
+        try await self.waitFor("mobile diagnostic cap failure") {
+            harness.uploader.failedCount == 1
+        }
+
+        let reconnectEvents = self.uploadEvents(in: log).filter { $0.message.hasSuffix("upload reconnect-requeued") }
+        let requeueEvents = reconnectEvents.filter { $0.severity == .info }
+        XCTAssertEqual(requeueEvents.count, 4)
+        for expected in 1..<5 {
+            let event = try XCTUnwrap(requeueEvents.first { ($0.detail ?? "").contains("requeueAttempt=\(expected)") })
+            XCTAssertFalse((event.detail ?? "").contains("attempt=\(expected)/5"))
+        }
+        let capEvent = try XCTUnwrap(reconnectEvents.first { $0.severity == .error })
+        XCTAssertTrue((capEvent.detail ?? "").contains("attempt=1/5"))
+        XCTAssertFalse((capEvent.detail ?? "").contains("requeueAttempt="))
+        sleeps.releaseAll()
+    }
+
     func testMobileReconnectRequeueAttemptsAndBackoffEscalate() async throws {
         MobileSegmentUploaderURLProtocol.handler = { _ in
             throw URLError(.cancelled)
@@ -413,9 +538,9 @@ final class MobileSegmentUploaderTests: XCTestCase {
 
         let events = self.uploadEvents(in: log).filter { $0.message.hasSuffix("upload reconnect-requeued") }
         XCTAssertEqual(events.count, 3)
-        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=1/1") })
-        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=2/1") })
-        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("attempt=3/1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("requeueAttempt=1") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("requeueAttempt=2") })
+        XCTAssertTrue(events.contains { ($0.detail ?? "").contains("requeueAttempt=3") })
         XCTAssertEqual(sleeps.recordedDelays(), [2, 4, 8])
         XCTAssertEqual(harness.transport.mobileSegmentAttemptCountForTesting(segmentID: segmentID), 0)
 
