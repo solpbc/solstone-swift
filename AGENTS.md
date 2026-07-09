@@ -21,13 +21,14 @@ Local-first observation works unpaired. Captured data is held durably on-phone a
 The UI shell has no tab bar. `Sources/ContentView.swift` gates on `onboardingFlow.isCompleted`, then renders `RootShellView` (`Sources/RootShellView.swift`), a `NavigationStack` over `DayHomeView` (`Sources/DayHomeView.swift`). The sources control center (`SourcesView`, `Sources/SourcesView.swift`), chat (`ChatView`, `Sources/Chat/ChatView.swift`), the embedded journal web view (`InAppJournalView`, `Sources/Portal/InAppJournalView.swift`), and more (`MoreView`, `Sources/MoreView.swift`) are presented as sheets / navigation destinations, not tabs.
 
 Capture pipelines:
-- `Sources/Observer/` — audio recorder/manager + shared background-URLSession uploader.
+- `Sources/Observer/` — audio recorder/manager.
+- `Sources/Transfer/` — durable shared transfer spool, dispatch engine, transport, retry pacing, and per-source status mirror.
 - `Sources/MobileSegment/` — `Sources/MobileSegment/MobileSegmentEngine.swift`, `Sources/MobileSegment/MobileSegmentStore.swift`, and `Sources/MobileSegment/MobileSegmentUploader.swift` are the 5-minute segment core.
 - `Sources/Location/` — `Sources/Location/LocationManager.swift`.
 - `Sources/Screencast/` — `Sources/Screencast/ScreencastManager.swift` is the ReplayKit control side; the broadcast extension writes into the active segment through the app group.
 - `Sources/Omi/` — `Sources/Omi/OmiSourceManager.swift` for the BLE pendant.
 - `Sources/WatchCapture/` + `Watch/Sources/` — Apple Watch companion, both halves.
-- `Sources/ImportQueue/` (`Sources/ImportQueue/ImportQueue.swift`) + `SolstoneShareExtension/` (`SolstoneShareExtension/ShareViewController.swift`) — share-sheet imports.
+- `Sources/ShareImport/` + `SolstoneShareExtension/` (`SolstoneShareExtension/ShareViewController.swift`) — share-sheet staging, app adoption, and transfer handoff.
 
 Embedded journal web: `Sources/Portal/InAppJournalView.swift` is a plain `WKWebView` with `WKNavigationDelegate` callbacks only. There are no script message handlers and no URL-scheme handler. There is no JavaScript bridge; native ↔ journal communication is HTTP over the loopback port.
 
