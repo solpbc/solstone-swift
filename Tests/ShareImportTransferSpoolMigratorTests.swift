@@ -161,6 +161,81 @@ nonisolated final class ShareImportTransferSpoolMigratorTests: XCTestCase {
     }
 
     @MainActor
+    func testUnreadableLedgerAbortsMigrationWithoutTouchingItemsAndRetriesAfterRepair() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("AppGroupCorruptLedger", isDirectory: true)
+        let storeRoot = appGroupRoot.appendingPathComponent("ImportQueue", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent("Transfers", isDirectory: true)
+        let store = ShareImportStore(cacheRootURL: storeRoot, now: { Self.baseDate })
+        let engine = self.makeEngine(rootURL: transferRoot)
+        let diagnosticLog = DiagnosticLog()
+        let defaults = try self.makeDefaults()
+        try await engine.start()
+
+        let itemID = Self.uuid(30)
+        try self.writeLegacyItem(root: storeRoot, status: "pending", itemID: itemID, source: "file", raw: Data("delivered".utf8))
+        try Data("{".utf8).write(to: storeRoot.appendingPathComponent("ledger.json", isDirectory: false), options: .atomic)
+
+        await ShareImportTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            store: store,
+            transferEngine: engine,
+            diagnosticLog: diagnosticLog,
+            defaults: defaults
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.itemDirectory(root: storeRoot, status: "pending", itemID: itemID).path))
+        let snapshotsAfterAbort = await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.share)
+        XCTAssertTrue(snapshotsAfterAbort.isEmpty)
+        XCTAssertTrue(try self.quarantineEntries(appGroupRoot: appGroupRoot).isEmpty)
+        XCTAssertFalse(defaults.bool(forKey: ShareImportTransferSpoolMigrator.flagKey))
+        XCTAssertTrue(diagnosticLog.events.contains { $0.detail?.contains("ledger unreadable") == true })
+
+        let itemIDString = itemID.uuidString.lowercased()
+        try self.writeLedger([itemIDString: self.ledgerEntry(itemID: itemIDString)], root: storeRoot)
+
+        await ShareImportTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            store: store,
+            transferEngine: engine,
+            diagnosticLog: diagnosticLog,
+            defaults: defaults
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(root: storeRoot, status: "pending", itemID: itemID).path))
+        let snapshotsAfterRepair = await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.share)
+        XCTAssertTrue(snapshotsAfterRepair.isEmpty)
+        XCTAssertTrue(defaults.bool(forKey: ShareImportTransferSpoolMigrator.flagKey))
+    }
+
+    @MainActor
+    func testAbsentLedgerMigratesNormally() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("AppGroupAbsentLedger", isDirectory: true)
+        let storeRoot = appGroupRoot.appendingPathComponent("ImportQueue", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent("Transfers", isDirectory: true)
+        let store = ShareImportStore(cacheRootURL: storeRoot, now: { Self.baseDate })
+        let engine = self.makeEngine(rootURL: transferRoot)
+        let defaults = try self.makeDefaults()
+        try await engine.start()
+
+        let itemID = Self.uuid(31)
+        try self.writeLegacyItem(root: storeRoot, status: "pending", itemID: itemID, source: "file", raw: Data("pending".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeRoot.appendingPathComponent("ledger.json", isDirectory: false).path))
+
+        await ShareImportTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            store: store,
+            transferEngine: engine,
+            diagnosticLog: nil,
+            defaults: defaults
+        )
+
+        let snapshots = await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.share)
+        XCTAssertEqual(snapshots.map(\.itemID), [itemID])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: self.itemDirectory(root: storeRoot, status: "pending", itemID: itemID).path))
+        XCTAssertTrue(defaults.bool(forKey: ShareImportTransferSpoolMigrator.flagKey))
+    }
+
+    @MainActor
     private func makeEngine(rootURL: URL) -> TransferEngine {
         self.makeEngine(spool: TransferSpool(rootURL: rootURL))
     }
@@ -241,6 +316,33 @@ nonisolated final class ShareImportTransferSpoolMigratorTests: XCTestCase {
             .appendingPathComponent(itemID.uuidString.lowercased(), isDirectory: true)
     }
 
+    @MainActor
+    private func quarantineEntries(appGroupRoot: URL) throws -> [URL] {
+        let root = ShareImportTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot)
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+    }
+
+    private func writeLedger(_ ledger: [String: ShareImportStore.LedgerEntry], root: URL) throws {
+        try self.encoder.encode(ledger)
+            .write(to: root.appendingPathComponent("ledger.json", isDirectory: false), options: .atomic)
+    }
+
+    private func ledgerEntry(itemID: String) -> ShareImportStore.LedgerEntry {
+        ShareImportStore.LedgerEntry(
+            itemID: itemID,
+            basis: "sent",
+            contentType: "application/pdf",
+            targetJournal: "",
+            serverPath: "/imports/delivered",
+            serverTimestamp: "2026-07-09T00:00:00Z",
+            deliveredAt: Self.baseDate,
+            filename: "document.pdf",
+            originApp: nil,
+            itemTime: nil
+        )
+    }
+
     private func shareManifest(itemID: UUID, source: String, kind: TransferPayloadKind) -> TransferManifest {
         let partID = kind == .text ? "text" : "file"
         return TransferManifest(
@@ -259,8 +361,8 @@ nonisolated final class ShareImportTransferSpoolMigratorTests: XCTestCase {
             ],
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
-                path: "/app/import/api/save",
-                startPath: "/app/import/api/start",
+                path: ImporterServerURL.savePath,
+                startPath: ImporterServerURL.startPath,
                 requiresAuth: false
             ),
             meta: ShareImportTransferMetadata.meta(fields: ShareImportTransferMetadata.Fields(

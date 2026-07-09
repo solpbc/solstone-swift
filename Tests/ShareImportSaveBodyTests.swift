@@ -26,7 +26,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
     func testSaveBodiesMatchGoldenFixturesAfterBoundaryNormalization() throws {
         for name in ["quick-text", "jpeg", "pdf", "m4a"] {
             let fixture = try self.fixture(named: name)
-            let expected = try Data(contentsOf: self.fixtureURL(name: name, suffix: "save.body"))
+            let expected = try Data(contentsOf: try self.fixtureURL(name: name, suffix: "save.body"))
             let payload = try self.payload(fromSaveBody: expected, fixture: fixture)
             let kind: TransferPayloadKind = fixture.source == "quick" ? .text : .file
             let item = try self.storedItem(fixture: fixture, payload: payload, kind: kind, phase: .savePending)
@@ -49,8 +49,8 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
     func testStartBodiesMatchGoldenFixturesExactly() throws {
         for name in ["quick-text", "jpeg", "pdf", "m4a"] {
             let fixture = try self.fixture(named: name)
-            let expected = try Data(contentsOf: self.fixtureURL(name: name, suffix: "start.body"))
-            let saveBody = try Data(contentsOf: self.fixtureURL(name: name, suffix: "save.body"))
+            let expected = try Data(contentsOf: try self.fixtureURL(name: name, suffix: "start.body"))
+            let saveBody = try Data(contentsOf: try self.fixtureURL(name: name, suffix: "save.body"))
             let payload = try self.payload(fromSaveBody: saveBody, fixture: fixture)
             let kind: TransferPayloadKind = fixture.source == "quick" ? .text : .file
             let item = try self.storedItem(fixture: fixture, payload: payload, kind: kind, phase: .startPending)
@@ -110,7 +110,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             TransferURLProtocol.bodies.count == 1
         }
 
-        let expected = try Data(contentsOf: self.fixtureURL(name: "quick-text", suffix: "save.body"))
+        let expected = try Data(contentsOf: try self.fixtureURL(name: "quick-text", suffix: "save.body"))
         let expectedClientItemID = try XCTUnwrap(self.multipartValue(named: "client_item_id", in: expected))
         let actualClientItemID = try XCTUnwrap(self.multipartValue(named: "client_item_id", in: TransferURLProtocol.bodies[0]))
         XCTAssertEqual(actualClientItemID, expectedClientItemID)
@@ -153,8 +153,8 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             ],
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
-                path: "/app/import/api/save",
-                startPath: "/app/import/api/start",
+                path: ImporterServerURL.savePath,
+                startPath: ImporterServerURL.startPath,
                 requiresAuth: false
             ),
             saveThenStart: state
@@ -194,22 +194,33 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
     }
 
     private func fixture(named name: String) throws -> ShareImportBodyFixtureMetadata {
-        let data = try Data(contentsOf: self.fixtureURL(name: name, suffix: "metadata.json"))
+        let data = try Data(contentsOf: try self.fixtureURL(name: name, suffix: "metadata.json"))
         return try JSONDecoder().decode(ShareImportBodyFixtureMetadata.self, from: data)
     }
 
-    private func fixtureURL(name: String, suffix: String) -> URL {
-        Self.fixtureRoot.appendingPathComponent("\(name).\(suffix)", isDirectory: false)
-    }
-
-    private static var fixtureRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures", isDirectory: true)
-            .appendingPathComponent("ShareImportBodies", isDirectory: true)
+    private func fixtureURL(name: String, suffix: String) throws -> URL {
+        let resourceName = "\(name).\(suffix)"
+        let resourceURL = try XCTUnwrap(Bundle(for: Self.self).resourceURL, "test bundle resources are unavailable")
+        let rootCandidate = resourceURL.appendingPathComponent(resourceName, isDirectory: false)
+        if FileManager.default.fileExists(atPath: rootCandidate.path) {
+            return rootCandidate
+        }
+        for directory in ["ShareImportBodies", "Fixtures/ShareImportBodies"] {
+            let candidate = resourceURL
+                .appendingPathComponent(directory, isDirectory: true)
+                .appendingPathComponent(resourceName, isDirectory: false)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        throw ShareImportFixtureError.missingFixture(resourceName)
     }
 
     private static let baseDate = Date(timeIntervalSince1970: 1_783_536_000)
+}
+
+private enum ShareImportFixtureError: Error {
+    case missingFixture(String)
 }
 
 private struct ShareImportBodyFixtureMetadata: Decodable {

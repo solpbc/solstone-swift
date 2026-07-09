@@ -70,7 +70,10 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
     }
 
     func testShareImportCutoverRemovedLegacyBackgroundUploadMechanics() throws {
-        let shareImportText = try Self.sourceText(under: "Sources/ShareImport")
+        let shareImportText = try [
+            Self.sourceText(under: "Sources/ShareImport"),
+            Self.sourceText("Sources/Transfer/ShareImportSaveBody.swift"),
+        ].joined(separator: "\n")
         for forbidden in [
             "URLSession",
             "NWPathMonitor",
@@ -79,8 +82,14 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
             "save.upload",
             "start.upload",
             "ThroughputMeter",
+            "ImportQueueMode",
+            "ImportQueueSessionDelegate",
             "handleBackgroundURLSessionEvents",
             "finishBackgroundEvents",
+            "reconcilePortIfNeeded",
+            "retryDelays",
+            "maxAttempts",
+            "ForTesting",
         ] {
             XCTAssertFalse(shareImportText.contains(forbidden), forbidden)
         }

@@ -34,12 +34,7 @@ nonisolated final class ObserverServerURLTests: XCTestCase {
     }
 
     func testImporterURLsBuildKeylessRoutes() throws {
-        let saveURL = try XCTUnwrap(ImporterServerURL.saveURL(localPort: 7071))
-        let startURL = try XCTUnwrap(ImporterServerURL.startURL(localPort: 7071))
-
-        XCTAssertEqual(saveURL.host, "127.0.0.1")
-        XCTAssertEqual(saveURL.path, "/app/import/api/save")
-        XCTAssertEqual(startURL.host, "127.0.0.1")
-        XCTAssertEqual(startURL.path, "/app/import/api/start")
+        XCTAssertEqual(ImporterServerURL.savePath, "/app/import/api/save")
+        XCTAssertEqual(ImporterServerURL.startPath, "/app/import/api/start")
     }
 }

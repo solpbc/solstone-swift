@@ -82,9 +82,19 @@ extension ShareImportStore {
             return 1
         }
 
+        let ledger: [String: LedgerEntry]
+        do {
+            ledger = try self.loadLedger()
+        } catch {
+            let detail = "source=\(self.ledgerURL().path) reason=ledger unreadable error=\(String(describing: error))"
+            Self.emit(diagnosticLog, detail: detail)
+            shareImportTransferLog.error("share import adoption aborted ledger unreadable source=\(self.ledgerURL().path, privacy: .public): \(String(describing: error), privacy: .public)")
+            return 1
+        }
+
         var unresolved = 0
-        unresolved += await self.adopt(status: .pending, engine: engine, diagnosticLog: diagnosticLog, quarantineRootURL: quarantineRootURL)
-        unresolved += await self.adopt(status: .failed, engine: engine, diagnosticLog: diagnosticLog, quarantineRootURL: quarantineRootURL)
+        unresolved += await self.adopt(status: .pending, ledger: ledger, engine: engine, diagnosticLog: diagnosticLog, quarantineRootURL: quarantineRootURL)
+        unresolved += await self.adopt(status: .failed, ledger: ledger, engine: engine, diagnosticLog: diagnosticLog, quarantineRootURL: quarantineRootURL)
         self.refreshCounts()
         return unresolved
     }
@@ -107,6 +117,7 @@ extension ShareImportStore {
 
     private func adopt(
         status: ItemStatus,
+        ledger: [String: LedgerEntry],
         engine: TransferEngine,
         diagnosticLog: DiagnosticLog?,
         quarantineRootURL: URL
@@ -120,7 +131,6 @@ extension ShareImportStore {
         }
 
         var unresolved = 0
-        let ledger = (try? self.loadLedger()) ?? [:]
         for directory in directories.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             if Task.isCancelled { return unresolved + 1 }
             let itemID = directory.lastPathComponent
@@ -229,8 +239,8 @@ extension ShareImportStore {
             ],
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
-                path: "/app/import/api/save",
-                startPath: "/app/import/api/start",
+                path: ImporterServerURL.savePath,
+                startPath: ImporterServerURL.startPath,
                 requiresAuth: false
             ),
             meta: ShareImportTransferMetadata.meta(fields: fields),
@@ -281,9 +291,16 @@ extension ShareImportStore {
             .appendingPathComponent("share-import-transfer-adoption", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try self.fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        var shouldCleanUpTempDirectory = true
+        defer {
+            if shouldCleanUpTempDirectory {
+                try? self.fileManager.removeItem(at: tempDirectory)
+            }
+        }
         let tempURL = tempDirectory.appendingPathComponent("raw.bin", isDirectory: false)
         try self.fileManager.copyItem(at: self.rawURL(itemID: itemID, status: status), to: tempURL)
         _ = partID
+        shouldCleanUpTempDirectory = false
         return tempURL
     }
 

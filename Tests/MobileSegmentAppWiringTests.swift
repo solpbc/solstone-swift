@@ -50,8 +50,8 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertEqual(ObserverAudioTransferSource.share, "share")
         XCTAssertEqual(OmiSegmentWriter.cacheDirectoryName, "OmiObserver")
         XCTAssertEqual(WatchTransferSpoolMigrator.legacyCacheDirectoryName, "WatchObserver")
-        XCTAssertEqual(ImporterServerURL.saveURL(localPort: 7071)?.path, "/app/import/api/save")
-        XCTAssertEqual(ImporterServerURL.startURL(localPort: 7071)?.path, "/app/import/api/start")
+        XCTAssertEqual(ImporterServerURL.savePath, "/app/import/api/save")
+        XCTAssertEqual(ImporterServerURL.startPath, "/app/import/api/start")
 
         XCTAssertEqual(OnThisPhoneAudioSource(sourceType: "omi-audio"), .omi)
         XCTAssertEqual(OnThisPhoneAudioSource(sourceType: "watch-audio"), .watch)
