@@ -49,7 +49,6 @@ nonisolated enum ObserverAudioTransferAuthProvider {
 
 nonisolated enum ObserverAudioTransferError: Error, Equatable, Sendable {
     case unsupportedSource(String)
-    case missingObserverIngestMetadata
     case missingSessionID
 }
 
