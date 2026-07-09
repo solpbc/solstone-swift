@@ -115,6 +115,42 @@ final class WatchTransferSpoolMigratorTests: XCTestCase {
         let snapshotsAfterSecondRun = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         XCTAssertEqual(snapshotsAfterSecondRun.count, 2)
     }
+
+    func testAC6FailedQuarantineLeavesOriginalRootAndFlagUnset() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-quarantine-failing", isDirectory: true)
+        let legacyRoot = self.tempDirectory
+            .appendingPathComponent("caches-quarantine-failing", isDirectory: true)
+            .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        let diagnosticLog = DiagnosticLog()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
+        let sessionID = UUID()
+        let source = try self.seedChunk(
+            legacyRoot: legacyRoot,
+            sessionID: sessionID,
+            directoryName: "pending",
+            chunkID: UUID().uuidString,
+            sidecar: nil
+        )
+
+        await WatchTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyRootURL: legacyRoot,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: diagnosticLog,
+            defaults: defaults,
+            fileManager: QuarantineMoveFailingFileManager()
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyRoot.path))
+        XCTAssertFalse(defaults.bool(forKey: WatchTransferSpoolMigrator.flagKey))
+        XCTAssertTrue(diagnosticLog.events.contains {
+            $0.detail?.contains(source.audioURL.path) == true &&
+                $0.detail?.contains("quarantine failed") == true
+        })
+    }
 }
 
 private extension WatchTransferSpoolMigratorTests {

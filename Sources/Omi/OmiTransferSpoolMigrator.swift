@@ -122,16 +122,20 @@ private extension OmiTransferSpoolMigrator {
                     fileManager: fileManager
                 )
             guard let sidecar else {
-                _ = OmiInProgressRecovery.quarantine(
+                let quarantined = OmiInProgressRecovery.quarantine(
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     reason: "probe failed",
                     fileManager: fileManager
                 )
-                try? fileManager.removeItem(at: sidecarURL)
-                try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).upload", isDirectory: false))
-                try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).failure", isDirectory: false))
+                if quarantined == 0 {
+                    unresolved += 1
+                } else {
+                    try? fileManager.removeItem(at: sidecarURL)
+                    try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).upload", isDirectory: false))
+                    try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).failure", isDirectory: false))
+                }
                 continue
             }
 

@@ -98,16 +98,20 @@ private extension WatchTransferSpoolMigrator {
             let chunkID = audioURL.deletingPathExtension().lastPathComponent
             let sidecarURL = directoryURL.appendingPathComponent("\(chunkID).json", isDirectory: false)
             guard let sidecar = self.loadSidecar(sidecarURL, fileManager: fileManager) else {
-                _ = self.quarantine(
+                let quarantined = self.quarantine(
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     reason: "sidecar unavailable",
                     fileManager: fileManager
                 )
-                try? fileManager.removeItem(at: sidecarURL)
-                try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).upload", isDirectory: false))
-                try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).failure", isDirectory: false))
+                if quarantined == 0 {
+                    unresolved += 1
+                } else {
+                    try? fileManager.removeItem(at: sidecarURL)
+                    try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).upload", isDirectory: false))
+                    try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).failure", isDirectory: false))
+                }
                 continue
             }
 
@@ -169,7 +173,6 @@ private extension WatchTransferSpoolMigrator {
         return try? decoder.decode(ChunkSidecar.self, from: Data(contentsOf: url))
     }
 
-    @discardableResult
     static func quarantine(
         _ sourceURL: URL,
         quarantineRootURL: URL,

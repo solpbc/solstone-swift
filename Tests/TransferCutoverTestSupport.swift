@@ -139,6 +139,15 @@ func transferTestPathExists(containing needle: String, under root: URL) -> Bool 
     return false
 }
 
+final class QuarantineMoveFailingFileManager: FileManager {
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if dstURL.path.contains("TransferQuarantine") {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+}
+
 func transferTestWaitFor(
     _ label: String,
     timeout: Duration = .seconds(3),

@@ -56,13 +56,17 @@ enum OmiInProgressRecovery {
 
             let chunkID = audioURL.deletingPathExtension().lastPathComponent
             guard let byteCount = self.byteCountIfAvailable(at: audioURL, fileManager: fileManager) else {
-                result.quarantinedCount += self.quarantine(
+                let quarantined = self.quarantine(
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     reason: "size unavailable",
                     fileManager: fileManager
                 )
+                result.quarantinedCount += quarantined
+                if quarantined == 0 {
+                    result.unresolvedCount += 1
+                }
                 continue
             }
             if byteCount == 0 {
@@ -77,13 +81,17 @@ enum OmiInProgressRecovery {
                 sessionID: sessionID,
                 fileManager: fileManager
             ) else {
-                result.quarantinedCount += self.quarantine(
+                let quarantined = self.quarantine(
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     reason: "probe failed",
                     fileManager: fileManager
                 )
+                result.quarantinedCount += quarantined
+                if quarantined == 0 {
+                    result.unresolvedCount += 1
+                }
                 continue
             }
 
@@ -173,7 +181,6 @@ enum OmiInProgressRecovery {
         return nil
     }
 
-    @discardableResult
     static func quarantine(
         _ sourceURL: URL,
         quarantineRootURL: URL,

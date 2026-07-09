@@ -170,6 +170,38 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertEqual(snapshots.count, 0)
     }
 
+    func testAC3FailedQuarantineLeavesOriginalRootAndFlagUnset() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-quarantine-failing", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        let diagnosticLog = DiagnosticLog()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
+        let sessionID = UUID()
+        let source = try self.seedUndecodableChunk(
+            rootURL: self.appGroupOmiRoot(appGroupRoot),
+            sessionID: sessionID,
+            directoryName: "pending",
+            chunkID: "\(sessionID.uuidString.lowercased())-0"
+        )
+
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: diagnosticLog,
+            defaults: defaults,
+            fileManager: QuarantineMoveFailingFileManager()
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.appGroupOmiRoot(appGroupRoot).path))
+        XCTAssertFalse(defaults.bool(forKey: OmiTransferSpoolMigrator.flagKey))
+        XCTAssertTrue(diagnosticLog.events.contains {
+            $0.detail?.contains(source.audioURL.path) == true &&
+                $0.detail?.contains("quarantine failed") == true
+        })
+    }
+
     func testAC2ThrownInProgressRecoveryLeavesFileAtSourceOrInSalvageAndQuarantineIsNeverRemoved() async throws {
         let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-recovery", isDirectory: true)
         let omiRoot = self.appGroupOmiRoot(appGroupRoot)
