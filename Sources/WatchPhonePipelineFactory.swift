@@ -15,29 +15,25 @@ struct WatchPhonePipeline {
 
 @MainActor
 func makeWatchPhonePipeline(
-    watchUploader: ObserverUploader,
-    watchRegistration: ObserverRegistration,
+    transferEngine: TransferEngine,
+    transferStatusMirror: TransferStatusMirror,
+    transferEnqueuer: ObserverAudioTransferEnqueuer,
     watchConnectivitySession: any WatchConnectivitySession,
     ledgerFileURL: URL? = nil,
     ledgerClock: @escaping @MainActor @Sendable () -> Date = Date.init,
     drainStagingRootURL: URL? = nil,
-    receiverStagingRootURL: URL? = nil,
-    drainTempDirectoryURL: URL? = nil
+    receiverStagingRootURL: URL? = nil
 ) -> WatchPhonePipeline {
     let ledger = WatchSegmentLedger(fileURL: ledgerFileURL, clock: ledgerClock)
-    let holder = WatchUploaderHolder(watchUploader)
+    let holder = WatchUploaderHolder(transferEngine: transferEngine, mirror: transferStatusMirror)
 
     let drain: WatchSegmentDrain?
     do {
         drain = try WatchSegmentDrain(
             stagingRootURL: drainStagingRootURL,
             ledger: ledger,
-            watchUploader: watchUploader,
-            watchRegistration: watchRegistration,
-            localPortProvider: {
-                watchRegistration.activeLocalPort
-            },
-            tempDirectoryURL: drainTempDirectoryURL
+            transferEnqueuer: transferEnqueuer,
+            transferEngine: transferEngine
         )
     } catch {
         Logger(subsystem: "app.solstone.swift", category: "watch-drain")
@@ -48,6 +44,18 @@ func makeWatchPhonePipeline(
     holder.removeStaging = { [weak drain, weak ledger] id in
         ledger?.recordDropped(id: id)
         drain?.removeStaged(id)
+    }
+
+    Task { [transferEngine, weak drain, weak ledger] in
+        await transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.watch) { [weak drain, weak ledger] manifest in
+            guard let id = manifest.observerIngest?.sessionID else {
+                throw ObserverAudioTransferError.missingSessionID
+            }
+            await MainActor.run {
+                ledger?.recordHanded(id: id)
+                drain?.removeStaged(id)
+            }
+        }
     }
 
     let receiver: WatchRelayReceiver?
