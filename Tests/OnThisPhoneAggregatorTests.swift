@@ -55,7 +55,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         )
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: queues.importQueue,
+            share: queues.shareHolder,
             mobileSegmentUploader: queues.mobileSegmentUploader,
             transferEngine: queues.transferEngine
         )
@@ -73,7 +73,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
         let emptyQueues = self.makeQueues(suffix: "empty")
         let empty = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: emptyQueues.importQueue,
+            share: emptyQueues.shareHolder,
             mobileSegmentUploader: emptyQueues.mobileSegmentUploader,
             transferEngine: emptyQueues.transferEngine
         )
@@ -110,7 +110,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         try Data("{".utf8).write(to: queues.importRoot.appendingPathComponent("ledger.json"), options: .atomic)
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: queues.importQueue,
+            share: queues.shareHolder,
             mobileSegmentUploader: queues.mobileSegmentUploader,
             transferEngine: queues.transferEngine
         )
@@ -147,7 +147,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let omiID = OnThisPhoneItemID.transferIDString(itemID: omiItemID, source: .omi)
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: queues.importQueue,
+            share: queues.shareHolder,
             mobileSegmentUploader: queues.mobileSegmentUploader,
             transferEngine: queues.transferEngine
         )
@@ -188,7 +188,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         }
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: queues.importQueue,
+            share: queues.shareHolder,
             mobileSegmentUploader: queues.mobileSegmentUploader,
             transferEngine: queues.transferEngine
         )
@@ -584,7 +584,7 @@ private extension OnThisPhoneAggregatorTests {
         let mobileSegmentRoot: URL
         let omiRoot: URL
         let watchRoot: URL
-        let importQueue: ImportQueue
+        let shareHolder: ShareTransferHolder
         let mobileSegmentUploader: MobileSegmentUploader
         let transferEngine: TransferEngine
         let transferEnqueuer: ObserverAudioTransferEnqueuer
@@ -601,15 +601,16 @@ private extension OnThisPhoneAggregatorTests {
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("\(suffix)-transfer", isDirectory: true)
         )
+        let shareImportStore = ShareImportStore(cacheRootURL: importRoot)
         return Queues(
             importRoot: importRoot,
             mobileSegmentRoot: mobileSegmentRoot,
             omiRoot: omiRoot,
             watchRoot: watchRoot,
-            importQueue: ImportQueue(
-                cacheRootURL: importRoot,
-                sessionConfiguration: .ephemeral,
-                startPathMonitor: false
+            shareHolder: ShareTransferHolder(
+                transferEngine: transferHarness.engine,
+                mirror: transferHarness.mirror,
+                store: shareImportStore
             ),
             mobileSegmentUploader: MobileSegmentUploader(
                 transferEngine: transferHarness.engine,

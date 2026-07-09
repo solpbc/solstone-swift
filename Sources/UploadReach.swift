@@ -8,11 +8,11 @@ func uploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue
+    share: ShareTransferHolder
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + omi.failedCount + watch.failedCount + importQueue.failedCount,
-        pending: mobileSegment.pendingCount + omi.pendingCount + watch.pendingCount + importQueue.pendingCount
+        failed: mobileSegment.failedCount + omi.failedCount + watch.failedCount + share.failedCount,
+        pending: mobileSegment.pendingCount + omi.pendingCount + watch.pendingCount + share.pendingCount
     )
 }
 
@@ -21,13 +21,13 @@ func confirmedTransferCount(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue
+    share: ShareTransferHolder
 ) -> Int {
     confirmedTransferCount(
         mobileSegment: mobileSegment.confirmedActiveTransferCount,
         omi: omi.confirmedActiveTransferCount,
         watch: watch.confirmedActiveTransferCount,
-        importQueue: importQueue.confirmedActiveTransferCount
+        share: share.confirmedActiveTransferCount
     )
 }
 
@@ -35,9 +35,9 @@ nonisolated func confirmedTransferCount(
     mobileSegment: Int,
     omi: Int,
     watch: Int,
-    importQueue: Int
+    share: Int
 ) -> Int {
-    mobileSegment + omi + watch + importQueue
+    mobileSegment + omi + watch + share
 }
 
 @MainActor
@@ -45,13 +45,13 @@ func recentBytesTotal(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue
+    share: ShareTransferHolder
 ) -> Double {
     recentBytesTotal(
         mobileSegment: mobileSegment.recentBytesPerSecond,
         omi: omi.recentBytesPerSecond,
         watch: watch.recentBytesPerSecond,
-        importQueue: importQueue.recentBytesPerSecond
+        share: share.recentBytesPerSecond
     )
 }
 
@@ -59,9 +59,9 @@ nonisolated func recentBytesTotal(
     mobileSegment: Double,
     omi: Double,
     watch: Double,
-    importQueue: Double
+    share: Double
 ) -> Double {
-    mobileSegment + omi + watch + importQueue
+    mobileSegment + omi + watch + share
 }
 
 @MainActor
@@ -69,9 +69,9 @@ func uploadInFlight(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue
+    share: ShareTransferHolder
 ) -> Int {
-    mobileSegment.inFlightCount + omi.inFlightCount + watch.inFlightCount + importQueue.inFlightCount
+    mobileSegment.inFlightCount + omi.inFlightCount + watch.inFlightCount + share.inFlightCount
 }
 
 @MainActor
@@ -79,13 +79,13 @@ func uploadFailedTotal(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue
+    share: ShareTransferHolder
 ) -> Int {
     uploadTotals(
         mobileSegment: mobileSegment,
         omi: omi,
         watch: watch,
-        importQueue: importQueue
+        share: share
     ).failed
 }
 
@@ -98,12 +98,12 @@ func lastSyncedAt(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
-    importQueue: ImportQueue
+    share: ShareTransferHolder
 ) -> Date? {
     lastSyncedAt([
         mobileSegment.lastUploadAt,
         omi.lastUploadAt,
         watch.lastUploadAt,
-        importQueue.lastDeliveredAt,
+        share.lastUploadAt,
     ])
 }

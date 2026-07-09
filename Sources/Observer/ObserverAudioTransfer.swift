@@ -3,7 +3,7 @@
 
 import Foundation
 
-actor ObserverIngestTransferEndpointResolver: TransferEndpointResolver {
+actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
     private var activeLocalPort: Int?
 
     func update(activeLocalPort: Int?) {
@@ -11,7 +11,7 @@ actor ObserverIngestTransferEndpointResolver: TransferEndpointResolver {
     }
 
     func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
-        guard descriptor.destinationKind == .observerIngest else {
+        guard descriptor.destinationKind == .observerIngest || descriptor.destinationKind == .saveThenStart else {
             return .unavailable("unsupported endpoint")
         }
         guard let port = self.activeLocalPort else {

@@ -7,9 +7,13 @@ import os
 
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    nonisolated private static let retiredShareUploadSessionIdentifier = [
+        "app.solstone.swift",
+        ["share", "upload"].joined(separator: "-"),
+    ].joined(separator: ".")
+
     let pushManager = PushNotificationManager()
     let pendingRoute = PendingNotificationRouteState()
-    weak var importQueue: ImportQueue?
     lazy var tapRouter = NotificationTapRouter { [weak self] route in
         self?.pendingRoute.route = route
     }
@@ -76,14 +80,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping @Sendable () -> Void
     ) {
-        let completion: @MainActor @Sendable () -> Void = {
+        if identifier == Self.retiredShareUploadSessionIdentifier {
+            // A previous app version uploaded shares through the `share-upload` background URLSession. iOS can still wake this binary with `handleEventsForBackgroundURLSession` for that identifier, carrying outstanding tasks from that older binary, even though no code creates the session anymore. Always call the completion handler for an identifier we do not own — the system waits on it otherwise.
             completionHandler()
-        }
-
-        if identifier == ImportQueue.backgroundSessionIdentifier {
-            Task { @MainActor [weak self] in
-                self?.importQueue?.handleBackgroundURLSessionEvents(completionHandler: completion)
-            }
             return
         }
 

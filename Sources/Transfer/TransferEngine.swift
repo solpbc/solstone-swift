@@ -7,8 +7,8 @@ import os
 nonisolated private let transferLog = Logger(subsystem: "app.solstone.swift", category: "transfer")
 nonisolated private let transferStatusCoalescingDelay: Duration = .milliseconds(250)
 
-typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) throws -> Data
-typealias TransferDeliveredHook = @Sendable (TransferManifest) async throws -> Void
+typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> Data
+typealias TransferDeliveredHook = @Sendable (TransferManifest, TransferSuccessKind) async throws -> Void
 
 nonisolated enum TransferBodyBuildError: Error, Equatable, Sendable {
     case missingObserverMetadata
@@ -85,7 +85,9 @@ nonisolated enum DefaultTransferBodyBuilder {
                     path: savedPath,
                     timestamp: savedTimestamp
                 )
-                return try JSONEncoder().encode(body)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                return try encoder.encode(body)
             }
             throw TransferBodyBuildError.saveRequestUnsupported
         }
@@ -176,6 +178,9 @@ actor TransferEngine {
     private let clock: any TransferClock
     private let diagnosticsSink: TransferDiagnosticSink
     private let statusMirror: TransferStatusMirror?
+    /// Global dispatch cap across all sources. Share, mobile-segment, Omi, and
+    /// watch items draw from the same in-flight budget; this is not a
+    /// per-source concurrency limit.
     private let maxConcurrent: Int
     private let bodyBuilder: TransferBodyBuilder
 
@@ -276,6 +281,7 @@ actor TransferEngine {
     @discardableResult
     func enqueue(manifest: TransferManifest, payloads: [String: Data]) throws -> UUID {
         try self.commitStagedResult(self.spool.stage(manifest: manifest, payloads: payloads))
+            .manifest.itemID
     }
 
     /// Moves producer-owned payload files into staging without a full-file
@@ -296,9 +302,55 @@ actor TransferEngine {
     @discardableResult
     func enqueue(manifest: TransferManifest, payloadFileURLs: [String: URL]) throws -> UUID {
         try self.commitStagedResult(self.spool.stage(manifest: manifest, payloadFileURLs: payloadFileURLs))
+            .manifest.itemID
     }
 
-    private func commitStagedResult(_ staged: TransferSpoolStageResult) throws -> UUID {
+    @discardableResult
+    func enqueueAttention(
+        manifest: TransferManifest,
+        payloadFileURLs: [String: URL],
+        reason: String,
+        detail: String
+    ) throws -> UUID {
+        let committed = try self.commitStagedResult(self.spool.stage(manifest: manifest, payloadFileURLs: payloadFileURLs))
+        do {
+            let moved = try self.spool.moveQueuedItemToAttention(
+                committed,
+                reason: reason,
+                detail: detail,
+                now: self.clock.wallNow()
+            )
+            self.queuedItems.removeValue(forKey: committed.manifest.itemID)
+            self.attentionItems[moved.manifest.itemID] = moved
+            self.counters.queuedCount -= 1
+            self.counters.attentionCount += 1
+            self.updateSourceState(moved.manifest.sourceKey) { state in
+                state.counters.queuedCount -= 1
+                state.counters.attentionCount += 1
+            }
+            self.emit(
+                item: moved,
+                previousState: .queued,
+                nextState: .attention,
+                outcome: .needsAttention,
+                attempt: 0,
+                detail: detail
+            )
+            self.scheduleStatusUpdate(summary: "needs attention")
+            return moved.manifest.itemID
+        } catch {
+            self.queuedItems.removeValue(forKey: committed.manifest.itemID)
+            self.counters.queuedCount -= 1
+            self.updateSourceState(committed.manifest.sourceKey) { state in
+                state.counters.queuedCount -= 1
+            }
+            try? self.spool.removeCommittedItem(committed)
+            self.scheduleStatusUpdate(summary: self.lastEventSummary)
+            throw error
+        }
+    }
+
+    private func commitStagedResult(_ staged: TransferSpoolStageResult) throws -> TransferStoredItem {
         for diagnostic in staged.recoveryDiagnostics {
             self.emitRecoveryDiagnostic(diagnostic)
         }
@@ -319,7 +371,7 @@ actor TransferEngine {
         transferLog.notice("transfer item queued \(committed.manifest.itemID.uuidString, privacy: .public)")
         self.scheduleStatusUpdate(summary: "queued")
         self.scheduleWork()
-        return committed.manifest.itemID
+        return committed
     }
 
     func pause() {
@@ -592,7 +644,7 @@ actor TransferEngine {
 
         let phase = self.phase(for: item.manifest)
         do {
-            try self.preflightBody(phase: phase)
+            try self.preflightBody(item: item, phase: phase)
         } catch {
             self.handleBodyBuildFailure(error, item: item)
             return
@@ -600,10 +652,18 @@ actor TransferEngine {
 
         let bodyURL: URL
         do {
-            if self.spool.bodyCacheExists(for: item) {
+            let canUseBodyCache: Bool
+            switch phase {
+            case .save:
+                // SAVE bodies include a per-attempt observer_handle. Do not reuse body.upload for SAVE retries: the old ImportQueue called ensureRegistered() immediately before each SAVE body build, and observer handles may rotate between attempts. Rebuild cost is a second multipart encoding of the share payload; observer ingest and START bodies remain cacheable.
+                canUseBodyCache = false
+            case .observerIngest, .start:
+                canUseBodyCache = true
+            }
+            if canUseBodyCache && self.spool.bodyCacheExists(for: item) {
                 bodyURL = self.spool.bodyCacheURL(for: item)
             } else {
-                let body = try self.bodyBuilder(item, self.spool)
+                let body = try await self.bodyBuilder(item, self.spool)
                 bodyURL = try self.spool.writeBodyCache(body, for: item)
             }
         } catch {
@@ -646,7 +706,7 @@ actor TransferEngine {
 
         let outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
         switch outcome {
-        case .terminalSuccess:
+        case .terminalSuccess(let successKind):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.queuedItems.removeValue(forKey: itemID)
             self.counters.queuedCount -= 1
@@ -668,7 +728,11 @@ actor TransferEngine {
                 detail: "delivered"
             )
             transferLog.notice("transfer item delivered \(itemID.uuidString, privacy: .public)")
-            self.launchDeliveredHook(for: item.manifest, attempt: self.attemptCountByItemID[itemID, default: 0])
+            self.launchDeliveredHook(
+                for: item.manifest,
+                successKind: successKind,
+                attempt: self.attemptCountByItemID[itemID, default: 0]
+            )
         case .terminalAttention(let reason):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             let detail = self.shortDetail(for: reason)
@@ -779,7 +843,7 @@ actor TransferEngine {
         )
         self.retrySleepTask = Task { [clock] in
             await clock.sleep(for: .nanoseconds(Int64(delay * 1_000_000_000)))
-            await self.retryTimerFired()
+            self.retryTimerFired()
         }
     }
 
@@ -885,13 +949,13 @@ private extension TransferEngine {
         ))
     }
 
-    func launchDeliveredHook(for manifest: TransferManifest, attempt: Int) {
+    func launchDeliveredHook(for manifest: TransferManifest, successKind: TransferSuccessKind, attempt: Int) {
         guard let hook = self.deliveredHooks[manifest.sourceKey] else { return }
         let diagnosticsSink = self.diagnosticsSink
         let at = self.clock.wallNow()
         Task.detached {
             do {
-                try await hook(manifest)
+                try await hook(manifest, successKind)
             } catch {
                 diagnosticsSink(TransferDiagnosticEvent(
                     source: manifest.sourceKey,
@@ -928,12 +992,22 @@ private extension TransferEngine {
         return lhs.manifest.createdAt < rhs.manifest.createdAt
     }
 
-    func preflightBody(phase: TransferEndpointPhase) throws {
+    func preflightBody(item: TransferStoredItem, phase: TransferEndpointPhase) throws {
         switch phase {
         case .observerIngest:
             return
         case .save:
-            throw TransferBodyBuildError.saveRequestUnsupported
+            guard item.manifest.payloadParts.count == 1,
+                  let part = item.manifest.payloadParts.first
+            else {
+                throw TransferBodyBuildError.malformedManifest("save requires one payload")
+            }
+            switch part.kind {
+            case .text, .file:
+                return
+            case .audio, .location, .screen:
+                throw TransferBodyBuildError.malformedManifest("unsupported save payload")
+            }
         case .start(let state):
             guard let savedPath = state?.savedPath, !savedPath.isEmpty,
                   let savedTimestamp = state?.savedTimestamp, !savedTimestamp.isEmpty

@@ -32,7 +32,7 @@ nonisolated enum LoadTrigger: String, Sendable {
 
 struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(AppConfig.self) private var appConfig
-    @Environment(ImportQueue.self) private var importQueue
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(ObserverManager.self) private var observerManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
@@ -171,10 +171,10 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .onChange(of: self.watchUploaderHolder.failedCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .watchCounts) }
             }
-            .onChange(of: self.importQueue.pendingCount) { _, _ in
+            .onChange(of: self.shareTransferHolder.pendingCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .importCounts) }
             }
-            .onChange(of: self.importQueue.failedCount) { _, _ in
+            .onChange(of: self.shareTransferHolder.failedCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .importCounts) }
             }
             .onChange(of: self.mobileSegmentUploader.pendingCount) { _, _ in
@@ -749,7 +749,7 @@ private extension OnThisPhoneMomentsView {
     private func requestDrop(_ item: OnThisPhoneItem) {
         guard let commit = makeDropCommit(
             for: item,
-            importQueue: self.importQueue,
+            share: self.shareTransferHolder,
             transferEngine: self.mobileSegmentTransferHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader,
             removeWatchStaging: self.watchUploaderHolder.removeStaging
@@ -766,7 +766,7 @@ private extension OnThisPhoneMomentsView {
     private func requestRetry(_ item: OnThisPhoneItem) async {
         guard let commit = makeRetryCommit(
             for: item,
-            importQueue: self.importQueue,
+            share: self.shareTransferHolder,
             transferEngine: self.mobileSegmentTransferHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader
         ) else {
@@ -782,7 +782,7 @@ private extension OnThisPhoneMomentsView {
             fields: DrainFields(trigger: trigger.rawValue)
         )
         let aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: self.importQueue,
+            share: self.shareTransferHolder,
             mobileSegmentUploader: self.mobileSegmentUploader,
             transferEngine: self.mobileSegmentTransferHolder.transferEngine
         )

@@ -116,6 +116,65 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
         XCTAssertTrue(harness.defaults.bool(forKey: self.audioKey))
     }
 
+    func testResumeImportQueueOperationAdoptsStagedShareImportWithoutExtensionEngineCall() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LaunchShareAdoptionTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let store = ShareImportStore(cacheRootURL: tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true))
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000050001")!
+        _ = try ShareImportLegacyTestSupport.writeLegacyItem(
+            root: store.cacheRootURL,
+            itemID: itemID,
+            source: "quick",
+            raw: Data("launch share".utf8),
+            contentType: "text/plain",
+            requestFilename: "text.txt",
+            originalFilename: "note.txt"
+        )
+        let transfer = makeTransferCutoverHarness(
+            rootURL: tempDirectory.appendingPathComponent("Transfers", isDirectory: true),
+            endpointResolver: TransferEndpointResolverStub(.unavailable("waiting")),
+            bodyBuilder: TransferCutoverDispatchTests.shareBodyBuilder
+        )
+        try await transfer.engine.start()
+        let log = LaunchMaintenanceLogBox()
+        let defaults = try self.makeDefaults()
+        let coordinator = LaunchMaintenanceCoordinator(
+            defaults: defaults,
+            operations: LaunchMaintenanceCoordinator.Operations(
+                migrateIngestKeyAccessibility: { log.append("ingestKey") },
+                startScreencastObserving: { log.append("startScreencast") },
+                reconcileScreencast: { log.append("reconcile:\($0.rawValue)") },
+                resumeImportQueue: {
+                    log.append("resumeImport")
+                    await resumeShareImports(
+                        shareImportStore: store,
+                        transferEngine: transfer.engine,
+                        diagnosticLog: nil
+                    )
+                },
+                migrateLegacyMobileItems: { log.append("migrateMobile") },
+                resumeMobileSegments: { log.append("resumeMobile") },
+                migrateLegacyAudioKeys: { log.append("migrateAudio") },
+                replayWatchACKs: { log.append("replayWatchACKs") },
+                drainWatch: { log.append("drainWatch") },
+                endStaleObserverActivitiesIfIdle: { log.append("stale") }
+            )
+        )
+
+        await coordinator.runForegroundMaintenance()
+
+        let snapshot = await transfer.engine.itemSnapshot(itemID: itemID)
+        XCTAssertEqual(snapshot?.sourceKey, ObserverAudioTransferSource.share)
+        XCTAssertEqual(snapshot?.state, .queued)
+        XCTAssertTrue(log.entries.contains("resumeImport"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ShareImportLegacyTestSupport.itemDirectory(
+            root: store.cacheRootURL,
+            status: "pending",
+            itemID: itemID
+        ).path))
+    }
+
     func testMobileFlagNotSetWhenMigrationThrows() async throws {
         let harness = try self.makeHarness(failures: ["migrateMobile"])
 

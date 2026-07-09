@@ -97,6 +97,7 @@ nonisolated enum TransferHTTPClassifier {
             case .timeout:
                 return .transientRetry(.timeout)
             case .cancelled:
+                // The old path had an uncounted benign re-drive for SAVEs cancelled by a tunnel reconnect (ImportQueue.swift:993-1014). It is intentionally not carried over: cancels are now uniform `.transientRetry(.cancelled)` with persisted backoff, and a SAVE that reached the server before the cancel re-uploads to 2xx via `client_item_id` idempotency.
                 return .transientRetry(.cancelled)
             case .transport(let detail):
                 return .transientRetry(.transport(detail))
@@ -150,6 +151,7 @@ nonisolated enum TransferHTTPClassifier {
             return .terminalAttention(.decodeFailed("invalid save response"))
         }
 
+        // The old background-session path guarded against a `client_item_id` echo mismatch in the SAVE response and failed the item terminally (ImportQueue.swift:1101-1105). That guard is intentionally not carried over: `client_item_id` is the server's idempotency key, so a mismatched echo cannot cause a duplicate import, and the local re-check only ever converted a benign server quirk into owner-visible failure.
         switch response.recommendedAction {
         case TransferRecommendedAction.start.rawValue:
             guard let path = response.path, let timestamp = response.timestamp else {

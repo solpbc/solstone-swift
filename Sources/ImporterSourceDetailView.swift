@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct ImporterSourceDetailView: View {
-    @Environment(ImportQueue.self) private var importQueue
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let source: Source
@@ -61,9 +61,9 @@ private extension ImporterSourceDetailView {
     @ViewBuilder
     var recentBlock: some View {
         Text(ImporterSourceDetailPresentation.recentText(
-            pendingCount: self.importQueue.pendingCount,
-            lastDeliveredAt: self.importQueue.lastDeliveredAt,
-            failedCount: self.importQueue.failedCount
+            pendingCount: self.shareTransferHolder.pendingCount,
+            lastDeliveredAt: self.shareTransferHolder.lastUploadAt,
+            failedCount: self.shareTransferHolder.failedCount
         ))
         .font(.subheadline)
         .foregroundStyle(.secondary)

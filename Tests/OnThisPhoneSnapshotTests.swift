@@ -240,15 +240,9 @@ nonisolated final class OnThisPhoneSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    private func makeQueue() -> ImportQueue {
-        let configuration = URLSessionConfiguration.ephemeral
-        return ImportQueue(
+    private func makeQueue() -> ShareImportStore {
+        ShareImportStore(
             cacheRootURL: self.tempDirectory,
-            sessionConfiguration: configuration,
-            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
-            retryDelays: [0],
-            sleep: { _ in },
-            startPathMonitor: false,
             now: { Date(timeIntervalSince1970: 1_713_624_000) }
         )
     }

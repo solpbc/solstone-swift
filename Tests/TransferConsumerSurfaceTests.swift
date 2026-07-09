@@ -142,7 +142,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(watchBeaconPayload["last_error_reason"] as? String, "watch-B")
 
         var aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: zeroSurfaces.importQueue,
+            share: zeroSurfaces.shareHolder,
             mobileSegmentUploader: zeroSurfaces.mobileSegmentUploader,
             transferEngine: harness.engine
         )
@@ -159,7 +159,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: zeroSurfaces.importQueue
+            share: zeroSurfaces.shareHolder
         )
         XCTAssertEqual(totals.pending, 3)
         XCTAssertEqual(totals.failed, 2)
@@ -167,13 +167,13 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: zeroSurfaces.importQueue
+            share: zeroSurfaces.shareHolder
         ), 1)
         XCTAssertEqual(lastSyncedAt(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: zeroSurfaces.importQueue
+            share: zeroSurfaces.shareHolder
         ), clock.wallNow())
 
         let syncModel = ConnectionSyncModel(clock: MockObserverClock()) {
@@ -181,7 +181,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                 mobileSegment: zeroSurfaces.mobileSegmentHolder,
                 omi: harness.omi,
                 watch: harness.watch,
-                importQueue: zeroSurfaces.importQueue
+                share: zeroSurfaces.shareHolder
             )
             return ConnectionSyncInputs(
                 tunnelState: .connected(localPort: 7071, via: .lan),
@@ -191,13 +191,13 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                     mobileSegment: zeroSurfaces.mobileSegmentHolder,
                     omi: harness.omi,
                     watch: harness.watch,
-                    importQueue: zeroSurfaces.importQueue
+                    share: zeroSurfaces.shareHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: zeroSurfaces.mobileSegmentHolder,
                     omi: harness.omi,
                     watch: harness.watch,
-                    importQueue: zeroSurfaces.importQueue
+                    share: zeroSurfaces.shareHolder
                 ),
                 backlogPending: totals.pending,
                 backlogFailed: totals.failed
@@ -210,7 +210,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             await MainActor.run { harness.omi.pendingCount == 2 }
         }
         aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: zeroSurfaces.importQueue,
+            share: zeroSurfaces.shareHolder,
             mobileSegmentUploader: zeroSurfaces.mobileSegmentUploader,
             transferEngine: harness.engine
         )
@@ -221,7 +221,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: zeroSurfaces.importQueue
+            share: zeroSurfaces.shareHolder
         )
         XCTAssertEqual(totals.pending, 2)
         let droppedOmiPayload = try await self.emitHealthPayload(
@@ -238,7 +238,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             }
         }
         aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: zeroSurfaces.importQueue,
+            share: zeroSurfaces.shareHolder,
             mobileSegmentUploader: zeroSurfaces.mobileSegmentUploader,
             transferEngine: harness.engine
         )
@@ -287,11 +287,10 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mirror: harness.mirror,
             uploader: mobileUploader
         )
-        let importQueue = ImportQueue(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("mobile-import-zero", isDirectory: true),
-            sessionConfiguration: .ephemeral,
-            mode: .enqueueOnly,
-            startPathMonitor: false
+        let shareHolder = ShareTransferHolder(
+            transferEngine: harness.engine,
+            mirror: harness.mirror,
+            store: ShareImportStore(cacheRootURL: self.tempDirectory.appendingPathComponent("mobile-import-zero", isDirectory: true))
         )
 
         let deliveredID = Self.uuid(100)
@@ -336,7 +335,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mobileSegment: mobileHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: importQueue
+            share: shareHolder
         )
         XCTAssertEqual(totals.pending, 1)
         XCTAssertEqual(totals.failed, 1)
@@ -344,31 +343,31 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mobileSegment: mobileHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: importQueue
+            share: shareHolder
         ), 1)
         XCTAssertEqual(uploadInFlight(
             mobileSegment: mobileHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: importQueue
+            share: shareHolder
         ), 1)
         XCTAssertEqual(lastSyncedAt(
             mobileSegment: mobileHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: importQueue
+            share: shareHolder
         ), clock.wallNow())
         XCTAssertEqual(confirmedTransferCount(
             mobileSegment: mobileHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: importQueue
+            share: shareHolder
         ), 1)
         XCTAssertGreaterThan(recentBytesTotal(
             mobileSegment: mobileHolder,
             omi: harness.omi,
             watch: harness.watch,
-            importQueue: importQueue
+            share: shareHolder
         ), 0)
 
         let mobileBeaconPayload = try await self.emitHealthPayload(
@@ -386,7 +385,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                 mobileSegment: mobileHolder,
                 omi: harness.omi,
                 watch: harness.watch,
-                importQueue: importQueue
+                share: shareHolder
             )
             return ConnectionSyncInputs(
                 tunnelState: .connected(localPort: 7071, via: .lan),
@@ -396,13 +395,13 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                     mobileSegment: mobileHolder,
                     omi: harness.omi,
                     watch: harness.watch,
-                    importQueue: importQueue
+                    share: shareHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: mobileHolder,
                     omi: harness.omi,
                     watch: harness.watch,
-                    importQueue: importQueue
+                    share: shareHolder
                 ),
                 backlogPending: totals.pending,
                 backlogFailed: totals.failed
@@ -455,7 +454,7 @@ private extension TransferConsumerSurfaceTests {
     func makeZeroUploadSurfaces() -> (
         mobileSegmentUploader: MobileSegmentUploader,
         mobileSegmentHolder: MobileSegmentTransferHolder,
-        importQueue: ImportQueue
+        shareHolder: ShareTransferHolder
     ) {
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("zero-transfer", isDirectory: true)
@@ -470,13 +469,12 @@ private extension TransferConsumerSurfaceTests {
             mirror: transferHarness.mirror,
             uploader: mobileSegmentUploader
         )
-        let importQueue = ImportQueue(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("import", isDirectory: true),
-            sessionConfiguration: .ephemeral,
-            mode: .enqueueOnly,
-            startPathMonitor: false
+        let shareHolder = ShareTransferHolder(
+            transferEngine: transferHarness.engine,
+            mirror: transferHarness.mirror,
+            store: ShareImportStore(cacheRootURL: self.tempDirectory.appendingPathComponent("import", isDirectory: true))
         )
-        return (mobileSegmentUploader, mobileSegmentHolder, importQueue)
+        return (mobileSegmentUploader, mobileSegmentHolder, shareHolder)
     }
 
     func emitHealthPayload(

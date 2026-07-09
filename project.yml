@@ -146,10 +146,8 @@ targets:
     sources:
       - SolstoneShareExtension
       - Sources/Background/MaintenanceCooperator.swift
-      - Sources/ImportQueue/ImportQueue.swift
-      - Sources/ThroughputMeter.swift
-      - Sources/ImportQueue/ImporterServerURL.swift
-      - Sources/ImportQueue/DeleteShareSourceResult.swift
+      - Sources/ShareImport/ShareImportStore.swift
+      - Sources/ShareImport/ImporterServerURL.swift
       - Sources/Instrumentation/DrainSignpost.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift
@@ -323,6 +321,8 @@ targets:
     platform: iOS
     sources:
       - Tests
+    resources:
+      - Tests/Fixtures/ShareImportBodies
     dependencies:
       - target: solstone-swift
     settings:

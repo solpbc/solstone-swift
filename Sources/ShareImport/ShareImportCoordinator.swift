@@ -26,7 +26,7 @@ protocol ShareImportQueueing: AnyObject {
     ) async throws -> UUID
 }
 
-extension ImportQueue: ShareImportQueueing {}
+extension ShareImportStore: ShareImportQueueing {}
 
 nonisolated enum ShareImportCopy {
     static let dismiss = "dismiss"

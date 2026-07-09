@@ -59,13 +59,11 @@ nonisolated final class TransferTransport: @unchecked Sendable {
                 requiresAuth: item.manifest.endpoint.requiresAuth
             )
             switch phase {
-            case .observerIngest:
+            case .observerIngest, .save:
                 request.setValue(
                     "multipart/form-data; boundary=\(Self.boundary(for: item.manifest.itemID))",
                     forHTTPHeaderField: "Content-Type"
                 )
-            case .save:
-                break
             case .start:
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }

@@ -25,14 +25,15 @@ struct SolstoneSwiftApp: App {
     @State private var watchRegistration: ObserverRegistration
     @State private var watchHealthBeacon: ObserverHealthBeacon
     @State private var watchUploaderHolder: WatchUploaderHolder
-    @State private var transferEndpointResolver: ObserverIngestTransferEndpointResolver
+    @State private var transferEndpointResolver: LoopbackTransferEndpointResolver
     @State private var transferStatusMirror: TransferStatusMirror
     @State private var transferEngine: TransferEngine
     @State private var transferEnqueuer: ObserverAudioTransferEnqueuer
+    @State private var shareImportStore: ShareImportStore
+    @State private var shareTransferHolder: ShareTransferHolder
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var watchSegmentLedger: WatchSegmentLedger
-    @State private var importQueue: ImportQueue
     @State private var mobileSegmentUploader: MobileSegmentUploader
     @State private var mobileSegmentEngine: MobileSegmentEngine
     @State private var locationManager: LocationManager
@@ -243,7 +244,7 @@ struct SolstoneSwiftApp: App {
                 IngestPrefixStore().clear(.watch)
             }
         )
-        let transferEndpointResolver = ObserverIngestTransferEndpointResolver()
+        let transferEndpointResolver = LoopbackTransferEndpointResolver()
         let transferStatusMirror = TransferStatusMirror()
         let transferSpool: TransferSpool
         do {
@@ -267,7 +268,20 @@ struct SolstoneSwiftApp: App {
             )),
             endpointResolver: transferEndpointResolver,
             diagnosticsSink: ObserverAudioTransferDiagnostics.makeSink(diagnosticLog: log),
-            statusMirror: transferStatusMirror
+            statusMirror: transferStatusMirror,
+            bodyBuilder: { item, spool in
+                if item.manifest.endpoint.destinationKind == .saveThenStart,
+                   item.manifest.saveThenStart?.phase != .startPending
+                {
+                    let observerHandle = try await observerRegistration.ensureRegistered()
+                    return try ShareImportSaveBody.build(
+                        item: item,
+                        spool: spool,
+                        observerHandle: observerHandle
+                    )
+                }
+                return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
+            }
         )
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
         let mobileSegmentUploader = MobileSegmentUploader(
@@ -335,16 +349,20 @@ struct SolstoneSwiftApp: App {
         let watchRelayReceiver = watchPipeline.watchRelayReceiver
         let watchSegmentLedger = watchPipeline.watchSegmentLedger
         let watchLink = watchPipeline.watchLink
-        let importQueue = ImportQueue(
-            ensureRegistered: {
-                try await observerRegistration.ensureRegistered()
-            },
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            localPortProvider: {
-                observerRegistration.activeLocalPort
+        let shareImportStore = ShareImportStore(
+            ledgerDropSink: { droppedCount in
+                log.append(
+                    category: .upload,
+                    severity: .info,
+                    message: "share history rotated",
+                    detail: "dropped_rows=\(droppedCount)"
+                )
             }
+        )
+        let shareTransferHolder = ShareTransferHolder(
+            transferEngine: transferEngine,
+            mirror: transferStatusMirror,
+            store: shareImportStore
         )
         let tunnel = TunnelManager(
             transport: transport,
@@ -353,7 +371,7 @@ struct SolstoneSwiftApp: App {
                     mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue
+                    share: shareTransferHolder
                 )
             },
             diagnosticLog: log
@@ -363,7 +381,7 @@ struct SolstoneSwiftApp: App {
                 mobileSegment: mobileSegmentTransferHolder,
                 omi: omiUploaderHolder,
                 watch: watchUploaderHolder,
-                importQueue: importQueue
+                share: shareTransferHolder
             )
             return ConnectionSyncInputs(
                 tunnelState: tunnel.state,
@@ -373,13 +391,13 @@ struct SolstoneSwiftApp: App {
                     mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue
+                    share: shareTransferHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue
+                    share: shareTransferHolder
                 ),
                 backlogPending: totals.pending,
                 backlogFailed: totals.failed
@@ -430,7 +448,7 @@ struct SolstoneSwiftApp: App {
                     mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue
+                    share: shareTransferHolder
                 )
             },
             inFlight: {
@@ -438,14 +456,16 @@ struct SolstoneSwiftApp: App {
                     mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
-                    importQueue: importQueue
+                    share: shareTransferHolder
                 )
             },
             drive: {
                 await driveUploadDrain(
                     mobileSegment: mobileSegmentUploader,
                     transferEngine: transferEngine,
-                    importQueue: importQueue,
+                    shareImportStore: shareImportStore,
+                    shareTransferHolder: shareTransferHolder,
+                    diagnosticLog: log,
                     watchDrain: watchSegmentDrain
                 )
             },
@@ -463,7 +483,9 @@ struct SolstoneSwiftApp: App {
             await driveUploadDrain(
                 mobileSegment: mobileSegmentUploader,
                 transferEngine: transferEngine,
-                importQueue: importQueue,
+                shareImportStore: shareImportStore,
+                shareTransferHolder: shareTransferHolder,
+                diagnosticLog: log,
                 watchDrain: watchSegmentDrain
             )
         })
@@ -479,7 +501,11 @@ struct SolstoneSwiftApp: App {
                     await screencastManager.reconcileScreencast(reason: reason)
                 },
                 resumeImportQueue: {
-                    await importQueue.resumeFromDisk()
+                    await resumeShareImports(
+                        shareImportStore: shareImportStore,
+                        transferEngine: transferEngine,
+                        diagnosticLog: log
+                    )
                 },
                 migrateLegacyMobileItems: {
                     await mobileSegmentUploader.migrateLegacyMobileItems()
@@ -525,10 +551,11 @@ struct SolstoneSwiftApp: App {
         self._transferStatusMirror = State(initialValue: transferStatusMirror)
         self._transferEngine = State(initialValue: transferEngine)
         self._transferEnqueuer = State(initialValue: transferEnqueuer)
+        self._shareImportStore = State(initialValue: shareImportStore)
+        self._shareTransferHolder = State(initialValue: shareTransferHolder)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._watchSegmentLedger = State(initialValue: watchSegmentLedger)
-        self._importQueue = State(initialValue: importQueue)
         self._mobileSegmentUploader = State(initialValue: mobileSegmentUploader)
         self._mobileSegmentEngine = State(initialValue: mobileSegmentEngine)
         self._locationManager = State(initialValue: locationManager)
@@ -540,7 +567,6 @@ struct SolstoneSwiftApp: App {
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
-        self.appDelegate.importQueue = importQueue
     }
 
     var body: some Scene {
@@ -561,7 +587,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.watchLink)
                 .environment(self.watchRelayReceiver)
                 .environment(self.watchSegmentLedger)
-                .environment(self.importQueue)
+                .environment(self.shareImportStore)
+                .environment(self.shareTransferHolder)
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)
                 .environment(self.locationManager)
@@ -687,7 +714,7 @@ struct SolstoneSwiftApp: App {
                             mobileSegment: self.mobileSegmentTransferHolder,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
-                            importQueue: self.importQueue
+                            share: self.shareTransferHolder
                         )
                     },
                     inFlight: {
@@ -695,7 +722,7 @@ struct SolstoneSwiftApp: App {
                             mobileSegment: self.mobileSegmentTransferHolder,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
-                            importQueue: self.importQueue
+                            share: self.shareTransferHolder
                         )
                     },
                     isSustaining: { self.locationManager.isSustainingBackground },
@@ -704,7 +731,9 @@ struct SolstoneSwiftApp: App {
                         await driveUploadDrain(
                             mobileSegment: self.mobileSegmentUploader,
                             transferEngine: self.transferEngine,
-                            importQueue: self.importQueue,
+                            shareImportStore: self.shareImportStore,
+                            shareTransferHolder: self.shareTransferHolder,
+                            diagnosticLog: self.diagnosticLog,
                             watchDrain: self.watchSegmentDrain
                         )
                     },
@@ -788,10 +817,15 @@ struct SolstoneSwiftApp: App {
         guard !self.didBootstrapTransfer else { return }
         self.didBootstrapTransfer = true
 
-        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.mobileSegment) { [weak mobileSegmentUploader = self.mobileSegmentUploader] manifest in
+        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.mobileSegment) { [weak mobileSegmentUploader = self.mobileSegmentUploader] manifest, _ in
             guard let segmentID = manifest.observerIngest?.segmentID else { return }
             try await MainActor.run {
                 try mobileSegmentUploader?.writeUploadedTombstone(segmentID: segmentID)
+            }
+        }
+        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareImportStore = self.shareImportStore] manifest, successKind in
+            try await MainActor.run {
+                try shareImportStore?.recordDelivered(manifest: manifest, successKind: successKind)
             }
         }
 
@@ -838,7 +872,14 @@ struct SolstoneSwiftApp: App {
             store: self.mobileSegmentUploader.storeForTransferMigration,
             diagnosticLog: self.diagnosticLog
         )
+        await ShareImportTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            store: self.shareImportStore,
+            transferEngine: self.transferEngine,
+            diagnosticLog: self.diagnosticLog
+        )
         await self.mobileSegmentUploader.resumeFromDisk()
+        self.shareImportStore.refreshFromDisk()
 
         if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
             await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)

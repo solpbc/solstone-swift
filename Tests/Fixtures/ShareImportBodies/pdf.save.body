@@ -1,0 +1,23 @@
+--Boundary-61554a34-9c8f-43f8-a804-5f91fe1a56db
+Content-Disposition: form-data; name="imported_via"
+
+mobile_share
+--Boundary-61554a34-9c8f-43f8-a804-5f91fe1a56db
+Content-Disposition: form-data; name="observer_handle"
+
+observer-fixture-handle
+--Boundary-61554a34-9c8f-43f8-a804-5f91fe1a56db
+Content-Disposition: form-data; name="client_item_id"
+
+61554a34-9c8f-43f8-a804-5f91fe1a56db
+--Boundary-61554a34-9c8f-43f8-a804-5f91fe1a56db
+Content-Disposition: form-data; name="file"; filename="document.pdf"
+Content-Type: application/pdf
+
+%PDF-1.4
+1 0 obj
+<<>>
+endobj
+%%EOF
+
+--Boundary-61554a34-9c8f-43f8-a804-5f91fe1a56db--

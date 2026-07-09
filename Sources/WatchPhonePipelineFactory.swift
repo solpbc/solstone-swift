@@ -47,7 +47,7 @@ func makeWatchPhonePipeline(
     }
 
     Task { [transferEngine, weak drain, weak ledger] in
-        await transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.watch) { [weak drain, weak ledger] manifest in
+        await transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.watch) { [weak drain, weak ledger] manifest, _ in
             guard let id = manifest.observerIngest?.sessionID else {
                 throw ObserverAudioTransferError.missingSessionID
             }

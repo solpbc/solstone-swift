@@ -24,11 +24,7 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     @MainActor
     func testDurableSaveBeforeCommitEventSuccessOrdering() async throws {
         let queueRoot = self.tempDirectory.appendingPathComponent("queue", isDirectory: true)
-        let queue = ImportQueue(
-            cacheRootURL: queueRoot,
-            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
-            startPathMonitor: false
-        )
+        let queue = ShareImportStore(cacheRootURL: queueRoot)
         let source = try self.makeFile(named: "share.pdf", data: Data("pdf".utf8))
         let provider = StubShareItemProvider(contentType: "com.adobe.pdf", filename: "share.pdf", fileURL: source)
         let recorder = ShareImportEventRecorder()
@@ -286,11 +282,9 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     @MainActor
     func testEnqueueThrowShowsCantSaveAfterCleanupAndNoSavedCopy() async throws {
         let queueRoot = self.tempDirectory.appendingPathComponent("late-failure-queue", isDirectory: true)
-        let realQueue = ImportQueue(
+        let realQueue = ShareImportStore(
             cacheRootURL: queueRoot,
-            fileManager: CoordinatorNoteWriteFailingFileManager(),
-            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
-            startPathMonitor: false
+            fileManager: CoordinatorNoteWriteFailingFileManager()
         )
         let queue = RecordingShareImportQueue(base: realQueue)
         let source = try self.makeFile(named: "share.pdf", data: Data("pdf".utf8))

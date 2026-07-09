@@ -102,10 +102,11 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let importQueueRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: importQueueRoot) }
-        let importQueue = ImportQueue(
-            cacheRootURL: importQueueRoot,
-            ensureRegistered: { throw ImportQueueError.registrationUnavailable },
-            startPathMonitor: false
+        let shareImportStore = ShareImportStore(cacheRootURL: importQueueRoot)
+        let shareTransferHolder = ShareTransferHolder(
+            transferEngine: transferHarness.engine,
+            mirror: transferHarness.mirror,
+            store: shareImportStore
         )
         let chatManager = ChatManager(
             transport: ScriptedChatTransport(),
@@ -163,7 +164,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(mobileSegmentTransferHolder)
             .environment(omiUploaderHolder)
             .environment(watchUploaderHolder)
-            .environment(importQueue)
+            .environment(shareImportStore)
+            .environment(shareTransferHolder)
             .environment(locationManager)
             .environment(mobileSegmentUploader)
             .environment(mobileSegmentTransferHolder)
@@ -177,7 +179,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerManager)
                 .environment(observerRegistration)
                 .environment(ObserverSourcePauseState())
-                .environment(importQueue)
+                .environment(shareImportStore)
+                .environment(shareTransferHolder)
                 .environment(locationManager)
                 .environment(ScreencastManager())
                 .environment(mobileSegmentUploader)
@@ -225,7 +228,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let importerSourceDetailView = NavigationStack {
             ImporterSourceDetailView(source: Self.shareSource())
                 .environment(appConfig)
-                .environment(importQueue)
+                .environment(shareImportStore)
+                .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)
                 .environment(omiUploaderHolder)
@@ -240,7 +244,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let onThisPhoneView = NavigationStack {
             OnThisPhoneView()
                 .environment(appConfig)
-                .environment(importQueue)
+                .environment(shareImportStore)
+                .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)
                 .environment(omiUploaderHolder)
@@ -258,7 +263,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 onRequestRetry: { _ in },
                 onRequestDrop: { _ in }
             )
-                .environment(importQueue)
+                .environment(shareImportStore)
+                .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)
                 .environment(omiUploaderHolder)

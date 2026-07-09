@@ -95,10 +95,8 @@ LocationUploader.swift|Content-Disposition
 WatchSegmentDrain.swift|Boundary-
 WatchSegmentDrain.swift|Content-Disposition
 LocationVocabulary.swift|\"Always
-ImportQueue.swift|Boundary-
-ImportQueue.swift|Content-Disposition
-ImportQueue.swift|"ImportQueue"
-ImportQueue.swift|"HHmmss"
+ShareImportStore.swift|"ImportQueue"
+ShareImportSaveBody.swift|Content-Disposition
 ChunkSidecar.swift|"HHmmss"
 WatchCaptureStorage.swift|"WatchCapture"
 WatchComplicationSnapshot.swift|SolstoneWatchStatus
@@ -115,3 +113,4 @@ WatchTransferSpoolMigrator.swift|TransferQuarantine/WatchObserver
 MobileSegmentUploader.swift|MobileSegmentTransferEnqueue
 MobileSegmentTransferSpoolMigrator.swift|TransferQuarantine/MobileSegmentObserver
 MobileSegmentTransferSpoolMigrator.swift|MobileSegmentBackground
+ShareImportTransferSpoolMigrator.swift|TransferQuarantine/ShareImport

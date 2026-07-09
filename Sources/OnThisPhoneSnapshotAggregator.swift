@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 enum OnThisPhoneSnapshotAggregator {
     static func snapshot(
-        importQueue: ImportQueue,
+        share: ShareTransferHolder,
         mobileSegmentUploader: MobileSegmentUploader,
         transferEngine: TransferEngine
     ) async -> OnThisPhoneAggregateSnapshot {
@@ -52,7 +52,7 @@ enum OnThisPhoneSnapshotAggregator {
                     mobileResults[.screencast] ?? .loaded(items: [])
                 )
             ),
-            OnThisPhoneSourceSnapshot(sourceKind: .share, result: importQueue.onThisPhoneSourceSnapshot()),
+            OnThisPhoneSourceSnapshot(sourceKind: .share, result: await share.onThisPhoneSourceSnapshot()),
         ])
     }
 

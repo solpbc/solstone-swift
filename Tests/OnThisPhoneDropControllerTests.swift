@@ -165,19 +165,16 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneDropControllerTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let importQueue = ImportQueue(
-            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
-            startPathMonitor: false
-        )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
         let transferID = UUID()
         let shareID = UUID()
         let segmentID = UUID()
 
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: shareID.uuidString, sourceKind: .share),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -186,7 +183,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .omi),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -195,13 +192,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .watch),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -210,13 +207,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: transferID, facet: .screencast),
                 sourceKind: .screencast
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNil(makeDropCommit(
             for: Self.item(id: "audio:not-a-uuid:chunk", sourceKind: .audio),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -226,19 +223,16 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneRetryControllerTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let importQueue = ImportQueue(
-            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
-            startPathMonitor: false
-        )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
         let transferID = UUID()
         let shareID = UUID()
         let segmentID = UUID()
 
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: shareID.uuidString, sourceKind: .share),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -247,7 +241,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .omi),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -256,13 +250,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .watch),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -271,13 +265,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: transferID, facet: .location),
                 sourceKind: .location
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNil(makeRetryCommit(
             for: Self.item(id: "audio:not-a-uuid:chunk", sourceKind: .audio),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -287,12 +281,9 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneMobileTransferDropTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let importQueue = ImportQueue(
-            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
-            startPathMonitor: false
-        )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
         let transferItemID = try await transferHarness.engine.enqueue(
             manifest: Self.mobileTransferManifest(itemID: UUID(), segmentID: UUID()),
             payloads: ["audio": Data("audio".utf8)]
@@ -303,7 +294,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: transferItemID, facet: .audio),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -314,22 +305,143 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         XCTAssertNil(snapshot)
     }
 
+    func testShareDropControllerDropsInFlightShareItem() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+        let gate = DispatchSemaphore(value: 0)
+        TransferURLProtocol.handler = { request, _ in
+            _ = gate.wait(timeout: .now() + .seconds(5))
+            return (
+                transferTestResponse(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/share","timestamp":"2026-07-09T00:00:00Z"}"#.utf8)
+            )
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OnThisPhoneShareDropInFlightTests-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            gate.signal()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            bodyBuilder: TransferCutoverDispatchTests.shareBodyBuilder
+        )
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
+        try await transferHarness.engine.start()
+        let itemID = try await transferHarness.engine.enqueue(
+            manifest: TransferCutoverDispatchTests.shareManifest(itemID: UUID(), index: 1),
+            payloads: ["text": Data("share drop".utf8)]
+        )
+        try await transferTestWaitFor("share in flight") {
+            await transferHarness.engine.snapshot().counters.inFlightCount == 1
+        }
+        let sleeper = TestSleeper()
+        let controller = OnThisPhoneDropController(window: .seconds(5), sleep: { duration in
+            try await sleeper.sleep(for: duration)
+        })
+        let commit = try XCTUnwrap(makeDropCommit(
+            for: Self.item(id: itemID.uuidString.lowercased(), sourceKind: .share),
+            share: shareHolder,
+            transferEngine: transferHarness.engine,
+            mobileSegmentUploader: Self.mobileSegmentUploader(root: root)
+        ))
+
+        controller.requestDrop(itemID: itemID.uuidString.lowercased(), descriptor: "share") {
+            commit()
+        }
+        await sleeper.waitForPending(1)
+        sleeper.fireNext()
+
+        try await transferTestWaitFor("share dropped") {
+            await transferHarness.engine.itemSnapshot(itemID: itemID) == nil
+        }
+        let snapshot = await transferHarness.engine.snapshot()
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
+        XCTAssertEqual(snapshot.counters.deliveredCount, 0)
+        XCTAssertEqual(snapshot.counters.attentionCount, 0)
+    }
+
+    func testShareDropControllerIgnoresLateCompletionAfterDrop() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+        let gate = DispatchSemaphore(value: 0)
+        TransferURLProtocol.handler = { request, _ in
+            _ = gate.wait(timeout: .now() + .seconds(5))
+            return (
+                transferTestResponse(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/share","timestamp":"2026-07-09T00:00:00Z"}"#.utf8)
+            )
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OnThisPhoneShareLateCompletionDropTests-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            gate.signal()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            bodyBuilder: TransferCutoverDispatchTests.shareBodyBuilder
+        )
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
+        try await transferHarness.engine.start()
+        let itemID = try await transferHarness.engine.enqueue(
+            manifest: TransferCutoverDispatchTests.shareManifest(itemID: UUID(), index: 2),
+            payloads: ["text": Data("share late".utf8)]
+        )
+        try await transferTestWaitFor("share in flight") {
+            await transferHarness.engine.snapshot().counters.inFlightCount == 1
+        }
+        let sleeper = TestSleeper()
+        let controller = OnThisPhoneDropController(window: .seconds(5), sleep: { duration in
+            try await sleeper.sleep(for: duration)
+        })
+        let commit = try XCTUnwrap(makeDropCommit(
+            for: Self.item(id: itemID.uuidString.lowercased(), sourceKind: .share),
+            share: shareHolder,
+            transferEngine: transferHarness.engine,
+            mobileSegmentUploader: Self.mobileSegmentUploader(root: root)
+        ))
+
+        controller.requestDrop(itemID: itemID.uuidString.lowercased(), descriptor: "share") {
+            commit()
+        }
+        await sleeper.waitForPending(1)
+        sleeper.fireNext()
+        try await transferTestWaitFor("share removed before late completion") {
+            await transferHarness.engine.itemSnapshot(itemID: itemID) == nil
+        }
+        gate.signal()
+        try await Task.sleep(for: .milliseconds(100))
+        await shareHolder.dropShare(itemID: itemID)
+
+        let snapshot = await transferHarness.engine.snapshot()
+        let lateSnapshot = await transferHarness.engine.itemSnapshot(itemID: itemID)
+        XCTAssertNil(lateSnapshot)
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
+        XCTAssertEqual(snapshot.counters.deliveredCount, 0)
+        XCTAssertEqual(snapshot.counters.attentionCount, 0)
+        XCTAssertEqual(snapshot.sources[ObserverAudioTransferSource.share]?.deliveredCount ?? 0, 0)
+    }
+
     func testMobileSegmentStoreDropCommitRemovesFailedDirectory() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneMobileStoreDropTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let importQueue = ImportQueue(
-            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
-            startPathMonitor: false
-        )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
         let segmentID = UUID()
         let failedDirectory = try Self.writeFailedMobileSegment(uploader: mobileSegmentUploader, segmentID: segmentID)
 
         let commit = try XCTUnwrap(makeDropCommit(
             for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -342,10 +454,6 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneMobileTransferRetryTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let importQueue = ImportQueue(
-            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
-            startPathMonitor: false
-        )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let transferSpool = TransferSpool(rootURL: root.appendingPathComponent("RetryTransfer", isDirectory: true))
         let transferItemID = UUID()
@@ -364,13 +472,14 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             endpointResolver: TransferCutoverEndpointResolver()
         )
         try await retryEngine.start()
+        let shareHolder = Self.shareHolder(root: root, transferEngine: retryEngine, mirror: TransferStatusMirror())
 
         let omiCommit = try XCTUnwrap(makeRetryCommit(
             for: Self.item(
                 id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: transferItemID, facet: .audio),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: retryEngine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
@@ -384,14 +493,10 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneWatchDropTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let importQueue = ImportQueue(
-            cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true),
-            startPathMonitor: false
-        )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
         let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
+        let shareHolder = Self.shareHolder(root: root, transferEngine: transferHarness.engine, mirror: transferHarness.mirror)
         let sessionID = UUID()
-        let chunkID = sessionID.uuidString
         let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
         let stagedDirectory = try Self.writeStagedWatchSegment(stagingRoot: stagingRoot, id: sessionID)
         let watchManifest = try Self.loadWatchManifest(in: stagedDirectory)
@@ -418,7 +523,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
                 id: OnThisPhoneItemID.transferIDString(itemID: transferItemID, source: .watch),
                 sourceKind: .audio
             ),
-            importQueue: importQueue,
+            share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader,
             removeWatchStaging: pipeline.watchUploaderHolder.removeStaging
@@ -476,6 +581,19 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         MobileSegmentUploader(
             store: MobileSegmentStore(rootURL: root.appendingPathComponent("MobileSegment", isDirectory: true)),
             clock: MockObserverClock()
+        )
+    }
+
+    @MainActor
+    private static func shareHolder(
+        root: URL,
+        transferEngine: TransferEngine,
+        mirror: TransferStatusMirror
+    ) -> ShareTransferHolder {
+        ShareTransferHolder(
+            transferEngine: transferEngine,
+            mirror: mirror,
+            store: ShareImportStore(cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true))
         )
     }
 

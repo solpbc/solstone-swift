@@ -26,17 +26,21 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         let store = MobileSegmentStore(rootURL: tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         let uploader = MobileSegmentUploader(transferEngine: transfer.engine, store: store, clock: clock)
         let segmentID = try Self.seedMobileSegment(store: store, clock: clock)
-        let importQueue = ImportQueue(
-            cacheRootURL: tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true),
-            sessionConfiguration: .ephemeral,
-            mode: .enqueueOnly,
-            startPathMonitor: false
+        let shareImportStore = ShareImportStore(
+            cacheRootURL: tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
+        )
+        let shareTransferHolder = ShareTransferHolder(
+            transferEngine: transfer.engine,
+            mirror: transfer.mirror,
+            store: shareImportStore
         )
 
         await driveUploadDrain(
             mobileSegment: uploader,
             transferEngine: transfer.engine,
-            importQueue: importQueue,
+            shareImportStore: shareImportStore,
+            shareTransferHolder: shareTransferHolder,
+            diagnosticLog: nil,
             watchDrain: nil
         )
 
@@ -46,6 +50,62 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: store.segmentDirectoryURL(.pending, segmentID: segmentID).path
         ))
+    }
+
+    @MainActor
+    func testDriveUploadDrainAdoptsStagedShareImportWithoutExtensionEngineCall() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BackgroundDrainShareAdoptionTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000040001")!
+        let shareImportStore = ShareImportStore(
+            cacheRootURL: tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
+        )
+        _ = try ShareImportLegacyTestSupport.writeLegacyItem(
+            root: shareImportStore.cacheRootURL,
+            itemID: itemID,
+            source: "quick",
+            raw: Data("share drain".utf8),
+            contentType: "text/plain",
+            requestFilename: "text.txt",
+            originalFilename: "note.txt"
+        )
+        let transfer = makeTransferCutoverHarness(
+            rootURL: tempDirectory.appendingPathComponent("Transfers", isDirectory: true),
+            endpointResolver: TransferEndpointResolverStub(.unavailable("waiting")),
+            bodyBuilder: TransferCutoverDispatchTests.shareBodyBuilder
+        )
+        try await transfer.engine.start()
+        let mobileUploader = MobileSegmentUploader(
+            transferEngine: transfer.engine,
+            store: MobileSegmentStore(rootURL: tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
+            clock: MockObserverClock()
+        )
+        let shareTransferHolder = ShareTransferHolder(
+            transferEngine: transfer.engine,
+            mirror: transfer.mirror,
+            store: shareImportStore
+        )
+
+        await driveUploadDrain(
+            mobileSegment: mobileUploader,
+            transferEngine: transfer.engine,
+            shareImportStore: shareImportStore,
+            shareTransferHolder: shareTransferHolder,
+            diagnosticLog: nil,
+            watchDrain: nil
+        )
+
+        let snapshot = await transfer.engine.itemSnapshot(itemID: itemID)
+        XCTAssertEqual(snapshot?.sourceKey, ObserverAudioTransferSource.share)
+        XCTAssertEqual(snapshot?.state, .queued)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ShareImportLegacyTestSupport.itemDirectory(
+            root: shareImportStore.cacheRootURL,
+            status: "pending",
+            itemID: itemID
+        ).path))
     }
 
     @MainActor

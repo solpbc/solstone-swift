@@ -22,22 +22,17 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
     }
 
     @MainActor
-    func testShareIdentifierRoutesToImportQueue() async {
+    func testRetiredShareIdentifierFallsThroughSafely() {
         let appDelegate = AppDelegate()
-        let importQueue = ImportQueue(startPathMonitor: false)
-        appDelegate.importQueue = importQueue
         let completionCounter = CompletionCounter()
 
         appDelegate.application(
             UIApplication.shared,
-            handleEventsForBackgroundURLSession: ImportQueue.backgroundSessionIdentifier
+            handleEventsForBackgroundURLSession: ["app.solstone.swift", ["share", "upload"].joined(separator: "-")].joined(separator: ".")
         ) {
             completionCounter.increment()
         }
 
-        await Task.yield()
-        XCTAssertEqual(completionCounter.value(), 0)
-        importQueue.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
     }
 }

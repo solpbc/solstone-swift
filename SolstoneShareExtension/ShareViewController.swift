@@ -13,7 +13,7 @@ final class ShareViewController: UIViewController {
         case failure(String)
     }
 
-    private lazy var queue = ImportQueue(mode: .enqueueOnly, startPathMonitor: false)
+    private lazy var queue = ShareImportStore()
     private lazy var coordinator = ShareImportCoordinator(queue: self.queue)
     private var hostingController: UIHostingController<ShareExtensionView>?
 

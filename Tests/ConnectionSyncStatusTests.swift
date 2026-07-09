@@ -94,7 +94,7 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
     }
 
     func testOmiWatchAndImportAggregationCanDriveTransferring() {
-        let confirmedCount = confirmedTransferCount(mobileSegment: 0, omi: 1, watch: 2, importQueue: 3)
+        let confirmedCount = confirmedTransferCount(mobileSegment: 0, omi: 1, watch: 2, share: 3)
         XCTAssertEqual(confirmedCount, 6)
         XCTAssertEqual(
             Self.derive(
@@ -106,7 +106,7 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
             .connectedTransferring
         )
 
-        let recentBytes = recentBytesTotal(mobileSegment: 0, omi: 64, watch: 128, importQueue: 256)
+        let recentBytes = recentBytesTotal(mobileSegment: 0, omi: 64, watch: 128, share: 256)
         XCTAssertEqual(recentBytes, 448)
         XCTAssertEqual(
             Self.derive(

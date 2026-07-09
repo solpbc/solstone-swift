@@ -1,0 +1,18 @@
+--Boundary-4b4e5820-e8da-4fc2-ad34-05355f6d9516
+Content-Disposition: form-data; name="imported_via"
+
+mobile_share
+--Boundary-4b4e5820-e8da-4fc2-ad34-05355f6d9516
+Content-Disposition: form-data; name="observer_handle"
+
+observer-fixture-handle
+--Boundary-4b4e5820-e8da-4fc2-ad34-05355f6d9516
+Content-Disposition: form-data; name="client_item_id"
+
+4b4e5820-e8da-4fc2-ad34-05355f6d9516
+--Boundary-4b4e5820-e8da-4fc2-ad34-05355f6d9516
+Content-Disposition: form-data; name="text"
+
+plain text fixture
+with a second line
+--Boundary-4b4e5820-e8da-4fc2-ad34-05355f6d9516--

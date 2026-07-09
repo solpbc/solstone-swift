@@ -165,6 +165,113 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
     }
 
     @MainActor
+    func testAC5EndpointFlapsDoNotCancelQueuedShareItemsAndRespectGlobalCap() async throws {
+        let resolver = TransferEndpointResolverStub(.unavailable("waiting"))
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        let maxSeenInFlight = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let maxConcurrent = 4
+        TransferURLProtocol.handler = { request, _ in
+            Thread.sleep(forTimeInterval: 0.01)
+            return (
+                transferTestResponse(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/share","timestamp":"2026-07-09T00:00:00Z"}"#.utf8)
+            )
+        }
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("share-transfer", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: resolver,
+            diagnosticsSink: { event in events.withLock { $0.append(event) } },
+            maxConcurrent: maxConcurrent,
+            bodyBuilder: Self.shareBodyBuilder
+        )
+        try await harness.engine.start()
+
+        for index in 0..<50 {
+            _ = try await harness.engine.enqueue(
+                manifest: Self.shareManifest(itemID: Self.uuid(20_000 + index), index: index),
+                payloads: ["text": Data("share-\(index)".utf8)]
+            )
+        }
+
+        let sampler = Task {
+            while !Task.isCancelled {
+                let count = await harness.engine.snapshot().counters.inFlightCount
+                maxSeenInFlight.withLock { value in value = max(value, count) }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+        }
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await harness.engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(20))
+        resolver.setResolution(.unavailable("waiting"))
+        await harness.engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(20))
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await harness.engine.endpointAvailabilityChanged()
+
+        try await transferTestWaitFor("all share items delivered", timeout: .seconds(8)) {
+            await harness.engine.snapshot().sources[ObserverAudioTransferSource.share]?.deliveredCount == 50
+        }
+        sampler.cancel()
+        _ = await sampler.result
+
+        let snapshot = await harness.engine.snapshot()
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
+        XCTAssertEqual(snapshot.sources[ObserverAudioTransferSource.share]?.deliveredCount, 50)
+        XCTAssertGreaterThan(maxSeenInFlight.withLock { $0 }, 0)
+        XCTAssertLessThanOrEqual(maxSeenInFlight.withLock { $0 }, maxConcurrent)
+        XCTAssertEqual(TransferURLProtocol.requests.count, 50)
+        XCTAssertTrue(events.withLock { values in values.filter { $0.outcome == .retrying }.isEmpty })
+        XCTAssertTrue(events.withLock { values in values.filter { $0.shortDetail.contains("cancelled") }.isEmpty })
+    }
+
+    @MainActor
+    func testAC2bGlobalMaxConcurrentAppliesAcrossShareAndMobileSegmentSources() async throws {
+        let maxConcurrent = 4
+        TransferURLProtocol.handler = { request, _ in
+            TransferURLProtocol.hold(request)
+        }
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("global-cap-transfer", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            maxConcurrent: maxConcurrent,
+            bodyBuilder: Self.shareBodyBuilder
+        )
+        try await harness.engine.start()
+
+        for index in 0..<8 {
+            _ = try await harness.engine.enqueue(
+                manifest: Self.shareManifest(itemID: Self.uuid(30_000 + index), index: index),
+                payloads: ["text": Data("share-\(index)".utf8)]
+            )
+            _ = try await harness.engine.enqueue(
+                manifest: Self.mobileManifest(
+                    itemID: Self.uuid(31_000 + index),
+                    segmentID: Self.uuid(32_000 + index),
+                    index: index
+                ),
+                payloads: ["audio": Data("mobile-\(index)".utf8)]
+            )
+        }
+
+        try await transferTestWaitFor("global cap in flight") {
+            TransferURLProtocol.requests.count == maxConcurrent
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        let snapshot = await harness.engine.snapshot()
+        let shareInFlight = snapshot.sources[ObserverAudioTransferSource.share]?.inFlightCount ?? 0
+        let mobileInFlight = snapshot.sources[ObserverAudioTransferSource.mobileSegment]?.inFlightCount ?? 0
+        XCTAssertEqual(snapshot.counters.inFlightCount, maxConcurrent)
+        XCTAssertEqual(shareInFlight + mobileInFlight, maxConcurrent)
+        XCTAssertGreaterThan(shareInFlight, 0)
+        XCTAssertGreaterThan(mobileInFlight, 0)
+        XCTAssertEqual(TransferURLProtocol.requests.count, maxConcurrent)
+    }
+
+    @MainActor
     func testAC10AuthProviderRoutesDistinctBearerHandlesBySource() async throws {
         let omiID = Self.uuid(900)
         let watchID = Self.uuid(901)
@@ -217,7 +324,7 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
     }
 }
 
-private extension TransferCutoverDispatchTests {
+extension TransferCutoverDispatchTests {
     static func uuid(_ value: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))!
     }
@@ -251,5 +358,51 @@ private extension TransferCutoverDispatchTests {
             sources: [.audio],
             payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
         )
+    }
+
+    static func shareManifest(itemID: UUID, index: Int) -> TransferManifest {
+        let createdAt = Date(timeIntervalSince1970: 1_780_480_800 + TimeInterval(index))
+        return TransferManifest(
+            itemID: itemID,
+            source: ObserverAudioTransferSource.share,
+            createdAt: createdAt,
+            priority: TransferPriorityInputs(basePriority: .normal, sourceKey: ObserverAudioTransferSource.share),
+            payloadParts: [
+                TransferPayloadPartDescriptor(
+                    partID: "text",
+                    kind: .text,
+                    relativePath: "raw.bin",
+                    filename: "text.txt",
+                    contentType: "text/plain",
+                    byteCount: Data("share-\(index)".utf8).count
+                ),
+            ],
+            endpoint: TransferEndpointDescriptor(
+                destinationKind: .saveThenStart,
+                path: "/imports/save",
+                startPath: "/imports/start",
+                requiresAuth: false
+            ),
+            meta: ShareImportTransferMetadata.meta(fields: ShareImportTransferMetadata.Fields(
+                basis: "file",
+                contentType: "text/plain",
+                targetJournal: "",
+                filename: "note.txt",
+                originApp: nil,
+                itemTime: "2026-07-09T00:00:00Z",
+                bytes: Int64(Data("share-\(index)".utf8).count),
+                requestSource: "quick"
+            )),
+            saveThenStart: TransferSaveThenStartState(phase: .savePending)
+        )
+    }
+
+    static var shareBodyBuilder: TransferBodyBuilder {
+        { item, spool in
+            if item.manifest.saveThenStart?.phase == .savePending {
+                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "observer-handle")
+            }
+            return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
+        }
     }
 }

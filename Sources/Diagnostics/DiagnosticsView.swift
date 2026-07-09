@@ -20,7 +20,7 @@ struct DiagnosticsView: View {
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
-    @Environment(ImportQueue.self) private var importQueue
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
 
     @State private var enabledCategories: Set<DiagnosticCategory> = Set(DiagnosticCategory.allCases)
@@ -43,7 +43,7 @@ struct DiagnosticsView: View {
             mobileSegment: self.mobileSegmentTransferHolder,
             omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
-            importQueue: self.importQueue
+            share: self.shareTransferHolder
         )
     }
 
@@ -301,7 +301,7 @@ struct DiagnosticsView: View {
     private func refreshLifecycle() async {
         while !Task.isCancelled {
             let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-                importQueue: self.importQueue,
+                share: self.shareTransferHolder,
                 mobileSegmentUploader: self.mobileSegmentUploader,
                 transferEngine: self.omiUploaderHolder.transferEngine
             )
@@ -325,7 +325,7 @@ struct DiagnosticsView: View {
                 mobileSegment: self.mobileSegmentTransferHolder,
                 omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder,
-                importQueue: self.importQueue
+                share: self.shareTransferHolder
             )
             try? await Task.sleep(for: .seconds(1))
         }

@@ -109,7 +109,7 @@ private extension OnThisPhoneDropController {
 @MainActor
 func makeDropCommit(
     for item: OnThisPhoneItem,
-    importQueue: ImportQueue,
+    share: ShareTransferHolder,
     transferEngine: TransferEngine,
     mobileSegmentUploader: MobileSegmentUploader,
     removeWatchStaging: (@MainActor @Sendable (UUID) -> Void)? = nil
@@ -121,7 +121,9 @@ func makeDropCommit(
     switch itemID {
     case .share(let id):
         return {
-            importQueue.dropItem(itemID: id)
+            Task { @MainActor in
+                await share.dropShare(itemID: id)
+            }
         }
     case .mobileSegment(let segmentID, _):
         return {
@@ -152,7 +154,7 @@ func makeDropCommit(
 @MainActor
 func makeRetryCommit(
     for item: OnThisPhoneItem,
-    importQueue: ImportQueue,
+    share: ShareTransferHolder,
     transferEngine: TransferEngine,
     mobileSegmentUploader: MobileSegmentUploader
 ) -> (@MainActor () async -> Void)? {
@@ -162,7 +164,7 @@ func makeRetryCommit(
 
     switch itemID {
     case .share(let id):
-        return { try? await importQueue.requeueFailedItem(itemID: id) }
+        return { try? await share.retryShare(itemID: id) }
     case .mobileSegment:
         return { await mobileSegmentUploader.resolveFinalizeFailurePile() }
     case .mobileSegmentTransfer(let itemID, _):

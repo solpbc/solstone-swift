@@ -24,7 +24,7 @@ struct MoreView: View {
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
-    @Environment(ImportQueue.self) private var importQueue
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(LocationManager.self) private var locationManager
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
@@ -348,7 +348,7 @@ struct MoreView: View {
     private func refreshSegmentMigration() async {
         while !Task.isCancelled {
             let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-                importQueue: self.importQueue,
+                share: self.shareTransferHolder,
                 mobileSegmentUploader: self.mobileSegmentUploader,
                 transferEngine: self.omiUploaderHolder.transferEngine
             )
@@ -357,7 +357,7 @@ struct MoreView: View {
                 mobileSegment: self.mobileSegmentTransferHolder,
                 omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder,
-                importQueue: self.importQueue
+                share: self.shareTransferHolder
             )
             try? await Task.sleep(for: .seconds(2))
         }

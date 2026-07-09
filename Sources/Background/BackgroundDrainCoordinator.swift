@@ -36,14 +36,48 @@ final class UIBackgroundTaskAsserter: BackgroundTaskAsserting {
 func driveUploadDrain(
     mobileSegment: MobileSegmentUploader,
     transferEngine: TransferEngine,
-    importQueue: ImportQueue,
+    shareImportStore: ShareImportStore,
+    shareTransferHolder: ShareTransferHolder,
+    diagnosticLog: DiagnosticLog?,
     watchDrain: WatchSegmentDrain?
 ) async {
     await mobileSegment.resumeFromDisk()
     await transferEngine.kick()
-    await importQueue.resumeFromDisk()
-    await importQueue.retryFailed()
+    await resumeShareImports(
+        shareImportStore: shareImportStore,
+        transferEngine: transferEngine,
+        diagnosticLog: diagnosticLog
+    )
+    if shareTransferHolder.pendingCount > 0 || shareTransferHolder.failedCount > 0 {
+        await transferEngine.kick()
+    }
     await watchDrain?.drain()
+}
+
+@MainActor
+func resumeShareImports(
+    shareImportStore: ShareImportStore,
+    transferEngine: TransferEngine,
+    diagnosticLog: DiagnosticLog?
+) async {
+    shareImportStore.refreshFromDisk()
+    guard let appGroupRoot = try? AppGroupContainer.rootURL() else {
+        diagnosticLog?.append(
+            category: .upload,
+            severity: .warning,
+            message: "needs attention",
+            detail: "source=share reason=app-group unavailable"
+        )
+        return
+    }
+    let unresolved = await shareImportStore.adoptToTransfer(
+        engine: transferEngine,
+        diagnosticLog: diagnosticLog,
+        quarantineRootURL: ShareImportTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot)
+    )
+    if unresolved == 0 {
+        await transferEngine.kick()
+    }
 }
 
 @MainActor

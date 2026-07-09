@@ -1210,7 +1210,7 @@ nonisolated final class TransferTests: XCTestCase {
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let engineB = self.makeEngine(spool: TransferSpool(rootURL: root))
-        await engineB.registerDeliveredHook(sourceKey: "alpha") { manifest in
+        await engineB.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             delivered.withLock { $0.append(manifest) }
         }
         try await engineB.start()
@@ -1226,7 +1226,7 @@ nonisolated final class TransferTests: XCTestCase {
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let itemID = Self.uuid(351)
         let engine = self.makeEngine(bodyBuilder: { _, _ in Data("body".utf8) })
-        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest in
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             delivered.withLock { $0.append(manifest) }
         }
         try await engine.start()
@@ -1266,7 +1266,7 @@ nonisolated final class TransferTests: XCTestCase {
         }
         let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
         let engine = self.makeEngine(bodyBuilder: DefaultTransferBodyBuilder.build)
-        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest in
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             delivered.withLock { $0.append(manifest.itemID) }
         }
         try await engine.start()
@@ -1301,7 +1301,7 @@ nonisolated final class TransferTests: XCTestCase {
             diagnosticsSink: { event in events.withLock { $0.append(event) } },
             bodyBuilder: { _, _ in Data("body".utf8) }
         )
-        await engine.registerDeliveredHook(sourceKey: "alpha") { _ in
+        await engine.registerDeliveredHook(sourceKey: "alpha") { _, _ in
             throw DeliveredHookTestError.failed
         }
         try await engine.start()
@@ -1341,7 +1341,7 @@ nonisolated final class TransferTests: XCTestCase {
         let resolver = TransferEndpointResolverStub(.unavailable("held"))
         let hookCount = OSAllocatedUnfairLock<Int>(initialState: 0)
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
-        await engine.registerDeliveredHook(sourceKey: "alpha") { _ in
+        await engine.registerDeliveredHook(sourceKey: "alpha") { _, _ in
             hookCount.withLock { $0 += 1 }
         }
         try await engine.start()
@@ -1380,7 +1380,7 @@ nonisolated final class TransferTests: XCTestCase {
         let firstID = Self.uuid(360)
         let secondID = Self.uuid(361)
         let engine = self.makeEngine(bodyBuilder: { _, _ in Data("body".utf8) })
-        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest in
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             if manifest.itemID == firstID {
                 await gate.wait()
             }

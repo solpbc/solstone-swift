@@ -134,6 +134,7 @@ extension OnThisPhoneUITestSeeder {
             try fileManager.removeItem(at: root)
         }
         UserDefaults.standard.removeObject(forKey: "didMigrateLegacyMobileSegmentsV1")
+        UserDefaults.standard.removeObject(forKey: ShareImportTransferSpoolMigrator.flagKey)
         Self.resetAudioL5State()
     }
 
@@ -512,38 +513,26 @@ extension OnThisPhoneUITestSeeder {
         itemTime: Date,
         fileManager: FileManager
     ) throws {
-        let pendingRoot = root.appendingPathComponent("pending", isDirectory: true)
-        let failedRoot = root.appendingPathComponent("failed", isDirectory: true)
-        let itemDirectory = pendingRoot.appendingPathComponent(itemID, isDirectory: true)
-        try fileManager.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: failedRoot, withIntermediateDirectories: true)
-
-        let rawData = Data("seed share".utf8)
-        try rawData.write(to: itemDirectory.appendingPathComponent("raw.bin"), options: .atomic)
-
-        let note: [String: Any] = [
-            "basis": "sent",
-            "bytes": rawData.count,
-            "content_type": "application/pdf",
-            "filename": "seed-share.pdf",
-            "item_id": itemID,
-            "item_time": Self.iso8601String(for: itemTime),
-            "kind": "raw",
-            "origin_app": NSNull(),
-            "schema": "solstone.source.item/1",
-            "source": "document",
-            "target_journal": "ui-test",
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let ledger = [
+            itemID: ShareImportStore.LedgerEntry(
+                itemID: itemID,
+                basis: "sent",
+                contentType: "application/pdf",
+                targetJournal: "ui-test",
+                serverPath: "/ui-test/share/\(itemID)",
+                serverTimestamp: Self.iso8601String(for: itemTime.addingTimeInterval(60)),
+                deliveredAt: itemTime.addingTimeInterval(60),
+                filename: "seed-share.pdf",
+                originApp: nil,
+                itemTime: Self.iso8601String(for: itemTime)
+            ),
         ]
-        try JSONSerialization.data(withJSONObject: note, options: [.sortedKeys])
-            .write(to: itemDirectory.appendingPathComponent("item.json"), options: .atomic)
-
-        let descriptor: [String: Any] = [
-            "content_type": "application/pdf",
-            "filename": "document.pdf",
-            "source": "document",
-        ]
-        try JSONSerialization.data(withJSONObject: descriptor, options: [.sortedKeys])
-            .write(to: itemDirectory.appendingPathComponent("request.json"), options: .atomic)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(ledger)
+            .write(to: root.appendingPathComponent("ledger.json"), options: .atomic)
     }
 
     static func iso8601String(for date: Date) -> String {

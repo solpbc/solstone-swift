@@ -47,9 +47,9 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertEqual(ObserverAudioTransferSource.mobileSegment, "mobile-segment")
         XCTAssertEqual(ObserverAudioTransferSource.omi, "omi-audio")
         XCTAssertEqual(ObserverAudioTransferSource.watch, "watch-audio")
+        XCTAssertEqual(ObserverAudioTransferSource.share, "share")
         XCTAssertEqual(OmiSegmentWriter.cacheDirectoryName, "OmiObserver")
         XCTAssertEqual(WatchTransferSpoolMigrator.legacyCacheDirectoryName, "WatchObserver")
-        XCTAssertEqual(ImportQueue.backgroundSessionIdentifier, "app.solstone.swift.share-upload")
         XCTAssertEqual(ImporterServerURL.saveURL(localPort: 7071)?.path, "/app/import/api/save")
         XCTAssertEqual(ImporterServerURL.startURL(localPort: 7071)?.path, "/app/import/api/start")
 
@@ -72,18 +72,14 @@ final class MobileSegmentAppWiringTests: XCTestCase {
 
         let omiRoot = self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true)
         let importRoot = self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
-        let importQueue = ImportQueue(
-            cacheRootURL: importRoot,
-            sessionConfiguration: .ephemeral,
-            startPathMonitor: false
-        )
+        let shareImportStore = ShareImportStore(cacheRootURL: importRoot)
         XCTAssertEqual(mobileSegmentStore.rootURL, appGroupMobileSegmentRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, mobileTransportRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, omiRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, watchRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, importRoot)
         XCTAssertEqual(mobileSegmentUploader.pendingCount, 0)
-        XCTAssertEqual(importQueue.pendingCount, 0)
+        XCTAssertEqual(shareImportStore.pendingCount, 0)
     }
 }
 

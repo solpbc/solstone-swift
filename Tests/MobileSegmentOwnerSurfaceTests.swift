@@ -33,7 +33,7 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         await harness.mobileSegmentUploader.resumeFromDisk()
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-            importQueue: harness.importQueue,
+            share: harness.shareHolder,
             mobileSegmentUploader: harness.mobileSegmentUploader,
             transferEngine: harness.transferEngine
         )
@@ -59,7 +59,7 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
             mobileSegment: harness.mobileSegmentHolder,
             omi: harness.omiHolder,
             watch: harness.watchHolder,
-            importQueue: harness.importQueue
+            share: harness.shareHolder
         )
         XCTAssertEqual(totals.pending, 1)
 
@@ -106,7 +106,7 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
             mobileSegment: harness.mobileSegmentHolder,
             omi: harness.omiHolder,
             watch: harness.watchHolder,
-            importQueue: harness.importQueue
+            share: harness.shareHolder
         )
         XCTAssertEqual(totals.pending, 1)
         XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .audio).pendingCount, 1)
@@ -177,7 +177,7 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         let item = try XCTUnwrap(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .audio).loadedItems.first)
         let commit = try XCTUnwrap(makeDropCommit(
             for: item,
-            importQueue: harness.importQueue,
+            share: harness.shareHolder,
             transferEngine: harness.transferEngine,
             mobileSegmentUploader: harness.mobileSegmentUploader
         ))
@@ -251,7 +251,7 @@ private extension MobileSegmentOwnerSurfaceTests {
         let mobileSegmentUploader: MobileSegmentUploader
         let mobileSegmentHolder: MobileSegmentTransferHolder
         let store: MobileSegmentStore
-        let importQueue: ImportQueue
+        let shareHolder: ShareTransferHolder
         let transferEngine: TransferEngine
         let omiHolder: OmiUploaderHolder
         let watchHolder: WatchUploaderHolder
@@ -279,9 +279,10 @@ private extension MobileSegmentOwnerSurfaceTests {
             mobileSegmentUploader: mobileSegmentUploader,
             mobileSegmentHolder: mobileSegmentHolder,
             store: store,
-            importQueue: ImportQueue(
-                cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true),
-                startPathMonitor: false
+            shareHolder: ShareTransferHolder(
+                transferEngine: transferHarness.engine,
+                mirror: transferHarness.mirror,
+                store: ShareImportStore(cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true))
             ),
             transferEngine: transferHarness.engine,
             omiHolder: transferHarness.omi,
