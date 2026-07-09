@@ -137,6 +137,8 @@ nonisolated enum TransferManifestError: Error, Equatable, Sendable {
 
 nonisolated struct TransferPriorityInputs: Codable, Equatable, Sendable {
     var basePriority: TransferBasePriority
+    /// Grouping key for per-source Transfer status. Producers set this equal to
+    /// `TransferManifest.source`.
     var sourceKey: String
     var userInitiated: Bool
 

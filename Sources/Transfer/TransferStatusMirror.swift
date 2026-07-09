@@ -9,15 +9,64 @@ nonisolated struct TransferCounters: Codable, Equatable, Sendable {
     var attentionCount: Int
     var inFlightCount: Int
     var deliveredCount: Int
+    var droppedCount: Int
 
-    static let empty = TransferCounters(queuedCount: 0, attentionCount: 0, inFlightCount: 0, deliveredCount: 0)
+    static let empty = TransferCounters(
+        queuedCount: 0,
+        attentionCount: 0,
+        inFlightCount: 0,
+        deliveredCount: 0,
+        droppedCount: 0
+    )
 }
 
+nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
+    var queuedCount: Int
+    var attentionCount: Int
+    var inFlightCount: Int
+    var deliveredCount: Int
+    var droppedCount: Int
+    var lastDeliveredAt: Date?
+    var lastErrorDetail: String?
+    var recentErrorCount: Int
+    var bytesPerSecond: Double
+}
+
+nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
+    var manifest: TransferManifest
+    var state: TransferRuntimeState
+    var attempts: Int
+
+    var itemID: UUID {
+        self.manifest.itemID
+    }
+
+    var sourceKey: String {
+        self.manifest.sourceKey
+    }
+
+    var createdAt: Date {
+        self.manifest.createdAt
+    }
+
+    var nextAttemptAt: Date? {
+        self.manifest.nextAttemptAt
+    }
+}
+
+/// Transfer status is rebuilt from durable queued and attention items plus the
+/// current process's in-flight work. Relaunch starts with no in-flight work.
+/// Runtime-only fields, including lastDeliveredAt, lastErrorDetail,
+/// recentErrorCount, throughput, deliveredCount, droppedCount, and attempts,
+/// reset on relaunch. A restored item may have a persisted nextAttemptAt while
+/// its attempts value is 0.
 nonisolated struct TransferStatusSnapshot: Codable, Equatable, Sendable {
     var counters: TransferCounters
     var paused: Bool
     var lastEventSummary: String?
     var lastUpdatedAt: Date
+    var sources: [String: TransferSourceStatusSnapshot]
+    var aggregateBytesPerSecond: Double
 }
 
 @MainActor
@@ -27,9 +76,12 @@ final class TransferStatusMirror {
     private(set) var attentionCount = 0
     private(set) var inFlightCount = 0
     private(set) var deliveredCount = 0
+    private(set) var droppedCount = 0
     private(set) var paused = false
     private(set) var lastEventSummary: String?
     private(set) var lastUpdatedAt: Date?
+    private(set) var sources: [String: TransferSourceStatusSnapshot] = [:]
+    private(set) var aggregateBytesPerSecond = 0.0
     private(set) var applyCount = 0
 
     func apply(snapshot: TransferStatusSnapshot) {
@@ -37,9 +89,12 @@ final class TransferStatusMirror {
         self.attentionCount = snapshot.counters.attentionCount
         self.inFlightCount = snapshot.counters.inFlightCount
         self.deliveredCount = snapshot.counters.deliveredCount
+        self.droppedCount = snapshot.counters.droppedCount
         self.paused = snapshot.paused
         self.lastEventSummary = snapshot.lastEventSummary
         self.lastUpdatedAt = snapshot.lastUpdatedAt
+        self.sources = snapshot.sources
+        self.aggregateBytesPerSecond = snapshot.aggregateBytesPerSecond
         self.applyCount += 1
     }
 }

@@ -12,6 +12,7 @@ nonisolated protocol TransferFileSystem: Sendable {
     func replaceItem(at originalURL: URL, withItemAt newURL: URL) throws
     func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     func data(contentsOf url: URL) throws -> Data
+    func byteCount(at url: URL) throws -> Int
 }
 
 nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unchecked Sendable {
@@ -56,12 +57,21 @@ nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unche
     func data(contentsOf url: URL) throws -> Data {
         try Data(contentsOf: url)
     }
+
+    func byteCount(at url: URL) throws -> Int {
+        let attributes = try self.fileManager.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return size.intValue
+    }
 }
 
 nonisolated struct TransferSpoolSnapshot: Equatable, Sendable {
     var queued: [TransferStoredItem]
     var attention: [TransferStoredItem]
     var recoveryMoves: [TransferRecoveryMove]
+    var recoveryDiagnostics: [TransferRecoveryDiagnostic]
 }
 
 nonisolated struct TransferRecoveryMove: Equatable, Sendable {
@@ -73,11 +83,26 @@ nonisolated struct TransferRecoveryMove: Equatable, Sendable {
 
 nonisolated enum TransferSpoolError: Error, Equatable, Sendable {
     case destinationAlreadyExists(String)
+    case partialFileMove(itemID: UUID, consumedPartIDs: [String], failedPartID: String, detail: String)
 }
 
 nonisolated struct TransferStoredItem: Equatable, Sendable {
     var manifest: TransferManifest
     var directoryURL: URL
+}
+
+nonisolated struct TransferSpoolStageResult: Equatable, Sendable {
+    var item: TransferStoredItem
+    var recoveryDiagnostics: [TransferRecoveryDiagnostic]
+}
+
+nonisolated struct TransferRecoveryDiagnostic: Equatable, Sendable {
+    var source: String
+    var itemID: UUID
+    var previousState: TransferRuntimeState
+    var nextState: TransferRuntimeState
+    var outcome: TransferDiagnosticOutcomeSummary
+    var detail: String
 }
 
 nonisolated struct TransferSpool: Sendable {
@@ -86,6 +111,7 @@ nonisolated struct TransferSpool: Sendable {
     static let queuedDirectoryName = "queued"
     static let attentionDirectoryName = "attention"
     static let deleteSinkDirectoryName = "delete-sink"
+    static let salvageDirectoryName = "salvage"
     static let manifestFilename = "manifest.json"
     static let bodyUploadFilename = "body.upload"
 
@@ -125,16 +151,19 @@ nonisolated struct TransferSpool: Sendable {
         self.rootURL.appendingPathComponent(Self.deleteSinkDirectoryName, isDirectory: true)
     }
 
+    var salvageDirectoryURL: URL {
+        self.rootURL.appendingPathComponent(Self.salvageDirectoryName, isDirectory: true)
+    }
+
     func initialize(now: Date = Date()) throws -> TransferSpoolSnapshot {
         try self.ensureRootDirectories()
         try? self.fileSystem.removeItem(at: self.deleteSinkDirectoryURL)
         try self.fileSystem.createDirectory(at: self.deleteSinkDirectoryURL, withIntermediateDirectories: true)
-        try? self.fileSystem.removeItem(at: self.stagingDirectoryURL)
-        try self.fileSystem.createDirectory(at: self.stagingDirectoryURL, withIntermediateDirectories: true)
 
         var attention = try self.scan(state: .attention)
         var queued: [TransferStoredItem] = []
         var recoveryMoves: [TransferRecoveryMove] = []
+        var recoveryDiagnostics: [TransferRecoveryDiagnostic] = []
         for item in try self.scan(state: .queued) {
             if let missing = self.firstMissingRequiredPayload(in: item) {
                 let moved = try self.moveQueuedItemToAttention(
@@ -154,24 +183,102 @@ nonisolated struct TransferSpool: Sendable {
                 queued.append(item)
             }
         }
-        return TransferSpoolSnapshot(queued: queued, attention: attention, recoveryMoves: recoveryMoves)
+        let stagedRecovery = try self.recoverStagedItems(knownQueuedItemIDs: Set(queued.map(\.manifest.itemID)))
+        queued.append(contentsOf: stagedRecovery.promoted)
+        recoveryDiagnostics.append(contentsOf: stagedRecovery.diagnostics)
+        queued.sort(by: self.itemSort)
+        return TransferSpoolSnapshot(
+            queued: queued,
+            attention: attention,
+            recoveryMoves: recoveryMoves,
+            recoveryDiagnostics: recoveryDiagnostics
+        )
     }
 
-    func stage(manifest: TransferManifest, payloads: [String: Data]) throws -> TransferStoredItem {
+    /// Declare only parts that physically exist at enqueue time. A part that is
+    /// optional by nature, such as a location file that may not exist for a
+    /// given segment, is omitted from `payloadParts` for that item; it is never
+    /// declared-and-missing. `requiredForDispatch` governs only what happens if
+    /// a declared part's file disappears after commit: `true` blocks dispatch
+    /// and moves the item to attention, `false` lets delivery proceed with that
+    /// part omitted.
+    func stage(manifest: TransferManifest, payloads: [String: Data]) throws -> TransferSpoolStageResult {
         try self.ensureRootDirectories()
-        let itemDirectory = self.stagingDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
-        if self.fileSystem.fileExists(atPath: itemDirectory.path) {
-            try self.fileSystem.removeItem(at: itemDirectory)
-        }
-        try self.fileSystem.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
+        var resolvedPayloads: [(part: TransferPayloadPartDescriptor, data: Data)] = []
         for part in manifest.payloadParts {
-            guard let data = payloads[part.partID] else { continue }
+            guard let data = payloads[part.partID] else {
+                throw TransferManifestError.missingPayload(part.partID)
+            }
+            try self.validateRelativePath(part.relativePath)
+            resolvedPayloads.append((part: part, data: data))
+        }
+        let prepared = try self.prepareStagingDirectory(for: manifest)
+        let itemDirectory = prepared.directoryURL
+        try self.fileSystem.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
+        var byteCounts: [String: Int] = [:]
+        for (part, data) in resolvedPayloads {
             let url = try self.payloadURL(for: part, in: itemDirectory)
             try self.fileSystem.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try self.fileSystem.write(data, to: url, options: .atomic)
+            byteCounts[part.partID] = data.count
         }
-        try self.writeManifestAtomically(manifest.replacingDiskState(.queued), in: itemDirectory)
-        return TransferStoredItem(manifest: manifest.replacingDiskState(.queued), directoryURL: itemDirectory)
+        let stagedManifest = self.manifestByApplyingByteCounts(manifest, byteCountsByPartID: byteCounts)
+            .replacingDiskState(.queued)
+        try self.writeManifestAtomically(stagedManifest, in: itemDirectory)
+        return TransferSpoolStageResult(
+            item: TransferStoredItem(manifest: stagedManifest, directoryURL: itemDirectory),
+            recoveryDiagnostics: prepared.diagnostics
+        )
+    }
+
+    /// Declare only parts that physically exist at enqueue time. A part that is
+    /// optional by nature, such as a location file that may not exist for a
+    /// given segment, is omitted from `payloadParts` for that item; it is never
+    /// declared-and-missing. `requiredForDispatch` governs only what happens if
+    /// a declared part's file disappears after commit: `true` blocks dispatch
+    /// and moves the item to attention, `false` lets delivery proceed with that
+    /// part omitted.
+    func stage(manifest: TransferManifest, payloadFileURLs: [String: URL]) throws -> TransferSpoolStageResult {
+        try self.ensureRootDirectories()
+        var resolvedPayloads: [(part: TransferPayloadPartDescriptor, sourceURL: URL)] = []
+        for part in manifest.payloadParts {
+            guard let sourceURL = payloadFileURLs[part.partID] else {
+                throw TransferManifestError.missingPayload(part.partID)
+            }
+            try self.validateRelativePath(part.relativePath)
+            resolvedPayloads.append((part: part, sourceURL: sourceURL))
+        }
+        let prepared = try self.prepareStagingDirectory(for: manifest)
+        let itemDirectory = prepared.directoryURL
+        try self.fileSystem.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
+        var byteCounts: [String: Int] = [:]
+        var consumedPartIDs: [String] = []
+        for (part, sourceURL) in resolvedPayloads {
+            let destinationURL = try self.payloadURL(for: part, in: itemDirectory)
+            do {
+                try self.fileSystem.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                byteCounts[part.partID] = try self.fileSystem.byteCount(at: sourceURL)
+                try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
+                consumedPartIDs.append(part.partID)
+            } catch {
+                throw TransferSpoolError.partialFileMove(
+                    itemID: manifest.itemID,
+                    consumedPartIDs: consumedPartIDs,
+                    failedPartID: part.partID,
+                    detail: String(describing: error)
+                )
+            }
+        }
+        let stagedManifest = self.manifestByApplyingByteCounts(manifest, byteCountsByPartID: byteCounts)
+            .replacingDiskState(.queued)
+        try self.writeManifestAtomically(stagedManifest, in: itemDirectory)
+        return TransferSpoolStageResult(
+            item: TransferStoredItem(manifest: stagedManifest, directoryURL: itemDirectory),
+            recoveryDiagnostics: prepared.diagnostics
+        )
     }
 
     func commitStagedItem(itemID: UUID) throws -> TransferStoredItem {
@@ -181,11 +288,7 @@ nonisolated struct TransferSpool: Sendable {
         if self.fileSystem.fileExists(atPath: destinationURL.path) {
             throw TransferSpoolError.destinationAlreadyExists(destinationURL.path)
         }
-        try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
-        var manifest = try self.readManifest(in: destinationURL).replacingDiskState(.queued)
-        manifest.attention = nil
-        try self.writeManifestAtomically(manifest, in: destinationURL)
-        return TransferStoredItem(manifest: manifest, directoryURL: destinationURL)
+        return try self.moveStagedItemToQueued(sourceURL: sourceURL, destinationURL: destinationURL)
     }
 
     func writeManifestAtomically(_ manifest: TransferManifest, in directoryURL: URL) throws {
@@ -285,6 +388,10 @@ nonisolated struct TransferSpool: Sendable {
         try self.fileSystem.data(contentsOf: self.payloadURL(for: part, in: item.directoryURL))
     }
 
+    func payloadByteCount(for part: TransferPayloadPartDescriptor, in item: TransferStoredItem) throws -> Int {
+        try self.fileSystem.byteCount(at: self.payloadURL(for: part, in: item.directoryURL))
+    }
+
     private func ensureRootDirectories() throws {
         for url in [
             self.rootURL,
@@ -292,9 +399,107 @@ nonisolated struct TransferSpool: Sendable {
             self.queuedDirectoryURL,
             self.attentionDirectoryURL,
             self.deleteSinkDirectoryURL,
+            self.salvageDirectoryURL,
         ] {
             try self.fileSystem.createDirectory(at: url, withIntermediateDirectories: true)
         }
+    }
+
+    private struct PreparedStagingDirectory {
+        var directoryURL: URL
+        var diagnostics: [TransferRecoveryDiagnostic]
+    }
+
+    private struct StagedRecoveryResult {
+        var promoted: [TransferStoredItem]
+        var diagnostics: [TransferRecoveryDiagnostic]
+    }
+
+    private func prepareStagingDirectory(for manifest: TransferManifest) throws -> PreparedStagingDirectory {
+        let itemDirectory = self.stagingDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
+        guard self.fileSystem.fileExists(atPath: itemDirectory.path) else {
+            return PreparedStagingDirectory(directoryURL: itemDirectory, diagnostics: [])
+        }
+        let diagnostic = try self.salvageDirectory(
+            itemDirectory,
+            reason: "staging_collision",
+            manifest: try? self.readManifest(in: itemDirectory)
+        )
+        return PreparedStagingDirectory(directoryURL: itemDirectory, diagnostics: [diagnostic])
+    }
+
+    private func recoverStagedItems(knownQueuedItemIDs: Set<UUID>) throws -> StagedRecoveryResult {
+        guard self.fileSystem.fileExists(atPath: self.stagingDirectoryURL.path) else {
+            return StagedRecoveryResult(promoted: [], diagnostics: [])
+        }
+        var promoted: [TransferStoredItem] = []
+        var diagnostics: [TransferRecoveryDiagnostic] = []
+        var queuedItemIDs = knownQueuedItemIDs
+        for url in try self.fileSystem.contentsOfDirectory(at: self.stagingDirectoryURL) {
+            let manifest: TransferManifest
+            do {
+                manifest = try self.readManifest(in: url).validatedForScan()
+                let item = TransferStoredItem(manifest: manifest, directoryURL: url)
+                if self.firstMissingDeclaredPayload(in: item) != nil {
+                    diagnostics.append(try self.salvageDirectory(url, reason: "incomplete_staging", manifest: manifest))
+                    continue
+                }
+            } catch {
+                diagnostics.append(try self.salvageDirectory(url, reason: "incomplete_staging", manifest: nil))
+                continue
+            }
+            let destinationURL = self.queuedDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
+            if queuedItemIDs.contains(manifest.itemID) || self.fileSystem.fileExists(atPath: destinationURL.path) {
+                diagnostics.append(try self.salvageDirectory(url, reason: "queued_twin_exists", manifest: manifest))
+                continue
+            }
+            let item = try self.moveStagedItemToQueued(sourceURL: url, destinationURL: destinationURL)
+            queuedItemIDs.insert(item.manifest.itemID)
+            promoted.append(item)
+        }
+        return StagedRecoveryResult(promoted: promoted, diagnostics: diagnostics)
+    }
+
+    private func moveStagedItemToQueued(sourceURL: URL, destinationURL: URL) throws -> TransferStoredItem {
+        try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
+        var manifest = try self.readManifest(in: destinationURL).replacingDiskState(.queued)
+        manifest.attention = nil
+        try self.writeManifestAtomically(manifest, in: destinationURL)
+        return TransferStoredItem(manifest: manifest, directoryURL: destinationURL)
+    }
+
+    private func salvageDirectory(
+        _ sourceURL: URL,
+        reason: String,
+        manifest: TransferManifest?
+    ) throws -> TransferRecoveryDiagnostic {
+        let destinationURL = self.salvageDirectoryURL
+            .appendingPathComponent(reason, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: true)
+        try self.fileSystem.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
+        return TransferRecoveryDiagnostic(
+            source: manifest?.sourceKey ?? "spool",
+            itemID: manifest?.itemID ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+            previousState: .staged,
+            nextState: .salvaged,
+            outcome: .salvaged,
+            detail: reason
+        )
+    }
+
+    private func manifestByApplyingByteCounts(
+        _ manifest: TransferManifest,
+        byteCountsByPartID: [String: Int]
+    ) -> TransferManifest {
+        var updated = manifest
+        updated.payloadParts = manifest.payloadParts.map { part in
+            var updatedPart = part
+            updatedPart.byteCount = byteCountsByPartID[part.partID]
+            return updatedPart
+        }
+        return updated
     }
 
     private func scan(state: TransferDiskState) throws -> [TransferStoredItem] {
@@ -320,6 +525,17 @@ nonisolated struct TransferSpool: Sendable {
         }
     }
 
+    private func firstMissingDeclaredPayload(in item: TransferStoredItem) -> String? {
+        for part in item.manifest.payloadParts {
+            guard let url = try? self.payloadURL(for: part, in: item.directoryURL),
+                  self.fileSystem.fileExists(atPath: url.path)
+            else {
+                return part.filename
+            }
+        }
+        return nil
+    }
+
     private func firstMissingRequiredPayload(in item: TransferStoredItem) -> String? {
         for part in item.manifest.payloadParts where part.requiredForDispatch {
             guard let url = try? self.payloadURL(for: part, in: item.directoryURL),
@@ -329,6 +545,13 @@ nonisolated struct TransferSpool: Sendable {
             }
         }
         return nil
+    }
+
+    private func itemSort(_ lhs: TransferStoredItem, _ rhs: TransferStoredItem) -> Bool {
+        if lhs.manifest.createdAt == rhs.manifest.createdAt {
+            return lhs.manifest.itemID.uuidString < rhs.manifest.itemID.uuidString
+        }
+        return lhs.manifest.createdAt < rhs.manifest.createdAt
     }
 
     private func readManifest(in directoryURL: URL) throws -> TransferManifest {

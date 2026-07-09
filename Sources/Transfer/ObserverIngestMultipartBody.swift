@@ -3,7 +3,7 @@
 
 import Foundation
 
-nonisolated struct ObserverIngestMultipartInput: Sendable {
+nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
     var boundary: String
     var platform: String
     var segment: String
@@ -46,7 +46,7 @@ nonisolated struct ObserverIngestMultipartInput: Sendable {
     }
 }
 
-nonisolated struct ObserverIngestMultipartArtifacts: Sendable {
+nonisolated struct ObserverIngestMultipartArtifacts: Equatable, Sendable {
     var audioData: Data?
     var locationJSONL: Data?
     var screenData: Data?

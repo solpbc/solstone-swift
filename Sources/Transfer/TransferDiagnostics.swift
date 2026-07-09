@@ -25,6 +25,7 @@ nonisolated enum TransferRuntimeState: String, Codable, Equatable, Sendable {
     case held
     case dropped
     case paused
+    case salvaged
 }
 
 nonisolated enum TransferDiagnosticOutcomeSummary: String, Codable, Equatable, Sendable {
@@ -36,4 +37,6 @@ nonisolated enum TransferDiagnosticOutcomeSummary: String, Codable, Equatable, S
     case dropped
     case paused
     case resumed
+    case salvaged
+    case hookFailed = "hook_failed"
 }

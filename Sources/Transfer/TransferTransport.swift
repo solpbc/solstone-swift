@@ -3,7 +3,7 @@
 
 import Foundation
 
-typealias TransferAuthProvider = @Sendable () async throws -> String
+typealias TransferAuthProvider = @Sendable (TransferManifest) async throws -> String
 
 nonisolated final class TransferTransport: @unchecked Sendable {
     private let session: URLSession
@@ -19,11 +19,16 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         self.authProvider = authProvider
     }
 
-    func buildAuthorizedRequest(url: URL, method: String = "POST", requiresAuth: Bool = true) async throws -> URLRequest {
+    func buildAuthorizedRequest(
+        url: URL,
+        manifest: TransferManifest,
+        method: String = "POST",
+        requiresAuth: Bool = true
+    ) async throws -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
         if requiresAuth {
-            let handle = try await self.authProvider()
+            let handle = try await self.authProvider(manifest)
             request.setValue("Bearer \(handle)", forHTTPHeaderField: "Authorization")
         }
         return request
@@ -49,6 +54,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         do {
             var request = try await self.buildAuthorizedRequest(
                 url: url,
+                manifest: item.manifest,
                 method: "POST",
                 requiresAuth: item.manifest.endpoint.requiresAuth
             )
