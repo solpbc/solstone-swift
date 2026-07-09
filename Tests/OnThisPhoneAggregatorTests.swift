@@ -556,6 +556,10 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
                 droppedCount: 0
             ),
             paused: false,
+            policyPaused: false,
+            backoffPendingCount: 0,
+            soonestNextAttemptAt: nil,
+            endpointHeld: false,
             lastEventSummary: nil,
             lastUpdatedAt: Date(),
             sources: [

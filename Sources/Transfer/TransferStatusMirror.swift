@@ -67,6 +67,10 @@ nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
 nonisolated struct TransferStatusSnapshot: Codable, Equatable, Sendable {
     var counters: TransferCounters
     var paused: Bool
+    var policyPaused: Bool
+    var backoffPendingCount: Int
+    var soonestNextAttemptAt: Date?
+    var endpointHeld: Bool
     var lastEventSummary: String?
     var lastUpdatedAt: Date
     var sources: [String: TransferSourceStatusSnapshot]
@@ -82,6 +86,10 @@ final class TransferStatusMirror {
     private(set) var deliveredCount = 0
     private(set) var droppedCount = 0
     private(set) var paused = false
+    private(set) var policyPaused = false
+    private(set) var backoffPendingCount = 0
+    private(set) var soonestNextAttemptAt: Date?
+    private(set) var endpointHeld = false
     private(set) var lastEventSummary: String?
     private(set) var lastUpdatedAt: Date?
     private(set) var sources: [String: TransferSourceStatusSnapshot] = [:]
@@ -95,6 +103,10 @@ final class TransferStatusMirror {
         self.deliveredCount = snapshot.counters.deliveredCount
         self.droppedCount = snapshot.counters.droppedCount
         self.paused = snapshot.paused
+        self.policyPaused = snapshot.policyPaused
+        self.backoffPendingCount = snapshot.backoffPendingCount
+        self.soonestNextAttemptAt = snapshot.soonestNextAttemptAt
+        self.endpointHeld = snapshot.endpointHeld
         self.lastEventSummary = snapshot.lastEventSummary
         self.lastUpdatedAt = snapshot.lastUpdatedAt
         self.sources = snapshot.sources

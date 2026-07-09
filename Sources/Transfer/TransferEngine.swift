@@ -178,9 +178,12 @@ actor TransferEngine {
     private let clock: any TransferClock
     private let diagnosticsSink: TransferDiagnosticSink
     private let statusMirror: TransferStatusMirror?
+    private let conditions: (any TransferConditionsProviding)?
+    private let dispatchPolicy: TransferDispatchPolicy
     /// Global dispatch cap across all sources. Share, mobile-segment, Omi, and
     /// watch items draw from the same in-flight budget; this is not a
-    /// per-source concurrency limit.
+    /// per-source concurrency limit. When live dispatch conditions are present,
+    /// the dispatch policy owns the effective cap and this value is ignored.
     private let maxConcurrent: Int
     private let bodyBuilder: TransferBodyBuilder
 
@@ -193,6 +196,8 @@ actor TransferEngine {
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
     private var paused = false
+    private var pacingMode: TransferPacingMode = .normal
+    private var policyPaused = false
     private var endpointHeld = false
     private var counters = TransferCounters.empty
     private var sourceStates: [String: TransferSourceRuntimeState] = [:]
@@ -212,6 +217,8 @@ actor TransferEngine {
         clock: any TransferClock = LiveTransferClock(),
         diagnosticsSink: @escaping TransferDiagnosticSink = { _ in },
         statusMirror: TransferStatusMirror? = nil,
+        conditions: (any TransferConditionsProviding)? = nil,
+        dispatchPolicy: TransferDispatchPolicy = TransferDispatchPolicy(),
         maxConcurrent: Int = 3,
         bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build
     ) {
@@ -222,6 +229,8 @@ actor TransferEngine {
         self.clock = clock
         self.diagnosticsSink = diagnosticsSink
         self.statusMirror = statusMirror
+        self.conditions = conditions
+        self.dispatchPolicy = dispatchPolicy
         self.maxConcurrent = max(1, maxConcurrent)
         self.bodyBuilder = bodyBuilder
     }
@@ -404,6 +413,11 @@ actor TransferEngine {
         self.scheduleWork()
     }
 
+    func setPacingMode(_ mode: TransferPacingMode) {
+        self.pacingMode = mode
+        self.scheduleWork()
+    }
+
     /// Registers a best-effort delivered hook for one source key. Hooks fire at
     /// most once after the delivery commit; a crash between commit and hook
     /// execution skips the hook permanently. Hooks must be idempotent and must
@@ -505,9 +519,14 @@ actor TransferEngine {
 
     func snapshot() -> TransferStatusSnapshot {
         let now = self.clock.wallNow()
+        let backoff = self.backoffPending(now: now)
         return TransferStatusSnapshot(
             counters: self.counters,
             paused: self.paused,
+            policyPaused: self.policyPaused,
+            backoffPendingCount: backoff.count,
+            soonestNextAttemptAt: backoff.soonest,
+            endpointHeld: self.endpointHeld,
             lastEventSummary: self.lastEventSummary,
             lastUpdatedAt: now,
             sources: self.sourceSnapshots(now: now),
@@ -570,10 +589,24 @@ actor TransferEngine {
         while true {
             self.workPassScheduled = false
             guard !self.paused else { return }
-            while self.inFlight.count < self.maxConcurrent {
+            var dispatchedThisPass = false
+            while true {
+                var decision = self.currentDispatchDecision()
+                self.applyPolicyPause(decision.paused)
+                if decision.paused { break }
+                guard self.inFlight.count < decision.maxConcurrent else { break }
                 guard let item = await self.nextEligibleItem() else { break }
                 guard !self.paused else { break }
+                if dispatchedThisPass, decision.interItemDelay > .zero {
+                    await self.clock.sleep(for: decision.interItemDelay)
+                    guard !self.paused else { break }
+                    decision = self.currentDispatchDecision()
+                    self.applyPolicyPause(decision.paused)
+                    if decision.paused { break }
+                    guard self.inFlight.count < decision.maxConcurrent else { break }
+                }
                 await self.dispatch(item)
+                dispatchedThisPass = true
             }
             self.scheduleRetryTimer()
             guard self.workPassScheduled else { return }
@@ -825,17 +858,8 @@ actor TransferEngine {
         self.retrySleepTask = nil
         guard !self.paused else { return }
         let wallNow = self.clock.wallNow()
-        let futureDates = self.queuedItems.values.compactMap { item -> Date? in
-            guard !self.inFlight.contains(item.manifest.itemID),
-                  let next = item.manifest.nextAttemptAt,
-                  next > wallNow,
-                  next <= wallNow.addingTimeInterval(self.pacer.defaults.maxDelay)
-            else {
-                return nil
-            }
-            return next
-        }
-        guard let soonest = futureDates.min() else { return }
+        let backoff = self.backoffPending(now: wallNow)
+        guard let soonest = backoff.soonest else { return }
         let delay = TransferClockMath.sleepDurationUntil(
             nextAttemptAt: soonest,
             wallNow: wallNow,
@@ -892,6 +916,50 @@ private extension TransferEngine {
         Dictionary(uniqueKeysWithValues: self.sourceStates.map { sourceKey, state in
             (sourceKey, state.snapshot(now: now))
         })
+    }
+
+    func currentDispatchDecision() -> TransferDispatchDecision {
+        guard let conditions else {
+            return TransferDispatchDecision(
+                maxConcurrent: self.maxConcurrent,
+                interItemDelay: .zero,
+                paused: false
+            )
+        }
+        return self.dispatchPolicy.decide(
+            conditions: conditions.current(),
+            mode: self.pacingMode
+        )
+    }
+
+    func applyPolicyPause(_ paused: Bool) {
+        guard self.policyPaused != paused else { return }
+        self.policyPaused = paused
+        if paused {
+            let thermal = self.conditions?.current().thermalState ?? .nominal
+            let detail = "thermal \(thermalStateString(thermal))"
+            self.emitEngineEvent(outcome: .paused, detail: detail)
+            transferLog.notice("transfer policy paused \(detail, privacy: .public)")
+            self.scheduleStatusUpdate(summary: detail)
+        } else {
+            self.emitEngineEvent(outcome: .resumed, detail: "policy resumed")
+            transferLog.notice("transfer policy resumed")
+            self.scheduleStatusUpdate(summary: "policy resumed")
+        }
+    }
+
+    func backoffPending(now: Date) -> (count: Int, soonest: Date?) {
+        let dates = self.queuedItems.values.compactMap { item -> Date? in
+            guard !self.inFlight.contains(item.manifest.itemID),
+                  let next = item.manifest.nextAttemptAt,
+                  next > now,
+                  next <= now.addingTimeInterval(self.pacer.defaults.maxDelay)
+            else {
+                return nil
+            }
+            return next
+        }
+        return (dates.count, dates.min())
     }
 
     func snapshot(for item: TransferStoredItem) -> TransferItemSnapshot {

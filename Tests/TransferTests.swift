@@ -493,6 +493,211 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(TransferURLProtocol.requests.count, 2)
     }
 
+    func testDispatchPolicyConditionsReduceConcurrencyAndCriticalPauseResumes() async throws {
+        let conditions = MutableTransferConditionsProvider()
+        let state = OSAllocatedUnfairLock<TransferPolicyDispatchState>(initialState: TransferPolicyDispatchState())
+        TransferURLProtocol.handler = { request, _ in
+            let phase = conditions.current().lowPowerModeEnabled ? "lowPower" : "normal"
+            state.withLock { values in
+                if let itemID = Self.boundaryItemID(from: request) {
+                    values.dispatches.append(TransferPolicyDispatch(itemID: itemID, phase: phase))
+                }
+            }
+            return TransferURLProtocol.hold(request)
+        }
+        let engine = self.makeEngine(
+            conditions: conditions
+        )
+        try await engine.start()
+
+        for index in 0..<20 {
+            _ = try await engine.enqueue(
+                manifest: self.makeManifest(itemID: Self.uuid(500 + index), source: "source-\(index % 3)"),
+                payloads: self.audioPayloads()
+            )
+        }
+
+        try await self.waitFor("initial two dispatches") {
+            let normalDispatches = state.withLock { values in
+                values.dispatches.filter { $0.phase == "normal" }.count
+            }
+            let snapshot = await engine.snapshot()
+            return normalDispatches == 2 && snapshot.counters.inFlightCount == 2
+        }
+        conditions.update(lowPowerModeEnabled: true)
+        await engine.kick()
+        TransferURLProtocol.completeHeld(2)
+
+        try await self.waitFor("first low power dispatch") {
+            let lowPowerDispatches = state.withLock { values in
+                values.dispatches.filter { $0.phase == "lowPower" }.count
+            }
+            let snapshot = await engine.snapshot()
+            return lowPowerDispatches == 1 && snapshot.counters.inFlightCount == 1
+        }
+        TransferURLProtocol.completeHeld(1)
+        try await self.waitFor("second low power dispatch") {
+            let lowPowerDispatches = state.withLock { values in
+                values.dispatches.filter { $0.phase == "lowPower" }.count
+            }
+            let snapshot = await engine.snapshot()
+            return lowPowerDispatches == 2 && snapshot.counters.inFlightCount == 1
+        }
+
+        XCTAssertEqual(state.withLock { $0.dispatches.filter { $0.phase == "normal" }.count }, 2)
+        XCTAssertEqual(state.withLock { $0.dispatches.filter { $0.phase == "lowPower" }.count }, 2)
+
+        await engine.pause()
+    }
+
+    func testCriticalPolicyPauseStopsNewDispatchesAndKickResumesAfterLift() async throws {
+        let conditions = MutableTransferConditionsProvider()
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        TransferURLProtocol.handler = { request, _ in
+            TransferURLProtocol.hold(request)
+        }
+        let engine = self.makeEngine(
+            diagnosticsSink: { event in events.withLock { $0.append(event) } },
+            conditions: conditions
+        )
+        try await engine.start()
+        let thirdID = Self.uuid(620)
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(618)), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(619)), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: thirdID), payloads: self.audioPayloads())
+
+        try await self.waitFor("two in flight") {
+            let snapshot = await engine.snapshot()
+            return TransferURLProtocol.requests.count == 2 && snapshot.counters.inFlightCount == 2
+        }
+        conditions.update(thermalState: .critical)
+        await engine.kick()
+        TransferURLProtocol.completeHeld(2)
+
+        try await self.waitFor("policy paused after in-flight completion") {
+            let snapshot = await engine.snapshot()
+            return snapshot.counters.deliveredCount == 2
+                && snapshot.counters.inFlightCount == 0
+                && snapshot.policyPaused
+        }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 2)
+        let pausedSnapshot = await engine.snapshot()
+        XCTAssertEqual(pausedSnapshot.paused, false)
+        XCTAssertTrue(events.withLock { values in
+            values.contains { $0.outcome == .paused && $0.shortDetail == "thermal critical" }
+        })
+
+        conditions.update(thermalState: .nominal)
+        await engine.kick()
+        try await self.waitFor("dispatch resumes after policy lift") {
+            TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)).contains(thirdID)
+        }
+        XCTAssertTrue(events.withLock { values in
+            values.contains { $0.outcome == .resumed && $0.shortDetail == "policy resumed" }
+        })
+    }
+
+    func testCriticalPolicyPauseIsNotTerminalAndDoesNotConsumeAttempts() async throws {
+        let conditions = MutableTransferConditionsProvider(thermalState: .critical)
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 204), Data())
+        }
+        let engine = self.makeEngine(
+            diagnosticsSink: { event in events.withLock { $0.append(event) } },
+            conditions: conditions
+        )
+        try await engine.start()
+        let itemID = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(621)),
+            payloads: self.audioPayloads()
+        )
+
+        try await self.waitFor("policy pause snapshot") {
+            (await engine.snapshot()).policyPaused
+        }
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.queuedCount, 1)
+        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
+        XCTAssertEqual(snapshot.counters.attentionCount, 0)
+        XCTAssertEqual(snapshot.paused, false)
+        XCTAssertEqual(snapshot.policyPaused, true)
+        let itemSnapshot = await engine.itemSnapshot(itemID: itemID)
+        XCTAssertEqual(itemSnapshot?.attempts, 0)
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        XCTAssertFalse(events.withLock { values in values.contains { $0.outcome == .needsAttention } })
+    }
+
+    func testDispatchPolicyDelayUsesTransferClockBetweenDispatches() async throws {
+        let conditions = MutableTransferConditionsProvider(thermalState: .serious)
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        var defaults = TransferDispatchPolicyDefaults.standard
+        defaults.throttledConcurrency = defaults.normalConcurrency
+        TransferURLProtocol.handler = { request, _ in
+            TransferURLProtocol.hold(request)
+        }
+        let engine = self.makeEngine(
+            clock: clock,
+            conditions: conditions,
+            dispatchPolicy: TransferDispatchPolicy(defaults: defaults)
+        )
+        try await engine.start()
+        await engine.pause()
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(630)), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(631)), payloads: self.audioPayloads())
+        await engine.resume()
+
+        try await self.waitFor("first dispatch before delay") {
+            TransferURLProtocol.requests.count == 1 && clock.sleepDurations == [0.5]
+        }
+        clock.resumeSleeps()
+        try await self.waitFor("second dispatch after delay") {
+            TransferURLProtocol.requests.count == 2
+        }
+
+        let dispatched = TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:))
+        XCTAssertEqual(dispatched, [Self.uuid(630), Self.uuid(631)])
+        XCTAssertEqual(clock.sleepDurations, [0.5])
+        await engine.pause()
+    }
+
+    @MainActor
+    func testSnapshotBackoffEndpointHeldAndMirrorFieldsPopulate() async throws {
+        let mirror = TransferStatusMirror()
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let resolver = TransferEndpointResolverStub(.unavailable("waiting"))
+        let engine = self.makeEngine(
+            clock: clock,
+            resolver: resolver,
+            statusMirror: mirror
+        )
+        try await engine.start()
+        let nextAttemptAt = Self.baseDate.addingTimeInterval(60)
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(640), nextAttemptAt: nextAttemptAt),
+            payloads: self.audioPayloads()
+        )
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(641)),
+            payloads: self.audioPayloads()
+        )
+
+        try await self.waitFor("snapshot backoff and endpoint held") {
+            let snapshot = await engine.snapshot()
+            return snapshot.backoffPendingCount == 1
+                && snapshot.soonestNextAttemptAt == nextAttemptAt
+                && snapshot.endpointHeld
+        }
+        try await self.waitFor("mirror backoff and endpoint held") {
+            await MainActor.run {
+                mirror.backoffPendingCount == 1
+                    && mirror.soonestNextAttemptAt == nextAttemptAt
+                    && mirror.endpointHeld
+            }
+        }
+    }
+
     func testDropInFlightAndAlreadyGoneAreNoOps() async throws {
         let gate = DispatchSemaphore(value: 0)
         TransferURLProtocol.handler = { request, _ in
@@ -1622,6 +1827,8 @@ private extension TransferTests {
         pacer: TransferPacer = TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
         diagnosticsSink: @escaping TransferDiagnosticSink = { _ in },
         statusMirror: TransferStatusMirror? = nil,
+        conditions: (any TransferConditionsProviding)? = nil,
+        dispatchPolicy: TransferDispatchPolicy = TransferDispatchPolicy(),
         maxConcurrent: Int = 3,
         bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build
     ) -> TransferEngine {
@@ -1635,6 +1842,8 @@ private extension TransferTests {
             clock: clock,
             diagnosticsSink: diagnosticsSink,
             statusMirror: statusMirror,
+            conditions: conditions,
+            dispatchPolicy: dispatchPolicy,
             maxConcurrent: maxConcurrent,
             bodyBuilder: bodyBuilder
         )
@@ -1728,6 +1937,59 @@ private extension TransferTests {
 private enum TransferTransientStep: Sendable {
     case status(Int)
     case urlIssue(URLError.Code)
+}
+
+private struct TransferPolicyDispatch: Equatable, Sendable {
+    var itemID: UUID
+    var phase: String
+}
+
+private struct TransferPolicyDispatchState: Sendable {
+    var dispatches: [TransferPolicyDispatch] = []
+}
+
+private final class MutableTransferConditionsProvider: TransferConditionsProviding, @unchecked Sendable {
+    private let state: OSAllocatedUnfairLock<TransferDispatchConditions>
+
+    init(
+        thermalState: ProcessInfo.ThermalState = .nominal,
+        lowPowerModeEnabled: Bool = false,
+        isExpensive: Bool = false,
+        isConstrained: Bool = false
+    ) {
+        self.state = OSAllocatedUnfairLock(initialState: TransferDispatchConditions(
+            thermalState: thermalState,
+            lowPowerModeEnabled: lowPowerModeEnabled,
+            isExpensive: isExpensive,
+            isConstrained: isConstrained
+        ))
+    }
+
+    func current() -> TransferDispatchConditions {
+        self.state.withLock { $0 }
+    }
+
+    func update(
+        thermalState: ProcessInfo.ThermalState? = nil,
+        lowPowerModeEnabled: Bool? = nil,
+        isExpensive: Bool? = nil,
+        isConstrained: Bool? = nil
+    ) {
+        self.state.withLock { conditions in
+            if let thermalState {
+                conditions.thermalState = thermalState
+            }
+            if let lowPowerModeEnabled {
+                conditions.lowPowerModeEnabled = lowPowerModeEnabled
+            }
+            if let isExpensive {
+                conditions.isExpensive = isExpensive
+            }
+            if let isConstrained {
+                conditions.isConstrained = isConstrained
+            }
+        }
+    }
 }
 
 private enum DeliveredHookTestError: Error, Sendable {
@@ -2148,6 +2410,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     private static let requestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
+    private static let heldBox = OSAllocatedUnfairLock<[TransferURLProtocol]>(initialState: [])
 
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
@@ -2166,10 +2429,23 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
         self.handler = nil
         self.requestsBox.withLock { $0 = [] }
         self.bodiesBox.withLock { $0 = [] }
+        self.heldBox.withLock { $0 = [] }
     }
 
     static func hold(_ request: URLRequest) -> (HTTPURLResponse, Data)? {
         nil
+    }
+
+    static func completeHeld(_ count: Int = 1, statusCode: Int = 204, data: Data = Data()) {
+        let held = self.heldBox.withLock { protocols -> [TransferURLProtocol] in
+            let completeCount = min(count, protocols.count)
+            let completed = Array(protocols.prefix(completeCount))
+            protocols.removeFirst(completeCount)
+            return completed
+        }
+        for urlProtocol in held {
+            urlProtocol.complete(statusCode: statusCode, data: data)
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -2191,6 +2467,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
         }
         do {
             guard let (response, data) = try handler(self.request, body) else {
+                Self.heldBox.withLock { $0.append(self) }
                 return
             }
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -2202,6 +2479,20 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+
+    private func complete(statusCode: Int, data: Data) {
+        guard let response = HTTPURLResponse(
+            url: self.request.url!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        ) else {
+            return
+        }
+        self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        self.client?.urlProtocol(self, didLoad: data)
+        self.client?.urlProtocolDidFinishLoading(self)
+    }
 
     private static func bodyData(from request: URLRequest) -> Data {
         if let body = request.httpBody {

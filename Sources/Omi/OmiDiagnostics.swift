@@ -328,7 +328,7 @@ final class OmiDiagnostics {
         self.payload.phoneSamples.append(OmiDiagnosticsPayload.PhoneSample(
             timestamp: now,
             batteryLevel: rawBatteryLevel >= 0 ? Double(rawBatteryLevel) : nil,
-            thermalState: Self.thermalStateString(ProcessInfo.processInfo.thermalState),
+            thermalState: thermalStateString(ProcessInfo.processInfo.thermalState),
             batteryState: Self.batteryStateString(UIDevice.current.batteryState)
         ))
         self.payload.phoneSamples = OmiDiagnosticsLogic.retainingMostRecent(
@@ -377,21 +377,6 @@ private extension OmiDiagnostics {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(OmiDiagnosticsPayload.self, from: data)
-    }
-
-    static func thermalStateString(_ state: ProcessInfo.ThermalState) -> String {
-        switch state {
-        case .nominal:
-            "nominal"
-        case .fair:
-            "fair"
-        case .serious:
-            "serious"
-        case .critical:
-            "critical"
-        @unknown default:
-            "unknown"
-        }
     }
 
     static func batteryStateString(_ state: UIDevice.BatteryState) -> String {

@@ -27,6 +27,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchUploaderHolder: WatchUploaderHolder
     @State private var transferEndpointResolver: LoopbackTransferEndpointResolver
     @State private var transferStatusMirror: TransferStatusMirror
+    @State private var transferConditionsSource: TransferConditionsSource
     @State private var transferEngine: TransferEngine
     @State private var transferEnqueuer: ObserverAudioTransferEnqueuer
     @State private var shareImportStore: ShareImportStore
@@ -246,6 +247,7 @@ struct SolstoneSwiftApp: App {
         )
         let transferEndpointResolver = LoopbackTransferEndpointResolver()
         let transferStatusMirror = TransferStatusMirror()
+        let transferConditionsSource = TransferConditionsSource()
         let transferSpool: TransferSpool
         do {
             transferSpool = try TransferSpool()
@@ -269,6 +271,7 @@ struct SolstoneSwiftApp: App {
             endpointResolver: transferEndpointResolver,
             diagnosticsSink: ObserverAudioTransferDiagnostics.makeSink(diagnosticLog: log),
             statusMirror: transferStatusMirror,
+            conditions: transferConditionsSource.provider,
             bodyBuilder: { item, spool in
                 if item.manifest.endpoint.destinationKind == .saveThenStart,
                    item.manifest.saveThenStart?.phase != .startPending
@@ -549,6 +552,7 @@ struct SolstoneSwiftApp: App {
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
         self._transferEndpointResolver = State(initialValue: transferEndpointResolver)
         self._transferStatusMirror = State(initialValue: transferStatusMirror)
+        self._transferConditionsSource = State(initialValue: transferConditionsSource)
         self._transferEngine = State(initialValue: transferEngine)
         self._transferEnqueuer = State(initialValue: transferEnqueuer)
         self._shareImportStore = State(initialValue: shareImportStore)
@@ -831,6 +835,11 @@ struct SolstoneSwiftApp: App {
 
         do {
             try await self.transferEngine.start()
+            self.transferConditionsSource.start {
+                Task {
+                    await self.transferEngine.kick()
+                }
+            }
         } catch {
             self.diagnosticLog.append(
                 category: .upload,
