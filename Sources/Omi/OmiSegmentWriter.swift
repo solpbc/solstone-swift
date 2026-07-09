@@ -7,7 +7,6 @@ import os
 
 @MainActor
 final class OmiSegmentWriter {
-    nonisolated static let backgroundSessionIdentifier = "app.solstone.swift.omi-upload"
     nonisolated static let cacheDirectoryName = "OmiObserver"
 
     private static let chunkDurationSeconds: TimeInterval = 300
@@ -16,7 +15,9 @@ final class OmiSegmentWriter {
     private static let sampleRate: Double = 16_000
     private static let channelCount: AVAudioChannelCount = 1
 
-    private let uploader: ObserverUploader
+    private let transferEnqueuer: ObserverAudioTransferEnqueuer
+    private let cacheRootURL: URL
+    private let fileManager: FileManager
     private let clock: any ObserverClock
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-writer")
 
@@ -37,10 +38,18 @@ final class OmiSegmentWriter {
     private var didNotifyWriterFaultForCurrentWedge = false
 
     init(
-        uploader: ObserverUploader,
+        transferEnqueuer: ObserverAudioTransferEnqueuer,
+        cacheRootURL: URL? = nil,
+        fileManager: FileManager = .default,
         clock: any ObserverClock = SystemObserverClock()
     ) {
-        self.uploader = uploader
+        self.transferEnqueuer = transferEnqueuer
+        self.fileManager = fileManager
+        self.cacheRootURL = cacheRootURL
+            ?? (try? AppGroupContainer.rootURL(fileManager: fileManager)
+                .appendingPathComponent(Self.cacheDirectoryName, isDirectory: true))
+            ?? fileManager.temporaryDirectory
+                .appendingPathComponent(Self.cacheDirectoryName, isDirectory: true)
         self.clock = clock
     }
 
@@ -158,7 +167,7 @@ private extension OmiSegmentWriter {
         }
 
         let chunkID = Self.chunkID(sessionID: sessionID, index: self.chunkIndex)
-        let url = try self.uploader.inProgressChunkURL(sessionID: sessionID, chunkID: chunkID)
+        let url = try self.inProgressChunkURL(sessionID: sessionID, chunkID: chunkID)
         let file = try AVAudioFile(
             forWriting: url,
             settings: Self.aacSettings,
@@ -194,17 +203,31 @@ private extension OmiSegmentWriter {
 
     func finalizeCurrentChunk() {
         guard let finalizedChunk = self.takeFinalizedChunk() else { return }
-        let uploader = self.uploader
-        Task { @MainActor [uploader, finalizedChunk] in
-            await uploader.enqueue(chunkURL: finalizedChunk.url, sidecar: finalizedChunk.sidecar)
+        let transferEnqueuer = self.transferEnqueuer
+        Task { @MainActor [weak self, transferEnqueuer, finalizedChunk] in
+            do {
+                _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
+                    chunkURL: finalizedChunk.url,
+                    sidecar: finalizedChunk.sidecar
+                )
+                self?.notifyChunkFinalized(finalizedChunk)
+            } catch {
+                self?.log.error("omi writer enqueue failed: \(String(describing: error), privacy: .public)")
+            }
         }
-        self.notifyChunkFinalized(finalizedChunk)
     }
 
     func finalizeCurrentChunkAwaitingEnqueue() async {
         guard let finalizedChunk = self.takeFinalizedChunk() else { return }
-        await self.uploader.enqueue(chunkURL: finalizedChunk.url, sidecar: finalizedChunk.sidecar)
-        self.notifyChunkFinalized(finalizedChunk)
+        do {
+            _ = try await self.transferEnqueuer.enqueueOmiChunkMovingFile(
+                chunkURL: finalizedChunk.url,
+                sidecar: finalizedChunk.sidecar
+            )
+            self.notifyChunkFinalized(finalizedChunk)
+        } catch {
+            self.log.error("omi writer enqueue failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     func takeFinalizedChunk() -> FinalizedChunk? {
@@ -309,6 +332,20 @@ private extension OmiSegmentWriter {
 
     static func chunkID(sessionID: UUID, index: Int) -> String {
         "\(sessionID.uuidString.lowercased())-\(index)"
+    }
+
+    func sessionDirectoryURL(sessionID: UUID) -> URL {
+        self.cacheRootURL.appendingPathComponent(sessionID.uuidString, isDirectory: true)
+    }
+
+    func inProgressDirectoryURL(sessionID: UUID) -> URL {
+        self.sessionDirectoryURL(sessionID: sessionID).appendingPathComponent("in-progress", isDirectory: true)
+    }
+
+    func inProgressChunkURL(sessionID: UUID, chunkID: String) throws -> URL {
+        let directory = self.inProgressDirectoryURL(sessionID: sessionID)
+        try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
     }
 }
 
