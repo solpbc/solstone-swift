@@ -843,12 +843,14 @@ struct SolstoneSwiftApp: App {
         }
 
         do {
-            try await self.transferEngine.start()
             self.transferConditionsSource.start {
                 Task {
                     await self.transferEngine.kick()
                 }
             }
+            // PathMonitor's first value is asynchronous and debounced, so cold launch may still allow
+            // up to ~200ms of 2-lane dispatch on a cellular/constrained path.
+            try await self.transferEngine.start()
         } catch {
             self.diagnosticLog.append(
                 category: .upload,

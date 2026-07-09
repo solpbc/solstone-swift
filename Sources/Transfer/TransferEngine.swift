@@ -10,6 +10,32 @@ nonisolated private let transferStatusCoalescingDelay: Duration = .milliseconds(
 typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> Data
 typealias TransferDeliveredHook = @Sendable (TransferManifest, TransferSuccessKind) async throws -> Void
 
+nonisolated private struct TransferDispatchLogState: Equatable, Sendable {
+    var decision: TransferDispatchDecision
+    var conditions: TransferDispatchConditions
+    var mode: TransferPacingMode
+}
+
+nonisolated private struct TransferDispatchAssessment: Sendable {
+    var decision: TransferDispatchDecision
+    var logState: TransferDispatchLogState?
+}
+
+nonisolated private func transferPacingModeString(_ mode: TransferPacingMode) -> String {
+    switch mode {
+    case .normal:
+        "normal"
+    case .finishSyncing:
+        "finishSyncing"
+    }
+}
+
+nonisolated private func transferDispatchDelayString(_ duration: Duration) -> String {
+    let components = duration.components
+    let seconds = Double(components.seconds) + (Double(components.attoseconds) / 1_000_000_000_000_000_000)
+    return String(format: "%.3fs", seconds)
+}
+
 nonisolated enum TransferBodyBuildError: Error, Equatable, Sendable {
     case missingObserverMetadata
     case missingPayload(String)
@@ -206,6 +232,7 @@ actor TransferEngine {
     private var workPassScheduled = false
     private var workPassRunning = false
     private var lastEventSummary: String?
+    private var lastLoggedDispatchDecision: TransferDispatchLogState?
     private var pendingStatusSnapshot: TransferStatusSnapshot?
     private var statusUpdateScheduled = false
 
@@ -590,23 +617,34 @@ actor TransferEngine {
             self.workPassScheduled = false
             guard !self.paused else { return }
             var dispatchedThisPass = false
+            var stoppedForNoEligibleItem = false
             while true {
-                var decision = self.currentDispatchDecision()
+                var assessment = self.currentDispatchAssessment()
+                self.logDispatchDecisionIfChanged(assessment.logState)
+                var decision = assessment.decision
                 self.applyPolicyPause(decision.paused)
                 if decision.paused { break }
                 guard self.inFlight.count < decision.maxConcurrent else { break }
-                guard let item = await self.nextEligibleItem() else { break }
+                guard let item = await self.nextEligibleItem() else {
+                    stoppedForNoEligibleItem = true
+                    break
+                }
                 guard !self.paused else { break }
                 if dispatchedThisPass, decision.interItemDelay > .zero {
                     await self.clock.sleep(for: decision.interItemDelay)
                     guard !self.paused else { break }
-                    decision = self.currentDispatchDecision()
+                    assessment = self.currentDispatchAssessment()
+                    self.logDispatchDecisionIfChanged(assessment.logState)
+                    decision = assessment.decision
                     self.applyPolicyPause(decision.paused)
                     if decision.paused { break }
                     guard self.inFlight.count < decision.maxConcurrent else { break }
                 }
                 await self.dispatch(item)
                 dispatchedThisPass = true
+            }
+            if stoppedForNoEligibleItem, self.inFlight.isEmpty {
+                await self.refreshEndpointHoldForBackoff(now: self.clock.wallNow())
             }
             self.scheduleRetryTimer()
             guard self.workPassScheduled else { return }
@@ -919,16 +957,50 @@ private extension TransferEngine {
     }
 
     func currentDispatchDecision() -> TransferDispatchDecision {
+        self.currentDispatchAssessment().decision
+    }
+
+    func currentDispatchAssessment() -> TransferDispatchAssessment {
         guard let conditions else {
-            return TransferDispatchDecision(
+            return TransferDispatchAssessment(decision: TransferDispatchDecision(
                 maxConcurrent: self.maxConcurrent,
                 interItemDelay: .zero,
                 paused: false
-            )
+            ), logState: nil)
         }
-        return self.dispatchPolicy.decide(
-            conditions: conditions.current(),
+        let currentConditions = conditions.current()
+        let decision = self.dispatchPolicy.decide(
+            conditions: currentConditions,
             mode: self.pacingMode
+        )
+        return TransferDispatchAssessment(
+            decision: decision,
+            logState: TransferDispatchLogState(
+                decision: decision,
+                conditions: currentConditions,
+                mode: self.pacingMode
+            )
+        )
+    }
+
+    func logDispatchDecisionIfChanged(_ logState: TransferDispatchLogState?) {
+        guard let logState else { return }
+        if self.lastLoggedDispatchDecision?.decision == logState.decision {
+            self.lastLoggedDispatchDecision = logState
+            return
+        }
+        self.lastLoggedDispatchDecision = logState
+        transferLog.notice(
+            """
+            transfer dispatch policy thermal=\(thermalStateString(logState.conditions.thermalState), privacy: .public) \
+            low-power=\(String(logState.conditions.lowPowerModeEnabled), privacy: .public) \
+            expensive=\(String(logState.conditions.isExpensive), privacy: .public) \
+            constrained=\(String(logState.conditions.isConstrained), privacy: .public) \
+            mode=\(transferPacingModeString(logState.mode), privacy: .public) \
+            max-concurrent=\(logState.decision.maxConcurrent, privacy: .public) \
+            delay=\(transferDispatchDelayString(logState.decision.interItemDelay), privacy: .public) \
+            paused=\(String(logState.decision.paused), privacy: .public)
+            """
         )
     }
 
@@ -949,17 +1021,37 @@ private extension TransferEngine {
     }
 
     func backoffPending(now: Date) -> (count: Int, soonest: Date?) {
-        let dates = self.queuedItems.values.compactMap { item -> Date? in
+        let dates = self.backoffPendingItems(now: now).compactMap { $0.manifest.nextAttemptAt }
+        return (dates.count, dates.min())
+    }
+
+    func backoffPendingItems(now: Date) -> [TransferStoredItem] {
+        let latestAttemptAt = now.addingTimeInterval(self.pacer.defaults.maxDelay)
+        return self.queuedItems.values.compactMap { item in
             guard !self.inFlight.contains(item.manifest.itemID),
                   let next = item.manifest.nextAttemptAt,
                   next > now,
-                  next <= now.addingTimeInterval(self.pacer.defaults.maxDelay)
+                  next <= latestAttemptAt
             else {
                 return nil
             }
-            return next
+            return item
         }
-        return (dates.count, dates.min())
+    }
+
+    func refreshEndpointHoldForBackoff(now: Date) async {
+        guard self.inFlight.isEmpty,
+              let item = self.backoffPendingItems(now: now).sorted(by: self.itemSort).first
+        else {
+            return
+        }
+        let resolution = await self.endpointResolver.resolve(item.manifest.endpoint)
+        switch resolution {
+        case .available:
+            self.markEndpointAvailable()
+        case .unavailable(let detail):
+            self.markEndpointHeld(detail: detail)
+        }
     }
 
     func snapshot(for item: TransferStoredItem) -> TransferItemSnapshot {

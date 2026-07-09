@@ -698,6 +698,50 @@ nonisolated final class TransferTests: XCTestCase {
         }
     }
 
+    func testBackoffRefreshClearsStaleEndpointHoldWhenEndpointReturns() async throws {
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let resolver = TransferEndpointResolverStub(.unavailable("waiting"))
+        let engine = self.makeEngine(clock: clock, resolver: resolver)
+        try await engine.start()
+
+        let heldItemID = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(642)),
+            payloads: self.audioPayloads()
+        )
+        try await self.waitFor("endpoint held") {
+            (await engine.snapshot()).endpointHeld
+        }
+        await engine.drop(itemID: heldItemID)
+
+        let nextAttemptAt = Self.baseDate.addingTimeInterval(60)
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(643), nextAttemptAt: nextAttemptAt),
+            payloads: self.audioPayloads()
+        )
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+
+        try await self.waitFor("stale endpoint hold cleared") {
+            let snapshot = await engine.snapshot()
+            return snapshot.backoffPendingCount == 1
+                && snapshot.soonestNextAttemptAt == nextAttemptAt
+                && !snapshot.endpointHeld
+        }
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(
+            evaluateDrainRound(DrainRoundInput(
+                previousTotal: 1,
+                currentTotal: snapshot.counters.queuedCount,
+                inFlight: snapshot.counters.inFlightCount,
+                stalledRounds: 1,
+                backoffPendingCount: snapshot.backoffPendingCount,
+                endpointHeld: snapshot.endpointHeld
+            )),
+            .keepGoing(previousTotal: 1, stalledRounds: 0)
+        )
+    }
+
     func testDropInFlightAndAlreadyGoneAreNoOps() async throws {
         let gate = DispatchSemaphore(value: 0)
         TransferURLProtocol.handler = { request, _ in
