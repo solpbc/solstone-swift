@@ -462,6 +462,9 @@ struct SolstoneSwiftApp: App {
                     share: shareTransferHolder
                 )
             },
+            backoff: {
+                uploadBackoff(mirror: transferStatusMirror)
+            },
             drive: {
                 await driveUploadDrain(
                     mobileSegment: mobileSegmentUploader,
@@ -471,6 +474,9 @@ struct SolstoneSwiftApp: App {
                     diagnosticLog: log,
                     watchDrain: watchSegmentDrain
                 )
+            },
+            setPacingMode: { mode in
+                await transferEngine.setPacingMode(mode)
             },
             isConnected: {
                 tunnel.state.isConnected
@@ -728,6 +734,9 @@ struct SolstoneSwiftApp: App {
                             watch: self.watchUploaderHolder,
                             share: self.shareTransferHolder
                         )
+                    },
+                    backoff: {
+                        uploadBackoff(mirror: self.transferStatusMirror)
                     },
                     isSustaining: { self.locationManager.isSustainingBackground },
                     isConnected: { self.tunnelManager.state.isConnected },

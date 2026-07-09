@@ -64,6 +64,19 @@ nonisolated func recentBytesTotal(
     mobileSegment + omi + watch + share
 }
 
+nonisolated struct TransferBackoffStatus: Equatable, Sendable {
+    var backoffPendingCount: Int
+    var endpointHeld: Bool
+}
+
+@MainActor
+func uploadBackoff(mirror: TransferStatusMirror) -> TransferBackoffStatus {
+    TransferBackoffStatus(
+        backoffPendingCount: mirror.backoffPendingCount,
+        endpointHeld: mirror.endpointHeld
+    )
+}
+
 @MainActor
 func uploadInFlight(
     mobileSegment: MobileSegmentTransferHolder,

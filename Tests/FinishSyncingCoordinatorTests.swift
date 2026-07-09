@@ -161,10 +161,12 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 totals.failed = 0
                 totals.pending = 0
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {},
             scheduling: SpyFinishSyncingScheduling(),
@@ -186,6 +188,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 counters.driveCount += 1
                 if counters.driveCount == 1 {
@@ -194,6 +197,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                     totals.pending = 0
                 }
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {
                 counters.disconnectCount += 1
@@ -227,10 +231,12 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 totals.failed = 0
                 totals.pending = 0
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {},
             scheduling: SpyFinishSyncingScheduling(),
@@ -253,9 +259,11 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 counters.driveCount += 1
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {
                 counters.disconnectCount += 1
@@ -288,6 +296,56 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testBackoffOnLiveEndpointKeepsTaskRunningInsteadOfInterrupting() async {
+        let totals = FinishSyncingTotalsBox(failed: 0, pending: 3)
+        let backoff = FinishSyncingBackoffBox(backoffPendingCount: 1, endpointHeld: false)
+        let counters = FinishSyncingCountersBox()
+        let handle = SpyFinishSyncingTaskHandle()
+        let clock = MockObserverClock()
+        let coordinator = FinishSyncingCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { 0 },
+            backoff: { backoff.snapshot },
+            drive: {
+                counters.driveCount += 1
+            },
+            setPacingMode: { _ in },
+            isConnected: { true },
+            disconnect: {
+                counters.disconnectCount += 1
+            },
+            scheduling: SpyFinishSyncingScheduling(),
+            clock: clock,
+            settleInterval: .milliseconds(1)
+        )
+
+        let runTask = Task {
+            await coordinator.runTask(handle)
+        }
+        await self.drain(until: {
+            counters.driveCount == 1 && clock.pendingSleeperCount == 1
+        })
+        XCTAssertNil(handle.completedSuccess)
+        XCTAssertNil(coordinator.lastOutcome)
+
+        clock.advance(by: 1)
+        await self.drain(until: {
+            counters.driveCount == 2 && clock.pendingSleeperCount == 1
+        })
+        XCTAssertNil(handle.completedSuccess)
+        XCTAssertNil(coordinator.lastOutcome)
+
+        totals.pending = 0
+        clock.advance(by: 1)
+        await runTask.value
+
+        XCTAssertEqual(counters.driveCount, 3)
+        XCTAssertEqual(counters.disconnectCount, 1)
+        XCTAssertEqual(handle.completedSuccess, true)
+        XCTAssertEqual(coordinator.lastOutcome, .completed)
+    }
+
+    @MainActor
     func testInFlightNoProgressKeepsTaskRunningUntilTotalsDrain() async {
         let totals = FinishSyncingTotalsBox(failed: 0, pending: 3)
         let inFlight = FinishSyncingInFlightBox(1)
@@ -297,9 +355,11 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { inFlight.value },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 counters.driveCount += 1
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {
                 counters.disconnectCount += 1
@@ -339,15 +399,72 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testPacingModeRestoresOnCompletionPath() async {
+        let totals = FinishSyncingTotalsBox(failed: 0, pending: 1)
+        let modes = FinishSyncingPacingModeBox()
+        let handle = SpyFinishSyncingTaskHandle()
+        let coordinator = FinishSyncingCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            drive: {
+                totals.pending = 0
+            },
+            setPacingMode: { mode in
+                modes.append(mode)
+            },
+            isConnected: { true },
+            disconnect: {},
+            scheduling: SpyFinishSyncingScheduling(),
+            clock: MockObserverClock()
+        )
+
+        await coordinator.runTask(handle)
+
+        XCTAssertEqual(modes.values, [.finishSyncing, .normal])
+        XCTAssertEqual(handle.completedSuccess, true)
+    }
+
+    @MainActor
+    func testPacingModeRestoresOnExpirationPath() async {
+        let totals = FinishSyncingTotalsBox(failed: 0, pending: 1)
+        let modes = FinishSyncingPacingModeBox()
+        let handle = SpyFinishSyncingTaskHandle()
+        let coordinator = FinishSyncingCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            drive: {
+                handle.fireExpiration()
+            },
+            setPacingMode: { mode in
+                modes.append(mode)
+            },
+            isConnected: { true },
+            disconnect: {},
+            scheduling: SpyFinishSyncingScheduling(),
+            clock: MockObserverClock()
+        )
+
+        await coordinator.runTask(handle)
+
+        XCTAssertEqual(modes.values, [.finishSyncing, .normal])
+        XCTAssertEqual(handle.completedSuccess, false)
+        XCTAssertEqual(coordinator.lastOutcome, .interrupted(remaining: 1))
+    }
+
+    @MainActor
     func testExpirationInterruptsWithoutClearingPendingTotals() async {
         let totals = FinishSyncingTotalsBox(failed: 1, pending: 2)
         let handle = SpyFinishSyncingTaskHandle()
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 handle.fireExpiration()
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {},
             scheduling: SpyFinishSyncingScheduling(),
@@ -369,7 +486,9 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let registrationCoordinator = FinishSyncingCoordinator(
             totals: { (0, 0) },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {},
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {},
             scheduling: failedScheduling,
@@ -389,7 +508,9 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let submitCoordinator = FinishSyncingCoordinator(
             totals: { (0, 1) },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {},
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {},
             scheduling: submitScheduling,
@@ -438,9 +559,11 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         let coordinator = FinishSyncingCoordinator(
             totals: { totals.snapshot },
             inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
             drive: {
                 totals.pending = 0
             },
+            setPacingMode: { _ in },
             isConnected: { true },
             disconnect: {},
             scheduling: scheduling,
@@ -508,6 +631,33 @@ private final class FinishSyncingInFlightBox {
 
     init(_ value: Int) {
         self.value = value
+    }
+}
+
+@MainActor
+private final class FinishSyncingBackoffBox {
+    var backoffPendingCount: Int
+    var endpointHeld: Bool
+
+    init(backoffPendingCount: Int, endpointHeld: Bool) {
+        self.backoffPendingCount = backoffPendingCount
+        self.endpointHeld = endpointHeld
+    }
+
+    var snapshot: TransferBackoffStatus {
+        TransferBackoffStatus(
+            backoffPendingCount: self.backoffPendingCount,
+            endpointHeld: self.endpointHeld
+        )
+    }
+}
+
+@MainActor
+private final class FinishSyncingPacingModeBox {
+    private(set) var values: [TransferPacingMode] = []
+
+    func append(_ mode: TransferPacingMode) {
+        self.values.append(mode)
     }
 }
 

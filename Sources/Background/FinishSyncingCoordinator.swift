@@ -119,7 +119,9 @@ final class FinishSyncingCoordinator {
 
     @ObservationIgnored private let totals: () -> (failed: Int, pending: Int)
     @ObservationIgnored private let inFlight: () -> Int
+    @ObservationIgnored private let backoff: () -> TransferBackoffStatus
     @ObservationIgnored private let drive: () async -> Void
+    @ObservationIgnored private let setPacingMode: (TransferPacingMode) async -> Void
     @ObservationIgnored private let isConnected: () -> Bool
     @ObservationIgnored private let disconnect: () async -> Void
     @ObservationIgnored private let scheduling: any FinishSyncingScheduling
@@ -130,7 +132,9 @@ final class FinishSyncingCoordinator {
     init(
         totals: @escaping () -> (failed: Int, pending: Int),
         inFlight: @escaping () -> Int,
+        backoff: @escaping () -> TransferBackoffStatus,
         drive: @escaping () async -> Void,
+        setPacingMode: @escaping (TransferPacingMode) async -> Void,
         isConnected: @escaping () -> Bool,
         disconnect: @escaping () async -> Void,
         scheduling: any FinishSyncingScheduling = BGTaskSchedulerAdapter(),
@@ -139,7 +143,9 @@ final class FinishSyncingCoordinator {
     ) {
         self.totals = totals
         self.inFlight = inFlight
+        self.backoff = backoff
         self.drive = drive
+        self.setPacingMode = setPacingMode
         self.isConnected = isConnected
         self.disconnect = disconnect
         self.scheduling = scheduling
@@ -220,6 +226,7 @@ final class FinishSyncingCoordinator {
             self?.expired = true
         }
         self.isFinishing = true
+        await self.setPacingMode(.finishSyncing)
 
         let initial = self.totals()
         let backlog = initial.failed + initial.pending
@@ -232,24 +239,28 @@ final class FinishSyncingCoordinator {
 
         var previous = backlog
         var stalledRounds = 0
-        while self.isConnected(), !self.expired && !handle.isCancelled {
+        drainLoop: while self.isConnected(), !self.expired && !handle.isCancelled {
             await self.drive()
-            if self.expired || handle.isCancelled { break }
+            if self.expired || handle.isCancelled { break drainLoop }
             let current = self.totals()
             let total = current.failed + current.pending
             handle.setProgressCompleted(max(0, backlog - total))
-            if total == 0 { break }
-            let n = self.inFlight()
-            if total < previous {
-                previous = total
-                stalledRounds = 0
-            } else if n > 0 {
-                stalledRounds = 0
-            } else {
-                stalledRounds += 1
-                if stalledRounds >= 2 { break }
+            let backoff = self.backoff()
+            switch evaluateDrainRound(DrainRoundInput(
+                previousTotal: previous,
+                currentTotal: total,
+                inFlight: self.inFlight(),
+                stalledRounds: stalledRounds,
+                backoffPendingCount: backoff.backoffPendingCount,
+                endpointHeld: backoff.endpointHeld
+            )) {
+            case .finished, .stalled:
+                break drainLoop
+            case .keepGoing(let nextPrevious, let nextStalledRounds):
+                previous = nextPrevious
+                stalledRounds = nextStalledRounds
+                do { try await self.clock.sleep(for: self.settleInterval) } catch { break drainLoop }
             }
-            do { try await self.clock.sleep(for: self.settleInterval) } catch { break }
         }
 
         let exitInFlight = self.inFlight()
@@ -275,6 +286,7 @@ final class FinishSyncingCoordinator {
             self.lastOutcome = .interrupted(remaining: remaining)
         }
         handle.complete(success: success)
+        await self.setPacingMode(.normal)
         await self.disconnect()
         self.isFinishing = false
     }

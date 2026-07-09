@@ -84,6 +84,7 @@ func resumeShareImports(
 final class BackgroundDrainCoordinator {
     private let totals: () -> (failed: Int, pending: Int)
     private let inFlight: () -> Int
+    private let backoff: () -> TransferBackoffStatus
     private let isSustaining: () -> Bool
     private let isConnected: () -> Bool
     private let drive: () async -> Void
@@ -98,6 +99,7 @@ final class BackgroundDrainCoordinator {
     init(
         totals: @escaping () -> (failed: Int, pending: Int),
         inFlight: @escaping () -> Int,
+        backoff: @escaping () -> TransferBackoffStatus,
         isSustaining: @escaping () -> Bool,
         isConnected: @escaping () -> Bool,
         drive: @escaping () async -> Void,
@@ -108,6 +110,7 @@ final class BackgroundDrainCoordinator {
     ) {
         self.totals = totals
         self.inFlight = inFlight
+        self.backoff = backoff
         self.isSustaining = isSustaining
         self.isConnected = isConnected
         self.drive = drive
@@ -144,23 +147,27 @@ final class BackgroundDrainCoordinator {
 
         var previous = backlog
         var stalledRounds = 0
-        while !self.expired && !Task.isCancelled {
+        drainLoop: while !self.expired && !Task.isCancelled {
             await self.drive()
-            if self.expired || Task.isCancelled { break }
+            if self.expired || Task.isCancelled { break drainLoop }
             let current = self.totals()
             let total = current.failed + current.pending
-            if total == 0 { break }
-            let n = self.inFlight()
-            if total < previous {
-                previous = total
-                stalledRounds = 0
-            } else if n > 0 {
-                stalledRounds = 0
-            } else {
-                stalledRounds += 1
-                if stalledRounds >= 2 { break }
+            let backoff = self.backoff()
+            switch evaluateDrainRound(DrainRoundInput(
+                previousTotal: previous,
+                currentTotal: total,
+                inFlight: self.inFlight(),
+                stalledRounds: stalledRounds,
+                backoffPendingCount: backoff.backoffPendingCount,
+                endpointHeld: backoff.endpointHeld
+            )) {
+            case .finished, .stalled:
+                break drainLoop
+            case .keepGoing(let nextPrevious, let nextStalledRounds):
+                previous = nextPrevious
+                stalledRounds = nextStalledRounds
+                do { try await self.clock.sleep(for: self.settleInterval) } catch { break drainLoop }
             }
-            do { try await self.clock.sleep(for: self.settleInterval) } catch { break }
         }
 
         self.endAssertion()
