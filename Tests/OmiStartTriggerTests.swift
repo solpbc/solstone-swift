@@ -26,7 +26,11 @@ nonisolated final class OmiStartTriggerTests: XCTestCase {
     func testFailedWriterStartDoesNotChurnThenResetsOnTransition() throws {
         let clock = MockObserverClock()
         let failingUploader = try self.makeFailingUploader()
-        let failingWriter = OmiSegmentWriter(uploader: failingUploader, clock: clock)
+        let failingWriter = OmiSegmentWriter(
+            transferEnqueuer: failingUploader.transferEnqueuer,
+            cacheRootURL: failingUploader.cacheRootURL,
+            clock: clock
+        )
         let defaultsName = "OmiStartTriggerTests-Omi-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
@@ -58,18 +62,22 @@ nonisolated final class OmiStartTriggerTests: XCTestCase {
 
 @MainActor
 private extension OmiStartTriggerTests {
-    func makeFailingUploader() throws -> ObserverUploader {
+    struct FailingUploader {
+        let transferEnqueuer: ObserverAudioTransferEnqueuer
+        let cacheRootURL: URL
+
+        var pendingCount: Int { 0 }
+    }
+
+    func makeFailingUploader() throws -> FailingUploader {
         let cacheRootFile = self.tempDirectory.appendingPathComponent("cache-root-file", isDirectory: false)
         try Data([0]).write(to: cacheRootFile)
-        return ObserverUploader(
-            cacheRootURL: cacheRootFile,
-            sessionConfiguration: .ephemeral,
-            ensureRegistered: { "test-omi-key-abc" },
-            isJournalConfigured: { true },
-            localPortProvider: { nil },
-            retryDelays: [0],
-            sleep: { _ in },
-            startPathMonitor: false
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        )
+        return FailingUploader(
+            transferEnqueuer: harness.enqueuer,
+            cacheRootURL: cacheRootFile
         )
     }
 }

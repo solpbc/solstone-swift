@@ -1774,7 +1774,7 @@ private actor HookGate {
     }
 }
 
-private final class FakeTransferClock: TransferClock, @unchecked Sendable {
+final class FakeTransferClock: TransferClock, @unchecked Sendable {
     private struct State {
         var wall: Date
         var sleepCallCount = 0
@@ -1836,7 +1836,7 @@ private final class FakeTransferClock: TransferClock, @unchecked Sendable {
     }
 }
 
-private final class TransferEndpointResolverStub: TransferEndpointResolver, @unchecked Sendable {
+final class TransferEndpointResolverStub: TransferEndpointResolver, @unchecked Sendable {
     private struct State {
         var resolution: TransferEndpointResolution
         var descriptors: [TransferEndpointDescriptor] = []
@@ -1868,7 +1868,7 @@ private final class TransferEndpointResolverStub: TransferEndpointResolver, @unc
     }
 }
 
-private struct PathEndpointResolver: TransferEndpointResolver {
+struct PathEndpointResolver: TransferEndpointResolver {
     let availablePaths: Set<String>
 
     func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
@@ -2037,7 +2037,7 @@ private final class CountingTransferFileSystem: TransferFileSystem, @unchecked S
     }
 }
 
-private final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Sendable {
+final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Sendable {
     private let fileManager = FileManager.default
     private let failBox = OSAllocatedUnfairLock<Bool>(initialState: false)
 
@@ -2163,7 +2163,7 @@ private final class FailingMoveTransferFileSystem: TransferFileSystem, @unchecke
     }
 }
 
-private final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
+final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest, Data) throws -> (HTTPURLResponse, Data)?
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)

@@ -1272,8 +1272,11 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
     }
 
     @MainActor
-    func testResumeFromDiskRecoversDecodableInProgressAndParksTruncatedFiles() async throws {
-        let uploader = self.makeUploader(isJournalConfigured: { false }, sourceType: "omi-audio")
+    func testOmiInProgressRecoveryEnqueuesDecodableRemovesZeroByteAndQuarantinesTruncatedFiles() async throws {
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("transfer", isDirectory: true)
+        )
+        let diagnosticLog = DiagnosticLog()
         let sessionID = UUID()
         let decodableChunkID = "\(sessionID.uuidString.lowercased())-0"
         let zeroByteChunkID = "\(sessionID.uuidString.lowercased())-1"
@@ -1291,27 +1294,46 @@ nonisolated final class ObserverUploaderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.createFile(atPath: zeroByteURL.path, contents: nil))
         try Data([0x00, 0x01, 0x02, 0x03, 0x04]).write(to: truncatedURL, options: .atomic)
 
-        await uploader.resumeFromDisk()
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(
+            sessionID: sessionID,
+            rootURL: self.tempDirectory,
+            transferEnqueuer: transferHarness.enqueuer,
+            quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: self.tempDirectory),
+            diagnosticLog: diagnosticLog
+        )
 
+        XCTAssertEqual(result.recoveredCount, 1)
+        XCTAssertEqual(result.zeroByteRemovedCount, 1)
+        XCTAssertEqual(result.quarantinedCount, 1)
+        XCTAssertEqual(result.unresolvedCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: decodableURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: zeroByteURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: truncatedURL.path))
-        let pendingAudio = self.pendingAudioURL(sessionID: sessionID, chunkID: decodableChunkID)
-        let pendingSidecar = self.pendingSidecarURL(sessionID: sessionID, chunkID: decodableChunkID)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingAudio.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingSidecar.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingAudioURL(sessionID: sessionID, chunkID: truncatedChunkID).path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: self.pendingSidecarURL(sessionID: sessionID, chunkID: truncatedChunkID).path))
-        let sidecar = try self.decodeSidecar(at: pendingSidecar)
-        XCTAssertEqual(sidecar.sessionID, sessionID)
-        XCTAssertEqual(sidecar.chunkIndex, 0)
-        XCTAssertEqual(sidecar.startedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970, accuracy: 0.001)
-        XCTAssertEqual(sidecar.durationS, 0.2, accuracy: 0.01)
-        XCTAssertEqual(sidecar.day, ObserverSegmentNaming.dayString(for: startedAt))
-        XCTAssertEqual(sidecar.segment, ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: sidecar.durationS))
-        XCTAssertEqual(sidecar.mode, .meeting)
-        XCTAssertNil(sidecar.locationJSONL)
-        XCTAssertEqual(uploader.pendingCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: truncatedURL.path))
+        let quarantineRoot = OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: self.tempDirectory)
+        let quarantineEntries = try FileManager.default.contentsOfDirectory(
+            at: quarantineRoot,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(quarantineEntries.filter { $0.pathExtension == "m4a" }.count, 1)
+        XCTAssertTrue(quarantineEntries.contains { $0.lastPathComponent.contains(truncatedChunkID) })
+
+        let snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.count, 1)
+        let snapshot = try XCTUnwrap(snapshots.first)
+        XCTAssertEqual(snapshot.manifest.source, ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshot.manifest.payloadParts.map(\.partID), ["audio"])
+        let metadata = try XCTUnwrap(snapshot.manifest.observerIngest)
+        XCTAssertEqual(metadata.sessionID, sessionID)
+        XCTAssertEqual(metadata.chunkIndex, 0)
+        XCTAssertEqual(metadata.startedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(metadata.durationS, 0.2, accuracy: 0.01)
+        XCTAssertEqual(metadata.day, ObserverSegmentNaming.dayString(for: startedAt))
+        XCTAssertEqual(metadata.segment, ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: metadata.durationS))
+        XCTAssertEqual(metadata.modeRawValue, ObserverMode.meeting.rawValue)
+        XCTAssertEqual(metadata.sources, ["audio"])
+        XCTAssertTrue(diagnosticLog.events.contains {
+            $0.message == "needs attention" && ($0.detail?.contains("quarantine") ?? false)
+        })
     }
 
     @MainActor

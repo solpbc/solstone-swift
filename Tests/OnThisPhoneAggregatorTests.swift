@@ -23,7 +23,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAggregatorMergesSourcesNewestFirstWithCountsKindsAndPayloads() throws {
+    func testAggregatorMergesSourcesNewestFirstWithCountsKindsAndPayloads() async throws {
         let queues = self.makeQueues()
         let audioSegmentID = UUID()
         let locationSegmentID = UUID()
@@ -54,11 +54,10 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             deliveredAt: Date(timeIntervalSince1970: 1_780_473_600)
         )
 
-        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+        let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: queues.importQueue,
             mobileSegmentUploader: queues.mobileSegmentUploader,
-            omiUploader: queues.omiUploader,
-            watchUploader: queues.watchUploader
+            transferEngine: queues.transferEngine
         )
 
         XCTAssertEqual(snapshot.items.map(\.id), [audioID, locationID, shareID])
@@ -73,11 +72,10 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.items.first { $0.id == locationID }?.locationFixCount, 7)
 
         let emptyQueues = self.makeQueues(suffix: "empty")
-        let empty = OnThisPhoneSnapshotAggregator.snapshot(
+        let empty = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: emptyQueues.importQueue,
             mobileSegmentUploader: emptyQueues.mobileSegmentUploader,
-            omiUploader: emptyQueues.omiUploader,
-            watchUploader: emptyQueues.watchUploader
+            transferEngine: emptyQueues.transferEngine
         )
         XCTAssertEqual(empty.items, [])
         XCTAssertEqual(try self.count(for: .audio, in: empty), 0)
@@ -86,7 +84,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAggregatorKeepsHealthySourcesWhenShareStoreFails() throws {
+    func testAggregatorKeepsHealthySourcesWhenShareStoreFails() async throws {
         let queues = self.makeQueues()
         let audioSegmentID = UUID()
         let locationSegmentID = UUID()
@@ -111,11 +109,10 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         )
         try Data("{".utf8).write(to: queues.importRoot.appendingPathComponent("ledger.json"), options: .atomic)
 
-        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+        let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: queues.importQueue,
             mobileSegmentUploader: queues.mobileSegmentUploader,
-            omiUploader: queues.omiUploader,
-            watchUploader: queues.watchUploader
+            transferEngine: queues.transferEngine
         )
 
         XCTAssertEqual(snapshot.items.map(\.id), [audioID, locationID])
@@ -125,13 +122,12 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAggregatorIncludesOmiAudioWithDistinctNamespace() throws {
+    func testAggregatorIncludesOmiAudioWithDistinctNamespace() async throws {
         let queues = self.makeQueues()
         let mobileSegmentID = UUID()
         let omiSessionID = UUID()
         let omiChunkID = "omi-chunk"
         let observerID = "mobile-segment:\(mobileSegmentID.uuidString):audio"
-        let omiID = "omi:\(omiSessionID.uuidString):\(omiChunkID)"
 
         try self.writeMobileSegment(
             root: queues.mobileSegmentRoot,
@@ -141,20 +137,19 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             startedAt: Date(timeIntervalSince1970: 1_780_480_800),
             durationS: 42
         )
-        try self.writeObserverChunk(
-            root: queues.omiRoot,
+        let omiItemID = try await self.enqueueOmiChunk(
+            queues: queues,
             sessionID: omiSessionID,
             chunkID: omiChunkID,
-            status: "pending",
             startedAt: Date(timeIntervalSince1970: 1_780_480_900),
             durationS: 12
         )
+        let omiID = OnThisPhoneItemID.transferIDString(itemID: omiItemID, source: .omi)
 
-        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+        let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: queues.importQueue,
             mobileSegmentUploader: queues.mobileSegmentUploader,
-            omiUploader: queues.omiUploader,
-            watchUploader: queues.watchUploader
+            transferEngine: queues.transferEngine
         )
 
         XCTAssertEqual(snapshot.items.map(\.id), [omiID, observerID])
@@ -165,7 +160,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
     #if DEBUG
     @MainActor
-    func testLargeBacklogSeedSurfacesObserverAndOmiRowsWithLabels() throws {
+    func testLargeBacklogSeedSurfacesObserverAndOmiRowsWithLabels() async throws {
         let queues = self.makeQueues(suffix: "large")
         let requestedCount = 7
         let observerCount = (requestedCount + 1) / 2
@@ -182,24 +177,22 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             )
         }
         for index in 0..<omiCount {
-            try self.writeObserverChunk(
-                root: queues.omiRoot,
+            _ = try await self.enqueueOmiChunk(
+                queues: queues,
                 sessionID: UUID(uuidString: String(format: "20000000-0000-0000-0000-%012d", index))!,
                 chunkID: String(format: "ui-test-large-backlog-omi-%04d", index),
-                status: "pending",
                 startedAt: baseDate.addingTimeInterval(Double(observerCount + index)),
                 durationS: TimeInterval(30 + ((observerCount + index) % 90))
             )
         }
 
-        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+        let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: queues.importQueue,
             mobileSegmentUploader: queues.mobileSegmentUploader,
-            omiUploader: queues.omiUploader,
-            watchUploader: queues.watchUploader
+            transferEngine: queues.transferEngine
         )
         let observerItems = snapshot.items.filter { $0.id.hasPrefix("mobile-segment:") && $0.sourceKind == .audio }
-        let omiItems = snapshot.items.filter { $0.id.hasPrefix("omi:") }
+        let omiItems = snapshot.items.filter { $0.id.hasPrefix("transfer:omi:") }
 
         XCTAssertEqual(snapshot.items.count, requestedCount)
         XCTAssertEqual(observerItems.count, observerCount)
@@ -516,6 +509,10 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             .audio(sessionID: sessionID, chunkID: "chunk", source: .omi)
         )
         XCTAssertEqual(
+            OnThisPhoneItemID(sourceKind: .audio, id: "transfer:omi:\(sessionID.uuidString)"),
+            .transfer(itemID: sessionID, source: .omi)
+        )
+        XCTAssertEqual(
             OnThisPhoneItemID(sourceKind: .location, id: "mobile-segment:\(segmentID.uuidString):location"),
             .mobileSegment(segmentID: segmentID, facet: .location)
         )
@@ -533,7 +530,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
     @MainActor
     func testOmiUploaderHolderCountProxiesObserveUploaderCounts() async {
         let queues = self.makeQueues()
-        let holder = OmiUploaderHolder(queues.omiUploader)
+        let holder = queues.omiHolder
         let pendingChanged = self.expectation(description: "pending count changed")
         let failedChanged = self.expectation(description: "failed count changed")
 
@@ -548,8 +545,32 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             failedChanged.fulfill()
         }
 
-        queues.omiUploader.pendingCount = 1
-        queues.omiUploader.failedCount = 2
+        queues.transferMirror.apply(snapshot: TransferStatusSnapshot(
+            counters: TransferCounters(
+                queuedCount: 1,
+                attentionCount: 2,
+                inFlightCount: 0,
+                deliveredCount: 0,
+                droppedCount: 0
+            ),
+            paused: false,
+            lastEventSummary: nil,
+            lastUpdatedAt: Date(),
+            sources: [
+                ObserverAudioTransferSource.omi: TransferSourceStatusSnapshot(
+                    queuedCount: 1,
+                    attentionCount: 2,
+                    inFlightCount: 0,
+                    deliveredCount: 0,
+                    droppedCount: 0,
+                    lastDeliveredAt: nil,
+                    lastErrorDetail: nil,
+                    recentErrorCount: 0,
+                    bytesPerSecond: 0
+                ),
+            ],
+            aggregateBytesPerSecond: 0
+        ))
 
         await fulfillment(of: [pendingChanged, failedChanged], timeout: 1)
     }
@@ -565,6 +586,10 @@ private extension OnThisPhoneAggregatorTests {
         let mobileSegmentUploader: MobileSegmentUploader
         let omiUploader: ObserverUploader
         let watchUploader: ObserverUploader
+        let transferEngine: TransferEngine
+        let transferEnqueuer: ObserverAudioTransferEnqueuer
+        let transferMirror: TransferStatusMirror
+        let omiHolder: OmiUploaderHolder
     }
 
     @MainActor
@@ -573,6 +598,9 @@ private extension OnThisPhoneAggregatorTests {
         let mobileSegmentRoot = self.tempDirectory.appendingPathComponent("\(suffix)-mobile-segment", isDirectory: true)
         let omiRoot = self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true)
         let watchRoot = self.tempDirectory.appendingPathComponent("\(suffix)-watch", isDirectory: true)
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("\(suffix)-transfer", isDirectory: true)
+        )
         let mobileTransport = ObserverUploader(
             cacheRootURL: self.tempDirectory.appendingPathComponent("\(suffix)-mobile-transport", isDirectory: true),
             sessionConfiguration: .ephemeral,
@@ -606,7 +634,38 @@ private extension OnThisPhoneAggregatorTests {
                 sessionConfiguration: .ephemeral,
                 sourceType: "watch-audio",
                 startPathMonitor: false
-            )
+            ),
+            transferEngine: transferHarness.engine,
+            transferEnqueuer: transferHarness.enqueuer,
+            transferMirror: transferHarness.mirror,
+            omiHolder: transferHarness.omi
+        )
+    }
+
+    @MainActor
+    func enqueueOmiChunk(
+        queues: Queues,
+        sessionID: UUID,
+        chunkID: String,
+        startedAt: Date,
+        durationS: TimeInterval
+    ) async throws -> UUID {
+        let audioURL = queues.omiRoot.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+        try FileManager.default.createDirectory(at: queues.omiRoot, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: audioURL)
+        let sidecar = ChunkSidecar(
+            segment: "120000_300",
+            day: "20260603",
+            chunkIndex: 0,
+            startedAt: startedAt,
+            durationS: durationS,
+            sessionID: sessionID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        return try await queues.transferEnqueuer.enqueueOmiChunkMovingFile(
+            chunkURL: audioURL,
+            sidecar: sidecar
         )
     }
 

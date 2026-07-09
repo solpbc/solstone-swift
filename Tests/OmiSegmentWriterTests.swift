@@ -26,7 +26,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     func testRotationSuspendedThenWakeRotatesOnAppend() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -52,7 +52,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     @MainActor
     func testFinalizeOpenChunkContinuesSessionWithNextChunkIndex() async throws {
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: MockObserverClock())
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: MockObserverClock())
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -76,7 +76,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     @MainActor
     func testFinalizeOpenChunkSkipsEmptyChunk() async throws {
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: MockObserverClock())
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: MockObserverClock())
 
         writer.start()
         await writer.finalizeOpenChunk()
@@ -88,7 +88,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     @MainActor
     func testFinalizeOpenChunkIsIdempotentWithoutIndexGaps() async throws {
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: MockObserverClock())
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: MockObserverClock())
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -107,7 +107,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     func testEmptyChunksAreSkippedAndRemoved() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
         var finalizedEvents: [FinalizedChunkEvent] = []
         writer.onChunkFinalized = { day, durationS, identity in
             finalizedEvents.append(FinalizedChunkEvent(day: day, durationS: durationS, identity: identity))
@@ -145,7 +145,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_713_624_000)
         let clock = MockObserverClock(now: start)
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
         var finalizedEvents: [FinalizedChunkEvent] = []
         writer.onChunkFinalized = { day, durationS, identity in
             finalizedEvents.append(FinalizedChunkEvent(day: day, durationS: durationS, identity: identity))
@@ -173,7 +173,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_713_624_000)
         let clock = MockObserverClock(now: start)
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -244,7 +244,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     func testSessionSurvivesReconnectGapUnderRotationThreshold() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -264,7 +264,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     func testRestoreStartedWriterEnqueuesChunksWithoutEnable() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -281,7 +281,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     func testStartIsIdempotentAndPreservesSessionAcrossRetriggers() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
 
         writer.start()
         writer.start()
@@ -303,7 +303,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     func testEnableAfterRestoreStartAdoptsExistingSession() async throws {
         let clock = MockObserverClock()
         let uploader = self.makeUploader()
-        let writer = OmiSegmentWriter(uploader: uploader, clock: clock)
+        let writer = OmiSegmentWriter(transferEnqueuer: uploader.transferEnqueuer, cacheRootURL: self.tempDirectory, clock: clock)
 
         writer.start()
         writer.append(self.samples(count: 3200))
@@ -327,6 +327,22 @@ private struct FinalizedChunkEvent: Sendable {
 }
 
 @MainActor
+private final class OmiWriterTransferHarness {
+    let transferEnqueuer: ObserverAudioTransferEnqueuer
+    private let mirror: TransferStatusMirror
+
+    init(rootURL: URL) {
+        let harness = makeTransferCutoverHarness(rootURL: rootURL)
+        self.transferEnqueuer = harness.enqueuer
+        self.mirror = harness.mirror
+    }
+
+    var pendingCount: Int {
+        self.mirror.sources[ObserverAudioTransferSource.omi]?.queuedCount ?? 0
+    }
+}
+
+@MainActor
 private extension OmiSegmentWriterTests {
     struct PendingChunk {
         let chunkID: String
@@ -334,16 +350,9 @@ private extension OmiSegmentWriterTests {
         let sidecar: ChunkSidecar
     }
 
-    func makeUploader() -> ObserverUploader {
-        ObserverUploader(
-            cacheRootURL: self.tempDirectory,
-            sessionConfiguration: .ephemeral,
-            ensureRegistered: { "test-omi-key-abc" },
-            isJournalConfigured: { true },
-            localPortProvider: { nil },
-            retryDelays: [0],
-            sleep: { _ in },
-            startPathMonitor: false
+    func makeUploader() -> OmiWriterTransferHarness {
+        OmiWriterTransferHarness(
+            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
         )
     }
 
@@ -353,7 +362,7 @@ private extension OmiSegmentWriterTests {
 
     func waitForPendingCount(
         _ count: Int,
-        uploader: ObserverUploader,
+        uploader: OmiWriterTransferHarness,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -369,15 +378,36 @@ private extension OmiSegmentWriterTests {
     func pendingChunks() throws -> [PendingChunk] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try self.files(withExtension: "json")
-            .filter { $0.deletingLastPathComponent().lastPathComponent == "pending" }
-            .map { sidecarURL in
-                let chunkID = sidecarURL.deletingPathExtension().lastPathComponent
-                let sidecar = try decoder.decode(ChunkSidecar.self, from: Data(contentsOf: sidecarURL))
-                let audioURL = sidecarURL.deletingLastPathComponent()
-                    .appendingPathComponent("\(chunkID).m4a", isDirectory: false)
-                return PendingChunk(chunkID: chunkID, audioURL: audioURL, sidecar: sidecar)
-            }
+        let queuedRoot = self.tempDirectory
+            .appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+            .appendingPathComponent(TransferSpool.queuedDirectoryName, isDirectory: true)
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: queuedRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return try entries.map { itemURL in
+            let manifestURL = itemURL.appendingPathComponent(TransferSpool.manifestFilename, isDirectory: false)
+            let manifest = try decoder.decode(TransferManifest.self, from: Data(contentsOf: manifestURL))
+            let ingest = try XCTUnwrap(manifest.observerIngest)
+            let sessionID = try XCTUnwrap(ingest.sessionID)
+            let chunkIndex = try XCTUnwrap(ingest.chunkIndex)
+            let sidecar = ChunkSidecar(
+                segment: ingest.segment,
+                day: ingest.day,
+                chunkIndex: chunkIndex,
+                startedAt: ingest.startedAt,
+                durationS: ingest.durationS,
+                sessionID: sessionID,
+                mode: ingest.modeRawValue.flatMap(ObserverMode.init(rawValue:)) ?? .meeting,
+                locationJSONL: nil
+            )
+            return PendingChunk(
+                chunkID: "\(sessionID.uuidString.lowercased())-\(chunkIndex)",
+                audioURL: itemURL.appendingPathComponent("audio.m4a", isDirectory: false),
+                sidecar: sidecar
+            )
+        }
             .sorted { $0.sidecar.chunkIndex < $1.sidecar.chunkIndex }
     }
 

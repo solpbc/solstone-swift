@@ -184,6 +184,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             startPathMonitor: false
         )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
         let sessionID = UUID()
         let shareID = UUID()
         let segmentID = UUID()
@@ -192,40 +193,35 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             for: Self.item(id: shareID.uuidString, sourceKind: .share),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: "audio:\(sessionID.uuidString):chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: "omi:\(sessionID.uuidString):chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNil(makeDropCommit(
             for: Self.item(id: "audio:not-a-uuid:chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
     }
@@ -253,6 +249,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             startPathMonitor: false
         )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
         let sessionID = UUID()
         let shareID = UUID()
         let segmentID = UUID()
@@ -261,53 +258,47 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             for: Self.item(id: shareID.uuidString, sourceKind: .share),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: "audio:\(sessionID.uuidString):chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: "omi:\(sessionID.uuidString):chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: "watch:\(sessionID.uuidString):chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: "mobile-segment:\(segmentID.uuidString):location", sourceKind: .location),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         XCTAssertNil(makeRetryCommit(
             for: Self.item(id: "audio:not-a-uuid:chunk", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
     }
 
-    func testAudioDropCommitRoutesOnlyToOwningUploader() throws {
+    func testAudioDropCommitRoutesOnlyToOwningUploader() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneDropRoutingTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -330,30 +321,40 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             startPathMonitor: false
         )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
         let sessionID = UUID()
         let chunkID = "shared-chunk"
         let observerFailedAudio = try Self.writeFailedPair(root: observerRoot, sessionID: sessionID, chunkID: chunkID)
-        let omiFailedAudio = try Self.writeFailedPair(root: omiRoot, sessionID: sessionID, chunkID: chunkID)
+        let transferItemID = try await transferHarness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+                itemID: UUID(),
+                sidecar: Self.sidecar(sessionID: sessionID, chunkID: chunkID)
+            ),
+            payloads: ["audio": Data("audio".utf8)]
+        )
 
         let omiCommit = try XCTUnwrap(makeDropCommit(
-            for: Self.item(id: "omi:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
+            for: Self.item(
+                id: OnThisPhoneItemID.transferIDString(itemID: transferItemID, source: .omi),
+                sourceKind: .audio
+            ),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         omiCommit()
+        try await Task.sleep(for: .milliseconds(50))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: observerFailedAudio.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: omiFailedAudio.path))
+        let droppedSnapshot = await transferHarness.engine.itemSnapshot(itemID: transferItemID)
+        XCTAssertNil(droppedSnapshot)
 
         let observerCommit = try XCTUnwrap(makeDropCommit(
             for: Self.item(id: "audio:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         observerCommit()
@@ -384,33 +385,52 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             startPathMonitor: false
         )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
         let sessionID = UUID()
         let chunkID = "shared-chunk"
         let observerFailedAudio = try Self.writeFailedPair(root: observerRoot, sessionID: sessionID, chunkID: chunkID)
-        let omiFailedAudio = try Self.writeFailedPair(root: omiRoot, sessionID: sessionID, chunkID: chunkID)
+        let transferSpool = TransferSpool(rootURL: root.appendingPathComponent("RetryTransfer", isDirectory: true))
+        let transferItemID = UUID()
+        let transferManifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+            itemID: transferItemID,
+            sidecar: Self.sidecar(sessionID: sessionID, chunkID: chunkID)
+        )
+        let staged = try transferSpool.stage(manifest: transferManifest, payloads: ["audio": Data("audio".utf8)])
+        let queued = try transferSpool.commitStagedItem(itemID: staged.item.manifest.itemID)
+        _ = try transferSpool.moveQueuedItemToAttention(
+            queued,
+            reason: "needs_attention",
+            detail: "held",
+            now: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+        let retryEngine = TransferEngine(
+            spool: transferSpool,
+            transport: TransferTransport(authProvider: { _ in "test-transfer-key" }),
+            endpointResolver: TransferCutoverEndpointResolver()
+        )
+        try await retryEngine.start()
 
         let omiCommit = try XCTUnwrap(makeRetryCommit(
-            for: Self.item(id: "omi:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
+            for: Self.item(
+                id: OnThisPhoneItemID.transferIDString(itemID: transferItemID, source: .omi),
+                sourceKind: .audio
+            ),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: retryEngine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         await omiCommit()
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: observerFailedAudio.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: omiFailedAudio.path))
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: Self.pendingAudioURL(root: omiRoot, sessionID: sessionID, chunkID: chunkID).path
-        ))
+        let retriedSnapshot = await retryEngine.itemSnapshot(itemID: transferItemID)
+        XCTAssertEqual(retriedSnapshot?.state, .queued)
 
         let observerCommit = try XCTUnwrap(makeRetryCommit(
             for: Self.item(id: "audio:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
         await observerCommit()
@@ -421,7 +441,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         ))
     }
 
-    func testWatchAudioDropAlsoRemovesStagingDirectory() throws {
+    func testWatchAudioDropAlsoRemovesStagingDirectory() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OnThisPhoneWatchDropTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -445,33 +465,44 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             startPathMonitor: false
         )
         let mobileSegmentUploader = Self.mobileSegmentUploader(root: root)
+        let transferHarness = makeTransferCutoverHarness(rootURL: root.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true))
         let sessionID = UUID()
         let chunkID = sessionID.uuidString
-        let watchFailedAudio = try Self.writeFailedPair(root: watchRoot, sessionID: sessionID, chunkID: chunkID)
         let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
         let stagedDirectory = try Self.writeStagedWatchSegment(stagingRoot: stagingRoot, id: sessionID)
+        let watchManifest = try Self.loadWatchManifest(in: stagedDirectory)
+        let transferItemID = try await transferHarness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeWatchManifest(
+                watchManifest: watchManifest,
+                hasAudio: true,
+                hasLocation: false
+            ),
+            payloads: ["audio": Data("audio".utf8)]
+        )
         let ledgerURL = root.appendingPathComponent("ledger.json", isDirectory: false)
         let pipeline = makeWatchPhonePipeline(
-            watchUploader: watchUploader,
-            watchRegistration: Self.watchRegistration(),
+            transferEngine: transferHarness.engine,
+            transferStatusMirror: transferHarness.mirror,
+            transferEnqueuer: transferHarness.enqueuer,
             watchConnectivitySession: MockWatchConnectivitySession(),
             ledgerFileURL: ledgerURL,
-            drainStagingRootURL: stagingRoot,
-            drainTempDirectoryURL: root.appendingPathComponent("watch-drain-temp", isDirectory: true)
+            drainStagingRootURL: stagingRoot
         )
 
         let commit = try XCTUnwrap(makeDropCommit(
-            for: Self.item(id: "watch:\(sessionID.uuidString):\(chunkID)", sourceKind: .audio),
+            for: Self.item(
+                id: OnThisPhoneItemID.transferIDString(itemID: transferItemID, source: .watch),
+                sourceKind: .audio
+            ),
             importQueue: importQueue,
             observerUploader: observerUploader,
-            omiUploader: omiUploader,
-            watchUploader: watchUploader,
+            transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader,
             removeWatchStaging: pipeline.watchUploaderHolder.removeStaging
         ))
         commit()
+        try await Task.sleep(for: .milliseconds(50))
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: watchFailedAudio.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagedDirectory.path))
         XCTAssertEqual(pipeline.watchSegmentLedger.lifetimeReceived, 1)
         XCTAssertEqual(pipeline.watchSegmentLedger.lifetimeHanded, 0)
@@ -543,6 +574,20 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         return audioURL
     }
 
+    private static func sidecar(sessionID: UUID, chunkID: String) -> ChunkSidecar {
+        let startedAt = Date(timeIntervalSince1970: 1_780_480_800)
+        return ChunkSidecar(
+            segment: chunkID,
+            day: "20260603",
+            chunkIndex: 0,
+            startedAt: startedAt,
+            durationS: 60,
+            sessionID: sessionID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+    }
+
     private static func pendingAudioURL(root: URL, sessionID: UUID, chunkID: String) -> URL {
         root
             .appendingPathComponent(sessionID.uuidString, isDirectory: true)
@@ -555,6 +600,13 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(WatchSegmentLedgerStore.self, from: data)
+    }
+
+    private static func loadWatchManifest(in directory: URL) throws -> WatchSegmentManifest {
+        let data = try Data(contentsOf: directory.appendingPathComponent(WatchSegmentBundleCodec.manifestFilename))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(WatchSegmentManifest.self, from: data)
     }
 
     @MainActor

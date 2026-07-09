@@ -37,27 +37,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             uploader: mobileSegmentUploader,
             clock: mobileSegmentClock
         )
-        let omiUploaderRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DynamicTypeSmokeTests-OmiUploader-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: omiUploaderRoot) }
-        let omiUploader = ObserverUploader(
-            cacheRootURL: omiUploaderRoot,
-            sessionConfiguration: .ephemeral,
-            sourceType: "omi-audio",
-            startPathMonitor: false
-        )
-        let omiUploaderHolder = OmiUploaderHolder(omiUploader)
-        let watchUploaderRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DynamicTypeSmokeTests-WatchUploader-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: watchUploaderRoot) }
-        let watchUploader = ObserverUploader(
-            cacheRootURL: watchUploaderRoot,
-            sessionConfiguration: .ephemeral,
-            sourceType: "watch-audio",
-            platform: "watchos",
-            startPathMonitor: false
-        )
-        let watchUploaderHolder = WatchUploaderHolder(watchUploader)
+        let transferRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-Transfer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: transferRoot) }
+        let transferHarness = makeTransferCutoverHarness(rootURL: transferRoot)
+        let omiUploaderHolder = transferHarness.omi
+        let watchUploaderHolder = transferHarness.watch
         let watchSession = MockWatchConnectivitySession()
         let watchRelayRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-WatchRelay-\(UUID().uuidString)", isDirectory: true)

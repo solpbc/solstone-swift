@@ -89,25 +89,20 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
         )
     }
 
-    func testOmiMigrationRunsBeforeOmiUploaderConstruction() throws {
+    func testOmiTransferConstructionAndMigrationUseCutoverPath() throws {
         let appURL = StringLiteralGrepSupport.worktreeRoot()
             .appendingPathComponent("Sources/SolstoneSwiftApp.swift")
         let text = try String(contentsOf: appURL, encoding: .utf8)
-        let omiStart = try XCTUnwrap(text.range(of: "let omiUploadConfiguration"))
-        let omiEnd = try XCTUnwrap(text[omiStart.lowerBound...].range(of: "let omiHealthBeacon"))
-        let omiBlock = text[omiStart.lowerBound..<omiEnd.lowerBound]
-
-        let migration = try XCTUnwrap(omiBlock.range(of: "ObserverSpoolRootMigrator.migrateSpoolRoot"))
-        let appGroupRoot = try XCTUnwrap(omiBlock.range(of: "appGroupOmiRoot"))
-        let uploader = try XCTUnwrap(omiBlock.range(of: "let omiUploader = ObserverUploader("))
+        let transferEnqueuer = try XCTUnwrap(text.range(of: "let transferEnqueuer = ObserverAudioTransferEnqueuer"))
+        let writer = try XCTUnwrap(text.range(of: "OmiSegmentWriter(transferEnqueuer: transferEnqueuer"))
         XCTAssertLessThan(
-            omiBlock.distance(from: omiBlock.startIndex, to: migration.lowerBound),
-            omiBlock.distance(from: omiBlock.startIndex, to: uploader.lowerBound)
+            text.distance(from: text.startIndex, to: transferEnqueuer.lowerBound),
+            text.distance(from: text.startIndex, to: writer.lowerBound)
         )
-        XCTAssertLessThan(
-            omiBlock.distance(from: omiBlock.startIndex, to: appGroupRoot.lowerBound),
-            omiBlock.distance(from: omiBlock.startIndex, to: uploader.lowerBound)
-        )
+        let migration = try XCTUnwrap(text.range(of: "OmiTransferSpoolMigrator.migrate"))
+        let recovery = try XCTUnwrap(text.range(of: "recoverOmiInProgress"))
+        XCTAssertLessThan(text.distance(from: text.startIndex, to: migration.lowerBound), text.distance(from: text.startIndex, to: recovery.lowerBound))
+        XCTAssertFalse(text.contains("let omiUploader = ObserverUploader("))
         XCTAssertFalse(text.contains("didMigrateObserverRootToAppGroupV1"))
     }
 

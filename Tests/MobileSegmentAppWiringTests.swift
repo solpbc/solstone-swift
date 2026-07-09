@@ -45,10 +45,8 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertEqual(try watchKeys.loadKey(), "watch-key")
 
         XCTAssertEqual(ObserverUploader.backgroundSessionIdentifier, "app.solstone.swift.observer-upload")
-        XCTAssertEqual(OmiSegmentWriter.backgroundSessionIdentifier, "app.solstone.swift.omi-upload")
         XCTAssertEqual(OmiSegmentWriter.cacheDirectoryName, "OmiObserver")
-        XCTAssertEqual(WatchSegmentDrain.backgroundSessionIdentifier, "app.solstone.swift.watch-upload")
-        XCTAssertEqual(WatchSegmentDrain.cacheDirectoryName, "WatchObserver")
+        XCTAssertEqual(WatchTransferSpoolMigrator.legacyCacheDirectoryName, "WatchObserver")
         XCTAssertEqual(ImportQueue.backgroundSessionIdentifier, "app.solstone.swift.share-upload")
         XCTAssertEqual(ImporterServerURL.saveURL(localPort: 7071)?.path, "/app/import/api/save")
         XCTAssertEqual(ImporterServerURL.startURL(localPort: 7071)?.path, "/app/import/api/start")

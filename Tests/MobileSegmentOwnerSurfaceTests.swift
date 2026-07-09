@@ -34,11 +34,10 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         try self.writeMixedBundle(store: harness.store, segmentID: segmentID, lifecycle: .pending)
         harness.mobileSegmentUploader.refreshCounts()
 
-        let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+        let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: harness.importQueue,
             mobileSegmentUploader: harness.mobileSegmentUploader,
-            omiUploader: harness.omiUploader,
-            watchUploader: harness.watchUploader
+            transferEngine: harness.transferEngine
         )
         let facets = snapshot.items.filter { $0.dropGroupID == "mobile-segment:\(segmentID.uuidString)" }
         XCTAssertEqual(facets.count, 3)
@@ -50,8 +49,8 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
 
         let totals = uploadTotals(
             mobileSegment: harness.mobileSegmentUploader,
-            omi: OmiUploaderHolder(harness.omiUploader),
-            watch: WatchUploaderHolder(harness.watchUploader),
+            omi: harness.omiHolder,
+            watch: harness.watchHolder,
             importQueue: harness.importQueue
         )
         XCTAssertEqual(totals.pending, 1)
@@ -91,8 +90,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
             for: item,
             importQueue: harness.importQueue,
             observerUploader: harness.observerUploader,
-            omiUploader: harness.omiUploader,
-            watchUploader: harness.watchUploader,
+            transferEngine: harness.transferEngine,
             mobileSegmentUploader: harness.mobileSegmentUploader
         ))
         commit()
@@ -189,8 +187,9 @@ private extension MobileSegmentOwnerSurfaceTests {
         let mobileSegmentUploader: MobileSegmentUploader
         let store: MobileSegmentStore
         let importQueue: ImportQueue
-        let omiUploader: ObserverUploader
-        let watchUploader: ObserverUploader
+        let transferEngine: TransferEngine
+        let omiHolder: OmiUploaderHolder
+        let watchHolder: WatchUploaderHolder
     }
 
     func makeHarness() -> Harness {
@@ -201,6 +200,9 @@ private extension MobileSegmentOwnerSurfaceTests {
             startPathMonitor: false
         )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        )
         return Harness(
             observerUploader: observerUploader,
             mobileSegmentUploader: MobileSegmentUploader(transport: observerUploader, store: store, clock: self.clock),
@@ -209,16 +211,9 @@ private extension MobileSegmentOwnerSurfaceTests {
                 cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true),
                 startPathMonitor: false
             ),
-            omiUploader: ObserverUploader(
-                cacheRootURL: self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true),
-                sourceType: "omi-audio",
-                startPathMonitor: false
-            ),
-            watchUploader: ObserverUploader(
-                cacheRootURL: self.tempDirectory.appendingPathComponent("WatchObserver", isDirectory: true),
-                sourceType: "watch-audio",
-                startPathMonitor: false
-            )
+            transferEngine: transferHarness.engine,
+            omiHolder: transferHarness.omi,
+            watchHolder: transferHarness.watch
         )
     }
 

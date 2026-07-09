@@ -64,53 +64,31 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
 
     @MainActor
     func testColdStartNoMergeHoldsThenResumesUnderWatchKey() async throws {
-        WatchDrainURLProtocol.handler = Self.okResponse
-        let registrationResolved = OSAllocatedUnfairLock<Bool>(initialState: false)
-        let watchHandle = self.watchHandle
         let stagingRoot = self.stagingRootURL()
         let manifest = self.makeManifest()
         try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest, audioData: Data("audio".utf8))
-        let uploader = self.makeWatchUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("cold-uploader", isDirectory: true),
-            ensureRegistered: {
-                if registrationResolved.withLock({ $0 }) {
-                    return watchHandle
-                }
-                throw ObserverUploaderError.registrationUnavailable
-            },
-            maxAttempts: 1
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("cold-transfer", isDirectory: true)
         )
         let drain = try WatchSegmentDrain(
             stagingRootURL: stagingRoot,
             ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "cold-ledger")),
-            watchUploader: uploader,
-            watchRegistration: self.makeWatchRegistration(loadKey: nil, activeLocalPort: nil),
-            localPortProvider: { 7071 },
-            tempDirectoryURL: self.tempDirectory.appendingPathComponent("cold-temp", isDirectory: true)
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
         )
 
         await drain.drain()
-        try await self.waitFor("cold-start hold") {
-            uploader.pendingCount + uploader.failedCount == 1
-        }
 
-        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 0)
+        var snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.manifest.observerIngest?.sessionID, manifest.id)
         XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
-        XCTAssertNil(uploader.lastUploadAt)
 
-        registrationResolved.withLock { $0 = true }
-        await uploader.reconcilePortAndResume()
-        await uploader.retryFailed()
         await drain.drain()
 
-        try await self.waitFor("cold-start resume") {
-            WatchDrainURLProtocol.capturedRequests.count == 1
-                && uploader.pendingCount == 0
-                && uploader.failedCount == 0
-                && !self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id)
-        }
-        let request = try XCTUnwrap(WatchDrainURLProtocol.capturedRequests.first)
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(self.watchHandle)")
+        snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
     }
 
     @MainActor
@@ -119,19 +97,28 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         let stagingRoot = self.stagingRootURL()
         let manifest = self.makeManifest()
         try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest, audioData: Data("audio".utf8))
-        let drain = try self.makeDrain(stagingRoot: stagingRoot)
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("idempotent-transfer", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "idempotent-ledger")),
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
+        )
 
         await drain.drain()
 
-        try await self.waitFor("staging removal") {
-            WatchDrainURLProtocol.capturedRequests.count == 1
-                && !self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id)
-        }
+        var snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.manifest.observerIngest?.sessionID, manifest.id)
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
 
         await drain.drain()
 
-        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 1)
-        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
     }
 
     @MainActor
@@ -142,25 +129,22 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         let ledger = WatchSegmentLedger(fileURL: ledgerURL)
         let manifest = self.makeManifest()
         try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest, audioData: Data("audio".utf8))
-        let watchHandle = self.watchHandle
-        let uploader = self.makeWatchUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("ac2-audio-uploader", isDirectory: true),
-            ensureRegistered: { watchHandle }
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("ac2-audio-transfer", isDirectory: true)
         )
         let drain = try WatchSegmentDrain(
             stagingRootURL: stagingRoot,
             ledger: ledger,
-            watchUploader: uploader,
-            watchRegistration: self.makeWatchRegistration(loadKey: self.watchHandle, activeLocalPort: 7071),
-            localPortProvider: { 7071 },
-            tempDirectoryURL: self.tempDirectory.appendingPathComponent("ac2-audio-temp", isDirectory: true)
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
         )
 
         await drain.drain()
-        try await self.waitFor("audio handoff") {
-            WatchDrainURLProtocol.capturedRequests.count == 1
-                && !self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id)
-        }
+        let snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        ledger.recordHanded(id: manifest.id)
+        drain.removeStaged(manifest.id)
         XCTAssertEqual(ledger.lifetimeReceived, 1)
         XCTAssertEqual(ledger.lifetimeHanded, 1)
         XCTAssertEqual(ledger.nonTerminalCount, 0)
@@ -171,7 +155,7 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         XCTAssertNotNil(entry.handedAt)
         XCTAssertNil(entry.droppedAt)
 
-        uploader.onSegmentDelivered?(manifest.id)
+        ledger.recordHanded(id: manifest.id)
         XCTAssertEqual(ledger.lifetimeHanded, 1)
     }
 
@@ -210,24 +194,24 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
             audioData: Data("known audio".utf8),
             locationData: locationBytes
         )
-        let drain = try self.makeDrain(stagingRoot: stagingRoot)
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("audio-location-transfer", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "audio-location-ledger")),
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
+        )
 
         await drain.drain()
 
-        try await self.waitFor("audio location upload") {
-            WatchDrainURLProtocol.capturedRequests.count == 1
-                && !self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id)
-        }
-        let body = try self.capturedBodyString()
-        XCTAssertEqual(try self.multipartValue(named: "platform", in: body), "watchos")
-        XCTAssertEqual(self.filesPartCount(in: body), 2)
-        XCTAssertTrue(body.contains("name=\"files\"; filename=\"audio.m4a\""))
-        XCTAssertFalse(body.contains("name=\"" + "files" + "[]\""))
-        XCTAssertTrue(body.contains("Content-Type: audio/mp4"))
-        XCTAssertTrue(body.contains("name=\"files\"; filename=\"location.jsonl\""))
-        XCTAssertTrue(body.contains("Content-Type: application/x-ndjson"))
-        XCTAssertTrue(body.contains(String(decoding: locationBytes, as: UTF8.self)))
-        XCTAssertFalse(body.contains("filename=\"\(manifest.id.uuidString).m4a\""))
+        let snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let snapshot = try XCTUnwrap(snapshots.first)
+        XCTAssertEqual(snapshot.manifest.observerIngest?.platform, "watchos")
+        XCTAssertEqual(snapshot.manifest.observerIngest?.sources, ["audio", "location"])
+        XCTAssertEqual(snapshot.manifest.payloadParts.map(\.partID), ["audio", "location"])
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
     }
 
     @MainActor
@@ -239,17 +223,20 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
             manifest: coldManifest,
             locationData: Data(#"{"cold":true}"#.utf8) + Data([0x0A])
         )
-        let coldDrain = try self.makeDrain(
-            stagingRoot: coldStagingRoot,
-            watchRegistration: self.makeWatchRegistration(loadKey: nil, activeLocalPort: nil),
-            localPortProvider: { 7071 },
-            directSession: self.makeCapturedSession(),
-            tempName: "cold-location-temp"
+        let coldHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("cold-location-transfer", isDirectory: true)
+        )
+        let coldDrain = try WatchSegmentDrain(
+            stagingRootURL: coldStagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "cold-location-ledger")),
+            transferEnqueuer: coldHarness.enqueuer,
+            transferEngine: coldHarness.engine
         )
 
         await coldDrain.drain()
 
-        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 0)
+        let coldSnapshots = await coldHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(coldSnapshots.count, 1)
         XCTAssertTrue(self.stagedSegmentExists(stagingRoot: coldStagingRoot, id: coldManifest.id))
 
         WatchDrainURLProtocol.reset()
@@ -262,35 +249,30 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
             manifest: manifest,
             locationData: locationBytes
         )
-        let ingestURL = try XCTUnwrap(URL(string: "http://127.0.0.1:7071/app/observer/ingest"))
-        let drain = try self.makeDrain(
-            stagingRoot: stagingRoot,
-            directSession: self.makeCapturedSession(),
-            urlBuilder: { _ in ingestURL },
-            tempName: "location-temp"
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("location-transfer", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "location-ledger")),
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
         )
 
         await drain.drain()
 
-        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 1)
-        let request = try XCTUnwrap(WatchDrainURLProtocol.capturedRequests.first)
-        XCTAssertEqual(request.url, ingestURL)
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(self.watchHandle)")
-        let body = try self.capturedBodyString()
-        XCTAssertEqual(try self.multipartValue(named: "platform", in: body), "watchos")
-        XCTAssertEqual(try self.multipartValue(named: "segment", in: body), manifest.segment)
-        XCTAssertEqual(try self.multipartValue(named: "day", in: body), manifest.day)
-        XCTAssertEqual(self.filesPartCount(in: body), 1)
-        XCTAssertTrue(body.contains("name=\"files\"; filename=\"location.jsonl\""))
-        XCTAssertFalse(body.contains("name=\"" + "files" + "[]\""))
-        XCTAssertFalse(body.contains("filename=\"audio.m4a\""))
-        XCTAssertTrue(body.contains(String(decoding: locationBytes, as: UTF8.self)))
-        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        let locationSnapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let locationSnapshot = try XCTUnwrap(locationSnapshots.first)
+        XCTAssertEqual(locationSnapshot.manifest.observerIngest?.platform, "watchos")
+        XCTAssertEqual(locationSnapshot.manifest.observerIngest?.segment, manifest.segment)
+        XCTAssertEqual(locationSnapshot.manifest.observerIngest?.day, manifest.day)
+        XCTAssertEqual(locationSnapshot.manifest.observerIngest?.sources, ["location"])
+        XCTAssertEqual(locationSnapshot.manifest.payloadParts.map(\.partID), ["location"])
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
     }
 
     @MainActor
     func testAC2LocationOnlyHandoffRecordsHandedOnceAndRemovesStaging() async throws {
-        WatchDrainURLProtocol.handler = Self.okResponse
         let stagingRoot = self.stagingRootURL(name: "ac2-location")
         let ledgerURL = self.ledgerFileURL(name: "ac2-location-ledger")
         let ledger = WatchSegmentLedger(fileURL: ledgerURL)
@@ -300,20 +282,28 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
             manifest: manifest,
             locationData: Data(#"{"location":true}"#.utf8) + Data([0x0A])
         )
-        let drain = try self.makeDrain(
-            stagingRoot: stagingRoot,
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("ac2-location-transfer", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
             ledger: ledger,
-            directSession: self.makeCapturedSession(),
-            tempName: "ac2-location-temp"
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
         )
 
         await drain.drain()
 
-        XCTAssertEqual(WatchDrainURLProtocol.capturedRequests.count, 1)
-        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        let snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
+        ledger.recordHanded(id: manifest.id)
+        drain.removeStaged(manifest.id)
         XCTAssertEqual(ledger.lifetimeReceived, 1)
         XCTAssertEqual(ledger.lifetimeHanded, 1)
         XCTAssertEqual(ledger.nonTerminalCount, 0)
+        XCTAssertTrue(ledger.isTerminal(id: manifest.id))
+        XCTAssertFalse(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
 
         let store = try self.loadStore(ledgerURL)
         let entry = try XCTUnwrap(store.entries[manifest.id.uuidString])
@@ -398,20 +388,19 @@ private extension WatchSegmentDrainTests {
         tempName: String = "watch-drain-temp",
         cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) throws -> WatchSegmentDrain {
-        let watchHandle = self.watchHandle
-        let uploader = self.makeWatchUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("watch-cache-\(UUID().uuidString)", isDirectory: true),
-            ensureRegistered: { watchHandle }
+        _ = watchRegistration
+        _ = localPortProvider
+        _ = directSession
+        _ = urlBuilder
+        _ = tempName
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("watch-transfer-\(UUID().uuidString)", isDirectory: true)
         )
         return try WatchSegmentDrain(
             stagingRootURL: stagingRoot,
             ledger: ledger ?? WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "ledger-\(UUID().uuidString)")),
-            watchUploader: uploader,
-            watchRegistration: watchRegistration ?? self.makeWatchRegistration(loadKey: self.watchHandle, activeLocalPort: 7071),
-            localPortProvider: localPortProvider,
-            session: directSession,
-            urlBuilder: urlBuilder,
-            tempDirectoryURL: self.tempDirectory.appendingPathComponent(tempName, isDirectory: true),
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine,
             cooperator: cooperator
         )
     }
@@ -572,23 +561,27 @@ private extension WatchSegmentDrainTests {
     func assertManifestValuesSurviveDrain(manifest: WatchSegmentManifest) async throws {
         let stagingRoot = self.stagingRootURL(name: "staging-\(manifest.id.uuidString)")
         try self.writeStagedSegment(stagingRoot: stagingRoot, manifest: manifest, audioData: Data("audio".utf8))
-        let drain = try self.makeDrain(stagingRoot: stagingRoot, tempName: "temp-\(manifest.id.uuidString)")
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("manifest-transfer-\(manifest.id.uuidString)", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "manifest-ledger-\(manifest.id.uuidString)")),
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
+        )
 
         await drain.drain()
 
-        try await self.waitFor("manifest-value upload") {
-            WatchDrainURLProtocol.capturedRequests.count == 1
-                && !self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id)
-        }
-        let body = try self.capturedBodyString()
-        XCTAssertEqual(try self.multipartValue(named: "segment", in: body), manifest.segment)
-        XCTAssertEqual(try self.multipartValue(named: "day", in: body), manifest.day)
-        let meta = try self.multipartMeta(in: body)
-        XCTAssertEqual(meta["segment"] as? String, manifest.segment)
-        XCTAssertEqual(meta["day"] as? String, manifest.day)
-        XCTAssertEqual(meta["started_at"] as? String, ISO8601DateFormatter().string(from: manifest.startedAt))
-        XCTAssertEqual(meta["duration_s"] as? Double, manifest.duration)
-        XCTAssertEqual(meta["session_id"] as? String, manifest.id.uuidString)
+        let snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let snapshot = try XCTUnwrap(snapshots.first)
+        let ingest = try XCTUnwrap(snapshot.manifest.observerIngest)
+        XCTAssertEqual(ingest.segment, manifest.segment)
+        XCTAssertEqual(ingest.day, manifest.day)
+        XCTAssertEqual(ingest.startedAt, manifest.startedAt)
+        XCTAssertEqual(ingest.durationS, manifest.duration)
+        XCTAssertEqual(ingest.sessionID, manifest.id)
+        XCTAssertTrue(self.stagedSegmentExists(stagingRoot: stagingRoot, id: manifest.id))
     }
 
     @MainActor

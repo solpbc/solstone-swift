@@ -52,15 +52,10 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
     }
 
     @MainActor
-    func testOmiIdentifierRoutesOnlyToOmiUploader() async {
+    func testRetiredOmiIdentifierCompletesWithoutRoute() async {
         let appDelegate = AppDelegate()
         let observerUploader = ObserverUploader(
             cacheRootURL: self.tempDirectory.appendingPathComponent("observer", isDirectory: true),
-            startPathMonitor: false
-        )
-        let omiUploader = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("omi", isDirectory: true),
-            sourceType: "omi-audio",
             startPathMonitor: false
         )
         let importQueue = ImportQueue(
@@ -68,24 +63,51 @@ nonisolated final class AppDelegateBackgroundSessionTests: XCTestCase {
             startPathMonitor: false
         )
         appDelegate.observerUploader = observerUploader
-        appDelegate.omiUploader = omiUploader
         appDelegate.importQueue = importQueue
         let completionCounter = CompletionCounter()
 
         appDelegate.application(
             UIApplication.shared,
-            handleEventsForBackgroundURLSession: OmiSegmentWriter.backgroundSessionIdentifier
+            handleEventsForBackgroundURLSession: "app.solstone.swift.omi-upload"
         ) {
             completionCounter.increment()
         }
 
         await Task.yield()
-        XCTAssertEqual(completionCounter.value(), 0)
+        XCTAssertEqual(completionCounter.value(), 1)
         observerUploader.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
+        XCTAssertEqual(completionCounter.value(), 1)
         importQueue.finishBackgroundEvents()
-        XCTAssertEqual(completionCounter.value(), 0)
-        omiUploader.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 1)
+    }
+
+    @MainActor
+    func testRetiredWatchIdentifierCompletesWithoutRoute() async {
+        let appDelegate = AppDelegate()
+        let observerUploader = ObserverUploader(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("observer", isDirectory: true),
+            startPathMonitor: false
+        )
+        let importQueue = ImportQueue(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("queue", isDirectory: true),
+            startPathMonitor: false
+        )
+        appDelegate.observerUploader = observerUploader
+        appDelegate.importQueue = importQueue
+        let completionCounter = CompletionCounter()
+
+        appDelegate.application(
+            UIApplication.shared,
+            handleEventsForBackgroundURLSession: "app.solstone.swift.watch-upload"
+        ) {
+            completionCounter.increment()
+        }
+
+        await Task.yield()
+        XCTAssertEqual(completionCounter.value(), 1)
+        observerUploader.finishBackgroundEvents()
+        XCTAssertEqual(completionCounter.value(), 1)
+        importQueue.finishBackgroundEvents()
         XCTAssertEqual(completionCounter.value(), 1)
     }
 
