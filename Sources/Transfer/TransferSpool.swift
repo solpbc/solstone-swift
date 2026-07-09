@@ -396,6 +396,12 @@ nonisolated struct TransferSpool: Sendable {
         try self.fileSystem.data(contentsOf: self.payloadURL(for: part, in: item.directoryURL))
     }
 
+    func existingPayloadURL(for part: TransferPayloadPartDescriptor, in item: TransferStoredItem) throws -> URL? {
+        let url = try self.payloadURL(for: part, in: item.directoryURL)
+        guard self.fileSystem.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
     func payloadByteCount(for part: TransferPayloadPartDescriptor, in item: TransferStoredItem) throws -> Int {
         try self.fileSystem.byteCount(at: self.payloadURL(for: part, in: item.directoryURL))
     }

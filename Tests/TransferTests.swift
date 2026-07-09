@@ -1111,6 +1111,34 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(alphaSnapshots.map(\.itemID), [queuedID])
     }
 
+    func testPayloadFileURLReturnsLiveDeclaredFileOnlyWhileCommitted() async throws {
+        let resolver = TransferEndpointResolverStub(.unavailable("waiting"))
+        let engine = self.makeEngine(resolver: resolver)
+        try await engine.start()
+        let itemID = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(323)),
+            payloads: self.audioPayloads()
+        )
+
+        let audioURLValue = await engine.payloadFileURL(itemID: itemID, partID: "audio")
+        let audioURL = try XCTUnwrap(audioURLValue)
+        XCTAssertEqual(try Data(contentsOf: audioURL), Data("audio".utf8))
+        let unknownURL = await engine.payloadFileURL(itemID: Self.uuid(324), partID: "audio")
+        XCTAssertNil(unknownURL)
+        let undeclaredURL = await engine.payloadFileURL(itemID: itemID, partID: "location")
+        XCTAssertNil(undeclaredURL)
+
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("payload file removed after delivery") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+
+        let deliveredURL = await engine.payloadFileURL(itemID: itemID, partID: "audio")
+        XCTAssertNil(deliveredURL)
+    }
+
     func testItemSnapshotMidBackoffShowsAttemptsAndNextAttemptAt() async throws {
         let clock = FakeTransferClock(wall: Self.baseDate)
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])

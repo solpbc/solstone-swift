@@ -486,6 +486,21 @@ actor TransferEngine {
             .map { self.snapshot(for: $0) }
     }
 
+    /// Returns a currently committed payload file URL for UI-only reads.
+    ///
+    /// This method does not retain, pin, copy, or delay deletion of the file.
+    /// The returned file may vanish at any moment because delivery deletes the
+    /// committed item; consumers must tolerate a URL that stops resolving
+    /// between this lookup and the read.
+    func payloadFileURL(itemID: UUID, partID: String) -> URL? {
+        guard let item = self.queuedItems[itemID] ?? self.attentionItems[itemID],
+              let part = item.manifest.payloadParts.first(where: { $0.partID == partID })
+        else {
+            return nil
+        }
+        return try? self.spool.existingPayloadURL(for: part, in: item)
+    }
+
     private func scheduleWork() {
         guard !self.paused else { return }
         guard !self.workPassScheduled else { return }
