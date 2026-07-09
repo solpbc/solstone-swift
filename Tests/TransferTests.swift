@@ -1520,7 +1520,10 @@ nonisolated final class TransferTests: XCTestCase {
 
         let resolveCount = await resolver.resolveCount
         XCTAssertLessThanOrEqual(resolveCount, 2)
-        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        // Engines outlive the test that made them, so `requests` is not exclusively ours.
+        // Scope the no-dispatch assertion to this engine's only item.
+        let dispatched = TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:))
+        XCTAssertFalse(dispatched.contains(Self.uuid(390)))
     }
 
     func testByteCountPopulatedForDataAndFileURLAndBackfilledWithoutEnumeration() async throws {
