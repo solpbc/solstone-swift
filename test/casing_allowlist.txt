@@ -86,9 +86,6 @@ ObserverLiveActivity.swift|Meeting
 ObserverLiveActivity.swift|Voice memo
 ObserverLiveActivity.swift|Listening
 OmiSegmentWriter.swift|OmiObserver
-ObserverUploader.swift|Observer
-ObserverUploader.swift|Boundary-
-ObserverUploader.swift|Content-Disposition
 MobileSegmentStore.swift|MobileSegment
 MobileSegmentScreencastShared.swift|MobileSegment
 OnThisPhoneUITestSeeder.swift|MobileSegment

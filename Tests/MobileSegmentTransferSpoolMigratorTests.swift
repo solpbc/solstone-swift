@@ -142,7 +142,7 @@ nonisolated final class MobileSegmentTransferSpoolMigratorTests: XCTestCase {
     }
 
     @MainActor
-    func testAC5ResumeEnqueueFailureAfterMigrationLeavesPendingSegmentFullyIntact() async throws {
+    func testAC5ResumeEnqueueFailureLeavesSegmentIntactAndDoesNotUnsetMigrationFlag() async throws {
         let fileSystem = FailingManifestWriteFileSystem()
         fileSystem.failManifestWrites = true
         let harness = try self.makeHarness(name: "enqueue-fails", fileSystem: fileSystem)

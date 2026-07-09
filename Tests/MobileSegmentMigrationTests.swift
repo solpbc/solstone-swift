@@ -51,7 +51,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
             .appendingPathComponent("bad.jsonl", isDirectory: true)
         try FileManager.default.createDirectory(at: badLocation, withIntermediateDirectories: true)
 
-        await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: locationRoot)
+        await harness.uploader.migrateLegacyMobileItems(locationCacheRootURL: locationRoot)
 
         for oldURL in [pendingLocation, failedLocation] {
             XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
@@ -107,7 +107,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
         )
         _ = try harness.store.move(segmentID: collidingID, from: .active, to: .pending)
 
-        await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: nil)
+        await harness.uploader.migrateLegacyMobileItems(locationCacheRootURL: nil)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldAudio.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: collidingID).path))
@@ -128,7 +128,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
             _ = try self.writeLegacyLocation(root: locationRoot, state: "pending", fileID: "20260628-09000\(index)_60")
         }
 
-        await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: locationRoot)
+        await harness.uploader.migrateLegacyMobileItems(locationCacheRootURL: locationRoot)
 
         XCTAssertGreaterThan(cooperator.checkpointCount, 0)
     }
@@ -144,7 +144,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
         _ = try self.writeLegacyLocation(root: locationRoot, state: "pending", fileID: "20260628-090000_60")
 
         let migration = Task { @MainActor in
-            await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: locationRoot)
+            await harness.uploader.migrateLegacyMobileItems(locationCacheRootURL: locationRoot)
         }
         while cooperator.checkpointCount == 0 {
             await Task.yield()

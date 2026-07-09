@@ -483,7 +483,7 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
     }
 }
 
-private extension MobileSegmentSource {
+extension MobileSegmentSource {
     nonisolated init?(payloadKind: TransferPayloadKind) {
         switch payloadKind {
         case .audio:

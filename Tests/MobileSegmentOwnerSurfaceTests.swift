@@ -6,10 +6,9 @@ import Foundation
 import os
 import XCTest
 
-@MainActor
-final class MobileSegmentOwnerSurfaceTests: XCTestCase {
+nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
+    private let fixedNow = Date(timeIntervalSince1970: 1_780_480_800)
     private var tempDirectory: URL!
-    private var clock: MockObserverClock!
 
     override func setUp() {
         super.setUp()
@@ -17,17 +16,16 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         self.tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MobileSegmentOwnerSurfaceTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
-        self.clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_780_480_800))
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: self.tempDirectory)
         self.tempDirectory = nil
-        self.clock = nil
         MobileSegmentOwnerHealthURLProtocol.reset()
         super.tearDown()
     }
 
+    @MainActor
     func testOwnerSurfacesCountMixedBundleOnceWhileRenderingThreeFacets() async throws {
         let harness = self.makeHarness()
         let segmentID = UUID()
@@ -52,6 +50,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         try await transferTestWaitFor("mobile holder queued") {
             await MainActor.run { harness.mobileSegmentHolder.pendingCount == 1 }
         }
+        await harness.mobileSegmentHolder.refreshFacetSummaries()
         XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .audio).pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .location).pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .screencast).pendingCount, 1)
@@ -70,7 +69,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
             uploader: harness.mobileSegmentHolder,
             isJournalConfigured: { true },
             session: self.healthSession(),
-            clock: self.clock,
+            clock: harness.clock,
             interval: .seconds(300)
         )
         MobileSegmentOwnerHealthURLProtocol.handler = { request in
@@ -88,6 +87,83 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertEqual(payload["pending_queue_depth"] as? Int, 1)
     }
 
+    @MainActor
+    func testStorePendingEnqueueFailureCountsOnceInTotalsAndHealthBeacon() async throws {
+        let fileSystem = FailingManifestWriteFileSystem()
+        fileSystem.failManifestWrites = true
+        let harness = self.makeHarness(fileSystem: fileSystem)
+        let segmentID = UUID()
+        try self.writeMixedBundle(store: harness.store, segmentID: segmentID, lifecycle: .pending)
+
+        await harness.mobileSegmentUploader.resumeFromDisk()
+        await harness.mobileSegmentHolder.refreshFacetSummaries()
+
+        XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.pendingCount, 1)
+        let snapshots = await harness.transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertTrue(snapshots.isEmpty)
+        let totals = uploadTotals(
+            mobileSegment: harness.mobileSegmentHolder,
+            omi: harness.omiHolder,
+            watch: harness.watchHolder,
+            importQueue: harness.importQueue
+        )
+        XCTAssertEqual(totals.pending, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .audio).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .screencast).pendingCount, 1)
+
+        let beacon = ObserverHealthBeacon(
+            registration: self.registration(),
+            uploader: harness.mobileSegmentHolder,
+            isJournalConfigured: { true },
+            session: self.healthSession(),
+            clock: harness.clock,
+            interval: .seconds(300)
+        )
+        MobileSegmentOwnerHealthURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("ok".utf8)
+            )
+        }
+        beacon.start()
+        try await self.waitFor("health payload") {
+            MobileSegmentOwnerHealthURLProtocol.callCount == 1
+        }
+        beacon.stop()
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(MobileSegmentOwnerHealthURLProtocol.capturedBodies.first)) as? [String: Any])
+        XCTAssertEqual(payload["pending_queue_depth"] as? Int, 1)
+    }
+
+    @MainActor
+    func testSummaryForFacetCountsOnlyMatchingTransferParts() async throws {
+        let harness = self.makeHarness()
+        try await harness.transferEngine.start()
+        let audioItemID = UUID()
+        _ = try await harness.transferEngine.enqueue(
+            manifest: self.mobileTransferManifest(itemID: audioItemID, segmentID: UUID(), source: .audio),
+            payloads: ["audio": Data("audio".utf8)]
+        )
+        await harness.mobileSegmentHolder.refreshFacetSummaries()
+
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .audio).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .location).pendingCount, 0)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .screencast).pendingCount, 0)
+
+        await harness.transferEngine.drop(itemID: audioItemID)
+        _ = try await harness.transferEngine.enqueue(
+            manifest: self.mobileTransferManifest(itemID: UUID(), segmentID: UUID(), source: .screencast),
+            payloads: ["screencast": Data("screen".utf8)]
+        )
+        await harness.mobileSegmentHolder.refreshFacetSummaries()
+
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .audio).pendingCount, 0)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .location).pendingCount, 0)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .screencast).pendingCount, 1)
+    }
+
+    @MainActor
     func testMixedBundleDropAndRetryMoveTheWholeBundle() async throws {
         let harness = self.makeHarness()
         let pendingSegmentID = UUID()
@@ -116,6 +192,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertEqual(harness.mobileSegmentUploader.failedCount, 0)
     }
 
+    @MainActor
     func testScreencastRedactionPreservesRemainingFacetsAndTombstonesScreencastOnlyBundle() async throws {
         let harness = self.makeHarness()
         let mixedSegmentID = UUID()
@@ -144,6 +221,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         ))
     }
 
+    @MainActor
     func testLocationRedactionPreservesFinalizedScreencastAndRebuildsUpload() async throws {
         let harness = self.makeHarness()
         let segmentID = UUID()
@@ -167,6 +245,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
     }
 }
 
+@MainActor
 private extension MobileSegmentOwnerSurfaceTests {
     struct Harness {
         let mobileSegmentUploader: MobileSegmentUploader
@@ -176,17 +255,20 @@ private extension MobileSegmentOwnerSurfaceTests {
         let transferEngine: TransferEngine
         let omiHolder: OmiUploaderHolder
         let watchHolder: WatchUploaderHolder
+        let clock: MockObserverClock
     }
 
-    func makeHarness() -> Harness {
+    func makeHarness(fileSystem: (any TransferFileSystem)? = nil) -> Harness {
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
+        let clock = MockObserverClock(now: self.fixedNow)
         let transferHarness = makeTransferCutoverHarness(
-            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true),
+            fileSystem: fileSystem
         )
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferHarness.engine,
             store: store,
-            clock: self.clock
+            clock: clock
         )
         let mobileSegmentHolder = MobileSegmentTransferHolder(
             transferEngine: transferHarness.engine,
@@ -203,12 +285,47 @@ private extension MobileSegmentOwnerSurfaceTests {
             ),
             transferEngine: transferHarness.engine,
             omiHolder: transferHarness.omi,
-            watchHolder: transferHarness.watch
+            watchHolder: transferHarness.watch,
+            clock: clock
         )
     }
 
+    func mobileTransferManifest(itemID: UUID, segmentID: UUID, source: MobileSegmentSource) -> TransferManifest {
+        let startedAt = self.fixedNow
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [source],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = .pending
+        return ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: itemID,
+            manifest: manifest,
+            now: endedAt,
+            sources: [source],
+            payloadParts: [self.transferPart(for: source)]
+        )
+    }
+
+    func transferPart(for source: MobileSegmentSource) -> TransferPayloadPartDescriptor {
+        switch source {
+        case .audio:
+            ObserverAudioTransferEnqueuer.audioPart()
+        case .location:
+            ObserverAudioTransferEnqueuer.locationPart()
+        case .screencast:
+            ObserverAudioTransferEnqueuer.screencastPart()
+        }
+    }
+
     func writeMixedBundle(store: MobileSegmentStore, segmentID: UUID, lifecycle: MobileSegmentLifecycle) throws {
-        let startedAt = self.clock.now()
+        let startedAt = self.fixedNow
         let endedAt = startedAt.addingTimeInterval(60)
         var manifest = MobileSegmentManifest(
             segmentID: segmentID,
@@ -288,7 +405,7 @@ private extension MobileSegmentOwnerSurfaceTests {
     }
 
     func writeScreencastBundle(store: MobileSegmentStore, segmentID: UUID, lifecycle: MobileSegmentLifecycle) throws {
-        let startedAt = self.clock.now()
+        let startedAt = self.fixedNow
         let endedAt = startedAt.addingTimeInterval(60)
         var manifest = MobileSegmentManifest(
             segmentID: segmentID,
@@ -323,7 +440,7 @@ private extension MobileSegmentOwnerSurfaceTests {
     func createPublicFinalizedLocationScreencastSegment(
         uploader: MobileSegmentUploader
     ) async throws -> UUID {
-        let startedAt = self.clock.now()
+        let startedAt = self.fixedNow
         let endedAt = startedAt.addingTimeInterval(60)
         let segmentID = try uploader.openSegment(sources: [.location, .screencast], startedAt: startedAt, sourceSetVersion: 1)
 

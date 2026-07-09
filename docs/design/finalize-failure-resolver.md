@@ -154,7 +154,7 @@ Create `Tests/MobileSegmentLiveLocationTestSupport.swift`.
 Create `Tests/MobileSegmentFinalizeResolverTests.swift`.
 
 - Use a focused harness equivalent to `MobileSegmentUploaderTests.makeHarness(:466-487)`.
-- Either keep a local URLProtocol following the existing per-test-file pattern (`MobileSegmentUploaderURLProtocol` at `Tests/MobileSegmentUploaderTests.swift:712-783`, `MobileSegmentReconcileURLProtocol` in reconcile tests) or extract uploader URLProtocol support only if duplication becomes material. The default is local, to keep the resolver test file self-contained.
+- Use the transfer cutover harness for enqueue-facing cases, and keep resolver storage fixtures local to the test file unless duplication becomes material.
 
 Update `Tests/MobileSegmentUploaderTests.swift:416-456` string/status grep coverage to include new status reasons `unrecoverable_lost_data`, `location_no_local_data`, and `audio_no_local_data` if they are surfaced through owner-visible failure reason paths.
 

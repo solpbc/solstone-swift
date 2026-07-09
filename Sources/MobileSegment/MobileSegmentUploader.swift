@@ -894,7 +894,6 @@ final class MobileSegmentUploader {
     }
 
     func migrateLegacyMobileItems(
-        observerCacheRootURL: URL? = nil,
         locationCacheRootURL: URL? = nil
     ) async {
         guard self.guardStorageAvailable() else { return }
