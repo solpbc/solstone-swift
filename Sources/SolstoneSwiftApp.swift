@@ -20,13 +20,15 @@ struct SolstoneSwiftApp: App {
     @State private var observerUploader: ObserverUploader
     @State private var mobileHealthBeacon: ObserverHealthBeacon
     @State private var omiRegistration: ObserverRegistration
-    @State private var omiUploader: ObserverUploader
     @State private var omiHealthBeacon: ObserverHealthBeacon
     @State private var omiUploaderHolder: OmiUploaderHolder
     @State private var watchRegistration: ObserverRegistration
-    @State private var watchUploader: ObserverUploader
     @State private var watchHealthBeacon: ObserverHealthBeacon
     @State private var watchUploaderHolder: WatchUploaderHolder
+    @State private var transferEndpointResolver: ObserverIngestTransferEndpointResolver
+    @State private var transferStatusMirror: TransferStatusMirror
+    @State private var transferEngine: TransferEngine
+    @State private var transferEnqueuer: ObserverAudioTransferEnqueuer
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var watchSegmentLedger: WatchSegmentLedger
@@ -46,6 +48,7 @@ struct SolstoneSwiftApp: App {
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
     @State private var backgroundDrainTask: Task<Void, Never>?
+    @State private var didBootstrapTransfer = false
     @State private var integrationObserverStartTask: Task<Void, Never>?
     @State private var integrationObserverStopTask: Task<Void, Never>?
     @State private var didAutoStartIntegrationObserver = false
@@ -256,64 +259,6 @@ struct SolstoneSwiftApp: App {
                 IngestPrefixStore().clear(.omi)
             }
         )
-        let omiUploadConfiguration = URLSessionConfiguration.background(
-            withIdentifier: OmiSegmentWriter.backgroundSessionIdentifier
-        )
-        omiUploadConfiguration.waitsForConnectivity = true
-        let legacyOmiRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
-        let omiCacheRoot: URL
-        let omiMigrationDiagnostics: [String]
-        do {
-            let appGroupOmiRoot = try AppGroupContainer.rootURL()
-                .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
-            omiMigrationDiagnostics = ObserverSpoolRootMigrator.migrateSpoolRoot(
-                fromLegacyCachesRoot: legacyOmiRoot,
-                toAppGroupRoot: appGroupOmiRoot,
-                flagKey: ObserverSpoolRootMigrator.omiAppGroupRootMigrationFlag
-            )
-            omiCacheRoot = appGroupOmiRoot
-        } catch {
-            let diagnostic = "omi spool storage unavailable source=app-group"
-            Logger(subsystem: "app.solstone.swift", category: "uploader")
-                .error("\(diagnostic, privacy: .public)")
-            omiMigrationDiagnostics = [diagnostic]
-            omiCacheRoot = legacyOmiRoot
-        }
-        let omiUploader = ObserverUploader(
-            cacheRootURL: omiCacheRoot,
-            sessionConfiguration: omiUploadConfiguration,
-            ensureRegistered: {
-                try await omiRegistration.ensureRegistered()
-            },
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            localPortProvider: {
-                omiRegistration.activeLocalPort
-            },
-            activeEpochProvider: {
-                omiRegistration.activeEpoch
-            },
-            registrationPrefixProvider: {
-                omiRegistration.registrationPrefix
-            },
-            diagnosticLog: log,
-            sourceType: "omi-audio"
-        )
-        if omiUploader.lastError == nil {
-            omiUploader.lastError = omiMigrationDiagnostics.first
-        }
-        let omiHealthBeacon = ObserverHealthBeacon(
-            registration: omiRegistration,
-            uploader: omiUploader,
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            session: healthSession,
-            clock: observerClock
-        )
-        let omiUploaderHolder = OmiUploaderHolder(omiUploader)
         let watchRegistration = ObserverRegistration(
             hostname: UIDevice.current.name,
             version: AppVersion.shortVersion,
@@ -338,37 +283,52 @@ struct SolstoneSwiftApp: App {
                 IngestPrefixStore().clear(.watch)
             }
         )
-        let watchUploadConfiguration = URLSessionConfiguration.background(
-            withIdentifier: WatchSegmentDrain.backgroundSessionIdentifier
+        let transferEndpointResolver = ObserverIngestTransferEndpointResolver()
+        let transferStatusMirror = TransferStatusMirror()
+        let transferSpool: TransferSpool
+        do {
+            transferSpool = try TransferSpool()
+        } catch {
+            let diagnostic = "transfer spool unavailable source=app-group"
+            Logger(subsystem: "app.solstone.swift", category: "transfer")
+                .error("\(diagnostic, privacy: .public)")
+            log.append(category: .upload, severity: .warning, message: "needs attention", detail: diagnostic)
+            transferSpool = TransferSpool(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("transfer-unavailable", isDirectory: true)
+            )
+        }
+        let transferEngine = TransferEngine(
+            spool: transferSpool,
+            transport: TransferTransport(authProvider: ObserverAudioTransferAuthProvider.make(
+                omiRegistration: omiRegistration,
+                watchRegistration: watchRegistration
+            )),
+            endpointResolver: transferEndpointResolver,
+            diagnosticsSink: ObserverAudioTransferDiagnostics.makeSink(diagnosticLog: log),
+            statusMirror: transferStatusMirror
         )
-        watchUploadConfiguration.waitsForConnectivity = true
-        let watchCacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent(WatchSegmentDrain.cacheDirectoryName, isDirectory: true)
-        let watchUploader = ObserverUploader(
-            cacheRootURL: watchCacheRoot,
-            sessionConfiguration: watchUploadConfiguration,
-            ensureRegistered: {
-                try await watchRegistration.ensureRegistered()
-            },
+        let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
+        let omiUploaderHolder = OmiUploaderHolder(
+            transferEngine: transferEngine,
+            mirror: transferStatusMirror
+        )
+        let omiHealthBeacon = ObserverHealthBeacon(
+            registration: omiRegistration,
+            uploader: omiUploaderHolder,
             isJournalConfigured: {
                 appConfig.isPaired
             },
-            localPortProvider: {
-                watchRegistration.activeLocalPort
-            },
-            activeEpochProvider: {
-                watchRegistration.activeEpoch
-            },
-            registrationPrefixProvider: {
-                watchRegistration.registrationPrefix
-            },
-            diagnosticLog: log,
-            sourceType: "watch-audio",
-            platform: "watchos"
+            session: healthSession,
+            clock: observerClock
+        )
+        let watchUploaderHolderForHealth = WatchUploaderHolder(
+            transferEngine: transferEngine,
+            mirror: transferStatusMirror
         )
         let watchHealthBeacon = ObserverHealthBeacon(
             registration: watchRegistration,
-            uploader: watchUploader,
+            uploader: watchUploaderHolderForHealth,
             isJournalConfigured: {
                 appConfig.isPaired
             },
@@ -377,8 +337,9 @@ struct SolstoneSwiftApp: App {
         )
         let watchConnectivitySession = LiveWatchConnectivitySession()
         let watchPipeline = makeWatchPhonePipeline(
-            watchUploader: watchUploader,
-            watchRegistration: watchRegistration,
+            transferEngine: transferEngine,
+            transferStatusMirror: transferStatusMirror,
+            transferEnqueuer: transferEnqueuer,
             watchConnectivitySession: watchConnectivitySession
         )
         let watchUploaderHolder = watchPipeline.watchUploaderHolder
@@ -462,7 +423,7 @@ struct SolstoneSwiftApp: App {
                 observerRegistration.activeLocalPort
             }
         )
-        let omiSegmentWriter = OmiSegmentWriter(uploader: omiUploader, clock: observerClock)
+        let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
         let omiSource = OmiSourceManager()
         let omiHeardTally = omiSource.heardTally
         omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
@@ -495,8 +456,7 @@ struct SolstoneSwiftApp: App {
             drive: {
                 await driveUploadDrain(
                     mobileSegment: mobileSegmentUploader,
-                    omi: omiUploader,
-                    watch: watchUploader,
+                    transferEngine: transferEngine,
                     importQueue: importQueue,
                     watchDrain: watchSegmentDrain
                 )
@@ -514,8 +474,7 @@ struct SolstoneSwiftApp: App {
         let foregroundDrainGate = ForegroundDrainGate(drive: {
             await driveUploadDrain(
                 mobileSegment: mobileSegmentUploader,
-                omi: omiUploader,
-                watch: watchUploader,
+                transferEngine: transferEngine,
                 importQueue: importQueue,
                 watchDrain: watchSegmentDrain
             )
@@ -541,7 +500,7 @@ struct SolstoneSwiftApp: App {
                     await mobileSegmentEngine.resumeFromDisk()
                 },
                 migrateLegacyAudioKeys: {
-                    _ = await omiUploader.migrateLegacySegmentKeys()
+                    return
                 },
                 replayWatchACKs: {
                     watchRelayReceiver?.replayACKsForCommittedSegments()
@@ -569,13 +528,15 @@ struct SolstoneSwiftApp: App {
         self._observerUploader = State(initialValue: observerUploader)
         self._mobileHealthBeacon = State(initialValue: mobileHealthBeacon)
         self._omiRegistration = State(initialValue: omiRegistration)
-        self._omiUploader = State(initialValue: omiUploader)
         self._omiHealthBeacon = State(initialValue: omiHealthBeacon)
         self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
         self._watchRegistration = State(initialValue: watchRegistration)
-        self._watchUploader = State(initialValue: watchUploader)
         self._watchHealthBeacon = State(initialValue: watchHealthBeacon)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
+        self._transferEndpointResolver = State(initialValue: transferEndpointResolver)
+        self._transferStatusMirror = State(initialValue: transferStatusMirror)
+        self._transferEngine = State(initialValue: transferEngine)
+        self._transferEnqueuer = State(initialValue: transferEnqueuer)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._watchSegmentLedger = State(initialValue: watchSegmentLedger)
@@ -592,8 +553,6 @@ struct SolstoneSwiftApp: App {
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
         self.appDelegate.observerUploader = observerUploader
-        self.appDelegate.omiUploader = omiUploader
-        self.appDelegate.watchUploader = watchUploader
         self.appDelegate.importQueue = importQueue
     }
 
@@ -648,6 +607,9 @@ struct SolstoneSwiftApp: App {
                 }
                 .task {
                     await self.connectionSyncModel.run()
+                }
+                .task {
+                    await self.bootstrapTransfer()
                 }
                 .task {
                     self.mobileHealthBeacon.start()
@@ -754,8 +716,7 @@ struct SolstoneSwiftApp: App {
                     drive: {
                         await driveUploadDrain(
                             mobileSegment: self.mobileSegmentUploader,
-                            omi: self.omiUploader,
-                            watch: self.watchUploader,
+                            transferEngine: self.transferEngine,
                             importQueue: self.importQueue,
                             watchDrain: self.watchSegmentDrain
                         )
@@ -786,6 +747,10 @@ struct SolstoneSwiftApp: App {
                 self.omiRegistration.activeEpoch = epoch
                 self.watchRegistration.activeLocalPort = port
                 self.watchRegistration.activeEpoch = epoch
+                Task {
+                    await self.transferEndpointResolver.update(activeLocalPort: port)
+                    await self.transferEngine.endpointAvailabilityChanged()
+                }
                 Task { await self.foregroundDrainGate.requestDrain() }
 
                 if Self.isIntegrationMode,
@@ -808,6 +773,10 @@ struct SolstoneSwiftApp: App {
                 self.omiRegistration.activeEpoch = nil
                 self.watchRegistration.activeLocalPort = nil
                 self.watchRegistration.activeEpoch = nil
+                Task {
+                    await self.transferEndpointResolver.update(activeLocalPort: nil)
+                    await self.transferEngine.endpointAvailabilityChanged()
+                }
                 self.integrationObserverStartTask?.cancel()
                 self.integrationObserverStartTask = nil
                 self.integrationObserverStopTask?.cancel()
@@ -832,6 +801,77 @@ struct SolstoneSwiftApp: App {
             case .idle, .starting, .stopping, .error:
                 break
             }
+        }
+    }
+
+    private func bootstrapTransfer() async {
+        guard !self.didBootstrapTransfer else { return }
+        self.didBootstrapTransfer = true
+
+        do {
+            try await self.transferEngine.start()
+        } catch {
+            self.diagnosticLog.append(
+                category: .upload,
+                severity: .warning,
+                message: "needs attention",
+                detail: "source=transfer reason=start failed"
+            )
+            Logger(subsystem: "app.solstone.swift", category: "transfer")
+                .error("transfer start failed: \(String(describing: error), privacy: .public)")
+        }
+
+        guard let appGroupRoot = try? AppGroupContainer.rootURL() else {
+            self.diagnosticLog.append(
+                category: .upload,
+                severity: .warning,
+                message: "needs attention",
+                detail: "source=transfer reason=app-group unavailable"
+            )
+            return
+        }
+
+        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: cachesRoot?.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+            transferEnqueuer: self.transferEnqueuer,
+            diagnosticLog: self.diagnosticLog
+        )
+        await WatchTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyRootURL: (cachesRoot ?? FileManager.default.temporaryDirectory)
+                .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true),
+            transferEnqueuer: self.transferEnqueuer,
+            diagnosticLog: self.diagnosticLog
+        )
+
+        if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
+            await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)
+        }
+    }
+
+    private func recoverOmiInProgress(appGroupRootURL: URL) async {
+        let rootURL = appGroupRootURL.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: rootURL.path),
+              let sessions = try? FileManager.default.contentsOfDirectory(
+                at: rootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+              )
+        else {
+            return
+        }
+        let quarantineRoot = OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRootURL)
+        for sessionURL in sessions where (try? sessionURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            guard let sessionID = UUID(uuidString: sessionURL.lastPathComponent) else { continue }
+            _ = await OmiInProgressRecovery.recoverInProgressFiles(
+                sessionID: sessionID,
+                rootURL: rootURL,
+                transferEnqueuer: self.transferEnqueuer,
+                quarantineRootURL: quarantineRoot,
+                diagnosticLog: self.diagnosticLog
+            )
         }
     }
 }
