@@ -150,41 +150,41 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .accessibilityIdentifier("onThisPhone.surface")
             .onAppear {
                 self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
-                self.loadSnapshot(trigger: .appear)
+                Task { await self.loadSnapshot(trigger: .appear) }
                 self.refreshWelcomeFraming()
             }
             .onChange(of: self.observerUploader.pendingCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .observerCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .observerCounts) }
             }
             .onChange(of: self.observerUploader.failedCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .observerCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .observerCounts) }
             }
             .onChange(of: self.omiUploaderHolder.pendingCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .omiCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .omiCounts) }
             }
             .onChange(of: self.omiUploaderHolder.failedCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .omiCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .omiCounts) }
             }
             .onChange(of: self.watchUploaderHolder.pendingCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .watchCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .watchCounts) }
             }
             .onChange(of: self.watchUploaderHolder.failedCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .watchCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .watchCounts) }
             }
             .onChange(of: self.importQueue.pendingCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .importCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .importCounts) }
             }
             .onChange(of: self.importQueue.failedCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .importCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .importCounts) }
             }
             .onChange(of: self.mobileSegmentUploader.pendingCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .mobileSegmentCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .mobileSegmentCounts) }
             }
             .onChange(of: self.mobileSegmentUploader.failedCount) { _, _ in
-                self.coalescer.schedule { self.loadSnapshot(trigger: .mobileSegmentCounts) }
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .mobileSegmentCounts) }
             }
             .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
-                self.loadSnapshot(trigger: .activePort)
+                Task { await self.loadSnapshot(trigger: .activePort) }
                 self.refreshWelcomeFraming()
             }
             .onDisappear {
@@ -751,8 +751,7 @@ private extension OnThisPhoneMomentsView {
             for: item,
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
-            omiUploader: self.omiUploaderHolder.uploader,
-            watchUploader: self.watchUploaderHolder.uploader,
+            transferEngine: self.omiUploaderHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader,
             removeWatchStaging: self.watchUploaderHolder.removeStaging
         ) else {
@@ -770,8 +769,7 @@ private extension OnThisPhoneMomentsView {
             for: item,
             importQueue: self.importQueue,
             observerUploader: self.observerUploader,
-            omiUploader: self.omiUploaderHolder.uploader,
-            watchUploader: self.watchUploaderHolder.uploader,
+            transferEngine: self.omiUploaderHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader
         ) else {
             return
@@ -779,17 +777,16 @@ private extension OnThisPhoneMomentsView {
         await commit()
     }
 
-    func loadSnapshot(trigger: LoadTrigger) {
+    func loadSnapshot(trigger: LoadTrigger) async {
         let interval = DrainSignpost.begin(
             .aggregateRefresh,
             source: .view,
             fields: DrainFields(trigger: trigger.rawValue)
         )
-        let aggregate = OnThisPhoneSnapshotAggregator.snapshot(
+        let aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: self.importQueue,
             mobileSegmentUploader: self.mobileSegmentUploader,
-            omiUploader: self.omiUploaderHolder.uploader,
-            watchUploader: self.watchUploaderHolder.uploader
+            transferEngine: self.omiUploaderHolder.transferEngine
         )
         self.aggregate = aggregate
         let displayAggregate = self.displayAggregate ?? aggregate

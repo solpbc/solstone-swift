@@ -347,11 +347,10 @@ struct MoreView: View {
 
     private func refreshSegmentMigration() async {
         while !Task.isCancelled {
-            let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+            let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
                 importQueue: self.importQueue,
                 mobileSegmentUploader: self.mobileSegmentUploader,
-                omiUploader: self.omiUploaderHolder.uploader,
-                watchUploader: self.watchUploaderHolder.uploader
+                transferEngine: self.omiUploaderHolder.transferEngine
             )
             self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
             self.transferRate = recentBytesTotal(

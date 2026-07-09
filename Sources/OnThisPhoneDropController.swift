@@ -111,8 +111,7 @@ func makeDropCommit(
     for item: OnThisPhoneItem,
     importQueue: ImportQueue,
     observerUploader: ObserverUploader,
-    omiUploader: ObserverUploader,
-    watchUploader: ObserverUploader,
+    transferEngine: TransferEngine,
     mobileSegmentUploader: MobileSegmentUploader,
     removeWatchStaging: (@MainActor @Sendable (UUID) -> Void)? = nil
 ) -> (@MainActor () -> Void)? {
@@ -129,16 +128,26 @@ func makeDropCommit(
         return {
             mobileSegmentUploader.dropSegment(segmentID: segmentID)
         }
+    case .transfer(let itemID, let source):
+        return {
+            Task { @MainActor in
+                let snapshot = await transferEngine.itemSnapshot(itemID: itemID)
+                await transferEngine.drop(itemID: itemID)
+                guard source == .watch,
+                      let segmentID = snapshot?.manifest.observerIngest?.sessionID
+                else {
+                    return
+                }
+                removeWatchStaging?(segmentID)
+            }
+        }
     case .audio(let sessionID, let chunkID, let source):
         return {
             switch source {
             case .observer:
                 observerUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
-            case .omi:
-                omiUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
-            case .watch:
-                watchUploader.dropItem(sessionID: sessionID, chunkID: chunkID)
-                removeWatchStaging?(sessionID)
+            case .omi, .watch:
+                break
             }
         }
     }
@@ -149,8 +158,7 @@ func makeRetryCommit(
     for item: OnThisPhoneItem,
     importQueue: ImportQueue,
     observerUploader: ObserverUploader,
-    omiUploader: ObserverUploader,
-    watchUploader: ObserverUploader,
+    transferEngine: TransferEngine,
     mobileSegmentUploader: MobileSegmentUploader
 ) -> (@MainActor () async -> Void)? {
     guard let itemID = OnThisPhoneItemID(sourceKind: item.sourceKind, id: item.id) else {
@@ -163,15 +171,17 @@ func makeRetryCommit(
     case .mobileSegment:
         // no per-segment requeue exists; retry is source-level
         return { await mobileSegmentUploader.retryFailed(respectingCooldown: false) }
+    case .transfer(let itemID, _):
+        return {
+            try? await transferEngine.retryAttention(itemID: itemID)
+        }
     case .audio(let sessionID, let chunkID, let source):
         return {
             switch source {
             case .observer:
                 try? await observerUploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
-            case .omi:
-                try? await omiUploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
-            case .watch:
-                try? await watchUploader.requeueFailedItem(sessionID: sessionID, chunkID: chunkID)
+            case .omi, .watch:
+                break
             }
         }
     }

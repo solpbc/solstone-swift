@@ -411,7 +411,7 @@ final class ScreencastManager {
     var state: State = .off
 
     @ObservationIgnored private let engine: any ScreencastEngineDriving
-    @ObservationIgnored private let uploader: any ScreencastFacetResolving
+    @ObservationIgnored private let segmentUploader: any ScreencastFacetResolving
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let rootURLProvider: () throws -> URL
@@ -459,7 +459,7 @@ final class ScreencastManager {
         darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter()
     ) {
         self.engine = engine
-        self.uploader = uploader
+        self.segmentUploader = uploader
         self.clock = clock
         self.defaults = defaults
         self.rootURLProvider = rootURLProvider
@@ -538,7 +538,7 @@ final class ScreencastManager {
         let diagnostic = self.readDiagnostic(root: root, runtime: runtime, handoff: handoff, lease: continuationLease)
         let filesystem = self.filesystemState(root: root, runtime: runtime, handoff: handoff, lease: continuationLease, diagnostic: diagnostic)
         let manifestResolution = filesystem.segmentID.flatMap {
-            self.uploader.screencastResolution(segmentID: $0)
+            self.segmentUploader.screencastResolution(segmentID: $0)
         }
         let input = ScreencastReconcileInput(
             runtime: runtime,
@@ -804,7 +804,7 @@ private extension ScreencastManager {
                 )
                 let startedAt = currentHandoff?.startedAt ?? runtime?.startedAt ?? self.clock.now()
                 let endedAt = diagnostic?.endedAt ?? runtime?.lastSeenAt ?? self.clock.now()
-                try self.uploader.recordScreencastFinalized(
+                try self.segmentUploader.recordScreencastFinalized(
                     segmentID: segmentID,
                     artifactURL: artifactURL,
                     startedAt: startedAt,
@@ -814,7 +814,7 @@ private extension ScreencastManager {
             case .recordNoArtifact(let segmentID, let reason):
                 let startedAt = currentHandoff?.startedAt ?? runtime?.startedAt ?? self.clock.now()
                 let endedAt = diagnostic?.endedAt ?? runtime?.lastSeenAt ?? self.clock.now()
-                try self.uploader.recordScreencastNoArtifact(
+                try self.segmentUploader.recordScreencastNoArtifact(
                     segmentID: segmentID,
                     startedAt: startedAt,
                     endedAt: endedAt,
@@ -824,14 +824,14 @@ private extension ScreencastManager {
             case .recordFailed(let segmentID, let reason):
                 let startedAt = currentHandoff?.startedAt ?? runtime?.startedAt ?? self.clock.now()
                 let endedAt = diagnostic?.endedAt ?? runtime?.lastSeenAt ?? self.clock.now()
-                try self.uploader.recordScreencastFinalizeFailed(
+                try self.segmentUploader.recordScreencastFinalizeFailed(
                     segmentID: segmentID,
                     startedAt: startedAt,
                     endedAt: endedAt,
                     reason: reason
                 )
             case .finalizeSegment(let segmentID, let endedAt):
-                await self.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+                await self.segmentUploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
             case .stopBoundary(let endedAt):
                 try await self.engine.stopScreencast(at: endedAt)
                 if case .needsAttention = self.state {

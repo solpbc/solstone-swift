@@ -35,18 +35,14 @@ final class UIBackgroundTaskAsserter: BackgroundTaskAsserting {
 @MainActor
 func driveUploadDrain(
     mobileSegment: MobileSegmentUploader,
-    omi: ObserverUploader,
-    watch: ObserverUploader,
+    transferEngine: TransferEngine,
     importQueue: ImportQueue,
     watchDrain: WatchSegmentDrain?
 ) async {
     await mobileSegment.resumeFromDisk()
-    await omi.reconcilePortAndResume()
-    await watch.reconcilePortAndResume()
+    await transferEngine.kick()
     await importQueue.resumeFromDisk()
     await mobileSegment.retryFailed(respectingCooldown: true)
-    await omi.retryFailed()
-    await watch.retryFailed()
     await importQueue.retryFailed()
     await watchDrain?.drain()
 }

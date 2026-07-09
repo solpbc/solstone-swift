@@ -8,17 +8,28 @@ enum OnThisPhoneSnapshotAggregator {
     static func snapshot(
         importQueue: ImportQueue,
         mobileSegmentUploader: MobileSegmentUploader,
-        omiUploader: ObserverUploader,
-        watchUploader: ObserverUploader
-    ) -> OnThisPhoneAggregateSnapshot {
+        transferEngine: TransferEngine
+    ) async -> OnThisPhoneAggregateSnapshot {
+        let omiSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let watchSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let omiResult = await ObserverAudioTransferSnapshotMapper.sourceResult(
+            snapshots: omiSnapshots,
+            source: .omi,
+            engine: transferEngine
+        )
+        let watchResult = await ObserverAudioTransferSnapshotMapper.sourceResult(
+            snapshots: watchSnapshots,
+            source: .watch,
+            engine: transferEngine
+        )
         // Share includes delivered ledger entries; audio and location only have local pending/failed files.
-        self.snapshot(sources: [
+        return self.snapshot(sources: [
             OnThisPhoneSourceSnapshot(
                 sourceKind: .audio,
                 result: self.combinedAudioResult(
                     mobileSegmentUploader.onThisPhoneSnapshot(for: .audio),
-                    omiUploader.onThisPhoneSnapshot(),
-                    watchUploader.onThisPhoneSnapshot()
+                    omiResult,
+                    watchResult
                 )
             ),
             OnThisPhoneSourceSnapshot(sourceKind: .location, result: mobileSegmentUploader.onThisPhoneSnapshot(for: .location)),

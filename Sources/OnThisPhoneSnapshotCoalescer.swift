@@ -25,13 +25,13 @@ final class OnThisPhoneSnapshotCoalescer {
 
     /// Schedule `perform` to run after the coalescing window. No-op if a scan is
     /// already pending: that pending scan will observe the latest state.
-    func schedule(_ perform: @escaping @MainActor () -> Void) {
+    func schedule(_ perform: @escaping @MainActor () async -> Void) {
         guard self.task == nil else { return }
         self.task = Task { @MainActor in
             await self.sleep(self.interval)
             guard !Task.isCancelled else { return }
             self.task = nil
-            perform()
+            await perform()
         }
     }
 

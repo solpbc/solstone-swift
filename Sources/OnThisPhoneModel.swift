@@ -269,7 +269,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             case .screencast:
                 return SourceVocabulary.onThisPhoneDropScreencastDescriptor
             }
-        case .audio:
+        case .audio, .transfer:
             guard let duration = Self.formattedDuration(self.audioDurationS) else {
                 return self.filename ?? SourceVocabulary.notProvided
             }
@@ -290,13 +290,19 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     }
 
     var audioSource: OnThisPhoneAudioSource? {
-        guard case .audio(sessionID: _, chunkID: _, source: let source) = OnThisPhoneItemID(
+        guard let itemID = OnThisPhoneItemID(
             sourceKind: self.sourceKind,
             id: self.id
         ) else {
             return nil
         }
-        return source
+        switch itemID {
+        case .audio(sessionID: _, chunkID: _, source: let source),
+             .transfer(itemID: _, source: let source):
+            return source
+        case .share, .mobileSegment:
+            return nil
+        }
     }
 
     var isOmiAudio: Bool {
@@ -450,6 +456,7 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
     case share(UUID)
     case mobileSegment(segmentID: UUID, facet: OnThisPhoneMobileSegmentFacet)
     case audio(sessionID: UUID, chunkID: String, source: OnThisPhoneAudioSource)
+    case transfer(itemID: UUID, source: OnThisPhoneAudioSource)
 
     init?(sourceKind: OnThisPhoneSourceKind, id: String) {
         switch sourceKind {
@@ -459,6 +466,10 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
         case .audio:
             if let mobile = Self.mobileSegmentID(from: id) {
                 self = mobile
+                return
+            }
+            if let transfer = Self.transferID(from: id) {
+                self = transfer
                 return
             }
             let parts = id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
@@ -477,6 +488,22 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
             }
             return nil
         }
+    }
+
+    static func transferIDString(itemID: UUID, source: OnThisPhoneAudioSource) -> String {
+        "transfer:\(source.idPrefix):\(itemID.uuidString)"
+    }
+
+    private static func transferID(from id: String) -> OnThisPhoneItemID? {
+        let parts = id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0] == "transfer",
+              let source = OnThisPhoneAudioSource(idPrefix: String(parts[1])),
+              let itemID = UUID(uuidString: String(parts[2]))
+        else {
+            return nil
+        }
+        return .transfer(itemID: itemID, source: source)
     }
 
     private static func mobileSegmentID(from id: String) -> OnThisPhoneItemID? {

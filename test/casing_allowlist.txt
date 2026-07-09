@@ -95,7 +95,6 @@ OnThisPhoneUITestSeeder.swift|MobileSegment
 LocationUploader.swift|Location
 LocationUploader.swift|Boundary-
 LocationUploader.swift|Content-Disposition
-WatchSegmentDrain.swift|WatchObserver
 WatchSegmentDrain.swift|Boundary-
 WatchSegmentDrain.swift|Content-Disposition
 LocationVocabulary.swift|\"Always
@@ -112,3 +111,6 @@ ShareImportCoordinator.swift|SolstoneShareImport
 TransferSpool.swift|"Transfers"
 TransferTransport.swift|Boundary-
 ObserverIngestMultipartBody.swift|Content-Disposition
+OmiTransferSpoolMigrator.swift|TransferQuarantine/OmiObserver
+WatchTransferSpoolMigrator.swift|WatchObserver
+WatchTransferSpoolMigrator.swift|TransferQuarantine/WatchObserver

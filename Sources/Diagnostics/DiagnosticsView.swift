@@ -300,11 +300,10 @@ struct DiagnosticsView: View {
 
     private func refreshLifecycle() async {
         while !Task.isCancelled {
-            let snapshot = OnThisPhoneSnapshotAggregator.snapshot(
+            let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
                 importQueue: self.importQueue,
                 mobileSegmentUploader: self.mobileSegmentUploader,
-                omiUploader: self.omiUploaderHolder.uploader,
-                watchUploader: self.watchUploaderHolder.uploader
+                transferEngine: self.omiUploaderHolder.transferEngine
             )
             let migration = onThisPhoneMigration(snapshot: snapshot)
             self.lifecycleMigration = migration

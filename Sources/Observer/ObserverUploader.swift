@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-import AVFoundation
 import Foundation
 import Network
 import Observation
@@ -320,7 +319,6 @@ final class ObserverUploader {
                 if Task.isCancelled { break }
                 guard let sessionID = UUID(uuidString: sessionDirectory.lastPathComponent) else { continue }
                 try self.ensureSessionDirectories(sessionID: sessionID)
-                try await self.recoverInProgressFiles(sessionID: sessionID)
                 try await self.resumePendingFiles(sessionID: sessionID)
             }
         } catch {
@@ -1218,98 +1216,6 @@ private extension ObserverUploader {
                 )
             }
         }
-    }
-
-    func recoverInProgressFiles(sessionID: UUID) async throws {
-        let inProgressDirectory = self.inProgressDirectoryURL(sessionID: sessionID)
-        let entries = try self.fileManager.contentsOfDirectory(
-            at: inProgressDirectory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        var recoveredCount = 0
-        var zeroByteRemovedCount = 0
-        var parkedCount = 0
-
-        for audioURL in entries where audioURL.pathExtension == "m4a" {
-            guard !Task.isCancelled else { return }
-            await self.cooperator.step()
-            guard !Task.isCancelled else { return }
-
-            let chunkID = audioURL.deletingPathExtension().lastPathComponent
-            guard let byteCount = self.byteCountIfAvailable(at: audioURL) else {
-                parkedCount += 1
-                continue
-            }
-            if byteCount == 0 {
-                try self.fileManager.removeItem(at: audioURL)
-                zeroByteRemovedCount += 1
-                continue
-            }
-
-            guard let chunkIndex = self.chunkIndex(fromChunkID: chunkID, sessionID: sessionID),
-                  let duration = self.decodableAudioDuration(at: audioURL),
-                  let startedAt = self.startedAtForRecoveredChunk(at: audioURL, duration: duration)
-            else {
-                parkedCount += 1
-                continue
-            }
-
-            // Omi is the only writer that creates recoverable in-progress chunks today.
-            let sidecar = ChunkSidecar(
-                segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: duration),
-                day: ObserverSegmentNaming.dayString(for: startedAt),
-                chunkIndex: chunkIndex,
-                startedAt: startedAt,
-                durationS: duration,
-                sessionID: sessionID,
-                mode: .meeting,
-                locationJSONL: nil
-            )
-            await self.enqueue(chunkURL: audioURL, sidecar: sidecar)
-            if self.fileManager.fileExists(atPath: audioURL.path) {
-                parkedCount += 1
-            } else {
-                recoveredCount += 1
-            }
-        }
-
-        if recoveredCount > 0 || zeroByteRemovedCount > 0 || parkedCount > 0 {
-            uploaderLog.info(
-                "observer in-progress recovery session=\(sessionID.uuidString, privacy: .public) recovered=\(recoveredCount, privacy: .public) zero-byte-removed=\(zeroByteRemovedCount, privacy: .public) parked=\(parkedCount, privacy: .public)"
-            )
-        }
-    }
-
-    func chunkIndex(fromChunkID chunkID: String, sessionID: UUID) -> Int? {
-        let prefix = "\(sessionID.uuidString.lowercased())-"
-        guard chunkID.hasPrefix(prefix) else { return nil }
-        return Int(chunkID.dropFirst(prefix.count))
-    }
-
-    func decodableAudioDuration(at url: URL) -> Double? {
-        do {
-            let file = try AVAudioFile(forReading: url)
-            let sampleRate = file.fileFormat.sampleRate
-            let frameCount = file.length
-            guard sampleRate > 0, frameCount > 0 else { return nil }
-            return Double(frameCount) / sampleRate
-        } catch {
-            return nil
-        }
-    }
-
-    func startedAtForRecoveredChunk(at url: URL, duration: TimeInterval) -> Date? {
-        guard let attributes = try? self.fileManager.attributesOfItem(atPath: url.path) else {
-            return nil
-        }
-        if let creationDate = attributes[.creationDate] as? Date {
-            return creationDate
-        }
-        if let modificationDate = attributes[.modificationDate] as? Date {
-            return modificationDate.addingTimeInterval(-duration)
-        }
-        return nil
     }
 
     func scheduleUpload(chunkID: String, sessionID: UUID) async {

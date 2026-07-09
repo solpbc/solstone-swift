@@ -104,7 +104,7 @@ func lastSyncedAt(
 ) -> Date? {
     lastSyncedAt([
         mobileSegment.lastUploadAt,
-        omi.uploader.lastUploadAt,
+        omi.lastUploadAt,
         watch.lastUploadAt,
         importQueue.lastDeliveredAt,
     ])

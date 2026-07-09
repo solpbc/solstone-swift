@@ -1,34 +1,69 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import Foundation
 import Observation
 
 @MainActor
 @Observable
-final class OmiUploaderHolder {
-    let uploader: ObserverUploader
+final class OmiUploaderHolder: ObserverQueueHealthProviding {
+    let transferEngine: TransferEngine
+    private let mirror: TransferStatusMirror
+    private let sourceKey: String
 
-    init(_ uploader: ObserverUploader) {
-        self.uploader = uploader
+    init(
+        transferEngine: TransferEngine,
+        mirror: TransferStatusMirror,
+        sourceKey: String = ObserverAudioTransferSource.omi
+    ) {
+        self.transferEngine = transferEngine
+        self.mirror = mirror
+        self.sourceKey = sourceKey
     }
 
     var pendingCount: Int {
-        self.uploader.pendingCount
+        self.status.queuedCount
     }
 
     var failedCount: Int {
-        self.uploader.failedCount
+        self.status.attentionCount
     }
 
     var inFlightCount: Int {
-        self.uploader.inFlightCount
+        self.status.inFlightCount
     }
 
     var recentBytesPerSecond: Double {
-        self.uploader.recentBytesPerSecond
+        self.status.bytesPerSecond
     }
 
     var confirmedActiveTransferCount: Int {
-        self.uploader.confirmedActiveTransferCount
+        self.status.inFlightCount
+    }
+
+    var recentErrorCount: Int {
+        self.status.recentErrorCount
+    }
+
+    var lastError: String? {
+        self.status.lastErrorDetail
+    }
+
+    var lastUploadAt: Date? {
+        self.status.lastDeliveredAt
+    }
+
+    private var status: TransferSourceStatusSnapshot {
+        self.mirror.sources[self.sourceKey] ?? TransferSourceStatusSnapshot(
+            queuedCount: 0,
+            attentionCount: 0,
+            inFlightCount: 0,
+            deliveredCount: 0,
+            droppedCount: 0,
+            lastDeliveredAt: nil,
+            lastErrorDetail: nil,
+            recentErrorCount: 0,
+            bytesPerSecond: 0
+        )
     }
 }
