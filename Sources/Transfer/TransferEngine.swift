@@ -182,6 +182,7 @@ actor TransferEngine {
     private var queuedItems: [UUID: TransferStoredItem] = [:]
     private var attentionItems: [UUID: TransferStoredItem] = [:]
     private var inFlight: Set<UUID> = []
+    private var inFlightSourceKeys: [UUID: String] = [:]
     private var droppedItemIDs: Set<UUID> = []
     private var attemptCountByItemID: [UUID: Int] = [:]
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
@@ -225,6 +226,7 @@ actor TransferEngine {
         self.queuedItems = Dictionary(uniqueKeysWithValues: snapshot.queued.map { ($0.manifest.itemID, $0) })
         self.attentionItems = Dictionary(uniqueKeysWithValues: snapshot.attention.map { ($0.manifest.itemID, $0) })
         self.inFlight = []
+        self.inFlightSourceKeys = [:]
         self.droppedItemIDs = []
         self.attemptCountByItemID = [:]
         self.aggregateByteWindow = TransferByteWindow()
@@ -276,6 +278,14 @@ actor TransferEngine {
         try self.commitStagedResult(self.spool.stage(manifest: manifest, payloads: payloads))
     }
 
+    /// Moves producer-owned payload files into staging without a full-file
+    /// `Data` read, then commits the staged item. On success the producer's
+    /// files are gone from their original URLs. On partial failure,
+    /// `TransferSpoolError.partialFileMove` names the parts already consumed;
+    /// those producer files are gone, remaining producer files are untouched,
+    /// and the partial staging directory is salvaged on the next
+    /// `TransferSpool.initialize()`.
+    ///
     /// Declare only parts that physically exist at enqueue time. A part that is
     /// optional by nature, such as a location file that may not exist for a
     /// given segment, is omitted from `payloadParts` for that item; it is never
@@ -335,6 +345,9 @@ actor TransferEngine {
         self.scheduleWork()
     }
 
+    /// Requests a coalesced drain pass. Repeated calls while a pass is already
+    /// scheduled or running collapse into the current pass plus at most one
+    /// trailing pass.
     func kick() {
         self.scheduleWork()
     }
@@ -342,7 +355,9 @@ actor TransferEngine {
     /// Registers a best-effort delivered hook for one source key. Hooks fire at
     /// most once after the delivery commit; a crash between commit and hook
     /// execution skips the hook permanently. Hooks must be idempotent and must
-    /// not be a producer's only durable delivery signal.
+    /// not be a producer's only durable delivery signal. A throwing or
+    /// cancelled hook is swallowed, emits a `.hookFailed` diagnostic, and never
+    /// mutates engine state.
     func registerDeliveredHook(sourceKey: String, hook: @escaping TransferDeliveredHook) {
         self.deliveredHooks[sourceKey] = hook
     }
@@ -354,6 +369,9 @@ actor TransferEngine {
         try self.moveAttentionItemsToQueued(items)
     }
 
+    /// Moves one attention item back to queued, resets its in-memory attempts,
+    /// and clears its persisted retry deadline. Missing item IDs are treated as
+    /// a no-op that still kicks the engine.
     func retryAttention(itemID: UUID) throws {
         guard let item = self.attentionItems[itemID] else {
             self.scheduleStatusUpdate(summary: self.lastEventSummary)
@@ -395,14 +413,10 @@ actor TransferEngine {
         self.droppedItemIDs.insert(itemID)
         if let item = self.queuedItems.removeValue(forKey: itemID) {
             self.counters.queuedCount -= 1
-            let removedInFlight = self.inFlight.remove(itemID) != nil
-            self.counters.inFlightCount = self.inFlight.count
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.counters.droppedCount += 1
             self.updateSourceState(item.manifest.sourceKey) { state in
                 state.counters.queuedCount -= 1
-                if removedInFlight {
-                    state.counters.inFlightCount -= 1
-                }
                 state.counters.droppedCount += 1
             }
             try? self.spool.removeCommittedItem(item)
@@ -449,6 +463,8 @@ actor TransferEngine {
         )
     }
 
+    /// Returns the in-memory snapshot for one queued, attention, or in-flight
+    /// item. This read does not touch disk.
     func itemSnapshot(itemID: UUID) -> TransferItemSnapshot? {
         if let item = self.queuedItems[itemID] {
             return self.snapshot(for: item)
@@ -459,6 +475,8 @@ actor TransferEngine {
         return nil
     }
 
+    /// Returns in-memory item snapshots, optionally filtered by source key.
+    /// This read does not touch disk.
     func itemSnapshots(sourceKey: String? = nil) -> [TransferItemSnapshot] {
         let queued = Array(self.queuedItems.values)
         let attention = Array(self.attentionItems.values)
@@ -487,6 +505,7 @@ actor TransferEngine {
             guard !self.paused else { return }
             while self.inFlight.count < self.maxConcurrent {
                 guard let item = await self.nextEligibleItem() else { break }
+                guard !self.paused else { break }
                 await self.dispatch(item)
             }
             self.scheduleRetryTimer()
@@ -539,6 +558,7 @@ actor TransferEngine {
         let itemID = item.manifest.itemID
         guard !self.inFlight.contains(itemID), self.queuedItems[itemID] != nil else { return }
         self.inFlight.insert(itemID)
+        self.inFlightSourceKeys[itemID] = item.manifest.sourceKey
         self.counters.inFlightCount = self.inFlight.count
         self.updateSourceState(item.manifest.sourceKey) { state in
             state.counters.inFlightCount += 1
@@ -581,11 +601,7 @@ actor TransferEngine {
             if case .unavailable(let detail) = resolution {
                 self.markEndpointHeld(detail: detail)
             }
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
-            self.updateSourceState(item.manifest.sourceKey) { state in
-                state.counters.inFlightCount -= 1
-            }
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.scheduleStatusUpdate(summary: "held")
             self.scheduleRetryTimer()
             return
@@ -599,13 +615,15 @@ actor TransferEngine {
 
     private func handleCompletion(itemID: UUID, result: TransferHTTPResult, phase: TransferEndpointPhase) async {
         guard let item = self.queuedItems[itemID] else {
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
+            if let sourceKey = self.inFlightSourceKeys[itemID] {
+                self.clearInFlight(itemID: itemID, sourceKey: sourceKey)
+            } else {
+                self.counters.inFlightCount = self.inFlight.count
+            }
             return
         }
         if self.droppedItemIDs.remove(itemID) != nil {
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.scheduleStatusUpdate(summary: "dropped")
             self.scheduleWork()
             return
@@ -614,8 +632,7 @@ actor TransferEngine {
         let outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
         switch outcome {
         case .terminalSuccess:
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.queuedItems.removeValue(forKey: itemID)
             self.counters.queuedCount -= 1
             self.counters.deliveredCount += 1
@@ -623,7 +640,6 @@ actor TransferEngine {
             let deliveredAt = self.clock.wallNow()
             self.noteDelivered(bytes: deliveredBytes, sourceKey: item.manifest.sourceKey, at: deliveredAt)
             self.updateSourceState(item.manifest.sourceKey) { state in
-                state.counters.inFlightCount -= 1
                 state.counters.queuedCount -= 1
                 state.counters.deliveredCount += 1
             }
@@ -639,21 +655,13 @@ actor TransferEngine {
             transferLog.notice("transfer item delivered \(itemID.uuidString, privacy: .public)")
             self.launchDeliveredHook(for: item.manifest, attempt: self.attemptCountByItemID[itemID, default: 0])
         case .terminalAttention(let reason):
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
-            self.updateSourceState(item.manifest.sourceKey) { state in
-                state.counters.inFlightCount -= 1
-            }
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             let detail = self.shortDetail(for: reason)
             self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
             self.moveToAttention(item: item, reason: reason, detail: detail)
             transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
         case .transientRetry(let reason):
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
-            self.updateSourceState(item.manifest.sourceKey) { state in
-                state.counters.inFlightCount -= 1
-            }
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             let attempt = self.attemptCountByItemID[itemID, default: 1]
             let decision = self.pacer.delay(for: TransferPacerInput(
                 itemID: itemID,
@@ -686,11 +694,7 @@ actor TransferEngine {
             )
             transferLog.notice("transfer item retrying \(itemID.uuidString, privacy: .public)")
         case .continueWithStart(let state):
-            self.inFlight.remove(itemID)
-            self.counters.inFlightCount = self.inFlight.count
-            self.updateSourceState(item.manifest.sourceKey) { source in
-                source.counters.inFlightCount -= 1
-            }
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             var manifest = item.manifest.replacingNextAttemptAt(nil)
             manifest.saveThenStart = state
             self.spool.removeBodyCache(for: item)
@@ -787,6 +791,22 @@ private extension TransferEngine {
         var state = self.sourceStates[sourceKey, default: TransferSourceRuntimeState()]
         update(&state)
         self.sourceStates[sourceKey] = state
+    }
+
+    /// Clears in-flight state for `itemID`. The per-source counter is
+    /// decremented only if this call is the one that actually removed the item
+    /// from `inFlight`, so a drop during a `dispatch()` suspension cannot
+    /// double-decrement.
+    func clearInFlight(itemID: UUID, sourceKey: String) {
+        self.inFlightSourceKeys.removeValue(forKey: itemID)
+        guard self.inFlight.remove(itemID) != nil else {
+            self.counters.inFlightCount = self.inFlight.count
+            return
+        }
+        self.counters.inFlightCount = self.inFlight.count
+        self.updateSourceState(sourceKey) { state in
+            state.counters.inFlightCount -= 1
+        }
     }
 
     func sourceSnapshots(now: Date) -> [String: TransferSourceStatusSnapshot] {
@@ -912,11 +932,7 @@ private extension TransferEngine {
         let reason = self.attentionReason(for: error)
         let detail = self.shortDetail(for: reason)
         self.moveToAttention(item: item, reason: reason, detail: detail)
-        self.inFlight.remove(item.manifest.itemID)
-        self.counters.inFlightCount = self.inFlight.count
-        self.updateSourceState(item.manifest.sourceKey) { state in
-            state.counters.inFlightCount -= 1
-        }
+        self.clearInFlight(itemID: item.manifest.itemID, sourceKey: item.manifest.sourceKey)
         self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
         transferLog.notice("transfer body unavailable \(item.manifest.itemID.uuidString, privacy: .public) \(detail, privacy: .public)")
         self.scheduleStatusUpdate(summary: "needs attention")

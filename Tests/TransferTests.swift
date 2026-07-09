@@ -517,6 +517,49 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.deliveredCount, 0)
     }
 
+    func testDropDuringDispatchSuspensionDoesNotDoubleDecrementSourceInFlight() async throws {
+        TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
+        let resolver = SecondResolveSuspendingResolver()
+        let engine = self.makeEngine(resolver: resolver, bodyBuilder: { _, _ in Data("body".utf8) })
+        try await engine.start()
+        let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(90)), payloads: self.audioPayloads())
+
+        await resolver.waitUntilParked()
+        var snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.sources["alpha"]?.inFlightCount, 1)
+        await engine.drop(itemID: itemID)
+        snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.sources["alpha"]?.inFlightCount, 0)
+
+        await resolver.resumeUnavailable()
+        try await Task.sleep(for: .milliseconds(100))
+        snapshot = await engine.snapshot()
+        let sourceInFlightCount = snapshot.sources.values.reduce(0) { $0 + $1.inFlightCount }
+        XCTAssertEqual(snapshot.sources["alpha"]?.inFlightCount, 0)
+        XCTAssertEqual(snapshot.counters.inFlightCount, sourceInFlightCount)
+    }
+
+    func testPauseDuringEligibleResolvePreventsDispatch() async throws {
+        TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
+        let resolver = FirstResolveSuspendingResolver()
+        let engine = self.makeEngine(resolver: resolver, bodyBuilder: { _, _ in Data("body".utf8) })
+        try await engine.start()
+        let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(91)), payloads: self.audioPayloads())
+
+        await resolver.waitUntilParked()
+        await engine.pause()
+        await resolver.resumeAvailable()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.queuedCount, 1)
+        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
+        XCTAssertEqual(
+            TransferURLProtocol.requests.filter { Self.boundaryItemID(from: $0) == itemID }.count,
+            0
+        )
+    }
+
     func testBodyUploadBuiltOnceReusedAcrossRetriesAndRemovedAfterDelivery() async throws {
         let callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
         let statusCodes = OSAllocatedUnfairLock<[Int]>(initialState: [500, 500, 200])
@@ -881,21 +924,54 @@ nonisolated final class TransferTests: XCTestCase {
         let incompletePart = try XCTUnwrap(incomplete.item.manifest.payloadParts.first)
         try FileManager.default.removeItem(at: try seedSpool.payloadURL(for: incompletePart, in: incomplete.item.directoryURL))
 
-        let duplicateID = Self.uuid(303)
+        let queuedDuplicateID = Self.uuid(303)
         _ = try seedSpool.commitStagedItem(itemID: seedSpool.stage(
-            manifest: self.makeManifest(itemID: duplicateID),
+            manifest: self.makeManifest(itemID: queuedDuplicateID),
             payloads: self.audioPayloads()
         ).item.manifest.itemID)
-        _ = try seedSpool.stage(manifest: self.makeManifest(itemID: duplicateID), payloads: self.audioPayloads())
+        _ = try seedSpool.stage(manifest: self.makeManifest(itemID: queuedDuplicateID), payloads: self.audioPayloads())
+
+        let attentionDuplicateID = Self.uuid(305)
+        _ = try seedSpool.moveQueuedItemToAttention(
+            try seedSpool.commitStagedItem(itemID: seedSpool.stage(
+                manifest: self.makeManifest(itemID: attentionDuplicateID),
+                payloads: self.audioPayloads()
+            ).item.manifest.itemID),
+            reason: "needs_attention",
+            detail: "held",
+            now: Self.baseDate
+        )
+        _ = try seedSpool.stage(manifest: self.makeManifest(itemID: attentionDuplicateID), payloads: self.audioPayloads())
 
         let snapshot = try TransferSpool(rootURL: root).initialize(now: Self.baseDate)
 
         XCTAssertTrue(snapshot.queued.contains { $0.manifest.itemID == completeID })
-        XCTAssertTrue(snapshot.queued.contains { $0.manifest.itemID == duplicateID })
+        XCTAssertEqual(snapshot.queued.filter { $0.manifest.itemID == queuedDuplicateID }.count, 1)
+        XCTAssertEqual(snapshot.attention.filter { $0.manifest.itemID == attentionDuplicateID }.count, 1)
+        XCTAssertEqual((snapshot.queued + snapshot.attention).filter { $0.manifest.itemID == queuedDuplicateID }.count, 1)
+        XCTAssertEqual((snapshot.queued + snapshot.attention).filter { $0.manifest.itemID == attentionDuplicateID }.count, 1)
         XCTAssertTrue(self.pathExists(containing: incompleteID.uuidString, under: root.appendingPathComponent(TransferSpool.salvageDirectoryName)))
-        XCTAssertTrue(self.pathExists(containing: duplicateID.uuidString, under: root.appendingPathComponent(TransferSpool.salvageDirectoryName)))
+        XCTAssertTrue(self.pathExists(containing: queuedDuplicateID.uuidString, under: root.appendingPathComponent(TransferSpool.salvageDirectoryName)))
+        XCTAssertTrue(self.pathExists(containing: attentionDuplicateID.uuidString, under: root.appendingPathComponent(TransferSpool.salvageDirectoryName)))
         XCTAssertTrue(snapshot.recoveryDiagnostics.contains { $0.detail == "incomplete_staging" })
-        XCTAssertTrue(snapshot.recoveryDiagnostics.contains { $0.detail == "queued_twin_exists" })
+        XCTAssertEqual(snapshot.recoveryDiagnostics.filter { $0.detail == "committed_twin_exists" }.count, 2)
+    }
+
+    func testStageCollisionSalvagesExistingStagingAndProceeds() throws {
+        let root = self.tempDirectory.appendingPathComponent("stage-collision", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(306)
+        let first = try spool.stage(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+        let markerURL = first.item.directoryURL.appendingPathComponent("collision-marker", isDirectory: false)
+        try Data("marker".utf8).write(to: markerURL)
+
+        let second = try spool.stage(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.item.directoryURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+        XCTAssertTrue(self.pathExists(containing: itemID.uuidString, under: root.appendingPathComponent(TransferSpool.salvageDirectoryName)))
+        XCTAssertTrue(self.pathExists(containing: "collision-marker", under: root.appendingPathComponent(TransferSpool.salvageDirectoryName)))
+        XCTAssertEqual(second.recoveryDiagnostics.first?.detail, "staging_collision")
     }
 
     func testFileURLPartialMoveFailureLeavesStagingForRestartSalvage() throws {
@@ -947,32 +1023,60 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testPerSourceCountersUpdateAndRebuildFromDiskSnapshot() async throws {
         let root = self.tempDirectory.appendingPathComponent("source-counters", isDirectory: true)
-        let spool = TransferSpool(rootURL: root)
         let alphaID = Self.uuid(310)
-        _ = try spool.commitStagedItem(itemID: spool.stage(
-            manifest: self.makeManifest(itemID: alphaID, source: "alpha"),
-            payloads: self.audioPayloads()
-        ).item.manifest.itemID)
-        _ = try spool.moveQueuedItemToAttention(
-            try spool.commitStagedItem(itemID: spool.stage(
-                manifest: self.makeManifest(itemID: Self.uuid(311), source: "beta"),
-                payloads: self.audioPayloads()
-            ).item.manifest.itemID),
-            reason: "needs_attention",
-            detail: "held",
-            now: Self.baseDate
-        )
-        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: TransferEndpointResolverStub(.unavailable("held")))
-        try await engine.start()
+        let betaID = Self.uuid(311)
+        let deliveredID = Self.uuid(312)
+        let droppedID = Self.uuid(313)
+        TransferURLProtocol.handler = { request, _ in
+            if Self.boundaryItemID(from: request) == betaID {
+                return (Self.response(for: request, statusCode: 404), Data("missing".utf8))
+            }
+            return (Self.response(for: request, statusCode: 204), Data())
+        }
+        let resolverA = PathEndpointResolver(availablePaths: ["/attention", "/delivered"])
+        let engineA = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolverA)
+        try await engineA.start()
 
-        var snapshot = await engine.snapshot()
+        var alphaManifest = self.makeManifest(itemID: alphaID, source: "alpha")
+        alphaManifest.endpoint = TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/queued")
+        _ = try await engineA.enqueue(manifest: alphaManifest, payloads: self.audioPayloads())
+        var betaManifest = self.makeManifest(itemID: betaID, source: "beta")
+        betaManifest.endpoint = TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/attention")
+        _ = try await engineA.enqueue(manifest: betaManifest, payloads: self.audioPayloads())
+        var deliveredManifest = self.makeManifest(itemID: deliveredID, source: "delivered")
+        deliveredManifest.endpoint = TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/delivered")
+        _ = try await engineA.enqueue(manifest: deliveredManifest, payloads: self.audioPayloads())
+        var droppedManifest = self.makeManifest(itemID: droppedID, source: "dropped")
+        droppedManifest.endpoint = TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/queued")
+        _ = try await engineA.enqueue(manifest: droppedManifest, payloads: self.audioPayloads())
+        await engineA.drop(itemID: droppedID)
+
+        try await self.waitFor("engine A source states") {
+            let snapshot = await engineA.snapshot()
+            return snapshot.sources["alpha"]?.queuedCount == 1
+                && snapshot.sources["beta"]?.attentionCount == 1
+                && snapshot.sources["delivered"]?.deliveredCount == 1
+                && snapshot.sources["dropped"]?.droppedCount == 1
+        }
+        await engineA.pause()
+
+        let engineB = self.makeEngine(
+            spool: TransferSpool(rootURL: root),
+            resolver: TransferEndpointResolverStub(.unavailable("held"))
+        )
+        try await engineB.start()
+        let snapshot = await engineB.snapshot()
+
+        XCTAssertEqual(snapshot.counters.queuedCount, 1)
+        XCTAssertEqual(snapshot.counters.attentionCount, 1)
+        XCTAssertEqual(snapshot.counters.deliveredCount, 0)
+        XCTAssertEqual(snapshot.counters.droppedCount, 0)
         XCTAssertEqual(snapshot.sources["alpha"]?.queuedCount, 1)
         XCTAssertEqual(snapshot.sources["beta"]?.attentionCount, 1)
-
-        await engine.drop(itemID: alphaID)
-        snapshot = await engine.snapshot()
-        XCTAssertEqual(snapshot.counters.droppedCount, 1)
-        XCTAssertEqual(snapshot.sources["alpha"]?.droppedCount, 1)
+        XCTAssertNil(snapshot.sources["delivered"])
+        XCTAssertNil(snapshot.sources["dropped"])
+        XCTAssertTrue(snapshot.sources.values.allSatisfy { $0.lastDeliveredAt == nil })
+        XCTAssertTrue(snapshot.sources.values.allSatisfy { $0.recentErrorCount == 0 })
     }
 
     func testItemSnapshotsReflectQueuedInFlightAttentionAndAttempts() async throws {
@@ -1005,6 +1109,31 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(queuedSnapshot.attempts, 1)
         let alphaSnapshots = await engine.itemSnapshots(sourceKey: "alpha")
         XCTAssertEqual(alphaSnapshots.map(\.itemID), [queuedID])
+    }
+
+    func testItemSnapshotMidBackoffShowsAttemptsAndNextAttemptAt() async throws {
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 503), Data())
+        }
+        let engine = self.makeEngine(
+            clock: clock,
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [60], maxDelay: 300, jitterSalt: 1)),
+            diagnosticsSink: { event in events.withLock { $0.append(event) } },
+            bodyBuilder: { _, _ in Data("body".utf8) }
+        )
+        try await engine.start()
+        let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(322)), payloads: self.audioPayloads())
+
+        try await self.waitFor("retrying item snapshot") {
+            events.withLock { values in values.contains { $0.itemID == itemID && $0.outcome == .retrying } }
+        }
+        let snapshotValue = await engine.itemSnapshot(itemID: itemID)
+        let snapshot = try XCTUnwrap(snapshotValue)
+        XCTAssertGreaterThanOrEqual(snapshot.attempts, 1)
+        XCTAssertNotNil(snapshot.nextAttemptAt)
+        XCTAssertEqual(snapshot.state, .queued)
     }
 
     func testThroughputWindowAggregatesPerSourceAndDecaysAfterWindow() async throws {
@@ -1705,6 +1834,73 @@ private final class TransferEndpointResolverStub: TransferEndpointResolver, @unc
             state.descriptors.append(descriptor)
             return state.resolution
         }
+    }
+}
+
+private struct PathEndpointResolver: TransferEndpointResolver {
+    let availablePaths: Set<String>
+
+    func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
+        if self.availablePaths.contains(descriptor.path) {
+            return .available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))
+        }
+        return .unavailable("held")
+    }
+}
+
+private actor FirstResolveSuspendingResolver: TransferEndpointResolver {
+    private var parked = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilParked() async {
+        while !self.parked {
+            await Task.yield()
+        }
+    }
+
+    func resumeAvailable() {
+        self.continuation?.resume()
+        self.continuation = nil
+    }
+
+    func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
+        guard !self.parked else {
+            return .available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))
+        }
+        self.parked = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+        return .available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))
+    }
+}
+
+private actor SecondResolveSuspendingResolver: TransferEndpointResolver {
+    private var resolveCount = 0
+    private var parked = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilParked() async {
+        while !self.parked {
+            await Task.yield()
+        }
+    }
+
+    func resumeUnavailable() {
+        self.continuation?.resume()
+        self.continuation = nil
+    }
+
+    func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
+        self.resolveCount += 1
+        guard self.resolveCount > 1 else {
+            return .available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))
+        }
+        self.parked = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+        return .unavailable("held")
     }
 }
 

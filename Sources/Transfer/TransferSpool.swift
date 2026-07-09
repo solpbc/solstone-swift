@@ -183,7 +183,8 @@ nonisolated struct TransferSpool: Sendable {
                 queued.append(item)
             }
         }
-        let stagedRecovery = try self.recoverStagedItems(knownQueuedItemIDs: Set(queued.map(\.manifest.itemID)))
+        let committedItemIDs = Set((queued + attention).map(\.manifest.itemID))
+        let stagedRecovery = try self.recoverStagedItems(knownCommittedItemIDs: committedItemIDs)
         queued.append(contentsOf: stagedRecovery.promoted)
         recoveryDiagnostics.append(contentsOf: stagedRecovery.diagnostics)
         queued.sort(by: self.itemSort)
@@ -195,6 +196,13 @@ nonisolated struct TransferSpool: Sendable {
         )
     }
 
+    /// Moves producer-owned payload files into staging without a full-file
+    /// `Data` read. On success the producer's files are gone from their
+    /// original URLs. On partial failure, `TransferSpoolError.partialFileMove`
+    /// names the parts already consumed; those producer files are gone,
+    /// remaining producer files are untouched, and the partial staging
+    /// directory is salvaged on the next `initialize()`.
+    ///
     /// Declare only parts that physically exist at enqueue time. A part that is
     /// optional by nature, such as a location file that may not exist for a
     /// given segment, is omitted from `payloadParts` for that item; it is never
@@ -428,13 +436,13 @@ nonisolated struct TransferSpool: Sendable {
         return PreparedStagingDirectory(directoryURL: itemDirectory, diagnostics: [diagnostic])
     }
 
-    private func recoverStagedItems(knownQueuedItemIDs: Set<UUID>) throws -> StagedRecoveryResult {
+    private func recoverStagedItems(knownCommittedItemIDs: Set<UUID>) throws -> StagedRecoveryResult {
         guard self.fileSystem.fileExists(atPath: self.stagingDirectoryURL.path) else {
             return StagedRecoveryResult(promoted: [], diagnostics: [])
         }
         var promoted: [TransferStoredItem] = []
         var diagnostics: [TransferRecoveryDiagnostic] = []
-        var queuedItemIDs = knownQueuedItemIDs
+        var committedItemIDs = knownCommittedItemIDs
         for url in try self.fileSystem.contentsOfDirectory(at: self.stagingDirectoryURL) {
             let manifest: TransferManifest
             do {
@@ -449,12 +457,15 @@ nonisolated struct TransferSpool: Sendable {
                 continue
             }
             let destinationURL = self.queuedDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
-            if queuedItemIDs.contains(manifest.itemID) || self.fileSystem.fileExists(atPath: destinationURL.path) {
-                diagnostics.append(try self.salvageDirectory(url, reason: "queued_twin_exists", manifest: manifest))
+            let attentionURL = self.attentionDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
+            if committedItemIDs.contains(manifest.itemID)
+                || self.fileSystem.fileExists(atPath: destinationURL.path)
+                || self.fileSystem.fileExists(atPath: attentionURL.path) {
+                diagnostics.append(try self.salvageDirectory(url, reason: "committed_twin_exists", manifest: manifest))
                 continue
             }
             let item = try self.moveStagedItemToQueued(sourceURL: url, destinationURL: destinationURL)
-            queuedItemIDs.insert(item.manifest.itemID)
+            committedItemIDs.insert(item.manifest.itemID)
             promoted.append(item)
         }
         return StagedRecoveryResult(promoted: promoted, diagnostics: diagnostics)

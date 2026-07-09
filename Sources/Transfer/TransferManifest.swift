@@ -55,6 +55,9 @@ nonisolated struct TransferManifest: Codable, Equatable, Sendable {
         self.appVersion = appVersion
     }
 
+    /// Grouping key for per-source Transfer status. Producers set
+    /// `priority.sourceKey` equal to `source`; an empty priority source key
+    /// falls back to `source`.
     var sourceKey: String {
         self.priority.sourceKey.isEmpty ? self.source : self.priority.sourceKey
     }

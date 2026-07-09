@@ -20,6 +20,8 @@ nonisolated struct TransferCounters: Codable, Equatable, Sendable {
     )
 }
 
+/// Runtime status for one `sourceKey`. Counters and timestamps are rebuilt in
+/// memory and are not persisted as derived state.
 nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     var queuedCount: Int
     var attentionCount: Int
@@ -32,6 +34,8 @@ nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     var bytesPerSecond: Double
 }
 
+/// In-memory status for one queued, attention, or in-flight item. The manifest
+/// is the stable item contract; convenience properties forward common fields.
 nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
     var manifest: TransferManifest
     var state: TransferRuntimeState
@@ -55,11 +59,11 @@ nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
 }
 
 /// Transfer status is rebuilt from durable queued and attention items plus the
-/// current process's in-flight work. Relaunch starts with no in-flight work.
-/// Runtime-only fields, including lastDeliveredAt, lastErrorDetail,
-/// recentErrorCount, throughput, deliveredCount, droppedCount, and attempts,
-/// reset on relaunch. A restored item may have a persisted nextAttemptAt while
-/// its attempts value is 0.
+/// current process's in-flight work. Across relaunch, queued and attention
+/// items are rebuilt from disk and in-flight starts empty. Runtime-only fields,
+/// including lastDeliveredAt, lastErrorDetail, recentErrorCount, throughput,
+/// deliveredCount, droppedCount, and attempts, reset on relaunch. A restored
+/// item may have a persisted nextAttemptAt while its attempts value is 0.
 nonisolated struct TransferStatusSnapshot: Codable, Equatable, Sendable {
     var counters: TransferCounters
     var paused: Bool
