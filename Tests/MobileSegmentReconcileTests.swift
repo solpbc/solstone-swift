@@ -647,21 +647,22 @@ private extension MobileSegmentReconcileTests {
     }
 
     func makeHarness(connected: Bool = true) -> Harness {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MobileSegmentReconcileURLProtocol.self]
-        let transport = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("transport", isDirectory: true),
-            sessionConfiguration: configuration,
-            ensureRegistered: { "test-observer-key-abc" },
-            isJournalConfigured: { connected },
-            localPortProvider: { connected ? 7071 : nil },
-            retryDelays: [0],
-            sleep: { _ in },
-            startPathMonitor: false
-        )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
+        if connected {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [MobileSegmentReconcileURLProtocol.self]
+            let transferHarness = makeTransferCutoverHarness(
+                rootURL: self.tempDirectory.appendingPathComponent("transfer-\(UUID().uuidString)", isDirectory: true),
+                sessionConfiguration: configuration,
+                endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+            )
+            return Harness(
+                uploader: MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock),
+                store: store
+            )
+        }
         return Harness(
-            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock),
+            uploader: MobileSegmentUploader(store: store, clock: self.clock),
             store: store
         )
     }

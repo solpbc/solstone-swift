@@ -6,6 +6,7 @@ import SwiftUI
 struct ScreencastSourceDetailView: View {
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
@@ -72,7 +73,7 @@ private extension ScreencastSourceDetailView {
     }
 
     var deliveryBlock: some View {
-        let summary = self.mobileSegmentUploader.summary(for: .screencast)
+        let summary = self.mobileSegmentTransferHolder.summary(for: .screencast)
         let presentation = LocationDetailPresentation.deliverySummary(
             pending: summary.pendingCount,
             failed: summary.failedCount
@@ -86,7 +87,10 @@ private extension ScreencastSourceDetailView {
             if presentation.showsRetry {
                 Button(SourceVocabulary.retry) {
                     Task {
-                        await self.mobileSegmentUploader.retryFailed(respectingCooldown: false)
+                        await self.mobileSegmentUploader.resolveFinalizeFailurePile()
+                        try? await self.mobileSegmentTransferHolder.transferEngine.retryAttention(
+                            source: ObserverAudioTransferSource.mobileSegment
+                        )
                     }
                 }
                 .buttonStyle(.borderedProminent)

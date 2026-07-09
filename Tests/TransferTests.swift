@@ -585,47 +585,27 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     @MainActor
-    func testObserverIngestMultipartBuilderMatchesExistingObserverUploaderBytes() throws {
+    func testObserverIngestMultipartBuilderEmitsAudioLocationAndScreenBytes() throws {
         let audioURL = self.tempDirectory.appendingPathComponent("audio.m4a")
         let screenURL = self.tempDirectory.appendingPathComponent("screen.mp4")
         try Data("audio-bytes".utf8).write(to: audioURL)
         try Data("screen-bytes".utf8).write(to: screenURL)
         let location = Data("{\"event\":\"loc\"}\n".utf8)
         let segmentID = Self.uuid(9)
-        let metadata = ObserverIngestMultipartMetadata(
+        let boundary = "Boundary-\(segmentID.uuidString)"
+
+        let sharedBody = try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
+            boundary: boundary,
+            platform: "ios",
             segment: "120000_3",
             day: "20260420",
             startedAt: Self.baseDate,
             durationS: 3,
+            sources: ["audio", "location", "screen"],
             chunkIndex: 7,
             sessionID: Self.uuid(8),
-            mode: .meeting,
+            modeRawValue: ObserverMode.meeting.rawValue,
             segmentID: segmentID,
-            sources: ["audio", "location", "screen"]
-        )
-        let boundary = "Boundary-\(segmentID.uuidString)"
-
-        let uploader = ObserverUploader(cacheRootURL: self.tempDirectory)
-        let request = try uploader.buildMobileSegmentRequestBody(
-            segmentID: segmentID,
-            metadata: metadata,
-            audioURL: audioURL,
-            locationJSONL: location,
-            screenURL: screenURL
-        )
-        let wrapperBody = try Data(contentsOf: request.requestBodyURL)
-        let sharedBody = try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
-            boundary: boundary,
-            platform: "ios",
-            segment: metadata.segment,
-            day: metadata.day,
-            startedAt: metadata.startedAt,
-            durationS: metadata.durationS,
-            sources: metadata.sources,
-            chunkIndex: metadata.chunkIndex,
-            sessionID: metadata.sessionID,
-            modeRawValue: metadata.mode?.rawValue,
-            segmentID: metadata.segmentID,
             artifacts: ObserverIngestMultipartArtifacts(
                 audioData: try Data(contentsOf: audioURL),
                 locationJSONL: location,
@@ -633,7 +613,6 @@ nonisolated final class TransferTests: XCTestCase {
             )
         ))
 
-        XCTAssertEqual(wrapperBody, sharedBody)
         let expectedMeta = #"{"chunk_index":7,"day":"20260420","duration_s":3,"mode":"meeting","segment":"120000_3","segment_id":"00000000-0000-0000-0000-000000000009","session_id":"00000000-0000-0000-0000-000000000008","sources":["audio","location","screen"],"started_at":"2024-04-20T14:40:00Z"}"#
         let expectedBody = [
             "--\(boundary)\r\n",

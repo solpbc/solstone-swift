@@ -53,8 +53,11 @@ final class MobileSegmentMigrationTests: XCTestCase {
 
         await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: locationRoot)
 
-        for oldURL in [pendingAudio, failedAudio, inProgressAudio, pendingLocation, failedLocation] {
+        for oldURL in [pendingLocation, failedLocation] {
             XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
+        }
+        for oldURL in [pendingAudio, failedAudio, inProgressAudio] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: oldURL.path))
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: badLocation.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: untouchedOmi.path))
@@ -63,11 +66,12 @@ final class MobileSegmentMigrationTests: XCTestCase {
 
         let pending = try harness.store.list(.pending)
         let failed = try harness.store.list(.failed)
-        XCTAssertEqual(pending.count, 3)
-        XCTAssertEqual(failed.count, 2)
-        let manifests = try (pending + failed).map { try harness.store.readManifest(in: $0) }
-        XCTAssertEqual(manifests.filter { $0.audio.state == .finalizedArtifact && $0.location.state == .notDeclared }.count, 3)
-        XCTAssertEqual(manifests.filter { $0.location.state == .finalizedArtifact && $0.audio.state == .notDeclared }.count, 2)
+        XCTAssertEqual(pending.count, 0)
+        XCTAssertEqual(failed.count, 0)
+        let snapshots = await harness.transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(snapshots.count, 2)
+        XCTAssertTrue(snapshots.allSatisfy { $0.state == .queued })
+        XCTAssertTrue(snapshots.allSatisfy { $0.manifest.observerIngest?.sources == ["location"] })
     }
 
     func testUnexpectedMigrationCollisionPreservesOldItemAndExistingBundle() async throws {
@@ -106,10 +110,11 @@ final class MobileSegmentMigrationTests: XCTestCase {
         await harness.uploader.migrateLegacyMobileItems(observerCacheRootURL: observerRoot, locationCacheRootURL: nil)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: oldAudio.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: collidingID).path))
-        let preserved = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: collidingID))
-        XCTAssertEqual(preserved.location.state, .finalizedArtifact)
-        XCTAssertEqual(preserved.audio.state, .notDeclared)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: collidingID).path))
+        let snapshots = await harness.transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let preserved = try XCTUnwrap(snapshots.first { $0.manifest.observerIngest?.segmentID == collidingID })
+        XCTAssertEqual(preserved.state, .queued)
+        XCTAssertEqual(preserved.manifest.observerIngest?.sources, ["location"])
     }
 
     func testLegacyMobileMigrationTripsMaintenanceCheckpointsForLargeBacklog() async throws {
@@ -215,9 +220,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
     func testDisabledMobileSegmentUploaderDoesNotTouchStoreWhenStorageUnavailable() async throws {
         let root = self.tempDirectory.appendingPathComponent("DisabledMobileSegment", isDirectory: true)
         let store = MobileSegmentStore(rootURL: root)
-        let transport = ObserverUploader(startPathMonitor: false)
         let uploader = MobileSegmentUploader(
-            transport: transport,
             store: store,
             clock: self.clock,
             storageDisabledReason: "mobile segment storage unavailable source=app-group"
@@ -225,7 +228,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
 
         XCTAssertThrowsError(try uploader.openSegment(sources: [.screencast], startedAt: self.clock.now(), sourceSetVersion: 1))
         await uploader.resumeFromDisk()
-        await uploader.retryFailed(respectingCooldown: false)
+        await uploader.resolveFinalizeFailurePile()
         await uploader.redactScreencastFacet(segmentID: UUID())
 
         XCTAssertEqual(uploader.lastError, "mobile segment storage unavailable source=app-group")
@@ -239,19 +242,23 @@ private extension MobileSegmentMigrationTests {
     struct Harness {
         let uploader: MobileSegmentUploader
         let store: MobileSegmentStore
+        let transferEngine: TransferEngine
     }
 
     func makeHarness(cooperator: MaintenanceCooperator = MaintenanceCooperator()) -> Harness {
-        let transport = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("transport", isDirectory: true),
-            isJournalConfigured: { false },
-            localPortProvider: { nil },
-            startPathMonitor: false
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("transfer", isDirectory: true)
         )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         return Harness(
-            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock, cooperator: cooperator),
-            store: store
+            uploader: MobileSegmentUploader(
+                transferEngine: transferHarness.engine,
+                store: store,
+                clock: self.clock,
+                cooperator: cooperator
+            ),
+            store: store,
+            transferEngine: transferHarness.engine
         )
     }
 

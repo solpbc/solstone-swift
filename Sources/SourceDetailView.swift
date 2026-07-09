@@ -7,6 +7,7 @@ import UIKit
 struct SourceDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
@@ -234,7 +235,7 @@ private extension SourceDetailView {
     }
 
     var deliveryBlock: some View {
-        let summary = self.mobileSegmentUploader.summary(for: .audio)
+        let summary = self.mobileSegmentTransferHolder.summary(for: .audio)
         let presentation = LocationDetailPresentation.deliverySummary(
             pending: summary.pendingCount,
             failed: summary.failedCount
@@ -248,7 +249,10 @@ private extension SourceDetailView {
             if presentation.showsRetry {
                 Button(SourceVocabulary.retry) {
                     Task {
-                        await self.mobileSegmentUploader.retryFailed(respectingCooldown: false)
+                        await self.mobileSegmentUploader.resolveFinalizeFailurePile()
+                        try? await self.mobileSegmentTransferHolder.transferEngine.retryAttention(
+                            source: ObserverAudioTransferSource.mobileSegment
+                        )
                     }
                 }
                 .buttonStyle(.borderedProminent)

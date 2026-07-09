@@ -156,7 +156,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(aggregate.items.filter { $0.sendState == .needsAttention }.count, 2)
 
         var totals = uploadTotals(
-            mobileSegment: zeroSurfaces.mobileSegmentUploader,
+            mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
             importQueue: zeroSurfaces.importQueue
@@ -164,22 +164,21 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(totals.pending, 3)
         XCTAssertEqual(totals.failed, 2)
         XCTAssertEqual(uploadInFlight(
-            mobileSegment: zeroSurfaces.mobileSegmentUploader,
+            mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
             importQueue: zeroSurfaces.importQueue
         ), 1)
         XCTAssertEqual(lastSyncedAt(
-            mobileSegment: zeroSurfaces.mobileSegmentUploader,
+            mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
             importQueue: zeroSurfaces.importQueue
         ), clock.wallNow())
 
-        let observerUploader = zeroSurfaces.observerUploader
         let syncModel = ConnectionSyncModel(clock: MockObserverClock()) {
             let totals = uploadTotals(
-                mobileSegment: zeroSurfaces.mobileSegmentUploader,
+                mobileSegment: zeroSurfaces.mobileSegmentHolder,
                 omi: harness.omi,
                 watch: harness.watch,
                 importQueue: zeroSurfaces.importQueue
@@ -189,13 +188,13 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                 reconnectCountdown: nil,
                 isNetworkSatisfied: true,
                 confirmedTransferCount: confirmedTransferCount(
-                    observer: observerUploader,
+                    mobileSegment: zeroSurfaces.mobileSegmentHolder,
                     omi: harness.omi,
                     watch: harness.watch,
                     importQueue: zeroSurfaces.importQueue
                 ),
                 recentBytesPerSecond: recentBytesTotal(
-                    observer: observerUploader,
+                    mobileSegment: zeroSurfaces.mobileSegmentHolder,
                     omi: harness.omi,
                     watch: harness.watch,
                     importQueue: zeroSurfaces.importQueue
@@ -219,7 +218,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             $0.id == OnThisPhoneItemID.transferIDString(itemID: omiQueuedIDs[1], source: .omi)
         })
         totals = uploadTotals(
-            mobileSegment: zeroSurfaces.mobileSegmentUploader,
+            mobileSegment: zeroSurfaces.mobileSegmentHolder,
             omi: harness.omi,
             watch: harness.watch,
             importQueue: zeroSurfaces.importQueue
@@ -254,6 +253,163 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(stillAttention.sendState, .needsAttention)
         XCTAssertEqual(stillAttention.failureReason, "http_client_error: watch-B")
     }
+
+    func testAC8RealMobileEngineStateFeedsConsumerSurfaces() async throws {
+        let clock = FakeTransferClock(wall: Date(timeIntervalSince1970: 1_780_480_800))
+        let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])
+        TransferURLProtocol.handler = { request, _ in
+            guard let itemID = transferTestBoundaryItemID(from: request) else {
+                return (transferTestResponse(for: request, statusCode: 204), Data())
+            }
+            switch responses.withLock({ $0[itemID] ?? .hold }) {
+            case .status(let statusCode, let body):
+                return (transferTestResponse(for: request, statusCode: statusCode), body)
+            case .hold:
+                return nil
+            }
+        }
+
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("mobile-transfer", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            clock: clock,
+            maxConcurrent: 1
+        )
+        try await harness.engine.start()
+        let mobileUploader = MobileSegmentUploader(
+            transferEngine: harness.engine,
+            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("mobile-store", isDirectory: true)),
+            clock: MockObserverClock()
+        )
+        let mobileHolder = MobileSegmentTransferHolder(
+            transferEngine: harness.engine,
+            mirror: harness.mirror,
+            uploader: mobileUploader
+        )
+        let importQueue = ImportQueue(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("mobile-import-zero", isDirectory: true),
+            sessionConfiguration: .ephemeral,
+            mode: .enqueueOnly,
+            startPathMonitor: false
+        )
+
+        let deliveredID = Self.uuid(100)
+        responses.withLock { $0[deliveredID] = .status(204, Data()) }
+        _ = try await harness.engine.enqueue(
+            manifest: Self.mobileManifest(itemID: deliveredID, segmentID: Self.uuid(1), startedAt: clock.wallNow()),
+            payloads: ["audio": Data("delivered-mobile".utf8)]
+        )
+        try await transferTestWaitFor("mobile delivery") {
+            await harness.engine.snapshot().sources[ObserverAudioTransferSource.mobileSegment]?.deliveredCount == 1
+        }
+
+        let attentionID = Self.uuid(101)
+        responses.withLock { $0[attentionID] = .status(404, Data("mobile-A".utf8)) }
+        _ = try await harness.engine.enqueue(
+            manifest: Self.mobileManifest(itemID: attentionID, segmentID: Self.uuid(2), startedAt: clock.wallNow().addingTimeInterval(1)),
+            payloads: ["audio": Data("attention-mobile".utf8)]
+        )
+        try await transferTestWaitFor("mobile attention") {
+            await harness.engine.snapshot().sources[ObserverAudioTransferSource.mobileSegment]?.attentionCount == 1
+        }
+
+        await harness.engine.pause()
+        let queuedID = Self.uuid(102)
+        _ = try await harness.engine.enqueue(
+            manifest: Self.mobileManifest(itemID: queuedID, segmentID: Self.uuid(3), startedAt: clock.wallNow().addingTimeInterval(2)),
+            payloads: ["audio": Data("queued-mobile".utf8)]
+        )
+        await harness.engine.resume()
+        try await transferTestWaitFor("mobile holder observes in-flight state") {
+            await MainActor.run {
+                mobileHolder.pendingCount == 1 &&
+                    mobileHolder.inFlightCount == 1 &&
+                    mobileHolder.failedCount == 1 &&
+                    mobileHolder.lastError == "mobile-A"
+            }
+        }
+
+        XCTAssertEqual(mobileHolder.recentErrorCount, 1)
+        XCTAssertEqual(mobileHolder.lastUploadAt, clock.wallNow())
+        let totals = uploadTotals(
+            mobileSegment: mobileHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            importQueue: importQueue
+        )
+        XCTAssertEqual(totals.pending, 1)
+        XCTAssertEqual(totals.failed, 1)
+        XCTAssertEqual(uploadFailedTotal(
+            mobileSegment: mobileHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            importQueue: importQueue
+        ), 1)
+        XCTAssertEqual(uploadInFlight(
+            mobileSegment: mobileHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            importQueue: importQueue
+        ), 1)
+        XCTAssertEqual(lastSyncedAt(
+            mobileSegment: mobileHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            importQueue: importQueue
+        ), clock.wallNow())
+        XCTAssertEqual(confirmedTransferCount(
+            mobileSegment: mobileHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            importQueue: importQueue
+        ), 1)
+        XCTAssertGreaterThan(recentBytesTotal(
+            mobileSegment: mobileHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            importQueue: importQueue
+        ), 0)
+
+        let mobileBeaconPayload = try await self.emitHealthPayload(
+            queueHealth: mobileHolder,
+            streamType: "observer",
+            prefix: "obs_mobile_"
+        )
+        XCTAssertEqual(mobileBeaconPayload["pending_queue_depth"] as? Int, 1)
+        XCTAssertEqual(mobileBeaconPayload["recent_error_count"] as? Int, 1)
+        XCTAssertEqual(mobileBeaconPayload["last_error_reason"] as? String, "mobile-A")
+        XCTAssertEqual(mobileBeaconPayload["last_successful_sync"] as? String, ISO8601DateFormatter().string(from: clock.wallNow()))
+
+        let syncModel = ConnectionSyncModel(clock: MockObserverClock()) {
+            let totals = uploadTotals(
+                mobileSegment: mobileHolder,
+                omi: harness.omi,
+                watch: harness.watch,
+                importQueue: importQueue
+            )
+            return ConnectionSyncInputs(
+                tunnelState: .connected(localPort: 7071, via: .lan),
+                reconnectCountdown: nil,
+                isNetworkSatisfied: true,
+                confirmedTransferCount: confirmedTransferCount(
+                    mobileSegment: mobileHolder,
+                    omi: harness.omi,
+                    watch: harness.watch,
+                    importQueue: importQueue
+                ),
+                recentBytesPerSecond: recentBytesTotal(
+                    mobileSegment: mobileHolder,
+                    omi: harness.omi,
+                    watch: harness.watch,
+                    importQueue: importQueue
+                ),
+                backlogPending: totals.pending,
+                backlogFailed: totals.failed
+            )
+        }
+        XCTAssertEqual(syncModel.status, .connectedTransferring)
+    }
 }
 
 private enum RoutedTransferResponse: Sendable {
@@ -266,20 +422,53 @@ private extension TransferConsumerSurfaceTests {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))!
     }
 
+    static func mobileManifest(itemID: UUID, segmentID: UUID, startedAt: Date) -> TransferManifest {
+        let durationS: TimeInterval = 60
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = startedAt.addingTimeInterval(durationS)
+        manifest.durationS = durationS
+        manifest.audio = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: "audio.m4a",
+            bytes: Int64(Data("mobile".utf8).count),
+            startedAt: startedAt,
+            endedAt: startedAt.addingTimeInterval(durationS),
+            durationS: durationS,
+            mode: .meeting
+        )
+        return ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: itemID,
+            manifest: manifest,
+            now: startedAt.addingTimeInterval(durationS),
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
+        )
+    }
+
     func makeZeroUploadSurfaces() -> (
-        observerUploader: ObserverUploader,
         mobileSegmentUploader: MobileSegmentUploader,
+        mobileSegmentHolder: MobileSegmentTransferHolder,
         importQueue: ImportQueue
     ) {
-        let observerUploader = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("observer", isDirectory: true),
-            sessionConfiguration: .ephemeral,
-            startPathMonitor: false
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("zero-transfer", isDirectory: true)
         )
         let mobileSegmentUploader = MobileSegmentUploader(
-            transport: observerUploader,
+            transferEngine: transferHarness.engine,
             store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("mobile", isDirectory: true)),
             clock: MockObserverClock()
+        )
+        let mobileSegmentHolder = MobileSegmentTransferHolder(
+            transferEngine: transferHarness.engine,
+            mirror: transferHarness.mirror,
+            uploader: mobileSegmentUploader
         )
         let importQueue = ImportQueue(
             cacheRootURL: self.tempDirectory.appendingPathComponent("import", isDirectory: true),
@@ -287,7 +476,7 @@ private extension TransferConsumerSurfaceTests {
             mode: .enqueueOnly,
             startPathMonitor: false
         )
-        return (observerUploader, mobileSegmentUploader, importQueue)
+        return (mobileSegmentUploader, mobileSegmentHolder, importQueue)
     }
 
     func emitHealthPayload(

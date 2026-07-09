@@ -102,7 +102,6 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
         let migration = try XCTUnwrap(text.range(of: "OmiTransferSpoolMigrator.migrate"))
         let recovery = try XCTUnwrap(text.range(of: "recoverOmiInProgress"))
         XCTAssertLessThan(text.distance(from: text.startIndex, to: migration.lowerBound), text.distance(from: text.startIndex, to: recovery.lowerBound))
-        XCTAssertFalse(text.contains("let omiUploader = ObserverUploader("))
         XCTAssertFalse(text.contains("didMigrateObserverRootToAppGroupV1"))
     }
 

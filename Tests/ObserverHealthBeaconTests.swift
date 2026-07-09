@@ -136,7 +136,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
             }
             let clock = MockObserverClock()
             let registration = self.makeRegistration(source: source, key: item.key, prefix: item.prefix, localPort: item.port)
-            let uploader = self.makeUploader(sourceType: source.sourceType)
+            let uploader = self.makeUploader()
             let beacon = ObserverHealthBeacon(
                 registration: registration,
                 uploader: uploader,
@@ -167,7 +167,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         let key = "ABCDEFGH1234567890"
         let clock = MockObserverClock()
         let registration = self.makeRegistration(source: source, key: key, prefix: nil, localPort: 7071)
-        let uploader = self.makeUploader(sourceType: source.sourceType)
+        let uploader = self.makeUploader()
         let beacon = ObserverHealthBeacon(
             registration: registration,
             uploader: uploader,
@@ -199,7 +199,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         let source = SourceKind.all[0]
         let clock = MockObserverClock()
         let registration = self.makeRegistration(source: source, key: "test-observer-key-abc", prefix: source.prefix, localPort: 7071)
-        let uploader = self.makeUploader(sourceType: source.sourceType)
+        let uploader = self.makeUploader()
         uploader.lastError = "first line\nsecond line Bearer secret-token"
         let beacon = ObserverHealthBeacon(
             registration: registration,
@@ -240,15 +240,9 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_713_624_000)
         let clock = MockObserverClock(now: start)
         let registration = self.makeRegistration(source: source, key: "test-observer-key-abc", prefix: source.prefix, localPort: 7071)
-        let uploader = self.makeUploader(sourceType: source.sourceType, maxAttempts: 1)
-
-        await uploader.enqueue(
-            chunkURL: try self.makeChunkFile(named: "state-failure"),
-            sidecar: self.makeSidecar(sessionID: UUID(), chunkIndex: 0)
-        )
-        try await self.waitFor("uploader failure") {
-            uploader.failedCount == 1
-        }
+        let uploader = self.makeUploader()
+        uploader.failedCount = 1
+        uploader.recentErrorCount = 1
         XCTAssertEqual(uploader.recentErrorCount, 1)
         ObserverHealthBeaconURLProtocol.callCount = 0
         ObserverHealthBeaconURLProtocol.capturedRequests = []
@@ -291,14 +285,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
 
     @MainActor
     func testPayloadMapsCappedAndResetRecentErrorCount() async throws {
-        let shouldFail = OSAllocatedUnfairLock<Bool>(initialState: true)
         ObserverHealthBeaconURLProtocol.handler = { request in
-            if request.url?.path == "/app/observer/ingest", shouldFail.withLock({ $0 }) {
-                return (
-                    HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
-                    Data("service unavailable".utf8)
-                )
-            }
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data("{}".utf8)
@@ -307,15 +294,9 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         let source = SourceKind.all[0]
         let clock = MockObserverClock()
         let registration = self.makeRegistration(source: source, key: "test-observer-key-abc", prefix: source.prefix, localPort: 7071)
-        let uploader = self.makeUploader(sourceType: source.sourceType, maxAttempts: 100, retryDelays: [0])
-
-        await uploader.enqueue(
-            chunkURL: try self.makeChunkFile(named: "recent-error-cap"),
-            sidecar: self.makeSidecar(sessionID: UUID(), chunkIndex: 0)
-        )
-        try await self.waitFor("capped recent errors", timeout: .seconds(5)) {
-            uploader.failedCount == 1
-        }
+        let uploader = self.makeUploader()
+        uploader.failedCount = 1
+        uploader.recentErrorCount = 99
         XCTAssertEqual(uploader.recentErrorCount, 99)
         ObserverHealthBeaconURLProtocol.callCount = 0
         ObserverHealthBeaconURLProtocol.capturedRequests = []
@@ -335,14 +316,8 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         beacon.stop()
         XCTAssertEqual(try self.payload(at: 0)["recent_error_count"] as? Int, 99)
 
-        shouldFail.withLock { $0 = false }
-        await uploader.enqueue(
-            chunkURL: try self.makeChunkFile(named: "recent-error-reset"),
-            sidecar: self.makeSidecar(sessionID: UUID(), chunkIndex: 1)
-        )
-        try await self.waitFor("reset recent errors") {
-            uploader.lastUploadAt != nil && uploader.recentErrorCount == 0
-        }
+        uploader.lastUploadAt = clock.now()
+        uploader.recentErrorCount = 0
         ObserverHealthBeaconURLProtocol.callCount = 0
         ObserverHealthBeaconURLProtocol.capturedRequests = []
         ObserverHealthBeaconURLProtocol.capturedBodies = []
@@ -433,7 +408,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
             prefix: source.prefix,
             localPort: 7071
         )
-        let uploader = self.makeUploader(sourceType: source.sourceType)
+        let uploader = self.makeUploader()
         return ObserverHealthBeacon(
             registration: registration,
             uploader: uploader,
@@ -472,51 +447,14 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         return registration
     }
 
-    @MainActor private func makeUploader(
-        sourceType: String,
-        maxAttempts: Int = 5,
-        retryDelays: [UInt64] = [0]
-    ) -> ObserverUploader {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [ObserverHealthBeaconURLProtocol.self]
-        return ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
-            sessionConfiguration: configuration,
-            ensureRegistered: { "test-observer-key-abc" },
-            isJournalConfigured: { true },
-            localPortProvider: { 7071 },
-            registrationPrefixProvider: { "obs_" },
-            sourceType: sourceType,
-            retryDelays: retryDelays,
-            maxAttempts: maxAttempts,
-            sleep: { _ in },
-            startPathMonitor: false
-        )
+    @MainActor private func makeUploader() -> HealthQueueStub {
+        HealthQueueStub()
     }
 
     private func makeHealthSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverHealthBeaconURLProtocol.self]
         return URLSession(configuration: configuration)
-    }
-
-    private func makeChunkFile(named chunkID: String) throws -> URL {
-        let url = self.tempDirectory.appendingPathComponent("\(chunkID).m4a")
-        try Data("audio".utf8).write(to: url)
-        return url
-    }
-
-    private func makeSidecar(sessionID: UUID, chunkIndex: Int) -> ChunkSidecar {
-        ChunkSidecar(
-            segment: "120000_3",
-            day: "20260420",
-            chunkIndex: chunkIndex,
-            startedAt: Date(timeIntervalSince1970: 1_713_624_000),
-            durationS: 3,
-            sessionID: sessionID,
-            mode: .meeting,
-            locationJSONL: nil
-        )
     }
 
     private func firstPayload() throws -> [String: Any] {
@@ -550,6 +488,15 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         }
         return Mirror(reflecting: sleepers.value).children.count
     }
+}
+
+@MainActor
+private final class HealthQueueStub: ObserverQueueHealthProviding {
+    var pendingCount = 0
+    var failedCount = 0
+    var recentErrorCount = 0
+    var lastError: String?
+    var lastUploadAt: Date?
 }
 
 private final class ObserverHealthBeaconURLProtocol: URLProtocol, @unchecked Sendable {

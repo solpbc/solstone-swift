@@ -134,14 +134,8 @@ private extension MobileSegmentEngineScreencastTests {
 
     func makeHarness() -> Harness {
         let root = self.tempDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let transport = ObserverUploader(
-            cacheRootURL: root.appendingPathComponent("transport", isDirectory: true),
-            isJournalConfigured: { false },
-            localPortProvider: { nil },
-            startPathMonitor: false
-        )
         let store = MobileSegmentStore(rootURL: root.appendingPathComponent("MobileSegment", isDirectory: true))
-        let uploader = MobileSegmentUploader(transport: transport, store: store, clock: self.clock)
+        let uploader = MobileSegmentUploader(store: store, clock: self.clock)
         let engine = MobileSegmentEngine(uploader: uploader, clock: self.clock)
         return Harness(engine: engine, uploader: uploader, store: store)
     }

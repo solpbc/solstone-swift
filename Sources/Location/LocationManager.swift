@@ -70,7 +70,7 @@ final class LocationManager {
     init(
         provider: any LocationProviding = LiveLocationProvider(),
         mobileSegmentEngine: MobileSegmentEngine = MobileSegmentEngine(
-            uploader: MobileSegmentUploader(transport: ObserverUploader())
+            uploader: MobileSegmentUploader()
         ),
         clock: any ObserverClock = SystemObserverClock(),
         defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier)

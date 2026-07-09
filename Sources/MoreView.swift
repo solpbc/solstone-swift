@@ -20,8 +20,8 @@ struct MoreView: View {
     @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(ObserverRegistration.self) private var observerRegistration
-    @Environment(ObserverUploader.self) private var observerUploader
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ImportQueue.self) private var importQueue
@@ -354,7 +354,7 @@ struct MoreView: View {
             )
             self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
             self.transferRate = recentBytesTotal(
-                observer: self.observerUploader,
+                mobileSegment: self.mobileSegmentTransferHolder,
                 omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder,
                 importQueue: self.importQueue

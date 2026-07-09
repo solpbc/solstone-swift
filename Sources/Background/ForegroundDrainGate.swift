@@ -16,11 +16,8 @@ final class ForegroundDrainGate {
     }
 
     func requestDrain() async {
-        // Coalesce, don't queue. Concurrent drives don't double-upload -
-        // scheduleUpload already guards via schedulingSegmentIDs/transportInFlightSegmentIDs.
-        // The gate exists to prevent redundant resumeFromDisk / resolveFinalizeFailurePile /
-        // retryFailed filesystem passes and the caught-and-logged store.move(.failed -> .pending)
-        // races (the move is not in-flight-guarded) - wasted work + error-log noise, not upload thrash.
+        // Coalesce, don't queue. The gate prevents redundant drain passes and
+        // caught-and-logged filesystem move races during foreground catch-up.
         if self.isDraining {
             self.pendingFollowUp = true
             await self.drainTask?.value

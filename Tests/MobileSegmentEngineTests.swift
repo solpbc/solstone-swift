@@ -194,7 +194,6 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(manifest.audio.stage, "source-finalize")
         XCTAssertTrue(manifest.audio.reason?.contains("audioFinalizeFailed") == true)
         XCTAssertEqual(try harness.store.list(.pending).count, 0)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.requestBodiesRoot.path))
     }
 
     func testBoundaryCreateFailureKeepsOldSegmentOpenAndStopFinalizesIt() async throws {
@@ -248,7 +247,6 @@ private extension MobileSegmentEngineTests {
         let engine: MobileSegmentEngine
         let uploader: MobileSegmentUploader
         let store: MobileSegmentStore
-        let requestBodiesRoot: URL
     }
 
     enum TestError: Error {
@@ -256,20 +254,12 @@ private extension MobileSegmentEngineTests {
     }
 
     func makeHarness() -> Harness {
-        let transportRoot = self.tempDirectory.appendingPathComponent("transport", isDirectory: true)
-        let transport = ObserverUploader(
-            cacheRootURL: transportRoot,
-            isJournalConfigured: { false },
-            localPortProvider: { nil },
-            startPathMonitor: false
-        )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
-        let uploader = MobileSegmentUploader(transport: transport, store: store, clock: self.clock)
+        let uploader = MobileSegmentUploader(store: store, clock: self.clock)
         return Harness(
             engine: MobileSegmentEngine(uploader: uploader, clock: self.clock),
             uploader: uploader,
-            store: store,
-            requestBodiesRoot: transportRoot.appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
+            store: store
         )
     }
 

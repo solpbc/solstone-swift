@@ -26,40 +26,51 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
     }
 
     @MainActor
-    func testWatchUploaderUsesWatchAuthorizationOnly() async throws {
-        WatchDrainURLProtocol.handler = Self.okResponse
-        let watchHandle = self.watchHandle
-        let uploader = self.makeWatchUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("watch-uploader", isDirectory: true),
-            ensureRegistered: { watchHandle }
-        )
+    func testWatchAuthProviderUsesWatchAuthorizationOnly() async throws {
+        let observerRegistration = self.registration(streamType: "observer", label: nil, key: "test-observer-key-abc")
+        let omiRegistration = self.registration(streamType: "omi", label: "omi pendant", key: "omi-handle-xyz")
+        let watchRegistration = self.registration(streamType: "watch", label: "watch", key: self.watchHandle)
         let sessionID = UUID()
-        let chunkURL = self.tempDirectory.appendingPathComponent("watch-direct.m4a", isDirectory: false)
-        try Data("watch audio".utf8).write(to: chunkURL)
-
-        await uploader.enqueue(
-            chunkURL: chunkURL,
-            sidecar: ChunkSidecar(
-                segment: "120000_300",
-                day: "20260603",
-                chunkIndex: 0,
-                startedAt: Date(timeIntervalSince1970: 1_780_444_800),
-                durationS: 300,
-                sessionID: sessionID,
-                mode: .meeting,
-                locationJSONL: nil
-            )
+        let sidecar = ChunkSidecar(
+            segment: "120000_300",
+            day: "20260603",
+            chunkIndex: 0,
+            startedAt: Date(timeIntervalSince1970: 1_780_444_800),
+            durationS: 300,
+            sessionID: sessionID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        let manifest = ObserverAudioTransferEnqueuer.makeWatchManifest(
+            watchManifest: WatchSegmentManifest(
+                id: sessionID,
+                day: sidecar.day,
+                segment: sidecar.segment,
+                startedAt: sidecar.startedAt,
+                duration: sidecar.durationS,
+                sensors: [.audio],
+                partial: false,
+                lost: false,
+                gap: false,
+                fixCount: 0,
+                state: .finalized,
+                failureReason: nil
+            ),
+            hasAudio: true,
+            hasLocation: false
+        )
+        let authProvider = ObserverAudioTransferAuthProvider.make(
+            observerRegistration: observerRegistration,
+            omiRegistration: omiRegistration,
+            watchRegistration: watchRegistration
         )
 
-        try await self.waitFor("watch direct upload") {
-            WatchDrainURLProtocol.capturedRequests.count == 1 && uploader.pendingCount == 0
-        }
-        let request = try XCTUnwrap(WatchDrainURLProtocol.capturedRequests.first)
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(self.watchHandle)")
-        XCTAssertNotEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-observer-key-abc")
-        XCTAssertNotEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer omi-handle-xyz")
-        let body = try self.capturedBodyString()
-        XCTAssertEqual(try self.multipartValue(named: "platform", in: body), "watchos")
+        let token = try await authProvider(manifest)
+
+        XCTAssertEqual(token, self.watchHandle)
+        XCTAssertNotEqual(token, "test-observer-key-abc")
+        XCTAssertNotEqual(token, "omi-handle-xyz")
+        XCTAssertEqual(manifest.observerIngest?.platform, "watchos")
     }
 
     @MainActor
@@ -406,27 +417,20 @@ private extension WatchSegmentDrainTests {
     }
 
     @MainActor
-    func makeWatchUploader(
-        cacheRootURL: URL,
-        ensureRegistered: @escaping @Sendable @MainActor () async throws -> String,
-        isJournalConfigured: @escaping @Sendable @MainActor () -> Bool = { true },
-        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
-        maxAttempts: Int = 5
-    ) -> ObserverUploader {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [WatchDrainURLProtocol.self]
-        return ObserverUploader(
-            cacheRootURL: cacheRootURL,
-            sessionConfiguration: configuration,
-            ensureRegistered: ensureRegistered,
-            isJournalConfigured: isJournalConfigured,
-            localPortProvider: localPortProvider,
-            sourceType: "watch-audio",
-            platform: "watchos",
-            retryDelays: [0],
-            maxAttempts: maxAttempts,
+    func registration(streamType: String, label: String?, key: String) -> ObserverRegistration {
+        ObserverRegistration(
+            hostname: "test-phone",
+            version: "0.1.0",
+            streamType: streamType,
+            label: label,
+            retryDelays: [],
             sleep: { _ in },
-            startPathMonitor: false
+            loadKey: { key },
+            saveKey: { _ in },
+            deleteKey: {},
+            loadPrefix: { nil },
+            savePrefix: { _ in },
+            deletePrefix: {}
         )
     }
 

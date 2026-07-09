@@ -44,7 +44,9 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertEqual(try omiKeys.loadKey(), "omi-new")
         XCTAssertEqual(try watchKeys.loadKey(), "watch-key")
 
-        XCTAssertEqual(ObserverUploader.backgroundSessionIdentifier, "app.solstone.swift.observer-upload")
+        XCTAssertEqual(ObserverAudioTransferSource.mobileSegment, "mobile-segment")
+        XCTAssertEqual(ObserverAudioTransferSource.omi, "omi-audio")
+        XCTAssertEqual(ObserverAudioTransferSource.watch, "watch-audio")
         XCTAssertEqual(OmiSegmentWriter.cacheDirectoryName, "OmiObserver")
         XCTAssertEqual(WatchTransferSpoolMigrator.legacyCacheDirectoryName, "WatchObserver")
         XCTAssertEqual(ImportQueue.backgroundSessionIdentifier, "app.solstone.swift.share-upload")
@@ -54,49 +56,14 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertEqual(OnThisPhoneAudioSource(sourceType: "omi-audio"), .omi)
         XCTAssertEqual(OnThisPhoneAudioSource(sourceType: "watch-audio"), .watch)
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MobileSegmentAppWiringURLProtocol.self]
         let watchRoot = self.tempDirectory.appendingPathComponent("WatchObserver", isDirectory: true)
-        let watchUploader = ObserverUploader(
-            cacheRootURL: watchRoot,
-            sessionConfiguration: configuration,
-            ensureRegistered: { "test-observer-key-abc" },
-            isJournalConfigured: { true },
-            localPortProvider: { 7071 },
-            sourceType: "watch-audio",
-            platform: "watchos",
-            retryDelays: [0],
-            sleep: { _ in },
-            startPathMonitor: false
-        )
-        MobileSegmentAppWiringURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
-            )
-        }
-        await watchUploader.enqueue(chunkURL: try self.audioFile(named: "watch"), sidecar: self.sidecar(sessionID: UUID()))
-        try await self.waitFor("watch multipart") {
-            MobileSegmentAppWiringURLProtocol.callCount == 1
-        }
-        let watchBody = String(decoding: try XCTUnwrap(MobileSegmentAppWiringURLProtocol.capturedBodies.first), as: UTF8.self)
-        XCTAssertTrue(watchBody.contains(#"name="platform""#))
-        XCTAssertTrue(watchBody.contains("watchos"))
 
         let mobileTransportRoot = self.tempDirectory.appendingPathComponent("Observer", isDirectory: true)
-        let mobileTransport = ObserverUploader(
-            cacheRootURL: mobileTransportRoot,
-            sessionConfiguration: .ephemeral,
-            sourceType: "observer-audio",
-            platform: "ios",
-            startPathMonitor: false
-        )
         let appGroupMobileSegmentRoot = self.tempDirectory
             .appendingPathComponent("AppGroup", isDirectory: true)
             .appendingPathComponent("MobileSegment", isDirectory: true)
         let mobileSegmentStore = MobileSegmentStore(rootURL: appGroupMobileSegmentRoot)
         let mobileSegmentUploader = MobileSegmentUploader(
-            transport: mobileTransport,
             store: mobileSegmentStore,
             clock: MockObserverClock()
         )
@@ -104,12 +71,6 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         _ = engine
 
         let omiRoot = self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true)
-        let omiUploader = ObserverUploader(
-            cacheRootURL: omiRoot,
-            sessionConfiguration: .ephemeral,
-            sourceType: "omi-audio",
-            startPathMonitor: false
-        )
         let importRoot = self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
         let importQueue = ImportQueue(
             cacheRootURL: importRoot,
@@ -121,7 +82,7 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         XCTAssertNotEqual(mobileSegmentStore.rootURL, omiRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, watchRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, importRoot)
-        XCTAssertNotEqual(mobileSegmentUploader.pendingCount, omiUploader.pendingCount + 1)
+        XCTAssertEqual(mobileSegmentUploader.pendingCount, 0)
         XCTAssertEqual(importQueue.pendingCount, 0)
     }
 }

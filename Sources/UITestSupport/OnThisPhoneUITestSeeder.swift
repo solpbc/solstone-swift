@@ -57,13 +57,12 @@ enum OnThisPhoneUITestSeeder {
             } else if seedLargeBacklog {
                 let requested = Self.largeBacklogCount(arguments: arguments)
                 let summary = try Self.seedLargeBacklog(
-                    observerRoot: roots.observer,
-                    omiRoot: roots.omi,
+                    transferRoot: roots.transfer,
                     requestedCount: requested,
                     fileManager: fileManager
                 )
                 onThisPhoneUITestSeedLog.info(
-                    "on-this-phone large backlog seed observer=\(summary.observer, privacy: .public) omi=\(summary.omi, privacy: .public) total=\(summary.total, privacy: .public)"
+                    "on-this-phone large backlog seed mobile=\(summary.mobile, privacy: .public) omi=\(summary.omi, privacy: .public) total=\(summary.total, privacy: .public)"
                 )
                 if summary.total != requested {
                     onThisPhoneUITestSeedLog.error(
@@ -92,13 +91,14 @@ extension OnThisPhoneUITestSeeder {
         struct Roots {
             let observer: URL
             let omi: URL
+            let transfer: URL
             let location: URL
             let mobileSegment: URL
             let importQueue: URL
         }
 
     struct LargeBacklogSeedSummary: Equatable {
-        let observer: Int
+        let mobile: Int
         let omi: Int
         let total: Int
     }
@@ -119,6 +119,8 @@ extension OnThisPhoneUITestSeeder {
         return Roots(
                 observer: cachesRoot.appendingPathComponent(Self.observerRootName, isDirectory: true),
                 omi: cachesRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+                transfer: try AppGroupContainer.rootURL(fileManager: fileManager)
+                    .appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true),
                 location: cachesRoot.appendingPathComponent(Self.locationRootName, isDirectory: true),
                 mobileSegment: try AppGroupContainer.rootURL(fileManager: fileManager)
                     .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true),
@@ -128,7 +130,7 @@ extension OnThisPhoneUITestSeeder {
     }
 
     static func reset(roots: Roots, fileManager: FileManager) throws {
-        for root in [roots.observer, roots.omi, roots.location, roots.mobileSegment, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
+        for root in [roots.observer, roots.omi, roots.transfer, roots.location, roots.mobileSegment, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
             try fileManager.removeItem(at: root)
         }
         UserDefaults.standard.removeObject(forKey: "didMigrateLegacyMobileSegmentsV1")
@@ -147,21 +149,20 @@ extension OnThisPhoneUITestSeeder {
     }
 
     static func seedLargeBacklog(
-        observerRoot: URL,
-        omiRoot: URL,
+        transferRoot: URL,
         requestedCount: Int,
         fileManager: FileManager
     ) throws -> LargeBacklogSeedSummary {
         let count = min(max(requestedCount, 1), Self.largeBacklogMaxCount)
-        let observerCount = (count + 1) / 2
+        let mobileCount = (count + 1) / 2
         let omiCount = count / 2
         let baseDate = Date(timeIntervalSince1970: 1_780_500_000)
 
-        for index in 0..<observerCount {
-            try Self.writeObserverChunk(
-                root: observerRoot,
-                sessionID: Self.largeBacklogSessionID(prefix: "10000000", index: index),
-                chunkID: Self.largeBacklogChunkID(source: "observer", index: index),
+        for index in 0..<mobileCount {
+            try Self.writeLargeBacklogMobileTransferItem(
+                root: transferRoot,
+                itemID: Self.largeBacklogSessionID(prefix: "10000000", index: index),
+                segmentID: Self.largeBacklogSessionID(prefix: "11000000", index: index),
                 startedAt: baseDate.addingTimeInterval(Double(index)),
                 durationS: TimeInterval(30 + (index % 90)),
                 fileManager: fileManager
@@ -169,17 +170,18 @@ extension OnThisPhoneUITestSeeder {
         }
 
         for index in 0..<omiCount {
-            try Self.writeObserverChunk(
-                root: omiRoot,
+            try Self.writeLargeBacklogOmiTransferItem(
+                root: transferRoot,
+                itemID: Self.largeBacklogSessionID(prefix: "20000000", index: index),
                 sessionID: Self.largeBacklogSessionID(prefix: "20000000", index: index),
                 chunkID: Self.largeBacklogChunkID(source: "omi", index: index),
-                startedAt: baseDate.addingTimeInterval(Double(observerCount + index)),
-                durationS: TimeInterval(30 + ((observerCount + index) % 90)),
+                startedAt: baseDate.addingTimeInterval(Double(mobileCount + index)),
+                durationS: TimeInterval(30 + ((mobileCount + index) % 90)),
                 fileManager: fileManager
             )
         }
 
-        return LargeBacklogSeedSummary(observer: observerCount, omi: omiCount, total: observerCount + omiCount)
+        return LargeBacklogSeedSummary(mobile: mobileCount, omi: omiCount, total: mobileCount + omiCount)
     }
 
     private static func largeBacklogSessionID(prefix: String, index: Int) -> UUID {
@@ -297,20 +299,54 @@ extension OnThisPhoneUITestSeeder {
         return TimeInterval(String(rawValue)) ?? 75
     }
 
-    static func writeObserverChunk(
+    static func writeLargeBacklogMobileTransferItem(
         root: URL,
+        itemID: UUID,
+        segmentID: UUID,
+        startedAt: Date,
+        durationS: TimeInterval,
+        fileManager: FileManager
+    ) throws {
+        let endedAt = startedAt.addingTimeInterval(durationS)
+        var mobileManifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 0
+        )
+        mobileManifest.day = Self.dayString(for: startedAt)
+        mobileManifest.segment = ChunkSidecar.segmentString(for: startedAt, durationSeconds: durationS)
+        mobileManifest.endedAt = endedAt
+        mobileManifest.durationS = durationS
+        mobileManifest.upload = .pending
+        mobileManifest.audio = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: "audio.m4a",
+            bytes: Int64(Data("audio".utf8).count),
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationS: durationS,
+            mode: .meeting
+        )
+        let manifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: itemID,
+            manifest: mobileManifest,
+            now: endedAt,
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
+        )
+        try Self.writeTransferItem(root: root, manifest: manifest, payloads: ["audio": Data("audio".utf8)], fileManager: fileManager)
+    }
+
+    static func writeLargeBacklogOmiTransferItem(
+        root: URL,
+        itemID: UUID,
         sessionID: UUID,
         chunkID: String,
         startedAt: Date,
         durationS: TimeInterval,
         fileManager: FileManager
     ) throws {
-        let directory = root
-            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
-            .appendingPathComponent("pending", isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data("audio".utf8).write(to: directory.appendingPathComponent("\(chunkID).m4a"), options: .atomic)
-
         let sidecar = ChunkSidecar(
             segment: "120000_300",
             day: "20260603",
@@ -321,10 +357,31 @@ extension OnThisPhoneUITestSeeder {
             mode: .meeting,
             locationJSONL: nil
         )
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
+        try Self.writeTransferItem(root: root, manifest: manifest, payloads: ["audio": Data("audio-\(chunkID)".utf8)], fileManager: fileManager)
+    }
+
+    static func writeTransferItem(
+        root: URL,
+        manifest: TransferManifest,
+        payloads: [String: Data],
+        fileManager: FileManager
+    ) throws {
+        let directory = root
+            .appendingPathComponent(TransferSpool.queuedDirectoryName, isDirectory: true)
+            .appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        for part in manifest.payloadParts {
+            guard let data = payloads[part.partID] else { continue }
+            let payloadURL = directory.appendingPathComponent(part.relativePath, isDirectory: false)
+            try fileManager.createDirectory(at: payloadURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: payloadURL, options: .atomic)
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(sidecar).write(to: directory.appendingPathComponent("\(chunkID).json"), options: .atomic)
+        try encoder.encode(manifest.replacingDiskState(.queued))
+            .write(to: directory.appendingPathComponent(TransferSpool.manifestFilename, isDirectory: false), options: .atomic)
     }
 
     static func writeMobileSegment(

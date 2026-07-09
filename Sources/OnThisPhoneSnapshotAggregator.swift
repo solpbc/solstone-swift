@@ -10,8 +10,13 @@ enum OnThisPhoneSnapshotAggregator {
         mobileSegmentUploader: MobileSegmentUploader,
         transferEngine: TransferEngine
     ) async -> OnThisPhoneAggregateSnapshot {
+        let mobileSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
         let omiSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         let watchSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let mobileResults = await ObserverAudioTransferSnapshotMapper.mobileSegmentSourceResults(
+            snapshots: mobileSnapshots,
+            engine: transferEngine
+        )
         let omiResult = await ObserverAudioTransferSnapshotMapper.sourceResult(
             snapshots: omiSnapshots,
             source: .omi,
@@ -22,18 +27,31 @@ enum OnThisPhoneSnapshotAggregator {
             source: .watch,
             engine: transferEngine
         )
-        // Share includes delivered ledger entries; audio and location only have local pending/failed files.
+        // Share includes delivered ledger entries; observation rows combine engine items with local finalize failures.
         return self.snapshot(sources: [
             OnThisPhoneSourceSnapshot(
                 sourceKind: .audio,
-                result: self.combinedAudioResult(
+                result: self.combinedResult(
                     mobileSegmentUploader.onThisPhoneSnapshot(for: .audio),
+                    mobileResults[.audio] ?? .loaded(items: []),
                     omiResult,
                     watchResult
                 )
             ),
-            OnThisPhoneSourceSnapshot(sourceKind: .location, result: mobileSegmentUploader.onThisPhoneSnapshot(for: .location)),
-            OnThisPhoneSourceSnapshot(sourceKind: .screencast, result: mobileSegmentUploader.onThisPhoneSnapshot(for: .screencast)),
+            OnThisPhoneSourceSnapshot(
+                sourceKind: .location,
+                result: self.combinedResult(
+                    mobileSegmentUploader.onThisPhoneSnapshot(for: .location),
+                    mobileResults[.location] ?? .loaded(items: [])
+                )
+            ),
+            OnThisPhoneSourceSnapshot(
+                sourceKind: .screencast,
+                result: self.combinedResult(
+                    mobileSegmentUploader.onThisPhoneSnapshot(for: .screencast),
+                    mobileResults[.screencast] ?? .loaded(items: [])
+                )
+            ),
             OnThisPhoneSourceSnapshot(sourceKind: .share, result: importQueue.onThisPhoneSourceSnapshot()),
         ])
     }
@@ -60,18 +78,19 @@ enum OnThisPhoneSnapshotAggregator {
         return snapshot
     }
 
-    static func combinedAudioResult(
-        _ observerResult: OnThisPhoneSourceResult,
-        _ omiResult: OnThisPhoneSourceResult,
-        _ watchResult: OnThisPhoneSourceResult
+    static func combinedResult(
+        _ results: OnThisPhoneSourceResult...
     ) -> OnThisPhoneSourceResult {
-        switch (observerResult, omiResult, watchResult) {
-        case (.failed, .failed, .failed):
+        if results.allSatisfy({ result in
+            if case .failed = result { return true }
+            return false
+        }) {
             return .failed
-        default:
-            return .loaded(items: OnThisPhoneItemSort.newestFirst(
-                observerResult.items + omiResult.items + watchResult.items
-            ))
         }
+        var items: [OnThisPhoneItem] = []
+        for result in results {
+            items.append(contentsOf: result.items)
+        }
+        return .loaded(items: OnThisPhoneItemSort.newestFirst(items))
     }
 }

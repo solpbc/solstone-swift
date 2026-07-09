@@ -175,6 +175,12 @@ final class MobileSegmentStore {
         return try? self.decoder.decode(MobileSegmentFailureSidecar.self, from: Data(contentsOf: url))
     }
 
+    func removeFailure(in directory: URL) throws {
+        let url = self.failureURL(in: directory)
+        guard self.fileManager.fileExists(atPath: url.path) else { return }
+        try self.fileManager.removeItem(at: url)
+    }
+
     func move(segmentID: UUID, from source: MobileSegmentLifecycle, to destination: MobileSegmentLifecycle) throws -> URL {
         let sourceURL = self.segmentDirectoryURL(source, segmentID: segmentID)
         let destinationURL = self.segmentDirectoryURL(destination, segmentID: segmentID)

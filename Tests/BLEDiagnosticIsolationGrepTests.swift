@@ -19,7 +19,6 @@ nonisolated final class BLEDiagnosticIsolationGrepTests: XCTestCase {
 
     private static let forbiddenSymbols = [
         "ObserverManager",
-        "ObserverUploader",
         "ObserverAudioSession",
         "ObserverTapWriter",
         "ChunkSidecar",

@@ -53,9 +53,8 @@ final class ObserverManager {
 
     init(
         recorder: any ObserverRecording = LiveObserverRecorder(),
-        uploader _: ObserverUploader? = nil,
         mobileSegmentEngine: MobileSegmentEngine = MobileSegmentEngine(
-            uploader: MobileSegmentUploader(transport: ObserverUploader())
+            uploader: MobileSegmentUploader()
         ),
         clock: any ObserverClock = SystemObserverClock(),
         liveActivity: any ObserverLiveActivitying = ObserverLiveActivity()

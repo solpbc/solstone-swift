@@ -12,9 +12,6 @@ protocol ObserverQueueHealthProviding: AnyObject {
     var lastUploadAt: Date? { get }
 }
 
-extension ObserverUploader: ObserverQueueHealthProviding {}
-extension MobileSegmentUploader: ObserverQueueHealthProviding {}
-
 @MainActor
 final class ObserverHealthBeacon {
     private struct Payload: Encodable {

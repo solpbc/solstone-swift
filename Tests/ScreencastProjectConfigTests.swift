@@ -62,7 +62,6 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "Sources/MobileSegment/MobileSegmentStore.swift",
             "Sources/MobileSegment/MobileSegmentUploader.swift",
             "Sources/MobileSegment/MobileSegmentEngine.swift",
-            "ObserverUploader.swift",
             "Sources/Tunnel",
             "swift-nio",
             "SwiftUI",

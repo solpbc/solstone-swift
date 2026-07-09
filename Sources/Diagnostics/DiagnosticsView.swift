@@ -15,8 +15,8 @@ struct DiagnosticsView: View {
     @Environment(DiagnosticLog.self) private var log
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
-    @Environment(ObserverUploader.self) private var observerUploader
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
@@ -40,7 +40,7 @@ struct DiagnosticsView: View {
 
     private var failedTotal: Int {
         uploadFailedTotal(
-            mobileSegment: self.mobileSegmentUploader,
+            mobileSegment: self.mobileSegmentTransferHolder,
             omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
             importQueue: self.importQueue
@@ -322,7 +322,7 @@ struct DiagnosticsView: View {
                 self.lastReconcileKey = nil
             }
             self.lastSynced = lastSyncedAt(
-                mobileSegment: self.mobileSegmentUploader,
+                mobileSegment: self.mobileSegmentTransferHolder,
                 omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder,
                 importQueue: self.importQueue

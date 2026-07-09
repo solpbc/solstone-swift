@@ -42,7 +42,6 @@ func driveUploadDrain(
     await mobileSegment.resumeFromDisk()
     await transferEngine.kick()
     await importQueue.resumeFromDisk()
-    await mobileSegment.retryFailed(respectingCooldown: true)
     await importQueue.retryFailed()
     await watchDrain?.drain()
 }

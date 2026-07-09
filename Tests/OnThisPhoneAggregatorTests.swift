@@ -33,7 +33,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
         try self.writeMobileSegment(
             root: queues.mobileSegmentRoot,
-            lifecycle: .pending,
+            lifecycle: .failed,
             segmentID: audioSegmentID,
             source: .audio,
             startedAt: Date(timeIntervalSince1970: 1_780_480_800),
@@ -92,7 +92,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let locationID = "mobile-segment:\(locationSegmentID.uuidString):location"
         try self.writeMobileSegment(
             root: queues.mobileSegmentRoot,
-            lifecycle: .pending,
+            lifecycle: .failed,
             segmentID: audioSegmentID,
             source: .audio,
             startedAt: Date(timeIntervalSince1970: 1_780_480_800),
@@ -100,7 +100,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         )
         try self.writeMobileSegment(
             root: queues.mobileSegmentRoot,
-            lifecycle: .pending,
+            lifecycle: .failed,
             segmentID: locationSegmentID,
             source: .location,
             startedAt: Date(timeIntervalSince1970: 1_780_480_700),
@@ -131,7 +131,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
         try self.writeMobileSegment(
             root: queues.mobileSegmentRoot,
-            lifecycle: .pending,
+            lifecycle: .failed,
             segmentID: mobileSegmentID,
             source: .audio,
             startedAt: Date(timeIntervalSince1970: 1_780_480_800),
@@ -154,26 +154,27 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
 
         XCTAssertEqual(snapshot.items.map(\.id), [omiID, observerID])
         XCTAssertEqual(try self.count(for: .audio, in: snapshot), 2)
-        XCTAssertEqual(snapshot.items.first { $0.id == observerID }?.sourceLabel, SourceVocabulary.onThisPhoneObserverAudioSourceLabel)
+        XCTAssertNil(snapshot.items.first { $0.id == observerID }?.sourceLabel)
         XCTAssertEqual(snapshot.items.first { $0.id == omiID }?.sourceLabel, SourceVocabulary.onThisPhoneOmiAudioSourceLabel)
     }
 
     #if DEBUG
     @MainActor
-    func testLargeBacklogSeedSurfacesObserverAndOmiRowsWithLabels() async throws {
+    func testLargeBacklogSeedSurfacesMobileAndOmiRowsWithLabels() async throws {
         let queues = self.makeQueues(suffix: "large")
         let requestedCount = 7
-        let observerCount = (requestedCount + 1) / 2
+        let mobileCount = (requestedCount + 1) / 2
         let omiCount = requestedCount / 2
         let baseDate = Date(timeIntervalSince1970: 1_780_500_000)
-        for index in 0..<observerCount {
-            try self.writeMobileSegment(
-                root: queues.mobileSegmentRoot,
-                lifecycle: .pending,
-                segmentID: UUID(uuidString: String(format: "30000000-0000-0000-0000-%012d", index))!,
-                source: .audio,
-                startedAt: baseDate.addingTimeInterval(Double(index)),
-                durationS: TimeInterval(30 + (index % 90))
+        for index in 0..<mobileCount {
+            _ = try await queues.transferEngine.enqueue(
+                manifest: self.mobileAudioManifest(
+                    itemID: UUID(uuidString: String(format: "30000000-0000-0000-0000-%012d", index))!,
+                    segmentID: UUID(uuidString: String(format: "40000000-0000-0000-0000-%012d", index))!,
+                    startedAt: baseDate.addingTimeInterval(Double(index)),
+                    durationS: TimeInterval(30 + (index % 90))
+                ),
+                payloads: ["audio": Data("mobile-audio-\(index)".utf8)]
             )
         }
         for index in 0..<omiCount {
@@ -181,8 +182,8 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
                 queues: queues,
                 sessionID: UUID(uuidString: String(format: "20000000-0000-0000-0000-%012d", index))!,
                 chunkID: String(format: "ui-test-large-backlog-omi-%04d", index),
-                startedAt: baseDate.addingTimeInterval(Double(observerCount + index)),
-                durationS: TimeInterval(30 + ((observerCount + index) % 90))
+                startedAt: baseDate.addingTimeInterval(Double(mobileCount + index)),
+                durationS: TimeInterval(30 + ((mobileCount + index) % 90))
             )
         }
 
@@ -191,13 +192,13 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             mobileSegmentUploader: queues.mobileSegmentUploader,
             transferEngine: queues.transferEngine
         )
-        let observerItems = snapshot.items.filter { $0.id.hasPrefix("mobile-segment:") && $0.sourceKind == .audio }
+        let mobileItems = snapshot.items.filter { $0.id.hasPrefix("transfer:mobile-segment:") && $0.sourceKind == .audio }
         let omiItems = snapshot.items.filter { $0.id.hasPrefix("transfer:omi:") }
 
         XCTAssertEqual(snapshot.items.count, requestedCount)
-        XCTAssertEqual(observerItems.count, observerCount)
+        XCTAssertEqual(mobileItems.count, mobileCount)
         XCTAssertEqual(omiItems.count, omiCount)
-        XCTAssertTrue(observerItems.allSatisfy { $0.sourceLabel == SourceVocabulary.onThisPhoneObserverAudioSourceLabel })
+        XCTAssertTrue(mobileItems.allSatisfy { $0.sourceLabel == nil })
         XCTAssertTrue(omiItems.allSatisfy { $0.sourceLabel == SourceVocabulary.onThisPhoneOmiAudioSourceLabel })
     }
     #endif
@@ -428,7 +429,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let audioDuration: Double = 75
         let audioDurationText = try XCTUnwrap(OnThisPhoneItem.formattedDuration(audioDuration))
         let audio = Self.item(
-            id: "audio:\(sessionID.uuidString):chunk-a",
+            id: "mobile-segment:\(sessionID.uuidString):audio",
             sourceKind: .audio,
             itemTime: Date(timeIntervalSince1970: 1_780_480_800),
             audioDurationS: audioDuration
@@ -483,7 +484,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             audioDurationS: 12
         )
         let omi = Self.item(
-            id: "omi:\(sessionID.uuidString):chunk",
+            id: OnThisPhoneItemID.transferIDString(itemID: sessionID, source: .omi),
             sourceKind: .audio,
             itemTime: Date(timeIntervalSince1970: 1_780_480_800),
             audioDurationS: 12
@@ -500,17 +501,18 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         let shareID = UUID()
         let segmentID = UUID()
 
-        XCTAssertEqual(
-            OnThisPhoneItemID(sourceKind: .audio, id: "audio:\(sessionID.uuidString):chunk:with:colons"),
-            .audio(sessionID: sessionID, chunkID: "chunk:with:colons", source: .observer)
-        )
-        XCTAssertEqual(
-            OnThisPhoneItemID(sourceKind: .audio, id: "omi:\(sessionID.uuidString):chunk"),
-            .audio(sessionID: sessionID, chunkID: "chunk", source: .omi)
-        )
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "audio:\(sessionID.uuidString):chunk:with:colons"))
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "omi:\(sessionID.uuidString):chunk"))
         XCTAssertEqual(
             OnThisPhoneItemID(sourceKind: .audio, id: "transfer:omi:\(sessionID.uuidString)"),
             .transfer(itemID: sessionID, source: .omi)
+        )
+        XCTAssertEqual(
+            OnThisPhoneItemID(
+                sourceKind: .screencast,
+                id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: sessionID, facet: .screencast)
+            ),
+            .mobileSegmentTransfer(itemID: sessionID, facet: .screencast)
         )
         XCTAssertEqual(
             OnThisPhoneItemID(sourceKind: .location, id: "mobile-segment:\(segmentID.uuidString):location"),
@@ -584,8 +586,6 @@ private extension OnThisPhoneAggregatorTests {
         let watchRoot: URL
         let importQueue: ImportQueue
         let mobileSegmentUploader: MobileSegmentUploader
-        let omiUploader: ObserverUploader
-        let watchUploader: ObserverUploader
         let transferEngine: TransferEngine
         let transferEnqueuer: ObserverAudioTransferEnqueuer
         let transferMirror: TransferStatusMirror
@@ -601,13 +601,6 @@ private extension OnThisPhoneAggregatorTests {
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("\(suffix)-transfer", isDirectory: true)
         )
-        let mobileTransport = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("\(suffix)-mobile-transport", isDirectory: true),
-            sessionConfiguration: .ephemeral,
-            isJournalConfigured: { false },
-            localPortProvider: { nil },
-            startPathMonitor: false
-        )
         return Queues(
             importRoot: importRoot,
             mobileSegmentRoot: mobileSegmentRoot,
@@ -619,21 +612,9 @@ private extension OnThisPhoneAggregatorTests {
                 startPathMonitor: false
             ),
             mobileSegmentUploader: MobileSegmentUploader(
-                transport: mobileTransport,
+                transferEngine: transferHarness.engine,
                 store: MobileSegmentStore(rootURL: mobileSegmentRoot),
                 clock: MockObserverClock()
-            ),
-            omiUploader: ObserverUploader(
-                cacheRootURL: omiRoot,
-                sessionConfiguration: .ephemeral,
-                sourceType: "omi-audio",
-                startPathMonitor: false
-            ),
-            watchUploader: ObserverUploader(
-                cacheRootURL: watchRoot,
-                sessionConfiguration: .ephemeral,
-                sourceType: "watch-audio",
-                startPathMonitor: false
             ),
             transferEngine: transferHarness.engine,
             transferEnqueuer: transferHarness.enqueuer,
@@ -666,6 +647,40 @@ private extension OnThisPhoneAggregatorTests {
         return try await queues.transferEnqueuer.enqueueOmiChunkMovingFile(
             chunkURL: audioURL,
             sidecar: sidecar
+        )
+    }
+
+    func mobileAudioManifest(
+        itemID: UUID,
+        segmentID: UUID,
+        startedAt: Date,
+        durationS: TimeInterval
+    ) -> TransferManifest {
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 0
+        )
+        manifest.day = "20260603"
+        manifest.segment = "120000_\(Int(durationS))"
+        manifest.endedAt = startedAt.addingTimeInterval(durationS)
+        manifest.durationS = durationS
+        manifest.audio = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: "audio.m4a",
+            bytes: Int64(Data("audio".utf8).count),
+            startedAt: startedAt,
+            endedAt: startedAt.addingTimeInterval(durationS),
+            durationS: durationS,
+            mode: .meeting
+        )
+        return ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: itemID,
+            manifest: manifest,
+            now: startedAt,
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
         )
     }
 
@@ -775,7 +790,7 @@ private extension OnThisPhoneAggregatorTests {
                     httpStatus: nil,
                     transportError: nil,
                     attemptCount: 1,
-                    stage: "test",
+                    stage: "reconcile",
                     lastAttemptAt: startedAt
                 ),
                 in: directory

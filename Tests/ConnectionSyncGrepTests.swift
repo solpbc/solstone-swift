@@ -43,26 +43,6 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         }
     }
 
-    func testObserverUploaderConfirmedActiveTransferCountExcludesOptimisticSets() throws {
-        let text = try Self.sourceText("Sources/Observer/ObserverUploader.swift")
-        let body = try Self.slice(
-            in: text,
-            from: "var confirmedActiveTransferCount",
-            to: "\n\n    @ObservationIgnored private(set) var fullRecountCount"
-        )
-
-        XCTAssertTrue(body.contains("activeTasksByTaskID.count"))
-        XCTAssertTrue(body.contains("mobileSegmentTaskIDBySegmentID.count"))
-        for forbidden in [
-            "retryTasksByChunkID",
-            "schedulingChunkIDs",
-            "mobileSegmentRetryTasksBySegmentID",
-            "mobileSegmentSchedulingIDs",
-        ] {
-            XCTAssertFalse(body.contains(forbidden), forbidden)
-        }
-    }
-
     func testImportQueueConfirmedActiveTransferCountExcludesOptimisticSets() throws {
         let text = try Self.sourceText("Sources/ImportQueue/ImportQueue.swift")
         let body = try Self.slice(
@@ -81,12 +61,12 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         let countBody = try Self.slice(in: text, from: "func confirmedTransferCount", to: "\n\n@MainActor\nfunc recentBytesTotal")
         let bytesBody = try Self.slice(in: text, from: "func recentBytesTotal", to: "\n\n@MainActor\nfunc uploadInFlight")
 
-        for required in ["observer.", "omi.", "watch.", "importQueue."] {
+        for required in ["mobileSegment.", "omi.", "watch.", "importQueue."] {
             XCTAssertTrue(countBody.contains(required), required)
             XCTAssertTrue(bytesBody.contains(required), required)
         }
-        XCTAssertFalse(countBody.contains("mobileSegment"))
-        XCTAssertFalse(bytesBody.contains("mobileSegment"))
+        XCTAssertFalse(countBody.contains("observer."))
+        XCTAssertFalse(bytesBody.contains("observer."))
     }
 
     private static func sourceText(_ relativePath: String) throws -> String {

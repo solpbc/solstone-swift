@@ -369,7 +369,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         }
         self.stubDelivered()
 
-        await harness.uploader.retryFailed(respectingCooldown: false)
+        await harness.uploader.resolveFinalizeFailurePile()
         try await self.waitFor("batch isolation survivor delivery") {
             MobileSegmentFinalizeResolverURLProtocol.callCount == 1
                 && !FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: recoverableID).path)
@@ -381,7 +381,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         XCTAssertEqual(try self.sources(in: try XCTUnwrap(MobileSegmentFinalizeResolverURLProtocol.receivedBodies.first)), Set(["audio"]))
     }
 
-    func testRetryFailedStrictlyDecreasesRecoverableFinalizeFailurePile() async throws {
+    func testResolveFinalizeFailurePileStrictlyDecreasesRecoverableFinalizeFailurePile() async throws {
         let harness = self.makeHarness()
         let audioSurvivorID = UUID()
         let recoveredLocationID = UUID()
@@ -422,7 +422,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         let beforeCount = try harness.store.list(.failed).count
         self.stubDelivered()
 
-        await harness.uploader.retryFailed(respectingCooldown: false)
+        await harness.uploader.resolveFinalizeFailurePile()
         try await self.waitFor("strict count decrease deliveries") {
             MobileSegmentFinalizeResolverURLProtocol.callCount == 3
                 && ((try? harness.store.list(.failed).count) ?? beforeCount) < beforeCount
@@ -505,7 +505,7 @@ private extension MobileSegmentFinalizeResolverTests {
     struct Harness {
         let uploader: MobileSegmentUploader
         let store: MobileSegmentStore
-        let transportRoot: URL
+        let engine: TransferEngine
     }
 
     var liveLocation: MobileSegmentLiveLocationTestSupport {
@@ -513,25 +513,22 @@ private extension MobileSegmentFinalizeResolverTests {
     }
 
     func makeHarness(connected: Bool = true, maxAttempts: Int = 1) -> Harness {
-        let transportRoot = self.tempDirectory.appendingPathComponent("transport", isDirectory: true)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentFinalizeResolverURLProtocol.self]
-        let transport = ObserverUploader(
-            cacheRootURL: transportRoot,
+        _ = maxAttempts
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("transfer-\(UUID().uuidString)", isDirectory: true),
             sessionConfiguration: configuration,
-            ensureRegistered: { "test-observer-key-abc" },
-            isJournalConfigured: { connected },
-            localPortProvider: { connected ? 7071 : nil },
-            retryDelays: [0],
-            maxAttempts: maxAttempts,
-            sleep: { _ in },
-            startPathMonitor: false
+            endpointResolver: connected
+                ? TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+                : TransferCutoverEndpointResolver()
         )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
+        let uploader = MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock)
         return Harness(
-            uploader: MobileSegmentUploader(transport: transport, store: store, clock: self.clock),
+            uploader: uploader,
             store: store,
-            transportRoot: transportRoot
+            engine: transferHarness.engine
         )
     }
 
@@ -731,7 +728,7 @@ private final class MobileSegmentFinalizeResolverURLProtocol: URLProtocol, @unch
     }
 
     override func startLoading() {
-        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-observer-key-abc")
+        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-transfer-key")
         Self.callCountBox.withLock { $0 += 1 }
         Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
         guard let handler = Self.handler else {

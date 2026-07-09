@@ -17,8 +17,8 @@ struct SolstoneSwiftApp: App {
     @State private var diagnosticLog: DiagnosticLog
     @State private var problemReportsManager: ProblemReportsManager
     @State private var observerRegistration: ObserverRegistration
-    @State private var observerUploader: ObserverUploader
     @State private var mobileHealthBeacon: ObserverHealthBeacon
+    @State private var mobileSegmentTransferHolder: MobileSegmentTransferHolder
     @State private var omiRegistration: ObserverRegistration
     @State private var omiHealthBeacon: ObserverHealthBeacon
     @State private var omiUploaderHolder: OmiUploaderHolder
@@ -169,24 +169,6 @@ struct SolstoneSwiftApp: App {
                 Self.makeMetricSubscriber(ingest: ingest)
             }
         )
-        let observerUploader = ObserverUploader(
-            ensureRegistered: {
-                try await observerRegistration.ensureRegistered()
-            },
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            localPortProvider: {
-                observerRegistration.activeLocalPort
-            },
-            activeEpochProvider: {
-                observerRegistration.activeEpoch
-            },
-            registrationPrefixProvider: {
-                observerRegistration.registrationPrefix
-            },
-            diagnosticLog: log
-        )
         let mobileSegmentStore: MobileSegmentStore
         let mobileSegmentStorageDisabledReason: String?
         let mobileSegmentMigrationDiagnostics: [String]
@@ -213,28 +195,6 @@ struct SolstoneSwiftApp: App {
             mobileSegmentStorageDisabledReason = diagnostic
             mobileSegmentMigrationDiagnostics = []
         }
-        let mobileSegmentUploader = MobileSegmentUploader(
-            transport: observerUploader,
-            store: mobileSegmentStore,
-            clock: observerClock,
-            storageDisabledReason: mobileSegmentStorageDisabledReason
-        )
-        if mobileSegmentUploader.lastError == nil {
-            mobileSegmentUploader.lastError = mobileSegmentMigrationDiagnostics.first
-        }
-        let mobileSegmentEngine = MobileSegmentEngine(
-            uploader: mobileSegmentUploader,
-            clock: observerClock
-        )
-        let mobileHealthBeacon = ObserverHealthBeacon(
-            registration: observerRegistration,
-            uploader: mobileSegmentUploader,
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            session: healthSession,
-            clock: observerClock
-        )
         let omiRegistration = ObserverRegistration(
             hostname: UIDevice.current.name,
             version: AppVersion.shortVersion,
@@ -310,6 +270,33 @@ struct SolstoneSwiftApp: App {
             statusMirror: transferStatusMirror
         )
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
+        let mobileSegmentUploader = MobileSegmentUploader(
+            transferEngine: transferEngine,
+            store: mobileSegmentStore,
+            clock: observerClock,
+            storageDisabledReason: mobileSegmentStorageDisabledReason
+        )
+        if mobileSegmentUploader.lastError == nil {
+            mobileSegmentUploader.lastError = mobileSegmentMigrationDiagnostics.first
+        }
+        let mobileSegmentTransferHolder = MobileSegmentTransferHolder(
+            transferEngine: transferEngine,
+            mirror: transferStatusMirror,
+            uploader: mobileSegmentUploader
+        )
+        let mobileSegmentEngine = MobileSegmentEngine(
+            uploader: mobileSegmentUploader,
+            clock: observerClock
+        )
+        let mobileHealthBeacon = ObserverHealthBeacon(
+            registration: observerRegistration,
+            uploader: mobileSegmentTransferHolder,
+            isJournalConfigured: {
+                appConfig.isPaired
+            },
+            session: healthSession,
+            clock: observerClock
+        )
         let omiUploaderHolder = OmiUploaderHolder(
             transferEngine: transferEngine,
             mirror: transferStatusMirror
@@ -363,7 +350,7 @@ struct SolstoneSwiftApp: App {
             transport: transport,
             activeLocalTransferCountProvider: {
                 confirmedTransferCount(
-                    observer: observerUploader,
+                    mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     importQueue: importQueue
@@ -373,7 +360,7 @@ struct SolstoneSwiftApp: App {
         )
         let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
             let totals = uploadTotals(
-                mobileSegment: mobileSegmentUploader,
+                mobileSegment: mobileSegmentTransferHolder,
                 omi: omiUploaderHolder,
                 watch: watchUploaderHolder,
                 importQueue: importQueue
@@ -383,13 +370,13 @@ struct SolstoneSwiftApp: App {
                 reconnectCountdown: tunnel.reconnectCountdown,
                 isNetworkSatisfied: tunnel.isNetworkSatisfied,
                 confirmedTransferCount: confirmedTransferCount(
-                    observer: observerUploader,
+                    mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     importQueue: importQueue
                 ),
                 recentBytesPerSecond: recentBytesTotal(
-                    observer: observerUploader,
+                    mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     importQueue: importQueue
@@ -440,7 +427,7 @@ struct SolstoneSwiftApp: App {
         let finishSyncing = FinishSyncingCoordinator(
             totals: {
                 uploadTotals(
-                    mobileSegment: mobileSegmentUploader,
+                    mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     importQueue: importQueue
@@ -448,7 +435,7 @@ struct SolstoneSwiftApp: App {
             },
             inFlight: {
                 uploadInFlight(
-                    mobileSegment: mobileSegmentUploader,
+                    mobileSegment: mobileSegmentTransferHolder,
                     omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     importQueue: importQueue
@@ -526,8 +513,8 @@ struct SolstoneSwiftApp: App {
         self._tunnelManager = State(initialValue: tunnel)
         self._connectionSyncModel = State(initialValue: connectionSyncModel)
         self._observerRegistration = State(initialValue: observerRegistration)
-        self._observerUploader = State(initialValue: observerUploader)
         self._mobileHealthBeacon = State(initialValue: mobileHealthBeacon)
+        self._mobileSegmentTransferHolder = State(initialValue: mobileSegmentTransferHolder)
         self._omiRegistration = State(initialValue: omiRegistration)
         self._omiHealthBeacon = State(initialValue: omiHealthBeacon)
         self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
@@ -553,7 +540,6 @@ struct SolstoneSwiftApp: App {
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
-        self.appDelegate.observerUploader = observerUploader
         self.appDelegate.importQueue = importQueue
     }
 
@@ -569,7 +555,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.chatManager)
                 .environment(self.omiSourceManager)
                 .environment(self.observerRegistration)
-                .environment(self.observerUploader)
+                .environment(self.mobileSegmentTransferHolder)
                 .environment(self.omiUploaderHolder)
                 .environment(self.watchUploaderHolder)
                 .environment(self.watchLink)
@@ -698,7 +684,7 @@ struct SolstoneSwiftApp: App {
                 let coordinator = BackgroundDrainCoordinator(
                     totals: {
                         uploadTotals(
-                            mobileSegment: self.mobileSegmentUploader,
+                            mobileSegment: self.mobileSegmentTransferHolder,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
                             importQueue: self.importQueue
@@ -706,7 +692,7 @@ struct SolstoneSwiftApp: App {
                     },
                     inFlight: {
                         uploadInFlight(
-                            mobileSegment: self.mobileSegmentUploader,
+                            mobileSegment: self.mobileSegmentTransferHolder,
                             omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
                             importQueue: self.importQueue
@@ -741,13 +727,9 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(let port, _):
-                let epoch = self.tunnelManager.activeConnection?.epoch
                 self.observerRegistration.activeLocalPort = port
-                self.observerRegistration.activeEpoch = epoch
                 self.omiRegistration.activeLocalPort = port
-                self.omiRegistration.activeEpoch = epoch
                 self.watchRegistration.activeLocalPort = port
-                self.watchRegistration.activeEpoch = epoch
                 Task {
                     await self.transferEndpointResolver.update(activeLocalPort: port)
                     await self.transferEngine.endpointAvailabilityChanged()
@@ -769,11 +751,8 @@ struct SolstoneSwiftApp: App {
                 }
             case .connecting, .waitingForHome, .disconnected, .error:
                 self.observerRegistration.activeLocalPort = nil
-                self.observerRegistration.activeEpoch = nil
                 self.omiRegistration.activeLocalPort = nil
-                self.omiRegistration.activeEpoch = nil
                 self.watchRegistration.activeLocalPort = nil
-                self.watchRegistration.activeEpoch = nil
                 Task {
                     await self.transferEndpointResolver.update(activeLocalPort: nil)
                     await self.transferEngine.endpointAvailabilityChanged()
@@ -808,6 +787,13 @@ struct SolstoneSwiftApp: App {
     private func bootstrapTransfer() async {
         guard !self.didBootstrapTransfer else { return }
         self.didBootstrapTransfer = true
+
+        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.mobileSegment) { [weak mobileSegmentUploader = self.mobileSegmentUploader] manifest in
+            guard let segmentID = manifest.observerIngest?.segmentID else { return }
+            try await MainActor.run {
+                try mobileSegmentUploader?.writeUploadedTombstone(segmentID: segmentID)
+            }
+        }
 
         do {
             try await self.transferEngine.start()
@@ -846,6 +832,13 @@ struct SolstoneSwiftApp: App {
             transferEnqueuer: self.transferEnqueuer,
             diagnosticLog: self.diagnosticLog
         )
+        await MobileSegmentTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            observerCacheRootURL: cachesRoot?.appendingPathComponent("Observer", isDirectory: true),
+            store: self.mobileSegmentUploader.storeForTransferMigration,
+            diagnosticLog: self.diagnosticLog
+        )
+        await self.mobileSegmentUploader.resumeFromDisk()
 
         if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
             await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)

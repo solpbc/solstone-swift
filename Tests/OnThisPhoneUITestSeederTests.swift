@@ -23,19 +23,20 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
     }
 
     @MainActor
-    func testLargeBacklogDefaultCountSplitsObserverAndOmi() throws {
+    func testLargeBacklogDefaultCountSplitsMobileAndOmiTransferItems() throws {
         let roots = self.makeRoots(suffix: "default")
 
         let summary = try OnThisPhoneUITestSeeder.seedLargeBacklog(
-            observerRoot: roots.observer,
-            omiRoot: roots.omi,
+            transferRoot: roots.transfer,
             requestedCount: OnThisPhoneUITestSeeder.largeBacklogCount(arguments: []),
             fileManager: .default
         )
 
-        XCTAssertEqual(summary, .init(observer: 400, omi: 400, total: 800))
-        XCTAssertEqual(try self.audioFileCount(in: roots.observer), 400)
-        XCTAssertEqual(try self.audioFileCount(in: roots.omi), 400)
+        XCTAssertEqual(summary, .init(mobile: 400, omi: 400, total: 800))
+        XCTAssertEqual(try self.transferManifestCount(in: roots.transfer, source: ObserverAudioTransferSource.mobileSegment), 400)
+        XCTAssertEqual(try self.transferManifestCount(in: roots.transfer, source: ObserverAudioTransferSource.omi), 400)
+        XCTAssertEqual(try self.audioFileCount(in: roots.observer), 0)
+        XCTAssertEqual(try self.audioFileCount(in: roots.omi), 0)
     }
 
     @MainActor
@@ -52,20 +53,17 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
         let second = self.makeRoots(suffix: "second")
 
         _ = try OnThisPhoneUITestSeeder.seedLargeBacklog(
-            observerRoot: first.observer,
-            omiRoot: first.omi,
+            transferRoot: first.transfer,
             requestedCount: 5,
             fileManager: .default
         )
         _ = try OnThisPhoneUITestSeeder.seedLargeBacklog(
-            observerRoot: second.observer,
-            omiRoot: second.omi,
+            transferRoot: second.transfer,
             requestedCount: 5,
             fileManager: .default
         )
 
-        XCTAssertEqual(try self.collectTree(first.observer), try self.collectTree(second.observer))
-        XCTAssertEqual(try self.collectTree(first.omi), try self.collectTree(second.omi))
+        XCTAssertEqual(try self.collectTree(first.transfer), try self.collectTree(second.transfer))
     }
 
     @MainActor
@@ -73,7 +71,7 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
         let roots = self.makeRoots(suffix: "reset")
         let sibling = self.tempDirectory.appendingPathComponent("sibling", isDirectory: true)
 
-        for root in [roots.observer, roots.omi, roots.location, roots.mobileSegment, roots.importQueue, sibling] {
+        for root in [roots.observer, roots.omi, roots.transfer, roots.location, roots.mobileSegment, roots.importQueue, sibling] {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try Data("data".utf8).write(to: root.appendingPathComponent("item.dat"))
         }
@@ -82,6 +80,7 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.observer.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.omi.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: roots.transfer.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.location.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.mobileSegment.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.importQueue.path))
@@ -92,10 +91,23 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
         OnThisPhoneUITestSeeder.Roots(
             observer: self.tempDirectory.appendingPathComponent("\(suffix)-observer", isDirectory: true),
             omi: self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true),
+            transfer: self.tempDirectory.appendingPathComponent("\(suffix)-transfer", isDirectory: true),
             location: self.tempDirectory.appendingPathComponent("\(suffix)-location", isDirectory: true),
             mobileSegment: self.tempDirectory.appendingPathComponent("\(suffix)-mobile-segment", isDirectory: true),
             importQueue: self.tempDirectory.appendingPathComponent("\(suffix)-import", isDirectory: true)
         )
+    }
+
+    private func transferManifestCount(in root: URL, source: String) throws -> Int {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try self.fileURLs(in: root)
+            .filter { $0.lastPathComponent == TransferSpool.manifestFilename }
+            .filter {
+                let manifest = try decoder.decode(TransferManifest.self, from: Data(contentsOf: $0))
+                return manifest.sourceKey == source
+            }
+            .count
     }
 
     private func audioFileCount(in root: URL) throws -> Int {

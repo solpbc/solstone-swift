@@ -34,8 +34,8 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ImportQueue.self) private var importQueue
     @Environment(ObserverManager.self) private var observerManager
-    @Environment(ObserverUploader.self) private var observerUploader
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(TunnelManager.self) private var tunnelManager
@@ -153,10 +153,10 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 Task { await self.loadSnapshot(trigger: .appear) }
                 self.refreshWelcomeFraming()
             }
-            .onChange(of: self.observerUploader.pendingCount) { _, _ in
+            .onChange(of: self.mobileSegmentTransferHolder.pendingCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .observerCounts) }
             }
-            .onChange(of: self.observerUploader.failedCount) { _, _ in
+            .onChange(of: self.mobileSegmentTransferHolder.failedCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .observerCounts) }
             }
             .onChange(of: self.omiUploaderHolder.pendingCount) { _, _ in
@@ -750,8 +750,7 @@ private extension OnThisPhoneMomentsView {
         guard let commit = makeDropCommit(
             for: item,
             importQueue: self.importQueue,
-            observerUploader: self.observerUploader,
-            transferEngine: self.omiUploaderHolder.transferEngine,
+            transferEngine: self.mobileSegmentTransferHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader,
             removeWatchStaging: self.watchUploaderHolder.removeStaging
         ) else {
@@ -768,8 +767,7 @@ private extension OnThisPhoneMomentsView {
         guard let commit = makeRetryCommit(
             for: item,
             importQueue: self.importQueue,
-            observerUploader: self.observerUploader,
-            transferEngine: self.omiUploaderHolder.transferEngine,
+            transferEngine: self.mobileSegmentTransferHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader
         ) else {
             return
@@ -786,7 +784,7 @@ private extension OnThisPhoneMomentsView {
         let aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: self.importQueue,
             mobileSegmentUploader: self.mobileSegmentUploader,
-            transferEngine: self.omiUploaderHolder.transferEngine
+            transferEngine: self.mobileSegmentTransferHolder.transferEngine
         )
         self.aggregate = aggregate
         let displayAggregate = self.displayAggregate ?? aggregate

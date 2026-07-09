@@ -153,6 +153,7 @@ targets:
       - Sources/Instrumentation/DrainSignpost.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift
+      - Sources/Observer/ObserverAudioTransferSource.swift
       - Sources/Observer/ObserverServerURL.swift
       - Sources/SourceVocabulary.swift
       - Sources/Design/Colors.swift

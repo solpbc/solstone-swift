@@ -25,7 +25,6 @@ nonisolated final class LastSyncedTests: XCTestCase {
     }
 
     private static func uploadDiagnosticMessage(source: String, stage: String) -> String {
-        // appendUploadDiagnostic is private; ObserverUploaderTests covers the emitted success event.
         stage == "success" ? "synced to your journal" : "\(source) upload \(stage)"
     }
 }

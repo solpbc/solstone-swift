@@ -2,9 +2,52 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Foundation
 import XCTest
 
 nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
+    @MainActor
+    func testAC8DriveUploadDrainEnqueuesMobilePendingSegmentAndKicksEngine() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 204), Data())
+        }
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BackgroundDrainCoordinatorTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let transfer = makeTransferCutoverHarness(
+            rootURL: tempDirectory.appendingPathComponent("Transfers", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        )
+        try await transfer.engine.start()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_780_480_800))
+        let store = MobileSegmentStore(rootURL: tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
+        let uploader = MobileSegmentUploader(transferEngine: transfer.engine, store: store, clock: clock)
+        let segmentID = try Self.seedMobileSegment(store: store, clock: clock)
+        let importQueue = ImportQueue(
+            cacheRootURL: tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true),
+            sessionConfiguration: .ephemeral,
+            mode: .enqueueOnly,
+            startPathMonitor: false
+        )
+
+        await driveUploadDrain(
+            mobileSegment: uploader,
+            transferEngine: transfer.engine,
+            importQueue: importQueue,
+            watchDrain: nil
+        )
+
+        try await transferTestWaitFor("mobile drain delivered", timeout: .seconds(4)) {
+            await transfer.engine.snapshot().sources[ObserverAudioTransferSource.mobileSegment]?.deliveredCount == 1
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.segmentDirectoryURL(.pending, segmentID: segmentID).path
+        ))
+    }
+
     @MainActor
     func testDrainedTerminalRunsDriveOnceAndDisconnects() async {
         let totals = TotalsBox(failed: 1, pending: 1)
@@ -354,6 +397,48 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
             return 0
         }
         return Mirror(reflecting: sleepers.value).children.count
+    }
+}
+
+private extension BackgroundDrainCoordinatorTests {
+    @MainActor
+    static func seedMobileSegment(store: MobileSegmentStore, clock: MockObserverClock) throws -> UUID {
+        let startedAt = clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        let segmentID = UUID()
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = .pending
+        let directory = try store.createActive(manifest: manifest)
+        let audioURL = store.audioURL(in: directory)
+        try Data("audio".utf8).write(to: audioURL, options: .atomic)
+        try store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: audioURL.lastPathComponent,
+                bytes: store.fileSize(at: audioURL),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60,
+                mode: .meeting
+            ),
+            source: .audio,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        manifest.upload = .pending
+        try store.writeManifest(manifest, in: directory)
+        _ = try store.move(segmentID: segmentID, from: .active, to: .pending)
+        return segmentID
     }
 }
 

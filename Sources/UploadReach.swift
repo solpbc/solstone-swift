@@ -5,7 +5,7 @@ import Foundation
 
 @MainActor
 func uploadTotals(
-    mobileSegment: MobileSegmentUploader,
+    mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     importQueue: ImportQueue
@@ -18,14 +18,13 @@ func uploadTotals(
 
 @MainActor
 func confirmedTransferCount(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     importQueue: ImportQueue
 ) -> Int {
-    // Transfer activity intentionally excludes MobileSegmentUploader; mobile segment URLSession work is owned by ObserverUploader.
     confirmedTransferCount(
-        observer: observer.confirmedActiveTransferCount,
+        mobileSegment: mobileSegment.confirmedActiveTransferCount,
         omi: omi.confirmedActiveTransferCount,
         watch: watch.confirmedActiveTransferCount,
         importQueue: importQueue.confirmedActiveTransferCount
@@ -33,24 +32,23 @@ func confirmedTransferCount(
 }
 
 nonisolated func confirmedTransferCount(
-    observer: Int,
+    mobileSegment: Int,
     omi: Int,
     watch: Int,
     importQueue: Int
 ) -> Int {
-    observer + omi + watch + importQueue
+    mobileSegment + omi + watch + importQueue
 }
 
 @MainActor
 func recentBytesTotal(
-    observer: ObserverUploader,
+    mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     importQueue: ImportQueue
 ) -> Double {
-    // Transfer activity intentionally excludes MobileSegmentUploader; mobile segment bytes are recorded by ObserverUploader.
     recentBytesTotal(
-        observer: observer.recentBytesPerSecond,
+        mobileSegment: mobileSegment.recentBytesPerSecond,
         omi: omi.recentBytesPerSecond,
         watch: watch.recentBytesPerSecond,
         importQueue: importQueue.recentBytesPerSecond
@@ -58,17 +56,17 @@ func recentBytesTotal(
 }
 
 nonisolated func recentBytesTotal(
-    observer: Double,
+    mobileSegment: Double,
     omi: Double,
     watch: Double,
     importQueue: Double
 ) -> Double {
-    observer + omi + watch + importQueue
+    mobileSegment + omi + watch + importQueue
 }
 
 @MainActor
 func uploadInFlight(
-    mobileSegment: MobileSegmentUploader,
+    mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     importQueue: ImportQueue
@@ -78,7 +76,7 @@ func uploadInFlight(
 
 @MainActor
 func uploadFailedTotal(
-    mobileSegment: MobileSegmentUploader,
+    mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     importQueue: ImportQueue
@@ -97,7 +95,7 @@ nonisolated func lastSyncedAt(_ dates: [Date?]) -> Date? {
 
 @MainActor
 func lastSyncedAt(
-    mobileSegment: MobileSegmentUploader,
+    mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     importQueue: ImportQueue

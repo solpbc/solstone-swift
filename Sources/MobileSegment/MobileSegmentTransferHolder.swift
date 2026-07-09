@@ -60,6 +60,16 @@ final class MobileSegmentTransferHolder: ObserverQueueHealthProviding {
         self.status.lastDeliveredAt
     }
 
+    func summary(for source: MobileSegmentSource) -> MobileSegmentSourceSummary {
+        let storeSummary = self.uploader.summary(for: source)
+        return MobileSegmentSourceSummary(
+            pendingCount: self.status.queuedCount + self.status.inFlightCount,
+            failedCount: self.status.attentionCount + storeSummary.failedCount,
+            lastUploadAt: self.lastUploadAt,
+            lastError: self.lastError
+        )
+    }
+
     private var status: TransferSourceStatusSnapshot {
         self.mirror.sources[self.sourceKey] ?? TransferSourceStatusSnapshot(
             queuedCount: 0,

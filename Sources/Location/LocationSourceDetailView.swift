@@ -7,6 +7,7 @@ import UIKit
 struct LocationSourceDetailView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
@@ -181,7 +182,7 @@ private extension LocationSourceDetailView {
     }
 
     var deliveryBlock: some View {
-        let bundleSummary = self.mobileSegmentUploader.summary(for: .location)
+        let bundleSummary = self.mobileSegmentTransferHolder.summary(for: .location)
         let summary = LocationDetailPresentation.deliverySummary(
             pending: bundleSummary.pendingCount,
             failed: bundleSummary.failedCount
@@ -195,7 +196,10 @@ private extension LocationSourceDetailView {
             if summary.showsRetry {
                 Button(SourceVocabulary.retry) {
                     Task {
-                        await self.mobileSegmentUploader.retryFailed(respectingCooldown: false)
+                        await self.mobileSegmentUploader.resolveFinalizeFailurePile()
+                        try? await self.mobileSegmentTransferHolder.transferEngine.retryAttention(
+                            source: ObserverAudioTransferSource.mobileSegment
+                        )
                     }
                 }
                 .buttonStyle(.borderedProminent)

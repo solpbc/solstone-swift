@@ -32,23 +32,32 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         let harness = self.makeHarness()
         let segmentID = UUID()
         try self.writeMixedBundle(store: harness.store, segmentID: segmentID, lifecycle: .pending)
-        harness.mobileSegmentUploader.refreshCounts()
+        await harness.mobileSegmentUploader.resumeFromDisk()
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             importQueue: harness.importQueue,
             mobileSegmentUploader: harness.mobileSegmentUploader,
             transferEngine: harness.transferEngine
         )
-        let facets = snapshot.items.filter { $0.dropGroupID == "mobile-segment:\(segmentID.uuidString)" }
+        let transferSnapshots = await harness.transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let transferSnapshot = try XCTUnwrap(
+            transferSnapshots.first { $0.manifest.observerIngest?.segmentID == segmentID }
+        )
+        let facets = snapshot.items.filter {
+            $0.dropGroupID == OnThisPhoneItemID.mobileSegmentTransferDropGroupID(itemID: transferSnapshot.itemID)
+        }
         XCTAssertEqual(facets.count, 3)
         XCTAssertEqual(Set(facets.map(\.sourceKind)), [.audio, .location, .screencast])
-        XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
-        XCTAssertEqual(harness.mobileSegmentUploader.summary(for: .audio).pendingCount, 1)
-        XCTAssertEqual(harness.mobileSegmentUploader.summary(for: .location).pendingCount, 1)
-        XCTAssertEqual(harness.mobileSegmentUploader.summary(for: .screencast).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 0)
+        try await transferTestWaitFor("mobile holder queued") {
+            await MainActor.run { harness.mobileSegmentHolder.pendingCount == 1 }
+        }
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .audio).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .screencast).pendingCount, 1)
 
         let totals = uploadTotals(
-            mobileSegment: harness.mobileSegmentUploader,
+            mobileSegment: harness.mobileSegmentHolder,
             omi: harness.omiHolder,
             watch: harness.watchHolder,
             importQueue: harness.importQueue
@@ -58,7 +67,7 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         let registration = self.registration()
         let beacon = ObserverHealthBeacon(
             registration: registration,
-            uploader: harness.mobileSegmentUploader,
+            uploader: harness.mobileSegmentHolder,
             isJournalConfigured: { true },
             session: self.healthSession(),
             clock: self.clock,
@@ -85,31 +94,24 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         try self.writeMixedBundle(store: harness.store, segmentID: pendingSegmentID, lifecycle: .pending)
         harness.mobileSegmentUploader.refreshCounts()
 
+        let failedSegmentID = UUID()
+        try self.writeMixedBundle(store: harness.store, segmentID: failedSegmentID, lifecycle: .failed)
+        harness.mobileSegmentUploader.refreshCounts()
+
         let item = try XCTUnwrap(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .audio).loadedItems.first)
         let commit = try XCTUnwrap(makeDropCommit(
             for: item,
             importQueue: harness.importQueue,
-            observerUploader: harness.observerUploader,
             transferEngine: harness.transferEngine,
             mobileSegmentUploader: harness.mobileSegmentUploader
         ))
         commit()
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: pendingSegmentID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: pendingSegmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: failedSegmentID).path))
         XCTAssertTrue(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .audio).loadedItems.isEmpty)
         XCTAssertTrue(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .location).loadedItems.isEmpty)
         XCTAssertTrue(harness.mobileSegmentUploader.onThisPhoneSnapshot(for: .screencast).loadedItems.isEmpty)
-
-        let failedSegmentID = UUID()
-        try self.writeMixedBundle(store: harness.store, segmentID: failedSegmentID, lifecycle: .failed)
-        harness.mobileSegmentUploader.refreshCounts()
-        await harness.mobileSegmentUploader.retryFailed(respectingCooldown: false)
-
-        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: failedSegmentID)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: pendingDirectory).path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: pendingDirectory).path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: pendingDirectory).path))
         XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentUploader.failedCount, 0)
     }
@@ -122,22 +124,13 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         await harness.mobileSegmentUploader.redactScreencastFacet(segmentID: mixedSegmentID)
 
         let mixedDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: mixedSegmentID)
-        let mixedManifest = try harness.store.readManifest(in: mixedDirectory)
-        XCTAssertEqual(mixedManifest.audio.state, .finalizedArtifact)
-        XCTAssertEqual(mixedManifest.location.state, .finalizedArtifact)
-        XCTAssertEqual(mixedManifest.screencast.state, .removed)
+        let mixedSnapshots = await harness.transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let mixedSnapshot = try XCTUnwrap(
+            mixedSnapshots.first { $0.manifest.observerIngest?.segmentID == mixedSegmentID }
+        )
+        XCTAssertEqual(Set(mixedSnapshot.manifest.payloadParts.map(\.partID)), ["audio", "location"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mixedDirectory.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.screenURL(in: mixedDirectory).path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: mixedDirectory).path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: mixedDirectory).path))
-
-        let requestBodyURL = self.tempDirectory
-            .appendingPathComponent("observer", isDirectory: true)
-            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
-            .appendingPathComponent("\(mixedSegmentID.uuidString).upload", isDirectory: false)
-        let requestBody = try String(contentsOf: requestBodyURL, encoding: .utf8)
-        XCTAssertTrue(requestBody.contains("filename=\"audio.m4a\""))
-        XCTAssertTrue(requestBody.contains("filename=\"location.jsonl\""))
-        XCTAssertFalse(requestBody.contains("filename=\"screen.mp4\""))
 
         let screenOnlySegmentID = UUID()
         try self.writeScreencastBundle(store: harness.store, segmentID: screenOnlySegmentID, lifecycle: .pending)
@@ -153,38 +146,31 @@ final class MobileSegmentOwnerSurfaceTests: XCTestCase {
 
     func testLocationRedactionPreservesFinalizedScreencastAndRebuildsUpload() async throws {
         let harness = self.makeHarness()
-        let segmentID = try await self.createPublicFinalizedLocationScreencastSegment(
-            uploader: harness.mobileSegmentUploader
-        )
+        let segmentID = UUID()
+        try self.writeMixedBundle(store: harness.store, segmentID: segmentID, lifecycle: .pending)
         let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
 
         await harness.mobileSegmentUploader.redactLocationFacet(segmentID: segmentID)
-        await harness.mobileSegmentUploader.resumeFromDisk()
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingDirectory.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.locationURL(in: pendingDirectory).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
-        XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 1)
+        XCTAssertEqual(harness.mobileSegmentUploader.pendingCount, 0)
         XCTAssertEqual(harness.mobileSegmentUploader.failedCount, 0)
 
-        let manifest = try harness.store.readManifest(in: pendingDirectory)
-        XCTAssertEqual(manifest.audio.state, .notDeclared)
-        XCTAssertEqual(manifest.location.state, .removed)
-        XCTAssertEqual(manifest.screencast.state, .finalizedArtifact)
-
-        let requestBody = try Data(contentsOf: self.requestBodyURL(for: segmentID))
-        let requestBodyString = String(decoding: requestBody, as: UTF8.self)
-        XCTAssertTrue(requestBodyString.contains(#"filename="screen.mp4""#))
-        XCTAssertFalse(requestBodyString.contains(#"filename="location.jsonl""#))
-        XCTAssertEqual((try self.multipartMeta(in: requestBody)["sources"] as? [String])?.sorted(), ["screencast"])
+        let snapshots = await harness.transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let snapshot = try XCTUnwrap(
+            snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID }
+        )
+        XCTAssertEqual(Set(snapshot.manifest.payloadParts.map(\.partID)), ["audio", "screencast"])
+        XCTAssertEqual(snapshot.manifest.observerIngest?.sources.sorted(), ["audio", "screencast"])
     }
 }
 
 private extension MobileSegmentOwnerSurfaceTests {
     struct Harness {
-        let observerUploader: ObserverUploader
         let mobileSegmentUploader: MobileSegmentUploader
+        let mobileSegmentHolder: MobileSegmentTransferHolder
         let store: MobileSegmentStore
         let importQueue: ImportQueue
         let transferEngine: TransferEngine
@@ -193,19 +179,23 @@ private extension MobileSegmentOwnerSurfaceTests {
     }
 
     func makeHarness() -> Harness {
-        let observerUploader = ObserverUploader(
-            cacheRootURL: self.tempDirectory.appendingPathComponent("observer", isDirectory: true),
-            isJournalConfigured: { false },
-            localPortProvider: { nil },
-            startPathMonitor: false
-        )
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
         )
+        let mobileSegmentUploader = MobileSegmentUploader(
+            transferEngine: transferHarness.engine,
+            store: store,
+            clock: self.clock
+        )
+        let mobileSegmentHolder = MobileSegmentTransferHolder(
+            transferEngine: transferHarness.engine,
+            mirror: transferHarness.mirror,
+            uploader: mobileSegmentUploader
+        )
         return Harness(
-            observerUploader: observerUploader,
-            mobileSegmentUploader: MobileSegmentUploader(transport: observerUploader, store: store, clock: self.clock),
+            mobileSegmentUploader: mobileSegmentUploader,
+            mobileSegmentHolder: mobileSegmentHolder,
             store: store,
             importQueue: ImportQueue(
                 cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true),
@@ -288,7 +278,7 @@ private extension MobileSegmentOwnerSurfaceTests {
                     httpStatus: nil,
                     transportError: nil,
                     attemptCount: 1,
-                    stage: "test",
+                    stage: "source-finalize",
                     lastAttemptAt: endedAt
                 ),
                 in: directory
@@ -375,13 +365,6 @@ private extension MobileSegmentOwnerSurfaceTests {
 
         await uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
         return segmentID
-    }
-
-    func requestBodyURL(for segmentID: UUID) -> URL {
-        self.tempDirectory
-            .appendingPathComponent("observer", isDirectory: true)
-            .appendingPathComponent("MobileSegmentBackgroundBodies", isDirectory: true)
-            .appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
     }
 
     func registration() -> ObserverRegistration {

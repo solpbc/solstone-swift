@@ -180,6 +180,21 @@ func transferTestBoundaryItemID(from request: URLRequest) -> UUID? {
 
 extension XCTestCase {
     @nonobjc
+    func assertNoSourceCodeRemovesTransferQuarantine() throws {
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources", isDirectory: true)
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sourceRoot, includingPropertiesForKeys: nil))
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url)
+            for line in text.split(separator: "\n") where line.contains("quarantine") || line.contains("TransferQuarantine") {
+                XCTAssertFalse(line.contains("removeItem"), "\(url.lastPathComponent): \(line)")
+            }
+        }
+    }
+
+    @nonobjc
     func multipartValue(named name: String, in body: Data) -> String? {
         let string = String(decoding: body, as: UTF8.self)
         guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),

@@ -11,14 +11,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     private var tempDirectory: URL!
     private var suiteName: String!
     private var defaults: UserDefaults!
-    @MainActor private lazy var mobileTransport = ObserverUploader(
-        cacheRootURL: self.tempDirectory.appendingPathComponent("mobile-transport", isDirectory: true),
-        isJournalConfigured: { false },
-        localPortProvider: { nil },
-        startPathMonitor: false
-    )
     @MainActor private lazy var mobileSegmentUploader = MobileSegmentUploader(
-        transport: self.mobileTransport,
         store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
         clock: self.clock
     )

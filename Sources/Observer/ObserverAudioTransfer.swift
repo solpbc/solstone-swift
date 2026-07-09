@@ -3,12 +3,6 @@
 
 import Foundation
 
-nonisolated enum ObserverAudioTransferSource {
-    static let omi = "omi-audio"
-    static let watch = "watch-audio"
-    static let mobileSegment = "mobile-segment"
-}
-
 actor ObserverIngestTransferEndpointResolver: TransferEndpointResolver {
     private var activeLocalPort: Int?
 
@@ -346,6 +340,17 @@ final class ObserverAudioTransferEnqueuer {
 }
 
 nonisolated enum ObserverAudioTransferSnapshotMapper {
+    static func mobileSegmentSourceResults(
+        snapshots: [TransferItemSnapshot],
+        engine: TransferEngine
+    ) async -> [MobileSegmentSource: OnThisPhoneSourceResult] {
+        let items = await self.mobileSegmentItems(snapshots: snapshots, engine: engine)
+        return Dictionary(uniqueKeysWithValues: MobileSegmentSource.allCases.map { source in
+            let kind = OnThisPhoneSourceKind(mobileSegmentSource: source)
+            return (source, .loaded(items: OnThisPhoneItemSort.newestFirst(items.filter { $0.sourceKind == kind })))
+        })
+    }
+
     static func sourceResult(
         snapshots: [TransferItemSnapshot],
         source: OnThisPhoneAudioSource,
@@ -403,6 +408,55 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
         return items
     }
 
+    static func mobileSegmentItems(
+        snapshots: [TransferItemSnapshot],
+        engine: TransferEngine
+    ) async -> [OnThisPhoneItem] {
+        var items: [OnThisPhoneItem] = []
+        for snapshot in snapshots {
+            let manifest = snapshot.manifest
+            let ingest = manifest.observerIngest
+            let attention = manifest.attention
+            let failureReason = attention.map { info in
+                info.reason == info.shortDetail ? info.reason : "\(info.reason): \(info.shortDetail)"
+            }
+            for part in manifest.payloadParts {
+                guard let source = MobileSegmentSource(payloadKind: part.kind),
+                      let facet = OnThisPhoneMobileSegmentFacet(rawValue: source.rawValue)
+                else {
+                    continue
+                }
+                let rawURL = await engine.payloadFileURL(itemID: snapshot.itemID, partID: part.partID)
+                items.append(OnThisPhoneItem(
+                    id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: snapshot.itemID, facet: facet),
+                    dropGroupID: OnThisPhoneItemID.mobileSegmentTransferDropGroupID(itemID: snapshot.itemID),
+                    sourceKind: OnThisPhoneSourceKind(mobileSegmentSource: source),
+                    sendState: self.sendState(for: snapshot.state),
+                    contentType: part.contentType,
+                    filename: part.filename,
+                    bytes: part.byteCount.map(Int64.init),
+                    originApp: nil,
+                    basis: nil,
+                    itemTime: ingest?.startedAt ?? manifest.createdAt,
+                    targetJournal: nil,
+                    stream: nil,
+                    day: ingest?.day,
+                    segment: ingest?.segment,
+                    deliveredAt: nil,
+                    rawFileURL: rawURL,
+                    audioDurationS: source == .audio ? ingest?.durationS : nil,
+                    locationFixCount: nil,
+                    failureReason: failureReason,
+                    failureAttemptCount: snapshot.attempts > 0 ? snapshot.attempts : nil,
+                    sourceLabel: nil,
+                    retryAvailable: snapshot.state == .attention,
+                    lastAttemptAt: attention?.movedAt
+                ))
+            }
+        }
+        return items
+    }
+
     private static func sendState(for state: TransferRuntimeState) -> OnThisPhoneSendState {
         switch state {
         case .queued, .held, .paused, .salvaged:
@@ -426,5 +480,33 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
         }
         guard !values.isEmpty else { return nil }
         return Int64(values.reduce(0, +))
+    }
+}
+
+private extension MobileSegmentSource {
+    nonisolated init?(payloadKind: TransferPayloadKind) {
+        switch payloadKind {
+        case .audio:
+            self = .audio
+        case .location:
+            self = .location
+        case .screen:
+            self = .screencast
+        case .file, .text:
+            return nil
+        }
+    }
+}
+
+private extension OnThisPhoneSourceKind {
+    nonisolated init(mobileSegmentSource: MobileSegmentSource) {
+        switch mobileSegmentSource {
+        case .audio:
+            self = .audio
+        case .location:
+            self = .location
+        case .screencast:
+            self = .screencast
+        }
     }
 }

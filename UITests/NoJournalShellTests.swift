@@ -303,6 +303,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         self.scrollToElement(row, in: surface)
         XCTAssertTrue(row.waitForExistence(timeout: 10), "seed mobile audio row")
         let rowID = row.identifier
+        let exactRow = app.descendants(matching: .any)[rowID]
         row.tap()
 
         let dropButton = app.buttons["onThisPhone.drop.button"]
@@ -320,7 +321,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.drop.snackbar"].waitForExistence(timeout: 5), rowID)
         XCTAssertTrue(app.staticTexts["dropped “1m 15s of audio”."].waitForExistence(timeout: 5), rowID)
-        XCTAssertTrue(row.waitForNonExistence(timeout: 2), rowID)
+        XCTAssertTrue(exactRow.waitForNonExistence(timeout: 2), rowID)
     }
 
     @MainActor
@@ -331,6 +332,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         self.scrollToElement(row, in: surface)
         XCTAssertTrue(row.waitForExistence(timeout: 10), "seed mobile audio row")
         let rowID = row.identifier
+        let exactRow = app.descendants(matching: .any)[rowID]
 
         let askBar = app.buttons["dayHome.askBar"]
         var attempts = 0
@@ -357,13 +359,13 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.drop.snackbar"].waitForExistence(timeout: 5), rowID)
         XCTAssertTrue(app.staticTexts["dropped “1m 15s of audio”."].waitForExistence(timeout: 5), rowID)
-        XCTAssertTrue(row.waitForNonExistence(timeout: 0.5), rowID)
+        XCTAssertTrue(exactRow.waitForNonExistence(timeout: 0.5), rowID)
 
         let undoButton = app.descendants(matching: .any)["onThisPhone.drop.undo"]
         XCTAssertTrue(undoButton.waitForExistence(timeout: 5), rowID)
         undoButton.tap()
 
-        XCTAssertTrue(row.waitForExistence(timeout: 3), rowID)
+        XCTAssertTrue(exactRow.waitForExistence(timeout: 3), rowID)
         XCTAssertFalse(app.descendants(matching: .any)["onThisPhone.drop.snackbar"].waitForExistence(timeout: 2), rowID)
     }
 
@@ -425,9 +427,11 @@ private extension NoJournalShellTests {
     }
 
     func seedAudioRow(in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any)[
-            "onThisPhone.row.mobile-segment:EDB611FC-5F2C-5218-98BF-7D8006DD36EF:audio"
-        ]
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
+            "onThisPhone.row.transfer:mobile-segment:",
+            ":audio"
+        )).firstMatch
     }
 
     func scrollToElement(_ element: XCUIElement, in surface: XCUIElement) {

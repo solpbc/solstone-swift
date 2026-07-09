@@ -24,14 +24,11 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
 }
 
 nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
-    case observer
     case omi
     case watch
 
     init?(sourceType: String) {
         switch sourceType {
-        case "observer-audio":
-            self = .observer
         case "omi-audio":
             self = .omi
         case "watch-audio":
@@ -43,8 +40,6 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
 
     init?(idPrefix: String) {
         switch idPrefix {
-        case "audio":
-            self = .observer
         case "omi":
             self = .omi
         case "watch":
@@ -56,8 +51,6 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
 
     var idPrefix: String {
         switch self {
-        case .observer:
-            "audio"
         case .omi:
             "omi"
         case .watch:
@@ -67,8 +60,6 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
 
     var sourceLabel: String {
         switch self {
-        case .observer:
-            SourceVocabulary.onThisPhoneObserverAudioSourceLabel
         case .omi:
             SourceVocabulary.onThisPhoneOmiAudioSourceLabel
         case .watch:
@@ -269,11 +260,26 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             case .screencast:
                 return SourceVocabulary.onThisPhoneDropScreencastDescriptor
             }
-        case .audio, .transfer:
+        case .transfer:
             guard let duration = Self.formattedDuration(self.audioDurationS) else {
                 return self.filename ?? SourceVocabulary.notProvided
             }
             return SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: duration)
+        case .mobileSegmentTransfer(itemID: _, facet: let facet):
+            switch facet {
+            case .audio:
+                guard let duration = Self.formattedDuration(self.audioDurationS) else {
+                    return self.filename ?? SourceVocabulary.notProvided
+                }
+                return SourceVocabulary.onThisPhoneDropAudioDescriptor(duration: duration)
+            case .location:
+                guard let locationFixCount else {
+                    return self.filename ?? SourceVocabulary.notProvided
+                }
+                return SourceVocabulary.onThisPhoneDropLocationDescriptor(count: locationFixCount)
+            case .screencast:
+                return SourceVocabulary.onThisPhoneDropScreencastDescriptor
+            }
         case .share:
             return self.filename ?? SourceVocabulary.notProvided
         }
@@ -297,10 +303,9 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             return nil
         }
         switch itemID {
-        case .audio(sessionID: _, chunkID: _, source: let source),
-             .transfer(itemID: _, source: let source):
+        case .transfer(itemID: _, source: let source):
             return source
-        case .share, .mobileSegment:
+        case .share, .mobileSegment, .mobileSegmentTransfer:
             return nil
         }
     }
@@ -315,7 +320,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             "omi"
         case .some(.watch):
             SourceVocabulary.onThisPhoneWatchAudioSourceLabel
-        case .some(.observer), .none:
+        case .none:
             nil
         }
     }
@@ -455,8 +460,8 @@ nonisolated enum OnThisPhoneItemSort {
 nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
     case share(UUID)
     case mobileSegment(segmentID: UUID, facet: OnThisPhoneMobileSegmentFacet)
-    case audio(sessionID: UUID, chunkID: String, source: OnThisPhoneAudioSource)
     case transfer(itemID: UUID, source: OnThisPhoneAudioSource)
+    case mobileSegmentTransfer(itemID: UUID, facet: OnThisPhoneMobileSegmentFacet)
 
     init?(sourceKind: OnThisPhoneSourceKind, id: String) {
         switch sourceKind {
@@ -468,22 +473,22 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
                 self = mobile
                 return
             }
+            if let transfer = Self.mobileSegmentTransferID(from: id) {
+                self = transfer
+                return
+            }
             if let transfer = Self.transferID(from: id) {
                 self = transfer
                 return
             }
-            let parts = id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3,
-                  let source = OnThisPhoneAudioSource(idPrefix: String(parts[0])),
-                  let sessionID = UUID(uuidString: String(parts[1])),
-                  !parts[2].isEmpty
-            else {
-                return nil
-            }
-            self = .audio(sessionID: sessionID, chunkID: String(parts[2]), source: source)
+            return nil
         case .location, .screencast:
             if let mobile = Self.mobileSegmentID(from: id) {
                 self = mobile
+                return
+            }
+            if let transfer = Self.mobileSegmentTransferID(from: id) {
+                self = transfer
                 return
             }
             return nil
@@ -492,6 +497,14 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
 
     static func transferIDString(itemID: UUID, source: OnThisPhoneAudioSource) -> String {
         "transfer:\(source.idPrefix):\(itemID.uuidString)"
+    }
+
+    static func mobileSegmentTransferIDString(itemID: UUID, facet: OnThisPhoneMobileSegmentFacet) -> String {
+        "transfer:\(ObserverAudioTransferSource.mobileSegment):\(itemID.uuidString):\(facet.rawValue)"
+    }
+
+    static func mobileSegmentTransferDropGroupID(itemID: UUID) -> String {
+        "transfer:\(ObserverAudioTransferSource.mobileSegment):\(itemID.uuidString)"
     }
 
     private static func transferID(from id: String) -> OnThisPhoneItemID? {
@@ -504,6 +517,19 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
             return nil
         }
         return .transfer(itemID: itemID, source: source)
+    }
+
+    private static func mobileSegmentTransferID(from id: String) -> OnThisPhoneItemID? {
+        let parts = id.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              parts[0] == "transfer",
+              parts[1] == Substring(ObserverAudioTransferSource.mobileSegment),
+              let itemID = UUID(uuidString: String(parts[2])),
+              let facet = OnThisPhoneMobileSegmentFacet(rawValue: String(parts[3]))
+        else {
+            return nil
+        }
+        return .mobileSegmentTransfer(itemID: itemID, facet: facet)
     }
 
     private static func mobileSegmentID(from id: String) -> OnThisPhoneItemID? {

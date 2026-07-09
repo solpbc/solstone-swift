@@ -438,7 +438,7 @@ final class ScreencastManager {
         rootURLProvider: @escaping () throws -> URL = { try AppGroupContainer.rootURL() },
         darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter()
     ) {
-        let uploader = MobileSegmentUploader(transport: ObserverUploader(), clock: clock)
+        let uploader = MobileSegmentUploader(clock: clock)
         let engine = MobileSegmentEngine(uploader: uploader, clock: clock)
         self.init(
             engine: engine,
