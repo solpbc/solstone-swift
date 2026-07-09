@@ -9,36 +9,6 @@ import os
 nonisolated private let uploaderLog = Logger(subsystem: "app.solstone.swift", category: "uploader")
 private let mobileSegmentMaxRequeueAttempts = 5
 
-nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
-    let segment: String
-    let day: String
-    let chunkIndex: Int
-    let startedAt: Date
-    let durationS: TimeInterval
-    let sessionID: UUID
-    let mode: ObserverMode
-    let locationJSONL: Data?
-
-    enum CodingKeys: String, CodingKey {
-        case segment
-        case day
-        case chunkIndex = "chunk_index"
-        case startedAt = "started_at"
-        case durationS = "duration_s"
-        case sessionID = "session_id"
-        case mode
-        case locationJSONL = "location_jsonl"
-    }
-
-    nonisolated static func segmentString(for date: Date, durationSeconds: Double) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
-        formatter.dateFormat = "HHmmss"
-        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
-    }
-}
-
 nonisolated struct ObserverUploadFailureSidecar: Codable, Equatable, Sendable {
     let reason: String
     let httpStatus: Int?
@@ -1052,7 +1022,7 @@ private extension ObserverUploader {
         guard let taskDescription,
               let data = taskDescription.data(using: .utf8),
               let descriptor = try? JSONDecoder().decode(MobileSegmentUploadTaskDescriptor.self, from: data),
-              descriptor.kind == "mobile-segment"
+              descriptor.kind == ObserverAudioTransferSource.mobileSegment
         else {
             return nil
         }
@@ -1479,7 +1449,7 @@ private extension ObserverUploader {
         let epoch = self.activeEpochProvider()
         let task = self.session.uploadTask(with: request, fromFile: requestBodyURL)
         task.taskDescription = self.taskDescription(for: MobileSegmentUploadTaskDescriptor(
-            kind: "mobile-segment",
+            kind: ObserverAudioTransferSource.mobileSegment,
             sourceType: self.sourceType,
             segmentID: segmentID,
             localPort: localPort,

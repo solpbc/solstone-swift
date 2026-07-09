@@ -539,20 +539,6 @@ private extension WatchSegmentDrainTests {
         return String(decoding: body, as: UTF8.self)
     }
 
-    func multipartValue(named name: String, in body: String) throws -> String {
-        let marker = "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"
-        let start = try XCTUnwrap(body.range(of: marker))
-        let rest = body[start.upperBound...]
-        let end = try XCTUnwrap(rest.range(of: "\r\n--"))
-        return String(rest[..<end.lowerBound])
-    }
-
-    func multipartMeta(in body: String) throws -> [String: Any] {
-        let value = try self.multipartValue(named: "meta", in: body)
-        let object = try JSONSerialization.jsonObject(with: Data(value.utf8))
-        return try XCTUnwrap(object as? [String: Any])
-    }
-
     func filesPartCount(in body: String) -> Int {
         body.components(separatedBy: "name=\"files\"").count - 1
     }

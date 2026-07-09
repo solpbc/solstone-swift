@@ -384,21 +384,6 @@ private extension MobileSegmentOwnerSurfaceTests {
             .appendingPathComponent("\(segmentID.uuidString).upload", isDirectory: false)
     }
 
-    func multipartValue(named name: String, in body: Data) -> String? {
-        let string = String(decoding: body, as: UTF8.self)
-        guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),
-              let separator = string[headerRange.upperBound...].range(of: "\r\n\r\n")
-        else { return nil }
-        let valueStart = separator.upperBound
-        guard let valueEnd = string[valueStart...].range(of: "\r\n--")?.lowerBound else { return nil }
-        return String(string[valueStart..<valueEnd])
-    }
-
-    func multipartMeta(in body: Data) throws -> [String: Any] {
-        let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
-    }
-
     func registration() -> ObserverRegistration {
         let registration = ObserverRegistration(
             hostname: "test-device",

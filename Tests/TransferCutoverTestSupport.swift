@@ -178,6 +178,41 @@ func transferTestBoundaryItemID(from request: URLRequest) -> UUID? {
     return UUID(uuidString: String(contentType[range.upperBound...]))
 }
 
+extension XCTestCase {
+    @nonobjc
+    func multipartValue(named name: String, in body: Data) -> String? {
+        let string = String(decoding: body, as: UTF8.self)
+        guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),
+              let separator = string[headerRange.upperBound...].range(of: "\r\n\r\n")
+        else { return nil }
+        let valueStart = separator.upperBound
+        guard let valueEnd = string[valueStart...].range(of: "\r\n--")?.lowerBound else { return nil }
+        return String(string[valueStart..<valueEnd])
+    }
+
+    @nonobjc
+    func multipartValue(named name: String, in body: String) throws -> String {
+        let marker = "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"
+        let start = try XCTUnwrap(body.range(of: marker))
+        let rest = body[start.upperBound...]
+        let end = try XCTUnwrap(rest.range(of: "\r\n--"))
+        return String(rest[..<end.lowerBound])
+    }
+
+    @nonobjc
+    func multipartMeta(in body: Data) throws -> [String: Any] {
+        let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
+    }
+
+    @nonobjc
+    func multipartMeta(in body: String) throws -> [String: Any] {
+        let value = try self.multipartValue(named: "meta", in: body)
+        let object = try JSONSerialization.jsonObject(with: Data(value.utf8))
+        return try XCTUnwrap(object as? [String: Any])
+    }
+}
+
 @MainActor
 func makeTransferTestRegistration(
     streamType: String,

@@ -1175,21 +1175,6 @@ private extension MobileSegmentUploaderTests {
         log.events.filter { $0.category == .upload }
     }
 
-    func multipartValue(named name: String, in body: Data) -> String? {
-        let string = String(decoding: body, as: UTF8.self)
-        guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),
-              let separator = string[headerRange.upperBound...].range(of: "\r\n\r\n")
-        else { return nil }
-        let valueStart = separator.upperBound
-        guard let valueEnd = string[valueStart...].range(of: "\r\n--")?.lowerBound else { return nil }
-        return String(string[valueStart..<valueEnd])
-    }
-
-    func multipartMeta(in body: Data) throws -> [String: Any] {
-        let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
-    }
-
     func taskDescriptionJSON(_ description: String) throws -> [String: Any] {
         let object = try JSONSerialization.jsonObject(with: Data(description.utf8))
         return try XCTUnwrap(object as? [String: Any])

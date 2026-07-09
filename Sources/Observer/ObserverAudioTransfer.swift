@@ -6,6 +6,7 @@ import Foundation
 nonisolated enum ObserverAudioTransferSource {
     static let omi = "omi-audio"
     static let watch = "watch-audio"
+    static let mobileSegment = "mobile-segment"
 }
 
 actor ObserverIngestTransferEndpointResolver: TransferEndpointResolver {
@@ -31,11 +32,14 @@ actor ObserverIngestTransferEndpointResolver: TransferEndpointResolver {
 
 nonisolated enum ObserverAudioTransferAuthProvider {
     static func make(
+        observerRegistration: ObserverRegistration,
         omiRegistration: ObserverRegistration,
         watchRegistration: ObserverRegistration
     ) -> TransferAuthProvider {
         { manifest in
             switch manifest.sourceKey {
+            case ObserverAudioTransferSource.mobileSegment:
+                return try await observerRegistration.ensureRegistered()
             case ObserverAudioTransferSource.omi:
                 return try await omiRegistration.ensureRegistered()
             case ObserverAudioTransferSource.watch:
@@ -235,6 +239,37 @@ final class ObserverAudioTransferEnqueuer {
         )
     }
 
+    nonisolated static func makeMobileSegmentManifest(
+        itemID: UUID = UUID(),
+        manifest mobileManifest: MobileSegmentManifest,
+        now: Date,
+        sources: [MobileSegmentSource],
+        payloadParts: [TransferPayloadPartDescriptor]
+    ) -> TransferManifest {
+        let durationS = mobileManifest.durationS
+            ?? max(0, (mobileManifest.endedAt ?? now).timeIntervalSince(mobileManifest.startedAt))
+        return self.makeManifest(
+            itemID: itemID,
+            source: ObserverAudioTransferSource.mobileSegment,
+            platform: "ios",
+            createdAt: mobileManifest.startedAt,
+            segment: mobileManifest.segment
+                ?? ChunkSidecar.segmentString(
+                    for: mobileManifest.startedAt,
+                    durationSeconds: mobileManifest.durationS ?? 0
+                ),
+            day: mobileManifest.day ?? ObserverSegmentNaming.dayString(for: mobileManifest.startedAt),
+            startedAt: mobileManifest.startedAt,
+            durationS: durationS,
+            sources: sources.map(\.rawValue),
+            chunkIndex: nil,
+            sessionID: nil,
+            modeRawValue: mobileManifest.audio.mode?.rawValue,
+            segmentID: mobileManifest.segmentID,
+            payloadParts: payloadParts
+        )
+    }
+
     nonisolated static func makeManifest(
         itemID: UUID,
         source: String,
@@ -296,6 +331,16 @@ final class ObserverAudioTransferEnqueuer {
             relativePath: "location.jsonl",
             filename: "location.jsonl",
             contentType: "application/x-ndjson"
+        )
+    }
+
+    nonisolated static func screencastPart() -> TransferPayloadPartDescriptor {
+        TransferPayloadPartDescriptor(
+            partID: "screencast",
+            kind: .screen,
+            relativePath: "screen.mp4",
+            filename: "screen.mp4",
+            contentType: "video/mp4"
         )
     }
 }

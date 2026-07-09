@@ -31,9 +31,16 @@ nonisolated enum FinalizeFailureResolution: Equatable, Sendable {
 final class MobileSegmentUploader {
     private(set) var pendingCount = 0
     private(set) var failedCount = 0
+    private(set) var finalizeFailedCount = 0
     var lastUploadAt: Date?
     var lastError: String?
     private(set) var recentErrorCount = 0
+    private static let finalizeFailureStages: Set<String> = [
+        "source-finalize",
+        "segment-finalize",
+        "schedule-gate",
+        "reconcile",
+    ]
 
     var inFlightCount: Int {
         self.schedulingSegmentIDs.count + self.transportInFlightSegmentIDs.count
@@ -904,10 +911,20 @@ final class MobileSegmentUploader {
         guard self.storageDisabledReason == nil else {
             self.pendingCount = 0
             self.failedCount = 0
+            self.finalizeFailedCount = 0
             return
         }
         self.pendingCount = (try? self.store.list(.pending).count) ?? 0
-        self.failedCount = (try? self.store.list(.failed).count) ?? 0
+        let failed = (try? self.store.list(.failed)) ?? []
+        self.failedCount = failed.count
+        self.finalizeFailedCount = failed.reduce(into: 0) { count, directory in
+            guard let failure = self.store.loadFailure(in: directory),
+                  Self.finalizeFailureStages.contains(failure.stage)
+            else {
+                return
+            }
+            count += 1
+        }
         self.lastUploadAt = self.transport.lastUploadAt
         self.lastError = self.lastError ?? self.transport.lastError
         self.recentErrorCount = self.transport.recentErrorCount
@@ -1268,6 +1285,7 @@ private extension MobileSegmentUploader {
             )
         }
         _ = try self.store.move(segmentID: segmentID, from: .active, to: lifecycle)
+        self.refreshCounts()
     }
 
     func parseLegacyLocationFilename(_ url: URL) -> (day: String, segment: String, startedAt: Date, duration: TimeInterval) {
@@ -1504,6 +1522,7 @@ private extension MobileSegmentUploader {
             )
         }
         _ = try self.store.move(segmentID: segmentID, from: .pending, to: .failed)
+        self.refreshCounts()
     }
 
     func reconcileActiveSegments() async throws {

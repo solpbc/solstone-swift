@@ -301,6 +301,7 @@ struct SolstoneSwiftApp: App {
         let transferEngine = TransferEngine(
             spool: transferSpool,
             transport: TransferTransport(authProvider: ObserverAudioTransferAuthProvider.make(
+                observerRegistration: observerRegistration,
                 omiRegistration: omiRegistration,
                 watchRegistration: watchRegistration
             )),

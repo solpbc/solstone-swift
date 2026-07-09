@@ -667,24 +667,9 @@ private extension MobileSegmentFinalizeResolverTests {
     }
 
     func sources(in body: Data) throws -> Set<String> {
-        let meta = try XCTUnwrap(self.multipartMeta(in: body))
+        let meta = try self.multipartMeta(in: body)
         let sources = try XCTUnwrap(meta["sources"] as? [String])
         return Set(sources)
-    }
-
-    func multipartMeta(in body: Data) throws -> [String: Any]? {
-        guard let meta = self.multipartValue(named: "meta", in: body) else { return nil }
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
-    }
-
-    func multipartValue(named name: String, in body: Data) -> String? {
-        let string = String(decoding: body, as: UTF8.self)
-        guard let headerRange = string.range(of: #"Content-Disposition: form-data; name="\#(name)""#),
-              let separator = string[headerRange.upperBound...].range(of: "\r\n\r\n")
-        else { return nil }
-        let valueStart = separator.upperBound
-        guard let valueEnd = string[valueStart...].range(of: "\r\n--")?.lowerBound else { return nil }
-        return String(string[valueStart..<valueEnd])
     }
 
     func emptyTombstone(segmentID: UUID, store: MobileSegmentStore) throws -> MobileSegmentTombstone {

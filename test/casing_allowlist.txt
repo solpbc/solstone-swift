@@ -102,6 +102,7 @@ ImportQueue.swift|Boundary-
 ImportQueue.swift|Content-Disposition
 ImportQueue.swift|"ImportQueue"
 ImportQueue.swift|"HHmmss"
+ChunkSidecar.swift|"HHmmss"
 WatchCaptureStorage.swift|"WatchCapture"
 WatchComplicationSnapshot.swift|SolstoneWatchStatus
 WatchCaptureStorage.swift|"HHmmss"
