@@ -183,6 +183,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
 
 nonisolated enum WatchCaptureFailureMapper {
     static func observerError(for error: any Error) -> ObserverError {
+        if let observerError = error as? ObserverError { return observerError }
         let nsError = error as NSError
         if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(ENOSPC) {
             return .diskFull

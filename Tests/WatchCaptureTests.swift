@@ -460,6 +460,42 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertNotNil(manifest.failureReason)
     }
 
+    func testAudioStartObserverErrorPassesThroughToWatchFace() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        harness.recorder.startError = ObserverError.unavailable(reason: "audio unavailable")
+
+        await harness.engine.start()
+
+        XCTAssertEqual(
+            harness.engine.ownerPresentation.status,
+            .needsAttention(.unavailable(reason: "audio unavailable"))
+        )
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        let stateWord = watchFaceModel(for: harness.engine.ownerPresentation, isReachable: true).stateWord
+        XCTAssertEqual(stateWord, "audio unavailable")
+        XCTAssertFalse(stateWord.contains("unavailable("))
+        XCTAssertFalse(stateWord.contains("\""))
+    }
+
+    func testFailureMapperKeepsDiskFullChecksAndGenericFallback() {
+        let posixDiskFull = WatchCaptureFailureMapper.observerError(
+            for: NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))
+        )
+        let cocoaDiskFull = WatchCaptureFailureMapper.observerError(
+            for: NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
+        )
+        let genericError = NSError(domain: "WatchCaptureTests.generic", code: 7)
+
+        XCTAssertEqual(posixDiskFull, .diskFull)
+        XCTAssertEqual(posixDiskFull.message, "storage is full")
+        XCTAssertEqual(cocoaDiskFull, .diskFull)
+        XCTAssertEqual(cocoaDiskFull.message, "storage is full")
+        XCTAssertEqual(
+            WatchCaptureFailureMapper.observerError(for: genericError),
+            .unavailable(reason: String(describing: genericError))
+        )
+    }
+
     func testSensorFailureDoesNotCrashAndAudioKeepsRolling() async throws {
         let harness = try self.makeHarness(
             audioPermission: true,
@@ -826,6 +862,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
     var stopCallCount = 0
     var permissionGranted: Bool
     var nextStopDuration: TimeInterval = 300
+    var startError: (any Error)?
 
     init(permissionGranted: Bool) {
         self.permissionGranted = permissionGranted
@@ -836,6 +873,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
     }
 
     func start(url: URL) throws {
+        if let startError { throw startError }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("audio".utf8).write(to: url)
         self.url = url

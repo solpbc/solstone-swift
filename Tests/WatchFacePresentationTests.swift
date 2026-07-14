@@ -26,6 +26,34 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
         }
     }
 
+    func testAudioUnavailableStateDoesNotStringifyStructuredError() {
+        let model = watchFaceModel(
+            for: WatchCaptureOwnerPresentation(
+                status: .needsAttention(.unavailable(reason: "audio unavailable")),
+                queuedCount: 0,
+                transferringCount: 25
+            ),
+            isReachable: true
+        )
+
+        XCTAssertEqual(model.stateWord, "audio unavailable")
+        XCTAssertEqual(model.compactHandoff?.line, SourceVocabulary.watchSendingCount(25))
+
+        var renderedStrings = [
+            model.stateWord,
+            model.compactHandoff?.line,
+            model.compactHandoff?.subtext,
+            model.trustLine,
+            model.linkLine,
+        ].compactMap(\.self)
+        renderedStrings.append(contentsOf: model.detailRows.map(\.label))
+
+        for string in renderedStrings {
+            XCTAssertFalse(string.contains("unavailable("))
+            XCTAssertFalse(string.contains("\""))
+        }
+    }
+
     func testOffWithBacklogKeepsStateAndShowsHandoff() {
         let model = watchFaceModel(
             for: WatchCaptureOwnerPresentation(status: .off, queuedCount: 8),
