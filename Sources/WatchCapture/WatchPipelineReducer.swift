@@ -348,18 +348,20 @@ private extension WatchPipelineReducer {
             return .unresolved
         }
 
+        let appleMatch = observation.relation == .matched || observation.relation == .duplicate
+
         if audioFact.state == .readableNonempty || locationFact.state == .readableNonempty {
             return .pending
         }
 
         if relayBundlePresent {
             guard case let .available(relayBundleBytes) = observation.relayBundleBytes else {
-                return .unresolved
+                return appleMatch ? .copyBacked : .unresolved
             }
-            return relayBundleBytes > 0 ? .copyBacked : .staleSourceEmpty
+            return relayBundleBytes > 0 || appleMatch ? .copyBacked : .staleSourceEmpty
         }
 
-        return .staleSourceEmpty
+        return appleMatch ? .copyBacked : .staleSourceEmpty
     }
 
     nonisolated static func age(of date: Date?, now: Date) -> TimeInterval? {
@@ -696,6 +698,7 @@ private extension WatchPipelineReducer {
             "segment \(classification.segmentID.uuidString)",
             "phone \(self.phoneOutcomeText(classification.phoneOutcome))",
         ]
+        parts.append("apple relation \(classification.observation.relation.rawValue)")
         if let sourceAssessment = classification.sourceAssessment {
             parts.append("source \(sourceAssessment.rawValue)")
         }

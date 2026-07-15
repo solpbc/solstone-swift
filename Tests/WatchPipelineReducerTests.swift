@@ -372,10 +372,11 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             Self.observation(id: droppedID),
             Self.observation(id: pendingID, audio: Self.original(.readableNonempty, bytes: 42), bundlePresent: false, bundleBytes: 0),
             Self.observation(id: copyBackedID, audio: Self.original(.missing, bytes: 0), location: Self.original(.zeroLength, bytes: 0), bundlePresent: true, bundleBytes: 128),
-            Self.observation(id: staleID, audio: Self.original(.missing, bytes: 0), location: Self.original(.unreadable, bytes: nil), bundlePresent: false, bundleBytes: 0),
+            Self.observation(id: staleID, relation: .appActiveNotObserved, audio: Self.original(.missing, bytes: 0), location: Self.original(.unreadable, bytes: nil), bundlePresent: false, bundleBytes: 0),
             Self.observation(id: unresolvedID, collectionResolution: .available(.snapshotChangedDuringCollection)),
             Self.observation(
                 id: missingBundleID,
+                relation: .appActiveNotObserved,
                 audio: Self.original(.missing, bytes: 0),
                 location: Self.original(.zeroLength, bytes: 0),
                 bundlePresent: false,
@@ -419,6 +420,124 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(export.contains("source stale-source-empty"))
         XCTAssertTrue(export.contains("source unresolved"))
         XCTAssertTrue(export.contains("ledger not present in retained phone ledger"))
+    }
+
+    func testLedgerAbsentSourceAssessmentHonorsAppleFileTransferMatch() {
+        let matchedBundleAbsentID = Self.uuid(300)
+        let matchedBundleZeroID = Self.uuid(301)
+        let duplicateBundleAbsentID = Self.uuid(302)
+        let appActiveEmptyID = Self.uuid(303)
+        let matchedReadableOriginalID = Self.uuid(304)
+        let appActiveReadableOriginalID = Self.uuid(305)
+        let appActivePositiveBundleID = Self.uuid(306)
+        let matchedSnapshotChangedID = Self.uuid(307)
+        let matchedUnavailableBundleBytesID = Self.uuid(308)
+        let appActiveUnavailableBundleBytesID = Self.uuid(309)
+        let observations = [
+            Self.observation(
+                id: matchedBundleAbsentID,
+                relation: .matched,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: false,
+                bundleBytes: 0
+            ),
+            Self.observation(
+                id: matchedBundleZeroID,
+                relation: .matched,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: true,
+                bundleBytes: 0
+            ),
+            Self.observation(
+                id: duplicateBundleAbsentID,
+                relation: .duplicate,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: false,
+                bundleBytes: 0
+            ),
+            Self.observation(
+                id: appActiveEmptyID,
+                relation: .appActiveNotObserved,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: true,
+                bundleBytes: 0
+            ),
+            Self.observation(
+                id: matchedReadableOriginalID,
+                relation: .matched,
+                audio: Self.original(.readableNonempty, bytes: 42),
+                bundlePresent: false,
+                bundleBytes: 0
+            ),
+            Self.observation(
+                id: appActiveReadableOriginalID,
+                relation: .appActiveNotObserved,
+                audio: Self.original(.readableNonempty, bytes: 42),
+                bundlePresent: false,
+                bundleBytes: 0
+            ),
+            Self.observation(
+                id: appActivePositiveBundleID,
+                relation: .appActiveNotObserved,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: true,
+                bundleBytes: 128
+            ),
+            Self.observation(
+                id: matchedSnapshotChangedID,
+                relation: .matched,
+                collectionResolution: .available(.snapshotChangedDuringCollection)
+            ),
+            Self.observation(
+                id: matchedUnavailableBundleBytesID,
+                relation: .matched,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: true,
+                bundleBytes: 0,
+                relayBundleBytes: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+            ),
+            Self.observation(
+                id: appActiveUnavailableBundleBytesID,
+                relation: .appActiveNotObserved,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: true,
+                bundleBytes: 0,
+                relayBundleBytes: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+            ),
+        ]
+        let ledgerSnapshot = Self.ledgerSnapshot(entries: [:])
+        let input = Self.input(
+            watchDiagnostics: .available(Self.payload(activeBacklogCount: observations.count, observations: observations), rawEnvelopeByteCount: nil),
+            phoneLedgerSnapshot: .available(ledgerSnapshot),
+            iphoneACKQueueSnapshot: Self.ackSnapshot(ids: [])
+        )
+
+        let report = WatchPipelineReducer.classifyRelayIdentities(input)
+        let byID = Dictionary(uniqueKeysWithValues: report.classifications.map { ($0.segmentID, $0) })
+
+        XCTAssertEqual(byID[matchedBundleAbsentID]?.sourceAssessment, .copyBacked)
+        XCTAssertEqual(byID[matchedBundleZeroID]?.sourceAssessment, .copyBacked)
+        XCTAssertEqual(byID[duplicateBundleAbsentID]?.sourceAssessment, .copyBacked)
+        XCTAssertEqual(byID[appActiveEmptyID]?.sourceAssessment, .staleSourceEmpty)
+        XCTAssertEqual(byID[matchedReadableOriginalID]?.sourceAssessment, .pending)
+        XCTAssertEqual(byID[appActiveReadableOriginalID]?.sourceAssessment, .pending)
+        XCTAssertEqual(byID[appActivePositiveBundleID]?.sourceAssessment, .copyBacked)
+        XCTAssertEqual(byID[matchedSnapshotChangedID]?.sourceAssessment, .unresolved)
+        XCTAssertEqual(byID[matchedUnavailableBundleBytesID]?.sourceAssessment, .copyBacked)
+        XCTAssertEqual(byID[appActiveUnavailableBundleBytesID]?.sourceAssessment, .unresolved)
+
+        let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
+        XCTAssertTrue(export.contains("source copy-backed"))
+        XCTAssertTrue(export.contains("apple relation matched"))
+        XCTAssertTrue(export.contains("apple relation duplicate"))
+        XCTAssertTrue(export.contains("relation matched; id "))
     }
 }
 
