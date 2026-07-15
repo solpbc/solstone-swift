@@ -45,25 +45,7 @@ public func validateFlags(_ flags: UInt8) throws {
     guard flags & FrameFlags.primaryMask != 0 else {
         throw FramingError.noPrimaryFlag
     }
-
-    let hasOpen = flags & FrameFlags.open.rawValue != 0
-    let hasData = flags & FrameFlags.data.rawValue != 0
-    let hasClose = flags & FrameFlags.close.rawValue != 0
-    let hasReset = flags & FrameFlags.reset.rawValue != 0
-    let hasWindow = flags & FrameFlags.window.rawValue != 0
-    let hasPing = flags & FrameFlags.ping.rawValue != 0
-    let hasPong = flags & FrameFlags.pong.rawValue != 0
-
-    if hasOpen && hasReset {
-        throw FramingError.invalidFlagCombination
-    }
-    if hasOpen && hasData && hasClose {
-        throw FramingError.invalidFlagCombination
-    }
-    if (hasPing || hasPong) && (hasOpen || hasData || hasClose || hasReset || hasWindow) {
-        throw FramingError.invalidFlagCombination
-    }
-    if hasPing && hasPong {
+    guard FrameFlags.validCombinations.contains(flags) else {
         throw FramingError.invalidFlagCombination
     }
 }
@@ -93,7 +75,9 @@ public struct FrameDecoder {
             (UInt32(buffer[cursor + 2]) << 8) |
             UInt32(buffer[cursor + 3])
         let flags = buffer[cursor + 4]
-        try validateFlags(flags)
+        guard flags & FrameFlags.reservedMask == 0 else {
+            throw FramingError.reservedBitsSet
+        }
         let length =
             (Int(buffer[cursor + 5]) << 16) |
             (Int(buffer[cursor + 6]) << 8) |
@@ -151,11 +135,10 @@ public func buildPong(nonce: Data) throws -> Frame {
     return Frame(streamID: 0, flags: FrameFlags.pong.rawValue, payload: nonce)
 }
 
-public func parseResetReason(from payload: Data) throws -> (reason: ResetReason, rawByte: UInt8) {
-    guard payload.count == 1 else {
-        throw FramingError.lengthMismatch
+public func parseResetReason(from payload: Data) -> (reason: ResetReason, rawByte: UInt8) {
+    guard let rawByte = payload.first else {
+        return (.unspecified, 0)
     }
-    let rawByte = payload.first!
     let reason = ResetReason.normalized(fromRawByte: rawByte)
     return (reason, rawByte)
 }

@@ -148,8 +148,34 @@ public actor Multiplexer {
             return
         }
 
+        let stream = streams[frame.streamID]
+
+        if !FrameFlags.validCombinations.contains(frame.flags) {
+            if let stream {
+                try await isolateStream(stream, frame: frame, reason: .protocolError)
+            } else {
+                try await emitUnknownStreamReset(
+                    streamID: frame.streamID,
+                    flags: frame.flags,
+                    length: frame.payload.count,
+                    reason: .protocolError
+                )
+            }
+            return
+        }
+
         if isPing || isPong {
-            throw MuxError.protocolError
+            if let stream {
+                try await isolateStream(stream, frame: frame, reason: .protocolError)
+            } else {
+                try await emitUnknownStreamReset(
+                    streamID: frame.streamID,
+                    flags: frame.flags,
+                    length: frame.payload.count,
+                    reason: .protocolError
+                )
+            }
+            return
         }
 
         if isOpen {
@@ -157,36 +183,73 @@ public actor Multiplexer {
             return
         }
 
-        guard let stream = streams[frame.streamID] else {
-            logger.debug(
-                "ignoring frame for unknown stream id=\(frame.streamID, privacy: .public) flags=\(frame.flags, privacy: .public) length=\(frame.payload.count, privacy: .public)"
-            )
+        guard let stream else {
+            if isData || isWindow {
+                try await emitUnknownStreamReset(
+                    streamID: frame.streamID,
+                    flags: frame.flags,
+                    length: frame.payload.count,
+                    reason: .protocolError
+                )
+            } else {
+                logger.debug(
+                    "ignoring frame for unknown stream id=\(frame.streamID, privacy: .public) flags=\(frame.flags, privacy: .public) length=\(frame.payload.count, privacy: .public)"
+                )
+            }
             return
         }
 
         if isWindow {
-            let credit = try parseWindowCredit(from: frame.payload)
-            await stream.grantSendCredit(credit)
+            let credit: UInt32
+            do {
+                credit = try parseWindowCredit(from: frame.payload)
+            } catch {
+                try await isolateStream(stream, frame: frame, reason: .protocolError)
+                return
+            }
+            let outcome = await stream.grantSendCredit(credit)
+            if outcome == .flowControlExceeded {
+                try await isolateStream(stream, frame: frame, reason: .flowControlError)
+                return
+            }
         }
         if isData {
-            try await stream.deliverInboundData(frame.payload)
+            let outcome = try await stream.deliverInboundData(frame.payload)
+            if outcome == .receiveWindowExceeded {
+                try await isolateStream(stream, frame: frame, reason: .flowControlError)
+                return
+            }
         }
         if isClose {
             await stream.deliverInboundClose()
         }
         if isReset {
-            do {
-                let reset = try parseResetReason(from: frame.payload)
-                await stream.deliverInboundReset(reason: reset.reason, rawByte: reset.rawByte)
-            } catch FramingError.lengthMismatch {
-                logger.error(
-                    "malformed RESET length id=\(frame.streamID, privacy: .public) flags=\(frame.flags, privacy: .public) length=\(frame.payload.count, privacy: .public)"
-                )
-                await stream.reset(reason: .protocolError)
-            } catch {
-                throw error
-            }
+            let reset = parseResetReason(from: frame.payload)
+            await stream.deliverInboundReset(reason: reset.reason, rawByte: reset.rawByte)
         }
+    }
+
+    private func isolateStream(_ stream: MuxStream, frame: Frame, reason: ResetReason) async throws {
+        guard await stream.markResetLocal() else {
+            return
+        }
+
+        logger.debug(
+            "isolating stream violation id=\(frame.streamID, privacy: .public) flags=\(frame.flags, privacy: .public) length=\(frame.payload.count, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
+        )
+        try await sink(try encodeFrame(buildReset(streamID: frame.streamID, reason: reason)))
+    }
+
+    private func emitUnknownStreamReset(
+        streamID: UInt32,
+        flags: UInt8,
+        length: Int,
+        reason: ResetReason
+    ) async throws {
+        logger.debug(
+            "resetting unknown stream id=\(streamID, privacy: .public) flags=\(flags, privacy: .public) length=\(length, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
+        )
+        try await sink(try encodeFrame(buildReset(streamID: streamID, reason: reason)))
     }
 
     private func handleInboundOpen(_ frame: Frame) async throws {
@@ -204,6 +267,12 @@ public actor Multiplexer {
             return
         }
 
+        if streams[frame.streamID] != nil {
+            logger.debug("duplicate inbound OPEN id=\(frame.streamID, privacy: .public)")
+            try await sink(try encodeFrame(buildReset(streamID: frame.streamID, reason: .protocolError)))
+            return
+        }
+
         guard await activeStreamCount() < MuxConstants.maxConcurrentStreams else {
             let reset = try encodeFrame(buildReset(streamID: frame.streamID, reason: .streamLimitExceeded))
             try await sink(reset)
@@ -217,11 +286,28 @@ public actor Multiplexer {
                 await self?.removeStream(id)
             }
         )
+        if !frame.payload.isEmpty {
+            let outcome = await stream.admitInitialPayload(frame.payload)
+            if outcome == .receiveWindowExceeded {
+                logger.debug(
+                    "inbound OPEN payload exceeds window id=\(frame.streamID, privacy: .public) length=\(frame.payload.count, privacy: .public)"
+                )
+                try await sink(try encodeFrame(buildReset(streamID: frame.streamID, reason: .flowControlError)))
+                return
+            }
+        }
+        if frame.flags & FrameFlags.close.rawValue != 0 {
+            await stream.deliverInboundClose()
+        }
         streams[frame.streamID] = stream
         incomingContinuation.yield(stream)
     }
 
     private func handleControlFrame(_ frame: Frame, isPing: Bool, isPong: Bool) async throws {
+        guard frame.flags == FrameFlags.ping.rawValue || frame.flags == FrameFlags.pong.rawValue else {
+            throw FramingError.unknownControlFrame
+        }
+
         switch (isPing, isPong) {
         case (true, false):
             let nonce = try parseControlNonce(from: frame.payload)

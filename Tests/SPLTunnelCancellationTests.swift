@@ -323,39 +323,41 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         XCTAssertEqual(frame.streamID, 1)
         XCTAssertEqual(frame.flags, FrameFlags.reset.rawValue)
         XCTAssertEqual(frame.payload, Data([0x01]))
-        let parsed = try parseResetReason(from: frame.payload)
+        let parsed = parseResetReason(from: frame.payload)
         XCTAssertEqual(parsed.reason, .protocolError)
         XCTAssertEqual(parsed.rawByte, 0x01)
 
         let cancelPayload = buildReset(streamID: 1, reason: .cancel).payload
         XCTAssertEqual(cancelPayload, Data([0x05]))
-        let cancel = try parseResetReason(from: cancelPayload)
+        let cancel = parseResetReason(from: cancelPayload)
         XCTAssertEqual(cancel.reason, .cancel)
         XCTAssertEqual(cancel.rawByte, 0x05)
 
         let unspecifiedPayload = buildReset(streamID: 1, reason: .unspecified).payload
         XCTAssertEqual(unspecifiedPayload, Data([0xff]))
-        let unspecified = try parseResetReason(from: unspecifiedPayload)
+        let unspecified = parseResetReason(from: unspecifiedPayload)
         XCTAssertEqual(unspecified.reason, .unspecified)
         XCTAssertEqual(unspecified.rawByte, 0xff)
     }
 
     func testParseResetReasonNormalizesUnknownByteToUnspecified() throws {
-        let parsed = try parseResetReason(from: Data([0x7e]))
+        let parsed = parseResetReason(from: Data([0x7e]))
         XCTAssertEqual(parsed.reason, .unspecified)
         XCTAssertEqual(parsed.rawByte, 0x7e)
     }
 
-    func testParseResetReasonRejectsWrongLength() {
-        for payload in [Data(), Data([0x00, 0x00, 0x00, 0x01]), Data([0x01, 0x02])] {
-            do {
-                _ = try parseResetReason(from: payload)
-                XCTFail("expected RESET length mismatch for \(payload.count) bytes")
-            } catch FramingError.lengthMismatch {
-            } catch {
-                XCTFail("unexpected error: \(error)")
-            }
-        }
+    func testParseResetReasonToleratesWrongLength() {
+        let empty = parseResetReason(from: Data())
+        XCTAssertEqual(empty.reason, .unspecified)
+        XCTAssertEqual(empty.rawByte, 0x00)
+
+        let longKnown = parseResetReason(from: Data([0x05, 0x01]))
+        XCTAssertEqual(longKnown.reason, .cancel)
+        XCTAssertEqual(longKnown.rawByte, 0x05)
+
+        let longUnknown = parseResetReason(from: Data([0x00, 0x00, 0x00, 0x01]))
+        XCTAssertEqual(longUnknown.reason, .unspecified)
+        XCTAssertEqual(longUnknown.rawByte, 0x00)
     }
 
     func testInboundResetSurfacesTypedStreamResetThroughInbound() async throws {
@@ -411,7 +413,7 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 3, credit: 1)))
     }
 
-    func testMalformedResetLengthIsStreamScopedNotTunnelFatal() async throws {
+    func testLongResetPayloadIsStreamScopedNotTunnelFatal() async throws {
         let sink = CapturingMuxSink()
         let mux = Multiplexer(
             sink: { data in
@@ -433,11 +435,11 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         await Self.assertInboundThrowsStreamReset(
             stream1,
             streamID: 1,
-            reason: .protocolError,
-            rawByte: 0x01
+            reason: .unspecified,
+            rawByte: 0x00
         )
         let resetState = await stream1.state
-        XCTAssertEqual(resetState, .resetLocal)
+        XCTAssertEqual(resetState, .resetRemote)
 
         let siblingPayload = Data("after-malformed-reset".utf8)
         try await stream3.write(siblingPayload)
@@ -704,82 +706,6 @@ private struct ConnectionPair: @unchecked Sendable {
     let listener: NWListener
     let client: NWConnection
     let server: NWConnection
-}
-
-private final class BlockingFirstMuxSink: @unchecked Sendable {
-    private let lock = NSLock()
-    private var hasEnteredFirstCall = false
-    private var isReleased = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    var didEnterFirstCall: Bool {
-        lock.withLock {
-            hasEnteredFirstCall
-        }
-    }
-
-    func send(_: Data) async throws {
-        let shouldBlock = lock.withLock {
-            guard !hasEnteredFirstCall else {
-                return false
-            }
-            hasEnteredFirstCall = true
-            return true
-        }
-
-        guard shouldBlock else {
-            return
-        }
-
-        await waitForRelease()
-    }
-
-    func release() {
-        let continuation = lock.withLock {
-            isReleased = true
-            let continuation = self.continuation
-            self.continuation = nil
-            return continuation
-        }
-        continuation?.resume()
-    }
-
-    private func waitForRelease() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let shouldResume = lock.withLock {
-                if isReleased {
-                    return true
-                }
-                self.continuation = continuation
-                return false
-            }
-            if shouldResume {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-private final class CapturingMuxSink: @unchecked Sendable {
-    private let lock = NSLock()
-    private var decoder = FrameDecoder()
-    private var capturedFrames: [Frame] = []
-
-    var frames: [Frame] {
-        lock.withLock {
-            capturedFrames
-        }
-    }
-
-    func send(_ data: Data) throws {
-        lock.lock()
-        defer { lock.unlock() }
-
-        decoder.feed(data)
-        while let frame = try decoder.next() {
-            capturedFrames.append(frame)
-        }
-    }
 }
 
 private final class LoopbackListenerReady: @unchecked Sendable {

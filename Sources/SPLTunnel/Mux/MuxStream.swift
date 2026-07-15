@@ -20,6 +20,16 @@ public enum StreamState: Sendable, Equatable {
     case resetRemote
 }
 
+enum InboundDataOutcome: Equatable, Sendable {
+    case accepted
+    case receiveWindowExceeded
+}
+
+enum SendCreditOutcome: Equatable, Sendable {
+    case accepted
+    case flowControlExceeded
+}
+
 public final actor MuxStream {
     public let id: UInt32
     public private(set) var state: StreamState
@@ -93,27 +103,31 @@ public final actor MuxStream {
     }
 
     public func reset(reason: ResetReason) async {
-        guard state != .resetLocal && state != .resetRemote && state != .closed else {
-            return
-        }
-
+        guard await markResetLocal() else { return }
         let frame = buildReset(streamID: id, reason: reason)
         if let data = try? encodeFrame(frame) {
             try? await sink(data)
         }
-        state = .resetLocal
-        finishInbound(MuxError.streamReset(streamID: id, reason: reason, rawByte: reason.rawValue))
-        resumeCreditWaiters()
-        await notifyTerminal()
     }
 
-    func deliverInboundData(_ payload: Data) async throws {
+    func markResetLocal() async -> Bool {
+        guard state != .resetLocal && state != .resetRemote && state != .closed else {
+            return false
+        }
+
+        state = .resetLocal
+        finishInbound(MuxError.transportClosed)
+        resumeCreditWaiters()
+        await notifyTerminal()
+        return true
+    }
+
+    func deliverInboundData(_ payload: Data) async throws -> InboundDataOutcome {
         guard state == .open || state == .halfClosedLocal else {
-            return
+            return .accepted
         }
         guard payload.count <= receiveWindow else {
-            await reset(reason: .flowControlError)
-            throw MuxError.flowControlError
+            return .receiveWindowExceeded
         }
 
         receiveWindow -= payload.count
@@ -124,6 +138,17 @@ public final actor MuxStream {
             receiveWindow < MuxConstants.windowLowWaterMark {
             try await emitWindowGrant()
         }
+        return .accepted
+    }
+
+    func admitInitialPayload(_ payload: Data) -> InboundDataOutcome {
+        guard payload.count <= receiveWindow else {
+            return .receiveWindowExceeded
+        }
+
+        receiveWindow -= payload.count
+        inboundContinuation.yield(payload)
+        return .accepted
     }
 
     func deliverInboundClose() async {
@@ -151,9 +176,15 @@ public final actor MuxStream {
         await notifyTerminal()
     }
 
-    func grantSendCredit(_ credit: UInt32) {
-        sendCredit += Int(credit)
+    func grantSendCredit(_ credit: UInt32) -> SendCreditOutcome {
+        let updated = sendCredit + Int(credit)
+        guard updated <= Int(Int32.max) else {
+            return .flowControlExceeded
+        }
+
+        sendCredit = updated
         resumeCreditWaiters()
+        return .accepted
     }
 
     func tearDown(reason: TearDownReason) {
