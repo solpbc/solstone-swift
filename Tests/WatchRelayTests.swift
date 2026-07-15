@@ -134,6 +134,48 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(try storage.scanManifests().count, 0)
     }
 
+    func testRelayACKTransfersDurableBeforeFastWhenReachable() throws {
+        let storage = try self.makeStorage("reachable-ack-order-watch")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("reachable-ack-order-staging", isDirectory: true)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        phoneSession.emitReachability(true)
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(phoneSession.callLedger.count, 2)
+        guard phoneSession.callLedger.count == 2 else { return }
+        self.assertRecordedTransferUserInfo(phoneSession.callLedger[0], id: id)
+        self.assertRecordedSendMessage(phoneSession.callLedger[1], id: id)
+    }
+
+    func testRelayACKUnreachableRecordsOnlyDurableTransfer() throws {
+        let storage = try self.makeStorage("unreachable-ack-order-watch")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("unreachable-ack-order-staging", isDirectory: true)
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        sender.drain()
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(phoneSession.callLedger.count, 1)
+        guard phoneSession.callLedger.count == 1 else { return }
+        self.assertRecordedTransferUserInfo(phoneSession.callLedger[0], id: id)
+    }
+
     func testFastAndDurableACKDeliveryIsIdempotent() throws {
         let storage = try self.makeStorage("idempotent-ack-watch")
         let stagingRoot = self.tempDirectory.appendingPathComponent("idempotent-ack-staging", isDirectory: true)
@@ -921,5 +963,33 @@ private extension WatchRelayTests {
     ) {
         XCTAssertEqual(userInfo[WatchRelayACK.typeKey] as? String, WatchRelayACK.type, file: file, line: line)
         XCTAssertEqual(userInfo[WatchRelayACK.idKey] as? String, id.uuidString, file: file, line: line)
+    }
+
+    func assertRecordedTransferUserInfo(
+        _ call: MockWatchConnectivitySession.RecordedCall,
+        id: UUID,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch call {
+        case let .transferUserInfo(userInfo):
+            self.assertRelayACK(userInfo, id: id, file: file, line: line)
+        case .sendMessage:
+            XCTFail("expected transferUserInfo call", file: file, line: line)
+        }
+    }
+
+    func assertRecordedSendMessage(
+        _ call: MockWatchConnectivitySession.RecordedCall,
+        id: UUID,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch call {
+        case .transferUserInfo:
+            XCTFail("expected sendMessage call", file: file, line: line)
+        case let .sendMessage(message):
+            self.assertRelayACK(message, id: id, file: file, line: line)
+        }
     }
 }

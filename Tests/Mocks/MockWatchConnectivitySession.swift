@@ -7,6 +7,11 @@ import WatchConnectivity
 
 @MainActor
 final class MockWatchConnectivitySession: WatchConnectivitySession {
+    enum RecordedCall {
+        case transferUserInfo([String: Any])
+        case sendMessage([String: Any])
+    }
+
     private struct OutstandingRecord {
         let token: Int
         let id: UUID?
@@ -40,6 +45,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var transferredUserInfos: [[String: Any]] = []
     var sentMessages: [[String: Any]] = []
     var updatedApplicationContexts: [[String: Any]] = []
+    private(set) var callLedger: [RecordedCall] = []
     private(set) var cancelledSegmentIDs: [UUID?] = []
 
     private var nextOutstandingToken = 0
@@ -59,10 +65,12 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func transferUserInfo(_ userInfo: [String: Any]) {
         self.transferredUserInfos.append(userInfo)
+        self.callLedger.append(.transferUserInfo(userInfo))
     }
 
     func sendMessage(_ message: [String: Any]) {
         self.sentMessages.append(message)
+        self.callLedger.append(.sendMessage(message))
     }
 
     func updateApplicationContext(_ applicationContext: [String: Any]) throws {

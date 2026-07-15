@@ -51,6 +51,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var onSessionEvent: (() -> Void)?
 
     private let session: WCSession?
+    private let messageSend: @MainActor ([String: Any], @escaping @Sendable (any Error) -> Void) -> Void
 
     var isSupported: Bool {
         self.session != nil
@@ -105,9 +106,23 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 #endif
 
     override init() {
-        self.session = WCSession.isSupported() ? WCSession.default : nil
+        let session = WCSession.isSupported() ? WCSession.default : nil
+        self.session = session
+        self.messageSend = { message, errorHandler in
+            guard let session else {
+                watchConnectivityLog.error("watch connectivity message send unavailable")
+                return
+            }
+            session.sendMessage(message, replyHandler: nil, errorHandler: errorHandler)
+        }
         super.init()
-        self.session?.delegate = self
+        session?.delegate = self
+    }
+
+    init(messageSend: @escaping @MainActor ([String: Any], @escaping @Sendable (any Error) -> Void) -> Void) {
+        self.session = nil
+        self.messageSend = messageSend
+        super.init()
     }
 
     func activate() {
@@ -136,13 +151,9 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     }
 
     func sendMessage(_ message: [String: Any]) {
-        guard let session else {
-            watchConnectivityLog.error("watch connectivity message send unavailable")
-            return
-        }
-        session.sendMessage(message, replyHandler: nil, errorHandler: { error in
+        self.messageSend(message) { @Sendable error in
             watchConnectivityLog.error("watch connectivity message send failed: \(String(describing: error), privacy: .public)")
-        })
+        }
     }
 
     func updateApplicationContext(_ applicationContext: [String: Any]) throws {
