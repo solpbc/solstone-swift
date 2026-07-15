@@ -6,25 +6,34 @@ nonisolated struct ServerSentEvent: Sendable, Equatable {
 }
 
 nonisolated struct ServerSentEventParser: Sendable {
-    private var partialLine: [UInt8] = []
+    private var buffer: [UInt8] = []
+    private var scanIndex: Int = 0
+    private var lineStart: Int = 0
     private var eventName: String?
     private var dataLines: [String] = []
 
     mutating func append(_ data: Data) -> [ServerSentEvent] {
         guard !data.isEmpty else { return [] }
 
-        self.partialLine.append(contentsOf: data)
+        self.buffer.append(contentsOf: data)
         var events: [ServerSentEvent] = []
 
-        while let newline = self.partialLine.firstIndex(of: 0x0A) {
-            let lineEnd = newline > self.partialLine.startIndex && self.partialLine[self.partialLine.index(before: newline)] == 0x0D
-                ? self.partialLine.index(before: newline)
+        while let newline = self.nextNewline() {
+            let lineEnd = newline > self.lineStart && self.buffer[newline - 1] == 0x0D
+                ? newline - 1
                 : newline
-            let line = String(decoding: self.partialLine[..<lineEnd], as: UTF8.self)
-            self.partialLine.removeSubrange(...newline)
+            let line = String(decoding: self.buffer[self.lineStart..<lineEnd], as: UTF8.self)
+            self.lineStart = newline + 1
+            self.scanIndex = newline + 1
             if let event = self.consume(line: line) {
                 events.append(event)
             }
+        }
+
+        if self.lineStart > 0 {
+            self.buffer.removeSubrange(0..<self.lineStart)
+            self.scanIndex -= self.lineStart
+            self.lineStart = 0
         }
 
         return events
@@ -32,20 +41,32 @@ nonisolated struct ServerSentEventParser: Sendable {
 
     mutating func finish() -> [ServerSentEvent] {
         var events: [ServerSentEvent] = []
-        if !self.partialLine.isEmpty {
-            let lineEnd = self.partialLine.last == 0x0D
-                ? self.partialLine.index(before: self.partialLine.endIndex)
-                : self.partialLine.endIndex
-            let line = String(decoding: self.partialLine[..<lineEnd], as: UTF8.self)
-            self.partialLine.removeAll(keepingCapacity: true)
+        if self.lineStart < self.buffer.endIndex {
+            let lineEnd = self.buffer.last == 0x0D
+                ? self.buffer.index(before: self.buffer.endIndex)
+                : self.buffer.endIndex
+            let line = String(decoding: self.buffer[self.lineStart..<lineEnd], as: UTF8.self)
             if let event = self.consume(line: line) {
                 events.append(event)
             }
         }
+        self.buffer.removeAll(keepingCapacity: true)
+        self.scanIndex = 0
+        self.lineStart = 0
         if let event = self.flushEvent() {
             events.append(event)
         }
         return events
+    }
+
+    private mutating func nextNewline() -> Int? {
+        for index in self.scanIndex..<self.buffer.count {
+            if self.buffer[index] == 0x0A {
+                return index
+            }
+        }
+        self.scanIndex = self.buffer.count
+        return nil
     }
 
     private mutating func consume(line: String) -> ServerSentEvent? {
