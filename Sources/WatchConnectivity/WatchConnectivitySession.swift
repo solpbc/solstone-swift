@@ -38,6 +38,8 @@ nonisolated struct WatchConnectivityFileTransferSnapshot: Codable, Equatable, Se
 nonisolated struct WatchConnectivityUserInfoTransferSnapshot: Codable, Equatable, Sendable {
     let asOf: Date
     let recognizedType: WatchConnectivityUserInfoTransferType?
+    let segmentID: UUID?
+    let idState: WatchRelayTransferIDState
     let isTransferring: Bool
 }
 
@@ -394,9 +396,12 @@ private extension LiveWatchConnectivitySession {
         from transfer: WCSessionUserInfoTransfer,
         asOf: Date
     ) -> WatchConnectivityUserInfoTransferSnapshot {
-        WatchConnectivityUserInfoTransferSnapshot(
+        let idParse = Self.segmentID(from: transfer.userInfo[WatchRelayACK.idKey])
+        return WatchConnectivityUserInfoTransferSnapshot(
             asOf: asOf,
-            recognizedType: Self.userInfoType(from: transfer.userInfo["type"]),
+            recognizedType: Self.userInfoType(from: transfer.userInfo[WatchRelayACK.typeKey]),
+            segmentID: idParse.id,
+            idState: idParse.state,
             isTransferring: transfer.isTransferring
         )
     }

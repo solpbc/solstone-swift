@@ -33,7 +33,8 @@ nonisolated struct WatchPipelineInput: Sendable {
     let iphoneBatteryState: DiagnosticAvailability<String>
     let iphoneLowPowerModeEnabled: DiagnosticAvailability<Bool>
     let iphoneThermalState: DiagnosticAvailability<String>
-    let iphoneOutstandingUserInfoTransferCountACKControl: Int
+    let phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot>
+    let iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot
 
     init(
         now: Date,
@@ -64,7 +65,8 @@ nonisolated struct WatchPipelineInput: Sendable {
         iphoneBatteryState: DiagnosticAvailability<String> = .unavailable(reason: "not provided"),
         iphoneLowPowerModeEnabled: DiagnosticAvailability<Bool> = .unavailable(reason: "not provided"),
         iphoneThermalState: DiagnosticAvailability<String> = .unavailable(reason: "not provided"),
-        iphoneOutstandingUserInfoTransferCountACKControl: Int = 0
+        phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
+        iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot()
     ) {
         self.now = now
         self.watchStatus = watchStatus
@@ -94,7 +96,8 @@ nonisolated struct WatchPipelineInput: Sendable {
         self.iphoneBatteryState = iphoneBatteryState
         self.iphoneLowPowerModeEnabled = iphoneLowPowerModeEnabled
         self.iphoneThermalState = iphoneThermalState
-        self.iphoneOutstandingUserInfoTransferCountACKControl = iphoneOutstandingUserInfoTransferCountACKControl
+        self.phoneLedgerSnapshot = phoneLedgerSnapshot
+        self.iphoneACKQueueSnapshot = iphoneACKQueueSnapshot
     }
 }
 
@@ -124,6 +127,38 @@ nonisolated struct WatchPipelineSummary: Equatable, Sendable {
     let diagnosticsRows: [WatchSourceDetailRow]
     let diagnosticsExportText: String
     let stuck: WatchPipelineStuck
+}
+
+nonisolated enum WatchRelayPhoneOutcome: Equatable, Sendable {
+    case alreadyHanded(ackQueued: Bool)
+    case receivedStaged
+    case terminalDropped
+    case ledgerAbsent
+    case ledgerUnavailable
+}
+
+nonisolated enum WatchRelaySourceAssessment: String, Equatable, Sendable {
+    case pending
+    case copyBacked = "copy-backed"
+    case staleSourceEmpty = "stale-source-empty"
+    case unresolved
+}
+
+nonisolated struct WatchRelayIdentityClassification: Equatable, Sendable {
+    let segmentID: UUID
+    let observation: WatchRelayTransferObservation
+    let phoneOutcome: WatchRelayPhoneOutcome
+    let sourceAssessment: WatchRelaySourceAssessment?
+    let ledgerEntry: WatchSegmentLedgerEntrySnapshot?
+}
+
+nonisolated struct WatchRelayClassificationReport: Equatable, Sendable {
+    let activeBacklogCount: DiagnosticAvailability<Int>
+    let visibleActiveDistinctCount: Int
+    let omittedActiveCount: DiagnosticAvailability<Int>
+    let evidenceUnavailableCount: Int
+    let omittedObservationCount: Int
+    let classifications: [WatchRelayIdentityClassification]
 }
 
 private nonisolated struct WatchDiagnosticsExportRow: Equatable, Sendable {
@@ -161,9 +196,176 @@ nonisolated enum WatchPipelineReducer {
             stuck: stuck
         )
     }
+
+    nonisolated static func classifyRelayIdentities(_ input: WatchPipelineInput) -> WatchRelayClassificationReport {
+        guard let payload = input.watchDiagnostics.payload else {
+            return WatchRelayClassificationReport(
+                activeBacklogCount: .unavailable(
+                    reason: input.watchDiagnostics.unavailableReason ?? WatchRelayDiagnosticsEnvelopeReason.absent
+                ),
+                visibleActiveDistinctCount: 0,
+                omittedActiveCount: .unavailable(
+                    reason: input.watchDiagnostics.unavailableReason ?? WatchRelayDiagnosticsEnvelopeReason.absent
+                ),
+                evidenceUnavailableCount: 0,
+                omittedObservationCount: 0,
+                classifications: []
+            )
+        }
+
+        let activeBacklogCount: DiagnosticAvailability<Int>
+        switch payload.manifestSummary {
+        case let .available(summary):
+            activeBacklogCount = .available(summary.activeBacklogCount)
+        case let .unavailable(reason):
+            activeBacklogCount = .unavailable(reason: reason)
+        }
+
+        let observations = self.visibleActiveObservations(payload.observedFileTransfers)
+        let classifications = observations.map { observation in
+            self.classification(
+                observation: observation,
+                ledgerSnapshot: input.phoneLedgerSnapshot,
+                ackSnapshot: input.iphoneACKQueueSnapshot
+            )
+        }
+        let visibleActiveDistinctCount = classifications.count
+
+        let omittedActiveCount: DiagnosticAvailability<Int>
+        switch activeBacklogCount {
+        case let .available(activeBacklog):
+            if activeBacklog >= visibleActiveDistinctCount {
+                omittedActiveCount = .available(activeBacklog - visibleActiveDistinctCount)
+            } else {
+                omittedActiveCount = .unavailable(reason: "active backlog less than visible active identities")
+            }
+        case let .unavailable(reason):
+            omittedActiveCount = .unavailable(reason: reason)
+        }
+
+        let evidenceUnavailableCount = classifications.filter { classification in
+            switch classification.phoneOutcome {
+            case .ledgerUnavailable:
+                return true
+            case .alreadyHanded, .receivedStaged, .terminalDropped:
+                return false
+            case .ledgerAbsent:
+                return classification.sourceAssessment == .unresolved
+            }
+        }.count
+
+        return WatchRelayClassificationReport(
+            activeBacklogCount: activeBacklogCount,
+            visibleActiveDistinctCount: visibleActiveDistinctCount,
+            omittedActiveCount: omittedActiveCount,
+            evidenceUnavailableCount: evidenceUnavailableCount,
+            omittedObservationCount: payload.omittedObservationCount,
+            classifications: classifications
+        )
+    }
 }
 
 private extension WatchPipelineReducer {
+    nonisolated static func visibleActiveObservations(
+        _ observations: [WatchRelayTransferObservation]
+    ) -> [WatchRelayTransferObservation] {
+        var seen = Set<UUID>()
+        var visible: [WatchRelayTransferObservation] = []
+        for observation in observations where self.isAppActiveRelation(observation.relation) {
+            guard let segmentID = observation.segmentID, seen.insert(segmentID).inserted else {
+                continue
+            }
+            visible.append(observation)
+        }
+        return visible
+    }
+
+    nonisolated static func isAppActiveRelation(_ relation: WatchRelayObservationRelation) -> Bool {
+        switch relation {
+        case .matched, .duplicate, .appActiveNotObserved:
+            true
+        case .orphaned, .unparseable:
+            false
+        }
+    }
+
+    nonisolated static func classification(
+        observation: WatchRelayTransferObservation,
+        ledgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot>,
+        ackSnapshot: WatchRelayACKQueueSnapshot
+    ) -> WatchRelayIdentityClassification {
+        guard let segmentID = observation.segmentID else {
+            return WatchRelayIdentityClassification(
+                segmentID: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                observation: observation,
+                phoneOutcome: .ledgerUnavailable,
+                sourceAssessment: nil,
+                ledgerEntry: nil
+            )
+        }
+
+        switch ledgerSnapshot {
+        case .unavailable:
+            return WatchRelayIdentityClassification(
+                segmentID: segmentID,
+                observation: observation,
+                phoneOutcome: .ledgerUnavailable,
+                sourceAssessment: nil,
+                ledgerEntry: nil
+            )
+        case let .available(snapshot):
+            guard let entry = snapshot.entriesByID[segmentID] else {
+                return WatchRelayIdentityClassification(
+                    segmentID: segmentID,
+                    observation: observation,
+                    phoneOutcome: .ledgerAbsent,
+                    sourceAssessment: self.sourceAssessment(observation),
+                    ledgerEntry: nil
+                )
+            }
+
+            let outcome: WatchRelayPhoneOutcome
+            switch entry.state {
+            case .handed, .handedAndDropped:
+                outcome = .alreadyHanded(ackQueued: (ackSnapshot.identityCounts[segmentID] ?? 0) > 0)
+            case .received:
+                outcome = .receivedStaged
+            case .dropped:
+                outcome = .terminalDropped
+            }
+
+            return WatchRelayIdentityClassification(
+                segmentID: segmentID,
+                observation: observation,
+                phoneOutcome: outcome,
+                sourceAssessment: nil,
+                ledgerEntry: entry
+            )
+        }
+    }
+
+    nonisolated static func sourceAssessment(
+        _ observation: WatchRelayTransferObservation
+    ) -> WatchRelaySourceAssessment {
+        guard case let .available(collectionResolution) = observation.collectionResolution,
+              collectionResolution == .stable,
+              case let .available(audioFact) = observation.originalAudioFile,
+              case let .available(locationFact) = observation.originalLocationFile,
+              case let .available(relayBundlePresent) = observation.relayBundlePresent,
+              case let .available(relayBundleBytes) = observation.relayBundleBytes
+        else {
+            return .unresolved
+        }
+
+        if audioFact.state == .readableNonempty || locationFact.state == .readableNonempty {
+            return .pending
+        }
+        if relayBundlePresent && relayBundleBytes > 0 {
+            return .copyBacked
+        }
+        return .staleSourceEmpty
+    }
+
     nonisolated static func age(of date: Date?, now: Date) -> TimeInterval? {
         date.map { max(0, now.timeIntervalSince($0)) }
     }
@@ -321,11 +523,12 @@ private extension WatchPipelineReducer {
     }
 
     nonisolated static func watchRetentionRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
+        let classificationReport = self.classifyRelayIdentities(input)
         guard let payload = input.watchDiagnostics.payload else {
             return [
                 WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsRelayAssessmentLabel, value: self.relayAssessmentText(input)),
                 WatchDiagnosticsExportRow(label: "diagnostic detail", value: input.watchDiagnostics.unavailableReason ?? SourceVocabulary.watchDiagnosticsUnavailable),
-            ]
+            ] + self.classificationDenominatorRows(classificationReport)
         }
 
         var rows = [
@@ -336,7 +539,6 @@ private extension WatchPipelineReducer {
         case let .available(summary):
             rows.append(contentsOf: [
                 WatchDiagnosticsExportRow(label: "manifest counts", value: self.manifestCountsText(summary.counts)),
-                WatchDiagnosticsExportRow(label: "active backlog", value: "\(summary.activeBacklogCount)"),
                 WatchDiagnosticsExportRow(label: "retained source bytes", value: self.int64AvailabilityText(summary.retainedSourceBytes)),
                 WatchDiagnosticsExportRow(label: "oldest active enqueue", value: self.dateAvailabilityText(summary.oldestActiveEnqueuedAt, now: input.now)),
                 WatchDiagnosticsExportRow(label: "oldest active enqueue age", value: self.intervalAvailabilityText(summary.oldestActiveEnqueueAgeSeconds)),
@@ -359,10 +561,17 @@ private extension WatchPipelineReducer {
                 WatchDiagnosticsExportRow(label: "reconciliation", value: self.reconciliationText(queue.reconciliation)),
                 WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsWatchUserInfoQueueLabel, value: "\(queue.outstandingUserInfoTransferCountWatchToPhone)"),
                 WatchDiagnosticsExportRow(label: "exact observations before compaction", value: "\(queue.exactObservationCountBeforeCompaction)"),
-                WatchDiagnosticsExportRow(label: "omitted observations", value: "\(payload.omittedObservationCount)"),
             ])
         case let .unavailable(reason):
             rows.append(WatchDiagnosticsExportRow(label: "Apple queue", value: reason))
+        }
+
+        rows.append(contentsOf: self.classificationDenominatorRows(classificationReport))
+        for (index, classification) in classificationReport.classifications.enumerated() {
+            rows.append(WatchDiagnosticsExportRow(
+                label: "\(SourceVocabulary.watchDiagnosticsVisibleActiveClassificationLabel) \(index + 1)",
+                value: self.classificationText(classification)
+            ))
         }
 
         let staleSnapshotAge = self.staleWatchSnapshotAge(input)
@@ -385,8 +594,9 @@ private extension WatchPipelineReducer {
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: WatchTransferFailureFormatter.exportSafeText(input.lastStagingError)),
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(max(0, input.nonTerminalCount))"),
             WatchDiagnosticsExportRow(label: "oldest staged age", value: self.optionalAgeText(input.oldestNonTerminalReceivedAt, now: input.now)),
-            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneACKQueueLabel, value: "\(max(0, input.iphoneOutstandingUserInfoTransferCountACKControl))"),
         ]
+        rows.append(contentsOf: self.phoneLedgerRows(input.phoneLedgerSnapshot))
+        rows.append(contentsOf: self.ackQueueRows(input.iphoneACKQueueSnapshot))
         if diagnosticsRows.contains(where: { $0.label == SourceVocabulary.watchLastLedgerDetailLabel }),
            let lastLedgerError = input.lastLedgerError,
            !lastLedgerError.isEmpty {
@@ -407,6 +617,177 @@ private extension WatchPipelineReducer {
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(input.lastUploadAt, now: input.now)),
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: WatchTransferFailureFormatter.exportSafeText(input.lastUploadError)),
         ]
+    }
+
+    nonisolated static func classificationDenominatorRows(
+        _ report: WatchRelayClassificationReport
+    ) -> [WatchDiagnosticsExportRow] {
+        [
+            WatchDiagnosticsExportRow(
+                label: SourceVocabulary.watchDiagnosticsActiveBacklogLabel,
+                value: self.intAvailabilityText(report.activeBacklogCount)
+            ),
+            WatchDiagnosticsExportRow(
+                label: SourceVocabulary.watchDiagnosticsVisibleActiveLabel,
+                value: "\(report.visibleActiveDistinctCount)"
+            ),
+            WatchDiagnosticsExportRow(
+                label: SourceVocabulary.watchDiagnosticsOmittedActiveLabel,
+                value: self.intAvailabilityText(report.omittedActiveCount)
+            ),
+            WatchDiagnosticsExportRow(
+                label: SourceVocabulary.watchDiagnosticsEvidenceUnavailableLabel,
+                value: "\(report.evidenceUnavailableCount)"
+            ),
+            WatchDiagnosticsExportRow(
+                label: SourceVocabulary.watchDiagnosticsOmittedObservationsLabel,
+                value: "\(report.omittedObservationCount)"
+            ),
+        ]
+    }
+
+    nonisolated static func phoneLedgerRows(
+        _ ledgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot>
+    ) -> [WatchDiagnosticsExportRow] {
+        switch ledgerSnapshot {
+        case let .available(snapshot):
+            return [
+                WatchDiagnosticsExportRow(
+                    label: SourceVocabulary.watchDiagnosticsPhoneLedgerRetainedEntriesLabel,
+                    value: "\(snapshot.counts.retainedEntryCount)"
+                ),
+                WatchDiagnosticsExportRow(
+                    label: SourceVocabulary.watchDiagnosticsPhoneLedgerReceivedLabel,
+                    value: "\(snapshot.counts.receivedOnlyCount)"
+                ),
+                WatchDiagnosticsExportRow(
+                    label: SourceVocabulary.watchDiagnosticsPhoneLedgerHandedLabel,
+                    value: "\(snapshot.counts.handedCount)"
+                ),
+                WatchDiagnosticsExportRow(
+                    label: SourceVocabulary.watchDiagnosticsPhoneLedgerDroppedLabel,
+                    value: "\(snapshot.counts.droppedCount)"
+                ),
+                WatchDiagnosticsExportRow(
+                    label: SourceVocabulary.watchDiagnosticsPhoneLedgerHandedAndDroppedLabel,
+                    value: "\(snapshot.counts.handedAndDroppedCount)"
+                ),
+            ]
+        case let .unavailable(reason):
+            return [
+                WatchDiagnosticsExportRow(
+                    label: SourceVocabulary.watchDiagnosticsPhoneLedgerLabel,
+                    value: self.unavailableText(reason)
+                )
+            ]
+        }
+    }
+
+    nonisolated static func ackQueueRows(_ ackSnapshot: WatchRelayACKQueueSnapshot) -> [WatchDiagnosticsExportRow] {
+        [
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneACKQueueLabel, value: "\(ackSnapshot.total)"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneRecognizedACKLabel, value: "\(ackSnapshot.recognizedACK)"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneParseableACKLabel, value: "\(ackSnapshot.parseableACK)"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneDistinctACKIdentitiesLabel, value: "\(ackSnapshot.distinctIdentities)"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneDuplicateACKExtrasLabel, value: "\(ackSnapshot.duplicateExtras)"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneMalformedMissingACKLabel, value: "\(ackSnapshot.malformedOrMissing)"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsIPhoneNonACKUserInfoLabel, value: "\(ackSnapshot.nonACK)"),
+        ]
+    }
+
+    nonisolated static func classificationText(_ classification: WatchRelayIdentityClassification) -> String {
+        var parts = [
+            "segment \(classification.segmentID.uuidString)",
+            "phone \(self.phoneOutcomeText(classification.phoneOutcome))",
+        ]
+        if let sourceAssessment = classification.sourceAssessment {
+            parts.append("source \(sourceAssessment.rawValue)")
+        }
+        parts.append("original audio \(self.originalFileText(classification.observation.originalAudioFile))")
+        parts.append("original location \(self.originalFileText(classification.observation.originalLocationFile))")
+        parts.append("relay bundle present \(self.boolAvailabilityText(classification.observation.relayBundlePresent))")
+        parts.append("relay bundle bytes \(self.int64AvailabilityText(classification.observation.relayBundleBytes))")
+        parts.append("collection \(self.collectionResolutionText(classification.observation.collectionResolution))")
+        parts.append("ledger \(self.ledgerText(classification))")
+        if let ledgerEntry = classification.ledgerEntry {
+            parts.append(contentsOf: self.ledgerTimestampParts(ledgerEntry))
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    nonisolated static func phoneOutcomeText(_ outcome: WatchRelayPhoneOutcome) -> String {
+        switch outcome {
+        case let .alreadyHanded(ackQueued):
+            return "already handed to journal / Watch retention-cleanup lag; ack queued \(self.booleanText(ackQueued))"
+        case .receivedStaged:
+            return "received/staged, journal handoff not proven"
+        case .terminalDropped:
+            return "terminal-dropped / Watch retention-cleanup lag"
+        case .ledgerAbsent:
+            return "not present in retained phone ledger"
+        case .ledgerUnavailable:
+            return "phone ledger unavailable"
+        }
+    }
+
+    nonisolated static func originalFileText(
+        _ availability: DiagnosticAvailability<WatchRelayOriginalFileFact>
+    ) -> String {
+        switch availability {
+        case let .available(fact):
+            let byteText = fact.byteCount.map { "\($0)" } ?? SourceVocabulary.watchDiagnosticsNotProvided
+            return "\(fact.state.rawValue) bytes \(byteText)"
+        case let .unavailable(reason):
+            return self.unavailableText(reason)
+        }
+    }
+
+    nonisolated static func collectionResolutionText(
+        _ availability: DiagnosticAvailability<WatchRelayObservationCollectionResolution>
+    ) -> String {
+        switch availability {
+        case let .available(resolution):
+            return resolution.rawValue
+        case let .unavailable(reason):
+            return self.unavailableText(reason)
+        }
+    }
+
+    nonisolated static func ledgerText(_ classification: WatchRelayIdentityClassification) -> String {
+        if let ledgerEntry = classification.ledgerEntry {
+            return ledgerEntry.state.rawValue
+        }
+        switch classification.phoneOutcome {
+        case .ledgerAbsent:
+            return "not present in retained phone ledger"
+        case .ledgerUnavailable:
+            return SourceVocabulary.watchDiagnosticsUnavailable
+        case .alreadyHanded, .receivedStaged, .terminalDropped:
+            return SourceVocabulary.watchDiagnosticsNotProvided
+        }
+    }
+
+    nonisolated static func ledgerTimestampParts(_ entry: WatchSegmentLedgerEntrySnapshot) -> [String] {
+        var parts: [String] = []
+        if let receivedAt = entry.receivedAt {
+            parts.append("received at \(self.iso8601Text(receivedAt))")
+        }
+        if let receivedAgeSeconds = entry.receivedAgeSeconds {
+            parts.append("received age \(self.secondsText(receivedAgeSeconds))")
+        }
+        if let handedAt = entry.handedAt {
+            parts.append("handed at \(self.iso8601Text(handedAt))")
+        }
+        if let handedAgeSeconds = entry.handedAgeSeconds {
+            parts.append("handed age \(self.secondsText(handedAgeSeconds))")
+        }
+        if let droppedAt = entry.droppedAt {
+            parts.append("dropped at \(self.iso8601Text(droppedAt))")
+        }
+        if let droppedAgeSeconds = entry.droppedAgeSeconds {
+            parts.append("dropped age \(self.secondsText(droppedAgeSeconds))")
+        }
+        return parts
     }
 
     nonisolated static func relayAssessmentText(_ input: WatchPipelineInput) -> String {
@@ -649,13 +1030,26 @@ private extension WatchPipelineReducer {
         }
     }
 
+    nonisolated static func intAvailabilityText(_ availability: DiagnosticAvailability<Int>) -> String {
+        switch availability {
+        case let .available(value):
+            return "\(value)"
+        case let .unavailable(reason):
+            return self.unavailableText(reason)
+        }
+    }
+
     nonisolated static func int64AvailabilityText(_ availability: DiagnosticAvailability<Int64>) -> String {
         switch availability {
         case let .available(value):
             return "\(value)"
         case let .unavailable(reason):
-            return "\(SourceVocabulary.watchDiagnosticsUnavailable) (\(WatchTransferFailureFormatter.redactedDescription(reason)))"
+            return self.unavailableText(reason)
         }
+    }
+
+    nonisolated static func unavailableText(_ reason: String) -> String {
+        "\(SourceVocabulary.watchDiagnosticsUnavailable) (\(WatchTransferFailureFormatter.redactedDescription(reason)))"
     }
 
     nonisolated static func percentAvailabilityText(_ availability: DiagnosticAvailability<Double>) -> String {

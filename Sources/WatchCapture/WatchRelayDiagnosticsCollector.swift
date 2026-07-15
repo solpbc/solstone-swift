@@ -154,6 +154,31 @@ private extension WatchRelayDiagnosticsCollector {
         let entry: WatchCaptureStorage.ManifestEntry
         let sidecar: DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar>
         let sourcePresent: DiagnosticAvailability<Bool>
+        let relayBundlePresent: DiagnosticAvailability<Bool>
+        let relayBundleBytes: DiagnosticAvailability<Int64>
+        let originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+        let originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+        let witness: ActiveManifestWitness
+    }
+
+    struct ActiveManifestWitness: Equatable {
+        let segmentID: UUID
+        let manifestState: WatchSegmentState
+        let sidecarAvailabilityKey: String
+        let sidecarOriginalEnqueuedAt: Date?
+        let sidecarBundleBytes: Int64?
+        let legacySourcePresent: DiagnosticAvailability<Bool>
+        let legacyAppOwnedSourceBytes: DiagnosticAvailability<Int64>
+        let relayBundlePresent: DiagnosticAvailability<Bool>
+        let relayBundleBytes: DiagnosticAvailability<Int64>
+        let originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+        let originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+    }
+
+    struct OriginalPayloadAggregate {
+        let audioCounts: WatchRelayOriginalFileStateCounts
+        let locationCounts: WatchRelayOriginalFileStateCounts
+        let readableBytes: DiagnosticAvailability<Int64>
     }
 
     func makePayload(
@@ -166,11 +191,7 @@ private extension WatchRelayDiagnosticsCollector {
             entry.manifest.state == .queued || entry.manifest.state == .transferring
         }
         let activeFacts = activeEntries.map { entry in
-            ActiveManifestFact(
-                entry: entry,
-                sidecar: self.diagnosticsStore.readSidecar(manifest: entry.manifest, directoryURL: entry.directoryURL),
-                sourcePresent: self.sourcePresent(for: entry.manifest.id)
-            )
+            self.activeManifestFact(entry: entry)
         }
         let fileTransferSnapshots = self.session.outstandingFileTransferSnapshots
         let userInfoSnapshots = self.session.outstandingUserInfoTransferSnapshots
@@ -186,6 +207,11 @@ private extension WatchRelayDiagnosticsCollector {
         )
         let lastFacts = self.diagnosticsStore.readSummary()
         let failureSegmentID = Self.failureSegmentID(from: lastFacts)
+        let changedWitnessIDs = self.changedWitnessIDs(initialFacts: activeFacts)
+        let resolvedObservations = self.resolvedObservations(
+            observations,
+            changedWitnessIDs: changedWitnessIDs
+        )
 
         let manifestSummary: DiagnosticAvailability<WatchRelayManifestSummary>
         switch entriesResult {
@@ -214,15 +240,48 @@ private extension WatchRelayDiagnosticsCollector {
                 outstandingFileTransferCount: fileTransferSnapshots.count,
                 outstandingUserInfoTransferCountWatchToPhone: userInfoSnapshots.count,
                 reconciliation: reconciliation,
-                exactObservationCountBeforeCompaction: observations.count
+                exactObservationCountBeforeCompaction: resolvedObservations.count
             )),
             lastFacts: lastFacts,
             observedFileTransfers: self.orderedForCompaction(
-                observations,
+                resolvedObservations,
                 activeFacts: activeFacts,
                 failureSegmentID: failureSegmentID
             ),
             omittedObservationCount: 0
+        )
+    }
+
+    func activeManifestFact(entry: WatchCaptureStorage.ManifestEntry) -> ActiveManifestFact {
+        let sidecar = self.diagnosticsStore.readSidecar(manifest: entry.manifest, directoryURL: entry.directoryURL)
+        let sourcePresent = self.sourcePresent(for: entry.manifest.id)
+        let relayBundle = self.relayBundleFacts(for: entry.manifest.id)
+        let originalAudioFile = self.originalFileFact(at: self.storage.audioURL(directory: entry.directoryURL))
+        let originalLocationFile = self.originalFileFact(at: self.storage.locationURL(directory: entry.directoryURL))
+        let legacyAppOwnedSourceBytes = Self.legacySourceBytes(from: sidecar)
+        let witnessValues = Self.sidecarWitnessValues(sidecar)
+        let witness = ActiveManifestWitness(
+            segmentID: entry.manifest.id,
+            manifestState: entry.manifest.state,
+            sidecarAvailabilityKey: witnessValues.availabilityKey,
+            sidecarOriginalEnqueuedAt: witnessValues.originalEnqueuedAt,
+            sidecarBundleBytes: witnessValues.bundleBytes,
+            legacySourcePresent: sourcePresent,
+            legacyAppOwnedSourceBytes: legacyAppOwnedSourceBytes,
+            relayBundlePresent: relayBundle.present,
+            relayBundleBytes: relayBundle.bytes,
+            originalAudioFile: originalAudioFile,
+            originalLocationFile: originalLocationFile
+        )
+        return ActiveManifestFact(
+            entry: entry,
+            sidecar: sidecar,
+            sourcePresent: sourcePresent,
+            relayBundlePresent: relayBundle.present,
+            relayBundleBytes: relayBundle.bytes,
+            originalAudioFile: originalAudioFile,
+            originalLocationFile: originalLocationFile,
+            witness: witness
         )
     }
 
@@ -232,13 +291,18 @@ private extension WatchRelayDiagnosticsCollector {
         asOf: Date
     ) -> DiagnosticAvailability<WatchRelayManifestSummary> {
         let counts = Self.manifestCounts(entries)
+        let originalAggregate = self.originalPayloadAggregate(activeFacts: activeFacts)
         guard !activeFacts.isEmpty else {
             return .available(WatchRelayManifestSummary(
                 counts: counts,
                 activeBacklogCount: 0,
                 retainedSourceBytes: .available(0),
                 oldestActiveEnqueuedAt: .available(nil),
-                oldestActiveEnqueueAgeSeconds: .available(nil)
+                oldestActiveEnqueueAgeSeconds: .available(nil),
+                originalAudioFileCounts: .available(.zero),
+                originalLocationFileCounts: .available(.zero),
+                originalPayloadReadableBytes: .available(0),
+                retainedRelayBundleBytes: .available(0)
             ))
         }
 
@@ -255,7 +319,11 @@ private extension WatchRelayDiagnosticsCollector {
                     activeBacklogCount: activeFacts.count,
                     retainedSourceBytes: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable),
                     oldestActiveEnqueuedAt: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable),
-                    oldestActiveEnqueueAgeSeconds: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+                    oldestActiveEnqueueAgeSeconds: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable),
+                    originalAudioFileCounts: .available(originalAggregate.audioCounts),
+                    originalLocationFileCounts: .available(originalAggregate.locationCounts),
+                    originalPayloadReadableBytes: originalAggregate.readableBytes,
+                    retainedRelayBundleBytes: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
                 ))
             }
             if !sourceBytesOverflowed {
@@ -277,7 +345,13 @@ private extension WatchRelayDiagnosticsCollector {
                 ? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
                 : .available(sourceBytes),
             oldestActiveEnqueuedAt: .available(oldest),
-            oldestActiveEnqueueAgeSeconds: .available(oldest.map { max(0, asOf.timeIntervalSince($0)) })
+            oldestActiveEnqueueAgeSeconds: .available(oldest.map { max(0, asOf.timeIntervalSince($0)) }),
+            originalAudioFileCounts: .available(originalAggregate.audioCounts),
+            originalLocationFileCounts: .available(originalAggregate.locationCounts),
+            originalPayloadReadableBytes: originalAggregate.readableBytes,
+            retainedRelayBundleBytes: sourceBytesOverflowed
+                ? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+                : .available(sourceBytes)
         ))
     }
 
@@ -374,6 +448,10 @@ private extension WatchRelayDiagnosticsCollector {
         let appOwnedEnqueueAgeSeconds: DiagnosticAvailability<TimeInterval?>
         let appOwnedSourceBytes: DiagnosticAvailability<Int64>
         let sourcePresent: DiagnosticAvailability<Bool>
+        let originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+        let originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+        let relayBundlePresent: DiagnosticAvailability<Bool>
+        let relayBundleBytes: DiagnosticAvailability<Int64>
         let appManifestState: String?
 
         if let fact {
@@ -391,11 +469,19 @@ private extension WatchRelayDiagnosticsCollector {
                 appOwnedSourceBytes = .unavailable(reason: reason)
             }
             sourcePresent = fact.sourcePresent
+            originalAudioFile = fact.originalAudioFile
+            originalLocationFile = fact.originalLocationFile
+            relayBundlePresent = fact.relayBundlePresent
+            relayBundleBytes = fact.relayBundleBytes
         } else {
             appManifestState = nil
             appOwnedEnqueueAgeSeconds = .unavailable(reason: "no app-active manifest")
             appOwnedSourceBytes = .unavailable(reason: "no app-active manifest")
             sourcePresent = .unavailable(reason: "no app-active manifest")
+            originalAudioFile = .unavailable(reason: "no app-active manifest")
+            originalLocationFile = .unavailable(reason: "no app-active manifest")
+            relayBundlePresent = .unavailable(reason: "no app-active manifest")
+            relayBundleBytes = .unavailable(reason: "no app-active manifest")
         }
 
         let isTransferring: DiagnosticAvailability<Bool>
@@ -418,12 +504,206 @@ private extension WatchRelayDiagnosticsCollector {
             appOwnedSourceBytes: appOwnedSourceBytes,
             sourcePresent: sourcePresent,
             isTransferring: isTransferring,
-            progress: progress
+            progress: progress,
+            originalAudioFile: originalAudioFile,
+            originalLocationFile: originalLocationFile,
+            relayBundlePresent: relayBundlePresent,
+            relayBundleBytes: relayBundleBytes,
+            collectionResolution: .available(.stable)
         )
     }
 
     func sourcePresent(for id: UUID) -> DiagnosticAvailability<Bool> {
         .available(self.storage.fileWriter.fileExists(at: self.bundleURL(for: id)))
+    }
+
+    func relayBundleFacts(for id: UUID) -> (
+        present: DiagnosticAvailability<Bool>,
+        bytes: DiagnosticAvailability<Int64>
+    ) {
+        let url = self.bundleURL(for: id)
+        let present = self.storage.fileWriter.fileExists(at: url)
+        let bytes: DiagnosticAvailability<Int64>
+        if let byteCount = self.fileByteSize(at: url, sourcePresent: present) {
+            bytes = .available(byteCount)
+        } else {
+            bytes = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        }
+        return (.available(present), bytes)
+    }
+
+    func originalFileFact(at url: URL) -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
+        guard self.storage.fileWriter.fileExists(at: url) else {
+            return .available(WatchRelayOriginalFileFact(state: .missing, byteCount: 0))
+        }
+        guard let byteCount = self.fileByteSize(at: url, sourcePresent: true) else {
+            return .available(WatchRelayOriginalFileFact(state: .unreadable, byteCount: nil))
+        }
+        if byteCount == 0 {
+            return .available(WatchRelayOriginalFileFact(state: .zeroLength, byteCount: 0))
+        }
+        return .available(WatchRelayOriginalFileFact(state: .readableNonempty, byteCount: byteCount))
+    }
+
+    func fileByteSize(at url: URL, sourcePresent: Bool) -> Int64? {
+        guard sourcePresent else { return nil }
+        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+           let fileSize = values.fileSize {
+            return Int64(fileSize)
+        }
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attributes[.size] as? NSNumber {
+            return size.int64Value
+        }
+        return nil
+    }
+
+    func originalPayloadAggregate(activeFacts: [ActiveManifestFact]) -> OriginalPayloadAggregate {
+        var audioCounts = WatchRelayOriginalFileStateCounts.zero
+        var locationCounts = WatchRelayOriginalFileStateCounts.zero
+        var readableBytes: Int64 = 0
+        var readableBytesOverflowed = false
+
+        for fact in activeFacts {
+            self.accumulateOriginalFileFact(
+                fact.originalAudioFile,
+                counts: &audioCounts,
+                readableBytes: &readableBytes,
+                readableBytesOverflowed: &readableBytesOverflowed
+            )
+            self.accumulateOriginalFileFact(
+                fact.originalLocationFile,
+                counts: &locationCounts,
+                readableBytes: &readableBytes,
+                readableBytesOverflowed: &readableBytesOverflowed
+            )
+        }
+
+        return OriginalPayloadAggregate(
+            audioCounts: audioCounts,
+            locationCounts: locationCounts,
+            readableBytes: readableBytesOverflowed
+                ? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+                : .available(readableBytes)
+        )
+    }
+
+    func accumulateOriginalFileFact(
+        _ availability: DiagnosticAvailability<WatchRelayOriginalFileFact>,
+        counts: inout WatchRelayOriginalFileStateCounts,
+        readableBytes: inout Int64,
+        readableBytesOverflowed: inout Bool
+    ) {
+        guard case let .available(fact) = availability else { return }
+        counts = Self.incremented(counts, state: fact.state)
+        guard fact.state == .readableNonempty,
+              let byteCount = fact.byteCount,
+              !readableBytesOverflowed
+        else {
+            return
+        }
+        let (nextBytes, overflow) = readableBytes.addingReportingOverflow(byteCount)
+        if overflow {
+            readableBytesOverflowed = true
+        } else {
+            readableBytes = nextBytes
+        }
+    }
+
+    static func incremented(
+        _ counts: WatchRelayOriginalFileStateCounts,
+        state: WatchRelayOriginalFileState
+    ) -> WatchRelayOriginalFileStateCounts {
+        switch state {
+        case .missing:
+            WatchRelayOriginalFileStateCounts(
+                missing: counts.missing + 1,
+                readableNonempty: counts.readableNonempty,
+                zeroLength: counts.zeroLength,
+                unreadable: counts.unreadable
+            )
+        case .readableNonempty:
+            WatchRelayOriginalFileStateCounts(
+                missing: counts.missing,
+                readableNonempty: counts.readableNonempty + 1,
+                zeroLength: counts.zeroLength,
+                unreadable: counts.unreadable
+            )
+        case .zeroLength:
+            WatchRelayOriginalFileStateCounts(
+                missing: counts.missing,
+                readableNonempty: counts.readableNonempty,
+                zeroLength: counts.zeroLength + 1,
+                unreadable: counts.unreadable
+            )
+        case .unreadable:
+            WatchRelayOriginalFileStateCounts(
+                missing: counts.missing,
+                readableNonempty: counts.readableNonempty,
+                zeroLength: counts.zeroLength,
+                unreadable: counts.unreadable + 1
+            )
+        }
+    }
+
+    func changedWitnessIDs(initialFacts: [ActiveManifestFact]) -> Set<UUID> {
+        guard !initialFacts.isEmpty else { return [] }
+        let initialByID = Dictionary(uniqueKeysWithValues: initialFacts.map { ($0.entry.manifest.id, $0.witness) })
+        let entries: [WatchCaptureStorage.ManifestEntry]
+        do {
+            entries = try self.storage.scanManifests()
+        } catch {
+            return Set(initialByID.keys)
+        }
+        let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.manifest.id, $0) })
+        var changed = Set<UUID>()
+        for (id, initialWitness) in initialByID {
+            guard let entry = entriesByID[id] else {
+                changed.insert(id)
+                continue
+            }
+            let currentWitness = self.activeManifestFact(entry: entry).witness
+            if currentWitness != initialWitness {
+                changed.insert(id)
+            }
+        }
+        return changed
+    }
+
+    func resolvedObservations(
+        _ observations: [WatchRelayTransferObservation],
+        changedWitnessIDs: Set<UUID>
+    ) -> [WatchRelayTransferObservation] {
+        guard !changedWitnessIDs.isEmpty else { return observations }
+        return observations.map { observation in
+            guard let id = observation.segmentID,
+                  changedWitnessIDs.contains(id)
+            else {
+                return observation
+            }
+            return self.snapshotChangedObservation(observation)
+        }
+    }
+
+    func snapshotChangedObservation(_ observation: WatchRelayTransferObservation) -> WatchRelayTransferObservation {
+        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
+        return WatchRelayTransferObservation(
+            asOf: observation.asOf,
+            segmentID: observation.segmentID,
+            idState: observation.idState,
+            relation: observation.relation,
+            appManifestState: observation.appManifestState,
+            appOwnedEnqueueAgeSeconds: observation.appOwnedEnqueueAgeSeconds,
+            appOwnedSourceBytes: observation.appOwnedSourceBytes,
+            sourcePresent: observation.sourcePresent,
+            isTransferring: observation.isTransferring,
+            progress: observation.progress,
+            originalAudioFile: .unavailable(reason: reason),
+            originalLocationFile: .unavailable(reason: reason),
+            relayBundlePresent: .unavailable(reason: reason),
+            relayBundleBytes: .unavailable(reason: reason),
+            collectionResolution: .available(.snapshotChangedDuringCollection)
+        )
     }
 
     func bundleURL(for id: UUID) -> URL {
@@ -483,6 +763,31 @@ private extension WatchRelayDiagnosticsCollector {
             return nil
         }
         return completion.segmentID
+    }
+
+    static func legacySourceBytes(
+        from sidecar: DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar>
+    ) -> DiagnosticAvailability<Int64> {
+        switch sidecar {
+        case let .available(sidecar):
+            if let sourceBytes = sidecar.sourceBytes {
+                return .available(sourceBytes)
+            }
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        case let .unavailable(reason):
+            return .unavailable(reason: reason)
+        }
+    }
+
+    static func sidecarWitnessValues(
+        _ sidecar: DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar>
+    ) -> (availabilityKey: String, originalEnqueuedAt: Date?, bundleBytes: Int64?) {
+        switch sidecar {
+        case let .available(sidecar):
+            return ("available", sidecar.originalEnqueuedAt, sidecar.sourceBytes)
+        case let .unavailable(reason):
+            return ("unavailable:\(reason)", nil, nil)
+        }
     }
 
     func compactionKey(

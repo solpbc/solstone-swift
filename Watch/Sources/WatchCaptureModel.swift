@@ -19,13 +19,15 @@ final class WatchCaptureModel {
     }
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
+    @ObservationIgnored private let diagnosticsCollector: WatchRelayDiagnosticsCollector?
 
     init(
         storage: WatchCaptureStorage,
         relaySender: WatchRelaySender,
         session: any WatchConnectivitySession,
-        diagnosticsCollector: WatchRelayDiagnosticsCollector? = nil
+        diagnosticsCollector: WatchRelayDiagnosticsCollector
     ) {
+        self.diagnosticsCollector = diagnosticsCollector
         let engine = WatchCaptureEngine(
             audioRecorder: LiveWatchAudioRecorder(),
             audioSession: LiveWatchAudioSessionController(),
@@ -68,8 +70,8 @@ final class WatchCaptureModel {
                 watchCaptureModelLog.error("watch status publish failed: \(String(describing: error), privacy: .public)")
             }
         }
-        engine.onDiagnosticsEnvelopeRequested = { [weak diagnosticsCollector] asOf in
-            diagnosticsCollector?.makeEnvelopeData(asOf: asOf)
+        engine.onDiagnosticsEnvelopeRequested = { [diagnosticsCollector] asOf in
+            diagnosticsCollector.makeEnvelopeData(asOf: asOf)
         }
         relaySender.onStateChanged = { [weak self, weak engine] in
             engine?.refreshRelayCountsFromDisk()
@@ -86,6 +88,7 @@ final class WatchCaptureModel {
     }
 
     init(initializationError error: any Error) {
+        self.diagnosticsCollector = nil
         self.presentation = WatchCaptureOwnerPresentation(
             status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
             queuedCount: 0

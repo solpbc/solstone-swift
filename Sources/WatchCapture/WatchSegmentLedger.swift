@@ -46,6 +46,46 @@ nonisolated struct WatchSegmentLedgerStore: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated enum WatchSegmentLedgerEntryState: String, Codable, Equatable, Sendable {
+    case received
+    case handed
+    case dropped
+    case handedAndDropped
+}
+
+nonisolated struct WatchSegmentLedgerEntrySnapshot: Codable, Equatable, Sendable {
+    let segmentID: UUID
+    let state: WatchSegmentLedgerEntryState
+    let receivedAt: Date?
+    let handedAt: Date?
+    let droppedAt: Date?
+    let receivedAgeSeconds: TimeInterval?
+    let handedAgeSeconds: TimeInterval?
+    let droppedAgeSeconds: TimeInterval?
+}
+
+nonisolated struct WatchSegmentLedgerSnapshotCounts: Codable, Equatable, Sendable {
+    let retainedEntryCount: Int
+    let receivedOnlyCount: Int
+    let handedCount: Int
+    let droppedCount: Int
+    let handedAndDroppedCount: Int
+
+    static let zero = WatchSegmentLedgerSnapshotCounts(
+        retainedEntryCount: 0,
+        receivedOnlyCount: 0,
+        handedCount: 0,
+        droppedCount: 0,
+        handedAndDroppedCount: 0
+    )
+}
+
+nonisolated struct WatchSegmentLedgerReadSnapshot: Codable, Equatable, Sendable {
+    let asOf: Date
+    let entriesByID: [UUID: WatchSegmentLedgerEntrySnapshot]
+    let counts: WatchSegmentLedgerSnapshotCounts
+}
+
 nonisolated private enum WatchSegmentLedgerError: Error, Sendable {
     case fileURLUnavailable
 }
@@ -209,9 +249,78 @@ final class WatchSegmentLedger {
     func isTerminal(id: UUID) -> Bool {
         self.store.entries[id.uuidString]?.isTerminal == true
     }
+
+    func readSnapshot(asOf: Date) -> DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> {
+        if let lastLedgerError, !lastLedgerError.isEmpty {
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.bounded(lastLedgerError))
+        }
+
+        var entriesByID: [UUID: WatchSegmentLedgerEntrySnapshot] = [:]
+        var receivedOnlyCount = 0
+        var handedCount = 0
+        var droppedCount = 0
+        var handedAndDroppedCount = 0
+
+        for (key, entry) in self.store.entries {
+            guard let segmentID = UUID(uuidString: key),
+                  let state = Self.snapshotState(for: entry)
+            else {
+                continue
+            }
+
+            switch state {
+            case .received:
+                receivedOnlyCount += 1
+            case .handed:
+                handedCount += 1
+            case .dropped:
+                droppedCount += 1
+            case .handedAndDropped:
+                handedAndDroppedCount += 1
+            }
+
+            entriesByID[segmentID] = WatchSegmentLedgerEntrySnapshot(
+                segmentID: segmentID,
+                state: state,
+                receivedAt: entry.receivedAt,
+                handedAt: entry.handedAt,
+                droppedAt: entry.droppedAt,
+                receivedAgeSeconds: entry.receivedAt.map { asOf.timeIntervalSince($0) },
+                handedAgeSeconds: entry.handedAt.map { asOf.timeIntervalSince($0) },
+                droppedAgeSeconds: entry.droppedAt.map { asOf.timeIntervalSince($0) }
+            )
+        }
+
+        return .available(WatchSegmentLedgerReadSnapshot(
+            asOf: asOf,
+            entriesByID: entriesByID,
+            counts: WatchSegmentLedgerSnapshotCounts(
+                retainedEntryCount: entriesByID.count,
+                receivedOnlyCount: receivedOnlyCount,
+                handedCount: handedCount,
+                droppedCount: droppedCount,
+                handedAndDroppedCount: handedAndDroppedCount
+            )
+        ))
+    }
 }
 
 private extension WatchSegmentLedger {
+    static func snapshotState(for entry: WatchSegmentLedgerStore.Entry) -> WatchSegmentLedgerEntryState? {
+        switch (entry.receivedAt, entry.handedAt, entry.droppedAt) {
+        case (_, .some, .some):
+            .handedAndDropped
+        case (_, .some, .none):
+            .handed
+        case (_, .none, .some):
+            .dropped
+        case (.some, .none, .none):
+            .received
+        case (.none, .none, .none):
+            nil
+        }
+    }
+
     func load() {
         guard let fileURL else { return }
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }

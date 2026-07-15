@@ -201,7 +201,8 @@ struct WatchSourceDetailView: View {
             iphoneBatteryState: iphoneEnvironment.batteryState,
             iphoneLowPowerModeEnabled: iphoneEnvironment.lowPowerModeEnabled,
             iphoneThermalState: iphoneEnvironment.thermalState,
-            iphoneOutstandingUserInfoTransferCountACKControl: self.watchLink.iPhoneOutstandingUserInfoTransferCountACKControl
+            phoneLedgerSnapshot: self.watchSegmentLedger.readSnapshot(asOf: self.now),
+            iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot
         )
     }
     // KILL-LIST-EXEMPT:END
