@@ -313,6 +313,69 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(relationCounts[.appActiveNotObserved], 1)
         XCTAssertEqual(relationCounts[.orphaned], 1)
         XCTAssertEqual(relationCounts[.unparseable], 2)
+
+        let expectedIdentity: [(UUID?, WatchRelayObservationRelation)] = [
+            (activeA, .matched),
+            (activeB, .duplicate),
+            (activeB, .duplicate),
+            (activeC, .appActiveNotObserved),
+            (orphan, .orphaned),
+            (nil, .unparseable),
+            (nil, .unparseable),
+        ]
+        XCTAssertEqual(payload.observedFileTransfers.count, expectedIdentity.count)
+        for (observation, expected) in zip(payload.observedFileTransfers, expectedIdentity) {
+            XCTAssertEqual(observation.segmentID, expected.0)
+            XCTAssertEqual(observation.relation, expected.1)
+        }
+    }
+
+    func testSourceByteAggregateOverflowOnlyMakesRetainedBytesUnavailable() throws {
+        let now = Self.now
+        let oldest = now.addingTimeInterval(-600)
+        let newer = now.addingTimeInterval(-60)
+        let storage = try self.storage("source-byte-overflow")
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let encoder = Self.diagnosticsEncoder()
+        let sidecarFacts: [(UUID, Date, Int64)] = [
+            (Self.uuid(10_000), oldest, Int64.max - 10),
+            (Self.uuid(10_001), newer, 42),
+        ]
+
+        for (id, enqueuedAt, sourceBytes) in sidecarFacts {
+            let entry = try self.writeManifest(id: id, state: .transferring, storage: storage)
+            var sidecar = WatchRelaySegmentDiagnosticsSidecar(
+                segmentID: id,
+                originalEnqueuedAt: enqueuedAt,
+                latestEnqueuedAt: enqueuedAt,
+                attemptCount: 1,
+                sourceBytes: sourceBytes,
+                sourcePresent: true
+            )
+            sidecar.lastFacts.lastEnqueue = WatchRelayFactCounter(at: enqueuedAt, count: 1, segmentID: id)
+            try storage.fileWriter.writeData(
+                try encoder.encode(sidecar),
+                to: store.sidecarURL(directoryURL: entry.directoryURL),
+                options: .atomic
+            )
+            session.seedOutstandingTransfer(id: id)
+        }
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: collector.makeEnvelopeData(asOf: now)).payload)
+        let summary = try XCTUnwrap(payload.manifestSummary.value)
+
+        XCTAssertEqual(summary.retainedSourceBytes.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        let oldestEnqueuedAt = try XCTUnwrap(summary.oldestActiveEnqueuedAt.value)
+        let oldestEnqueueAge = try XCTUnwrap(summary.oldestActiveEnqueueAgeSeconds.value)
+        XCTAssertEqual(try XCTUnwrap(oldestEnqueuedAt), oldest)
+        XCTAssertEqual(try XCTUnwrap(oldestEnqueueAge), now.timeIntervalSince(oldest))
     }
 
     func testOldestActiveFailureStillSortsByActiveEnqueueOrder() throws {
@@ -472,6 +535,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             clock: { now }
         )
 
+        // This drain path proves relay effects still complete; store-level tests isolate marker tripping per record method.
         writer.failWrites = true
         sender.drain()
 
@@ -507,6 +571,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             clock: { now }
         )
 
+        // This callback path proves relay effects still complete; store-level tests isolate marker tripping per record method.
         writer.failWrites = true
         session.finishTransfer(
             id: failed.manifest.id,
@@ -576,6 +641,13 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             bundleURL: bundleURL,
             at: date
         )
+    }
+
+    private static func diagnosticsEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
     }
 }
 
@@ -862,6 +934,84 @@ final class WatchRelayDiagnosticsStoreTests: XCTestCase {
             WatchRelayDiagnosticsEnvelopeReason.historyUnavailable
         )
         XCTAssertEqual(store.readSummary().unavailableReason, WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+    }
+
+    func testWriteFailureMarkerTripsForEachDiagnosticRecordMethod() throws {
+        let now = WatchRelayDiagnosticsCollectorTests.now
+        let cases: [(String, (WatchRelayDiagnosticsStore, WatchCaptureStorage.ManifestEntry, URL) -> Void)] = [
+            ("enqueue", { store, entry, bundleURL in
+                store.recordEnqueue(
+                    manifest: entry.manifest,
+                    directoryURL: entry.directoryURL,
+                    bundleURL: bundleURL,
+                    at: now.addingTimeInterval(10)
+                )
+            }),
+            ("successful completion", { store, entry, _ in
+                store.recordTransferCompletion(
+                    manifest: entry.manifest,
+                    directoryURL: entry.directoryURL,
+                    succeeded: true,
+                    failure: nil,
+                    at: now.addingTimeInterval(10)
+                )
+            }),
+            ("failed completion", { store, entry, _ in
+                store.recordTransferCompletion(
+                    manifest: entry.manifest,
+                    directoryURL: entry.directoryURL,
+                    succeeded: false,
+                    failure: WatchConnectivityTransferFailureSnapshot(domain: "TestFailureDomain", code: 81, boundedRedactedDescription: "failed"),
+                    at: now.addingTimeInterval(10)
+                )
+            }),
+            ("durable ack", { store, entry, _ in
+                store.recordDurableACK(
+                    manifest: entry.manifest,
+                    directoryURL: entry.directoryURL,
+                    at: now.addingTimeInterval(10)
+                )
+            }),
+            ("queue reconciliation", { store, _, _ in
+                store.recordQueueReconciliation(
+                    counts: .zero,
+                    observedFileTransferCount: 0,
+                    activeManifestCount: 0,
+                    at: now.addingTimeInterval(10)
+                )
+            }),
+        ]
+
+        for (name, action) in cases {
+            let writer = WriteFailingWatchFileWriter()
+            let storage = try WatchCaptureStorage(
+                rootURL: self.tempDirectory.appendingPathComponent("write-marker-\(name)", isDirectory: true),
+                fileWriter: writer
+            )
+            let store = WatchRelayDiagnosticsStore(storage: storage)
+            let entry = try self.writeManifest(storage: storage)
+            let bundleURL = storage.rootURL
+                .appendingPathComponent(".relay-bundles", isDirectory: true)
+                .appendingPathComponent("\(entry.manifest.id.uuidString).watchrelay", isDirectory: false)
+            try storage.fileWriter.writeData(Data(repeating: 7, count: 44), to: bundleURL, options: .atomic)
+            store.recordEnqueue(manifest: entry.manifest, directoryURL: entry.directoryURL, bundleURL: bundleURL, at: now)
+            XCTAssertNotNil(store.readSidecar(manifest: entry.manifest, directoryURL: entry.directoryURL).value, name)
+            XCTAssertNotNil(store.readSummary().value, name)
+
+            writer.failWrites = true
+            action(store, entry, bundleURL)
+
+            XCTAssertEqual(
+                store.readSidecar(manifest: entry.manifest, directoryURL: entry.directoryURL).unavailableReason,
+                WatchRelayDiagnosticsEnvelopeReason.historyUnavailable,
+                name
+            )
+            XCTAssertEqual(
+                store.readSummary().unavailableReason,
+                WatchRelayDiagnosticsEnvelopeReason.historyUnavailable,
+                name
+            )
+        }
     }
 
     func testStructuredFailureRedactionSurvivesPersistReadAndExport() throws {
