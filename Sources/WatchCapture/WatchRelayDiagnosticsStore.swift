@@ -143,8 +143,8 @@ final class WatchRelayDiagnosticsStore {
         at date: Date
     ) {
         self.performWrite("enqueue", segmentID: manifest.id) {
-            let sourceBytes = try Int64(self.storage.fileWriter.readData(from: bundleURL).count)
             let sourcePresent = self.storage.fileWriter.fileExists(at: bundleURL)
+            let sourceBytes = self.sourceByteSize(at: bundleURL, sourcePresent: sourcePresent)
             var sidecar = self.sidecarForUpdate(manifest: manifest, directoryURL: directoryURL)
             if sidecar.originalEnqueuedAt == nil {
                 sidecar.originalEnqueuedAt = date
@@ -305,6 +305,19 @@ private extension WatchRelayDiagnosticsStore {
             self.resetCorruptDiagnosticFile(at: url, error: error)
             return .empty
         }
+    }
+
+    func sourceByteSize(at url: URL, sourcePresent: Bool) -> Int64? {
+        guard sourcePresent else { return nil }
+        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+           let fileSize = values.fileSize {
+            return Int64(fileSize)
+        }
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attributes[.size] as? NSNumber {
+            return size.int64Value
+        }
+        return nil
     }
 
     func decodeSidecar(

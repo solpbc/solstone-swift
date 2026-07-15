@@ -70,10 +70,7 @@ final class WatchRelayDiagnosticsCollector {
     }
 
     nonisolated static func unavailableEnvelopeData(generatedAt: Date, reason: String) -> Data? {
-        try? WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
-            generatedAt: generatedAt,
-            diagnostics: .unavailable(reason: reason)
-        ))
+        WatchRelayDiagnosticsEnvelope.unavailableData(generatedAt: generatedAt, reason: reason)
     }
 
     nonisolated static func reconciliationCounts(
@@ -427,13 +424,13 @@ private extension WatchRelayDiagnosticsCollector {
         activeOrder: [UUID: String],
         failureSegmentID: UUID?
     ) -> String {
-        if let segmentID = observation.segmentID,
-           let order = activeOrder[segmentID] {
-            return "0|\(order)|\(index)"
-        }
         if let failureSegmentID,
            observation.segmentID == failureSegmentID {
             return "1|\(failureSegmentID.uuidString)|\(index)"
+        }
+        if let segmentID = observation.segmentID,
+           let order = activeOrder[segmentID] {
+            return "0|\(order)|\(index)"
         }
         if let segmentID = observation.segmentID {
             return "2|\(segmentID.uuidString)|\(index)"

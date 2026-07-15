@@ -164,19 +164,63 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
     func testCompactionRetentionOrderOldestActiveThenRecentFailureThenUUIDOrder() throws {
         let now = Self.now
-        let older = Self.uuid(10)
+        let storage = try self.storage("compaction-priority")
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let oldest = Self.uuid(10)
         let newer = Self.uuid(11)
-        let payload = Self.payload(
-            generatedAt: now,
-            observations: [
-                Self.observation(id: newer, age: 60),
-                Self.observation(id: older, age: 600),
-                Self.observation(id: Self.uuid(12), age: nil, relation: .orphaned),
-            ]
+        let recentFailure = Self.uuid(12)
+
+        let activeIDs = [oldest, newer, recentFailure]
+        for (index, id) in activeIDs.enumerated() {
+            let entry = try self.writeManifest(id: id, state: .transferring, storage: storage)
+            let bundleURL = storage.rootURL
+                .appendingPathComponent(".relay-bundles", isDirectory: true)
+                .appendingPathComponent("\(id.uuidString).watchrelay", isDirectory: false)
+            try storage.fileWriter.writeData(Data(repeating: UInt8(index), count: 256), to: bundleURL, options: .atomic)
+            store.recordEnqueue(
+                manifest: entry.manifest,
+                directoryURL: entry.directoryURL,
+                bundleURL: bundleURL,
+                at: now.addingTimeInterval(TimeInterval(-(3 - index) * 600))
+            )
+            if id == recentFailure {
+                store.recordTransferCompletion(
+                    manifest: entry.manifest,
+                    directoryURL: entry.directoryURL,
+                    succeeded: false,
+                    failure: WatchConnectivityTransferFailureSnapshot(
+                        domain: "TestFailureDomain",
+                        code: 77,
+                        boundedRedactedDescription: "failed"
+                    ),
+                    at: now.addingTimeInterval(-5)
+                )
+            }
+            session.seedOutstandingTransfer(id: id)
+        }
+
+        for index in 0..<800 {
+            session.seedOutstandingTransfer(id: Self.uuid(index + 1000))
+        }
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
         )
-        let data = try XCTUnwrap(WatchRelayDiagnosticsCollector.encodeCompactedEnvelope(generatedAt: now, payload: payload))
+        let data = try XCTUnwrap(collector.makeEnvelopeData(asOf: now))
+        XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let decoded = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
-        XCTAssertEqual(decoded.observedFileTransfers.map(\.segmentID), [newer, older, Self.uuid(12)])
+        let queue = try XCTUnwrap(decoded.appleQueue.value)
+        XCTAssertGreaterThan(decoded.omittedObservationCount, 0)
+        XCTAssertEqual(decoded.observedFileTransfers.count + decoded.omittedObservationCount, queue.exactObservationCountBeforeCompaction)
+
+        let retainedIDs = decoded.observedFileTransfers.compactMap(\.segmentID)
+        XCTAssertEqual(Array(retainedIDs.prefix(3)), [oldest, newer, recentFailure])
+        let remainingIDs = retainedIDs.dropFirst(3).map(\.uuidString)
+        XCTAssertEqual(remainingIDs, remainingIDs.sorted())
     }
 
     private func storage(_ name: String) throws -> WatchCaptureStorage {
@@ -338,6 +382,97 @@ final class WatchRelayDiagnosticsStoreTests: XCTestCase {
         XCTAssertEqual(try storage.scanManifests().first?.manifest.id, entry.manifest.id)
     }
 
+    func testStructuredFailureRedactionSurvivesPersistReadAndExport() throws {
+        let now = WatchRelayDiagnosticsCollectorTests.now
+        let rawPath = "/private/var/mobile/Containers/Data/Application/ABCDEF12-3456-7890-ABCD-EF1234567890/tmp/audio.watchrelay"
+        let rawToken = "super-secret-token"
+        let storage = try WatchCaptureStorage(rootURL: self.tempDirectory.appendingPathComponent("redaction", isDirectory: true))
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let entry = try self.writeManifest(storage: storage)
+        let bundleURL = storage.rootURL
+            .appendingPathComponent(".relay-bundles", isDirectory: true)
+            .appendingPathComponent("\(entry.manifest.id.uuidString).watchrelay", isDirectory: false)
+        try storage.fileWriter.writeData(Data(repeating: 7, count: 44), to: bundleURL, options: .atomic)
+        store.recordEnqueue(manifest: entry.manifest, directoryURL: entry.directoryURL, bundleURL: bundleURL, at: now)
+
+        let error = NSError(
+            domain: "NSURLErrorDomain",
+            code: -1001,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Authorization: Bearer \(rawToken) failed \(rawPath) token=\(rawToken)",
+                "payload": String(repeating: "secret-payload", count: 80),
+                "debugPath": rawPath,
+                "debugToken": rawToken,
+            ]
+        )
+        store.recordTransferCompletion(
+            manifest: entry.manifest,
+            directoryURL: entry.directoryURL,
+            succeeded: false,
+            failure: WatchConnectivityTransferFailureSnapshot(error: error),
+            at: now.addingTimeInterval(1)
+        )
+
+        let sidecarJSON = String(
+            decoding: try storage.fileWriter.readData(from: store.sidecarURL(directoryURL: entry.directoryURL)),
+            as: UTF8.self
+        )
+        let summaryJSON = String(
+            decoding: try storage.fileWriter.readData(from: store.summaryURL()),
+            as: UTF8.self
+        )
+        for persisted in [sidecarJSON, summaryJSON] {
+            XCTAssertFalse(persisted.contains(rawPath))
+            XCTAssertFalse(persisted.contains(rawToken))
+            XCTAssertFalse(persisted.contains("secret-payload"))
+            XCTAssertFalse(persisted.contains("debugPath"))
+            XCTAssertFalse(persisted.contains("debugToken"))
+            XCTAssertFalse(persisted.contains("payload"))
+            XCTAssertTrue(persisted.contains("NSURLErrorDomain"))
+            XCTAssertTrue(persisted.contains("-1001"))
+        }
+
+        let reconstructed = WatchRelayDiagnosticsStore(storage: storage)
+        let sidecar = try XCTUnwrap(reconstructed.readSidecar(manifest: entry.manifest, directoryURL: entry.directoryURL).value)
+        let summary = try XCTUnwrap(reconstructed.readSummary().value)
+        for failure in [
+            sidecar.lastFacts.lastStructuredFailure,
+            summary.lastStructuredFailure,
+        ] {
+            let structured = try XCTUnwrap(failure)
+            XCTAssertEqual(structured.time, now.addingTimeInterval(1))
+            XCTAssertEqual(structured.domain, "NSURLErrorDomain")
+            XCTAssertEqual(structured.code, -1001)
+            XCTAssertLessThanOrEqual(structured.boundedRedactedDescription.count, WatchTransferFailureFormatter.maxDescriptionLength)
+            XCTAssertFalse(structured.boundedRedactedDescription.contains(rawPath))
+            XCTAssertFalse(structured.boundedRedactedDescription.contains(rawToken))
+            XCTAssertFalse(structured.boundedRedactedDescription.contains("secret-payload"))
+            XCTAssertTrue(structured.boundedRedactedDescription.contains("[path]"))
+            XCTAssertTrue(structured.boundedRedactedDescription.contains("[redacted]"))
+        }
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: reconstructed,
+            session: MockWatchConnectivitySession(),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let data = try XCTUnwrap(collector.makeEnvelopeData(asOf: now.addingTimeInterval(2)))
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
+        let export = WatchPipelineReducer.reduce(WatchRelayDiagnosticsCollectorTests.pipelineInput(
+            now: now.addingTimeInterval(2),
+            payload: payload
+        )).diagnosticsExportText
+        XCTAssertTrue(export.contains("NSURLErrorDomain"))
+        XCTAssertTrue(export.contains("-1001"))
+        XCTAssertFalse(export.contains(rawPath))
+        XCTAssertFalse(export.contains(rawToken))
+        XCTAssertFalse(export.contains("secret-payload"))
+        XCTAssertFalse(export.contains("debugPath"))
+        XCTAssertFalse(export.contains("debugToken"))
+        XCTAssertFalse(export.contains("payload"))
+    }
+
     private func writeManifest(storage: WatchCaptureStorage) throws -> WatchCaptureStorage.ManifestEntry {
         let manifest = WatchSegmentManifest(
             id: UUID(),
@@ -492,6 +627,33 @@ nonisolated final class WatchRelayDiagnosticsEnvelopeTests: XCTestCase {
         let result = WatchRelayDiagnosticsEnvelope.decodeResult(from: Data("not json".utf8))
         XCTAssertEqual(result.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.malformed)
     }
+
+    func testPresentWrongTypeEnvelopePreservesCoreAndReportsUnreadable() throws {
+        let json = Data("""
+        {
+          "phase": "observing",
+          "sessionID": "session",
+          "startedAt": "2026-07-15T00:00:00Z",
+          "asOf": "2026-07-15T00:00:00Z",
+          "seq": 9,
+          "queuedCount": 2,
+          "transferringCount": 1,
+          "diagnosticsEnvelope": 42
+        }
+        """.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(WatchStatusContext.self, from: json)
+        let result = WatchRelayDiagnosticsEnvelope.decodeResult(from: decoded.diagnosticsEnvelope)
+
+        XCTAssertEqual(decoded.phase, .observing)
+        XCTAssertEqual(decoded.seq, 9)
+        XCTAssertEqual(decoded.queuedCount, 2)
+        XCTAssertEqual(decoded.transferringCount, 1)
+        XCTAssertEqual(result.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.unreadable)
+        XCTAssertNotEqual(result.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.absent)
+        XCTAssertNotEqual(result.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.malformed)
+    }
 }
 
 nonisolated final class WatchRelayDiagnosticsPublicationTests: XCTestCase {
@@ -612,12 +774,39 @@ nonisolated final class WatchPipelineReducerDiagnosticsExportTests: XCTestCase {
     }
 
     func testStaleSnapshotSuppressesCurrentProgressAndLabelsStale() {
-        let payload = WatchRelayDiagnosticsCollectorTests.payload(generatedAt: Self.now)
+        let progress = WatchConnectivityProgressSnapshot(
+            isIndeterminate: false,
+            isFinished: false,
+            isCancelled: false,
+            completedUnitCount: 42,
+            totalUnitCount: 100,
+            fractionCompleted: 0.42,
+            throughputBytesPerSecond: 1234,
+            estimatedTimeRemainingSeconds: 56,
+            kind: "file",
+            fileTotalCount: nil,
+            fileCompletedCount: nil
+        )
+        let payload = WatchRelayDiagnosticsCollectorTests.payload(
+            generatedAt: Self.now,
+            observations: [
+                WatchRelayDiagnosticsCollectorTests.observation(
+                    id: UUID(),
+                    age: 900,
+                    progress: .available(progress)
+                )
+            ]
+        )
         let export = WatchPipelineReducer.reduce(Self.input(
             watchStatus: Self.context(asOf: Self.now.addingTimeInterval(-120)),
             payload: payload
         )).diagnosticsExportText
         XCTAssertTrue(export.contains("diagnostic evidence stale"))
+        XCTAssertTrue(export.contains("progress not shown - snapshot is stale"))
+        XCTAssertFalse(export.contains("fraction 0.420"))
+        XCTAssertFalse(export.contains("units 42/100"))
+        XCTAssertFalse(export.contains("throughput 1234"))
+        XCTAssertFalse(export.contains("eta 56s"))
     }
 
     func testBuildMatchRendersYesNoAndUnavailable() {

@@ -61,7 +61,18 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = try container.decode(Int.self, forKey: .seq)
         self.queuedCount = max(0, try container.decodeIfPresent(Int.self, forKey: .queuedCount) ?? 0)
         self.transferringCount = max(0, try container.decodeIfPresent(Int.self, forKey: .transferringCount) ?? 0)
-        self.diagnosticsEnvelope = try? container.decodeIfPresent(Data.self, forKey: .diagnosticsEnvelope)
+        if container.contains(.diagnosticsEnvelope) {
+            do {
+                self.diagnosticsEnvelope = try container.decodeIfPresent(Data.self, forKey: .diagnosticsEnvelope)
+            } catch {
+                self.diagnosticsEnvelope = WatchRelayDiagnosticsEnvelope.unavailableData(
+                    generatedAt: self.asOf,
+                    reason: WatchRelayDiagnosticsEnvelopeReason.unreadable
+                )
+            }
+        } else {
+            self.diagnosticsEnvelope = nil
+        }
     }
 
     func applicationContext() -> [String: Any] {

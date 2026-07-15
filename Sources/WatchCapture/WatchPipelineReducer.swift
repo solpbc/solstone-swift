@@ -365,10 +365,11 @@ private extension WatchPipelineReducer {
             rows.append(WatchDiagnosticsExportRow(label: "Apple queue", value: reason))
         }
 
+        let staleSnapshotAge = self.staleWatchSnapshotAge(input)
         for (index, observation) in payload.observedFileTransfers.enumerated() {
             rows.append(WatchDiagnosticsExportRow(
                 label: "transfer observation \(index + 1)",
-                value: self.observationText(observation)
+                value: self.observationText(observation, staleSnapshotAge: staleSnapshotAge)
             ))
         }
         return rows
@@ -424,9 +425,7 @@ private extension WatchPipelineReducer {
             return "diagnostic evidence unavailable: \(reason)"
         }
 
-        if let status = input.watchStatus,
-           let claimAge = self.age(of: status.asOf, now: input.now),
-           claimAge > self.watchClaimFreshnessWindow {
+        if self.staleWatchSnapshotAge(input) != nil {
             return "diagnostic evidence stale"
         }
 
@@ -544,9 +543,24 @@ private extension WatchPipelineReducer {
         return rows
     }
 
-    nonisolated static func observationText(_ observation: WatchRelayTransferObservation) -> String {
+    nonisolated static func staleWatchSnapshotAge(_ input: WatchPipelineInput) -> TimeInterval? {
+        guard let status = input.watchStatus,
+              let claimAge = self.age(of: status.asOf, now: input.now),
+              claimAge > self.watchClaimFreshnessWindow
+        else {
+            return nil
+        }
+        return claimAge
+    }
+
+    nonisolated static func observationText(
+        _ observation: WatchRelayTransferObservation,
+        staleSnapshotAge: TimeInterval? = nil
+    ) -> String {
         let segment = observation.segmentID?.uuidString ?? SourceVocabulary.watchDiagnosticsUnavailable
         let transferring = self.boolAvailabilityText(observation.isTransferring)
+        let progress = staleSnapshotAge.map { self.staleProgressText(age: $0) }
+            ?? self.progressText(observation.progress)
         return [
             "segment \(segment)",
             "relation \(observation.relation.rawValue)",
@@ -556,9 +570,13 @@ private extension WatchPipelineReducer {
             "source bytes \(self.int64AvailabilityText(observation.appOwnedSourceBytes))",
             "source present \(self.boolAvailabilityText(observation.sourcePresent))",
             "transferring \(transferring)",
-            self.progressText(observation.progress),
+            progress,
             "as of \(self.iso8601Text(observation.asOf))",
         ].joined(separator: "; ")
+    }
+
+    nonisolated static func staleProgressText(age: TimeInterval) -> String {
+        "progress not shown - snapshot is stale (as of \(self.relativeText(secondsAgo: age)))"
     }
 
     nonisolated static func progressText(_ availability: DiagnosticAvailability<WatchConnectivityProgressSnapshot>) -> String {

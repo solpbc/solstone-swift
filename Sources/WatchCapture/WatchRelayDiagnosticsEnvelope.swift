@@ -133,6 +133,13 @@ nonisolated struct WatchRelayDiagnosticsEnvelope: Codable, Equatable, Sendable {
         return decoder
     }
 
+    static func unavailableData(generatedAt: Date, reason: String) -> Data? {
+        try? Self.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
+            generatedAt: generatedAt,
+            diagnostics: .unavailable(reason: reason)
+        ))
+    }
+
     static func decodeResult(from data: Data?) -> WatchRelayDiagnosticsEnvelopeResult {
         guard let data else { return .absent }
 
