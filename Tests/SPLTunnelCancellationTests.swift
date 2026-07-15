@@ -423,14 +423,14 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         )
         let stream1 = try await mux.openStream()
         let stream3 = try await mux.openStream()
-        let malformedReset = Data([
+        let longReset = Data([
             0x00, 0x00, 0x00, 0x01,
             FrameFlags.reset.rawValue,
             0x00, 0x00, 0x04,
             0x00, 0x00, 0x00, 0x01
         ])
 
-        try await mux.feedInbound(malformedReset)
+        try await mux.feedInbound(longReset)
 
         await Self.assertInboundThrowsStreamReset(
             stream1,
@@ -441,7 +441,7 @@ nonisolated final class SPLTunnelCancellationTests: XCTestCase {
         let resetState = await stream1.state
         XCTAssertEqual(resetState, .resetRemote)
 
-        let siblingPayload = Data("after-malformed-reset".utf8)
+        let siblingPayload = Data("after-long-reset".utf8)
         try await stream3.write(siblingPayload)
         let didWriteSiblingData = await Self.waitUntil {
             sink.frames.contains {

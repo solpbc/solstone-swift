@@ -56,6 +56,7 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
         let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .dialer)
         let stream1 = try await mux.openStream()
         let stream3 = try await mux.openStream()
+        let stream5 = try await mux.openStream()
         let nonce = Data(repeating: 0x7a, count: 8)
 
         try await mux.feedInbound(try encodeFrame(Frame(
@@ -69,12 +70,23 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
             payload: nonce
         )))
 
-        XCTAssertTrue(Self.hasReset(in: sink, streamID: 1, reason: .protocolError))
-        XCTAssertTrue(Self.hasReset(in: sink, streamID: 3, reason: .protocolError))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .protocolError), 1)
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 3, reason: .protocolError), 1)
         let stream1State = await stream1.state
         let stream3State = await stream3.state
         XCTAssertEqual(stream1State, .resetLocal)
         XCTAssertEqual(stream3State, .resetLocal)
+
+        let siblingPayload = Data("survives-ping-pong-isolate".utf8)
+        try await stream5.write(siblingPayload)
+        let didWriteSibling = await Self.waitUntil {
+            sink.frames.contains {
+                $0.streamID == 5 &&
+                    $0.flags == FrameFlags.data.rawValue &&
+                    $0.payload == siblingPayload
+            }
+        }
+        XCTAssertTrue(didWriteSibling)
     }
 
     func testKnownInvalidFlagCombinationIsolatesOnlyTargetStream() async throws {
@@ -85,7 +97,7 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
 
         try await mux.feedInbound(makeRawFrameBytes(streamID: 1, flags: 0x0a))
 
-        XCTAssertTrue(Self.hasReset(in: sink, streamID: 1, reason: .protocolError))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .protocolError), 1)
         let stream1State = await stream1.state
         XCTAssertEqual(stream1State, .resetLocal)
 
@@ -99,6 +111,57 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
             }
         }
         XCTAssertTrue(didWriteSibling)
+    }
+
+    func testKnownMalformedWindowPayloadIsolatesTargetStreamOnce() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .dialer)
+        let stream1 = try await mux.openStream()
+        let stream3 = try await mux.openStream()
+
+        try await mux.feedInbound(try encodeFrame(Frame(
+            streamID: 1,
+            flags: FrameFlags.window.rawValue,
+            payload: Data([0x01, 0x02])
+        )))
+
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .protocolError), 1)
+        let stream1State = await stream1.state
+        XCTAssertEqual(stream1State, .resetLocal)
+
+        let payload = Data("sibling-after-window-violation".utf8)
+        try await stream3.write(payload)
+        let didWriteSibling = await Self.waitUntil {
+            sink.frames.contains {
+                $0.streamID == 3 &&
+                    $0.flags == FrameFlags.data.rawValue &&
+                    $0.payload == payload
+            }
+        }
+        XCTAssertTrue(didWriteSibling)
+    }
+
+    func testOverWindowDataIsolatesKnownStreamOnceAndIgnoresLateReset() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .listener)
+        let streamTask = Self.nextIncomingStreamTask(mux)
+
+        try await mux.feedInbound(try encodeFrame(buildOpen(streamID: 1)))
+        let maybeStream = await streamTask.value
+        let stream = try XCTUnwrap(maybeStream)
+
+        try await mux.feedInbound(try encodeFrame(buildData(
+            streamID: 1,
+            payload: Data(repeating: 0x44, count: Int(MuxConstants.initialCredit) + 1)
+        )))
+
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 1)
+        let streamState = await stream.state
+        XCTAssertEqual(streamState, .resetLocal)
+
+        try await mux.feedInbound(try encodeFrame(buildReset(streamID: 1, reason: .cancel)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 1)
+        XCTAssertEqual(sink.frames.filter { $0.streamID == 1 && $0.flags == FrameFlags.reset.rawValue }.count, 1)
     }
 
     func testUnknownNonzeroViolationsEmitSingleProtocolResetWithoutThrowing() async throws {
@@ -141,6 +204,81 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
         XCTAssertEqual(zeroAfterRejectedOverflow, .accepted)
     }
 
+    func testSendCreditCapThroughDispatchIsolatesOverflowOnce() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .dialer)
+        _ = try await mux.openStream()
+
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 1, credit: 0x4000_0000)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 0)
+
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 1, credit: 0x4000_0000)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 1)
+
+        _ = try await mux.openStream()
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 3, credit: UInt32.max)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 3, reason: .flowControlError), 1)
+
+        let stream5 = try await mux.openStream()
+        let grantToBoundary = UInt32(Int(Int32.max) - Int(MuxConstants.initialCredit))
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 5, credit: grantToBoundary)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 5, reason: .flowControlError), 0)
+
+        let payload = Data("boundary-still-open".utf8)
+        try await stream5.write(payload)
+        let didWriteBoundaryStream = await Self.waitUntil {
+            sink.frames.contains {
+                $0.streamID == 5 &&
+                    $0.flags == FrameFlags.data.rawValue &&
+                    $0.payload == payload
+            }
+        }
+        XCTAssertTrue(didWriteBoundaryStream)
+    }
+
+    func testSendCreditCapCountsRemainingCreditAfterBytesAreSpent() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .dialer)
+        let stream = try await mux.openStream()
+        let grantToBoundary = UInt32(Int(Int32.max) - Int(MuxConstants.initialCredit))
+
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 1, credit: grantToBoundary)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 0)
+
+        let spentPayload = Data([0xaa])
+        try await stream.write(spentPayload)
+        let didSpendCredit = await Self.waitUntil {
+            sink.frames.contains {
+                $0.streamID == 1 &&
+                    $0.flags == FrameFlags.data.rawValue &&
+                    $0.payload == spentPayload
+            }
+        }
+        XCTAssertTrue(didSpendCredit)
+
+        try await mux.feedInbound(try encodeFrame(buildWindow(streamID: 1, credit: 1)))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 0)
+    }
+
+    func testStreamZeroPingWindowCombinationIsFatalWithoutPong() async throws {
+        let sink = CapturingMuxSink()
+        let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .dialer)
+        let invalidControl = makeRawFrameBytes(
+            streamID: 0,
+            flags: FrameFlags.ping.rawValue | FrameFlags.window.rawValue,
+            payload: Data(repeating: 0x12, count: 8)
+        )
+
+        do {
+            try await mux.feedInbound(invalidControl)
+            XCTFail("expected stream-0 exact-flag guard to throw")
+        } catch FramingError.unknownControlFrame {
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+        XCTAssertFalse(sink.frames.contains { $0.flags == FrameFlags.pong.rawValue })
+    }
+
     func testDuplicateInboundOpenResetsWithoutClobberingLiveStream() async throws {
         let sink = CapturingMuxSink()
         let mux = Multiplexer(sink: { data in try sink.send(data) }, role: .listener)
@@ -152,6 +290,7 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
 
         try await mux.feedInbound(try encodeFrame(buildOpen(streamID: 1)))
         XCTAssertTrue(Self.hasReset(in: sink, streamID: 1, reason: .protocolError))
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .protocolError), 1)
 
         try await mux.feedInbound(try encodeFrame(buildClose(streamID: 1)))
         let streamState = await stream.state
@@ -182,6 +321,7 @@ nonisolated final class MultiplexerConformanceTests: XCTestCase {
             Self.hasReset(in: sink, streamID: 1, reason: .flowControlError)
         }
         XCTAssertTrue(didReset)
+        XCTAssertEqual(Self.resetCount(in: sink, streamID: 1, reason: .flowControlError), 1)
 
         let exposedStream = await Self.waitUntil({
             didYield.withLock { $0 }
