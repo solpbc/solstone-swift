@@ -165,6 +165,34 @@ nonisolated final class WatchLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testACKQueueSnapshotClassifiesOutstandingUserInfoTransfersAndConservesCounts() {
+        let duplicatedID = UUID()
+        let singleID = UUID()
+        self.session.seedOutstandingUserInfoTransfer(recognizedType: .watchSegmentACK, segmentID: duplicatedID)
+        self.session.seedOutstandingUserInfoTransfer(recognizedType: .watchSegmentACK, segmentID: duplicatedID)
+        self.session.seedOutstandingUserInfoTransfer(recognizedType: .watchSegmentACK, segmentID: singleID)
+        self.session.seedOutstandingUserInfoTransfer(recognizedType: .watchSegmentACK, idState: .missing)
+        self.session.seedOutstandingUserInfoTransfer(recognizedType: .watchSegmentACK, idState: .unparseable)
+        self.session.seedOutstandingUserInfoTransfer(recognizedType: nil)
+
+        let snapshot = WatchLink(session: self.session, receiver: nil).iPhoneACKQueueSnapshot
+
+        XCTAssertEqual(snapshot.total, 6)
+        XCTAssertEqual(snapshot.recognizedACK, 5)
+        XCTAssertEqual(snapshot.parseableACK, 3)
+        XCTAssertEqual(snapshot.distinctIdentities, 2)
+        XCTAssertEqual(snapshot.duplicateExtras, 1)
+        XCTAssertEqual(snapshot.malformedOrMissing, 2)
+        XCTAssertEqual(snapshot.nonACK, 1)
+        XCTAssertEqual(snapshot.identityCounts[duplicatedID], 2)
+        XCTAssertEqual(snapshot.identityCounts[singleID], 1)
+        XCTAssertTrue(snapshot.hasConsistentCounts)
+        XCTAssertEqual(snapshot.total, snapshot.recognizedACK + snapshot.nonACK)
+        XCTAssertEqual(snapshot.recognizedACK, snapshot.parseableACK + snapshot.malformedOrMissing)
+        XCTAssertEqual(snapshot.parseableACK, snapshot.distinctIdentities + snapshot.duplicateExtras)
+    }
+
+    @MainActor
     private func yieldToMainActor() async {
         try? await Task.sleep(for: .milliseconds(20))
     }

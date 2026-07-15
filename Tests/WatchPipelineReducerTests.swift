@@ -321,6 +321,95 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(WatchPipelineReducer.reduce(base).stuck, .relay)
         XCTAssertEqual(WatchPipelineReducer.reduce(reachable).stuck, WatchPipelineReducer.reduce(base).stuck)
     }
+
+    func testClassificationDenominatorsUseVisibleActiveDistinctNotOmittedObservationCount() {
+        let visible = (0..<10).map { index in
+            Self.observation(id: Self.uuid(index), relation: index == 0 ? .duplicate : .matched)
+        }
+        let orphan = Self.observation(id: Self.uuid(100), relation: .orphaned)
+        let payload = Self.payload(
+            activeBacklogCount: 15,
+            observations: visible + [orphan],
+            omittedObservationCount: 8
+        )
+        let input = Self.input(
+            watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil),
+            phoneLedgerSnapshot: .available(Self.ledgerSnapshot(entries: [:]))
+        )
+
+        let report = WatchPipelineReducer.classifyRelayIdentities(input)
+        let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
+
+        XCTAssertEqual(report.activeBacklogCount.value, 15)
+        XCTAssertEqual(report.visibleActiveDistinctCount, 10)
+        XCTAssertEqual(report.omittedActiveCount.value, 5)
+        XCTAssertEqual(report.omittedObservationCount, 8)
+        XCTAssertEqual(report.classifications.count, 10)
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchDiagnosticsActiveBacklogLabel): 15"))
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchDiagnosticsVisibleActiveLabel): 10"))
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchDiagnosticsOmittedActiveLabel): 5"))
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchDiagnosticsOmittedObservationsLabel): 8"))
+        XCTAssertEqual(
+            export.components(separatedBy: SourceVocabulary.watchDiagnosticsVisibleActiveClassificationLabel).count - 1,
+            10
+        )
+    }
+
+    func testClassificationCoversPhoneOutcomesAndLedgerAbsentSourceAssessments() {
+        let handedWithACKID = Self.uuid(200)
+        let handedWithoutACKID = Self.uuid(201)
+        let receivedID = Self.uuid(202)
+        let droppedID = Self.uuid(203)
+        let pendingID = Self.uuid(204)
+        let copyBackedID = Self.uuid(205)
+        let staleID = Self.uuid(206)
+        let unresolvedID = Self.uuid(207)
+        let observations = [
+            Self.observation(id: handedWithACKID),
+            Self.observation(id: handedWithoutACKID),
+            Self.observation(id: receivedID),
+            Self.observation(id: droppedID),
+            Self.observation(id: pendingID, audio: Self.original(.readableNonempty, bytes: 42), bundlePresent: false, bundleBytes: 0),
+            Self.observation(id: copyBackedID, audio: Self.original(.missing, bytes: 0), location: Self.original(.zeroLength, bytes: 0), bundlePresent: true, bundleBytes: 128),
+            Self.observation(id: staleID, audio: Self.original(.missing, bytes: 0), location: Self.original(.unreadable, bytes: nil), bundlePresent: false, bundleBytes: 0),
+            Self.observation(id: unresolvedID, collectionResolution: .available(.snapshotChangedDuringCollection)),
+        ]
+        let ledgerSnapshot = Self.ledgerSnapshot(entries: [
+            handedWithACKID: Self.ledgerEntry(id: handedWithACKID, state: .handed),
+            handedWithoutACKID: Self.ledgerEntry(id: handedWithoutACKID, state: .handed),
+            receivedID: Self.ledgerEntry(id: receivedID, state: .received),
+            droppedID: Self.ledgerEntry(id: droppedID, state: .dropped),
+        ])
+        let input = Self.input(
+            watchDiagnostics: .available(Self.payload(activeBacklogCount: observations.count, observations: observations), rawEnvelopeByteCount: nil),
+            phoneLedgerSnapshot: .available(ledgerSnapshot),
+            iphoneACKQueueSnapshot: Self.ackSnapshot(ids: [handedWithACKID])
+        )
+
+        let report = WatchPipelineReducer.classifyRelayIdentities(input)
+        let byID = Dictionary(uniqueKeysWithValues: report.classifications.map { ($0.segmentID, $0) })
+
+        XCTAssertEqual(byID[handedWithACKID]?.phoneOutcome, .alreadyHanded(ackQueued: true))
+        XCTAssertEqual(byID[handedWithoutACKID]?.phoneOutcome, .alreadyHanded(ackQueued: false))
+        XCTAssertEqual(byID[receivedID]?.phoneOutcome, .receivedStaged)
+        XCTAssertEqual(byID[droppedID]?.phoneOutcome, .terminalDropped)
+        XCTAssertEqual(byID[pendingID]?.phoneOutcome, .ledgerAbsent)
+        XCTAssertEqual(byID[pendingID]?.sourceAssessment, .pending)
+        XCTAssertEqual(byID[copyBackedID]?.sourceAssessment, .copyBacked)
+        XCTAssertEqual(byID[staleID]?.sourceAssessment, .staleSourceEmpty)
+        XCTAssertEqual(byID[unresolvedID]?.sourceAssessment, .unresolved)
+
+        let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
+        XCTAssertTrue(export.contains("phone already handed to journal / Watch retention-cleanup lag; ack queued yes"))
+        XCTAssertTrue(export.contains("phone already handed to journal / Watch retention-cleanup lag; ack queued no"))
+        XCTAssertTrue(export.contains("phone received/staged, journal handoff not proven"))
+        XCTAssertTrue(export.contains("phone terminal-dropped / Watch retention-cleanup lag"))
+        XCTAssertTrue(export.contains("source pending"))
+        XCTAssertTrue(export.contains("source copy-backed"))
+        XCTAssertTrue(export.contains("source stale-source-empty"))
+        XCTAssertTrue(export.contains("source unresolved"))
+        XCTAssertTrue(export.contains("ledger not present in retained phone ledger"))
+    }
 }
 
 private extension WatchPipelineReducerTests {
@@ -363,7 +452,10 @@ private extension WatchPipelineReducerTests {
         isWatchAppInstalled: Bool = true,
         activationState: WCSessionActivationState = .activated,
         isJournalReachable: Bool = false,
-        isReachable: Bool = false
+        isReachable: Bool = false,
+        watchDiagnostics: WatchRelayDiagnosticsEnvelopeResult = .absent,
+        phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
+        iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot()
     ) -> WatchPipelineInput {
         WatchPipelineInput(
             now: now,
@@ -385,7 +477,10 @@ private extension WatchPipelineReducerTests {
             isWatchAppInstalled: isWatchAppInstalled,
             activationState: activationState,
             isReachable: isReachable,
-            isJournalReachable: isJournalReachable
+            isJournalReachable: isJournalReachable,
+            watchDiagnostics: watchDiagnostics,
+            phoneLedgerSnapshot: phoneLedgerSnapshot,
+            iphoneACKQueueSnapshot: iphoneACKQueueSnapshot
         )
     }
 
@@ -396,5 +491,154 @@ private extension WatchPipelineReducerTests {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(fromTimeInterval: -secondsAgo)
+    }
+
+    static func uuid(_ index: Int) -> UUID {
+        UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index))!
+    }
+
+    static func payload(
+        activeBacklogCount: Int,
+        observations: [WatchRelayTransferObservation],
+        omittedObservationCount: Int = 0
+    ) -> WatchRelayDiagnosticsPayload {
+        WatchRelayDiagnosticsPayload(
+            watchAppMarketingVersion: .available("0.1.0"),
+            watchAppBuild: .available("55"),
+            watchOSVersion: .available("26.0"),
+            activationState: "activated",
+            isCompanionAppInstalled: .available(true),
+            isReachable: true,
+            iOSDeviceNeedsUnlockAfterRebootForReachability: .available(false),
+            hasContentPending: false,
+            watchBatteryLevel: .available(0.75),
+            watchBatteryState: .available("unplugged"),
+            watchLowPowerModeEnabled: .available(false),
+            watchThermalState: .available("nominal"),
+            manifestSummary: .available(WatchRelayManifestSummary(
+                counts: .zero,
+                activeBacklogCount: activeBacklogCount,
+                retainedSourceBytes: .available(0),
+                oldestActiveEnqueuedAt: .available(nil),
+                oldestActiveEnqueueAgeSeconds: .available(nil)
+            )),
+            appleQueue: .available(WatchRelayAppleQueueSnapshot(
+                asOf: Self.now,
+                outstandingFileTransferCount: observations.count,
+                outstandingUserInfoTransferCountWatchToPhone: 0,
+                reconciliation: .zero,
+                exactObservationCountBeforeCompaction: observations.count + omittedObservationCount
+            )),
+            lastFacts: .available(WatchRelayLastFactsSummary(
+                lastEnqueue: nil,
+                lastTransferCompletion: nil,
+                lastStructuredFailure: nil,
+                lastDurableACK: nil,
+                lastQueueReconciliationObservation: nil,
+                lastBackgroundWakeCompletion: nil,
+                lastBackgroundWakeDeadline: nil
+            )),
+            observedFileTransfers: observations,
+            omittedObservationCount: omittedObservationCount
+        )
+    }
+
+    static func observation(
+        id: UUID,
+        relation: WatchRelayObservationRelation = .matched,
+        audio: DiagnosticAvailability<WatchRelayOriginalFileFact> = .available(
+            WatchRelayOriginalFileFact(state: .missing, byteCount: 0)
+        ),
+        location: DiagnosticAvailability<WatchRelayOriginalFileFact> = .available(
+            WatchRelayOriginalFileFact(state: .missing, byteCount: 0)
+        ),
+        bundlePresent: Bool = true,
+        bundleBytes: Int64 = 128,
+        collectionResolution: DiagnosticAvailability<WatchRelayObservationCollectionResolution> = .available(.stable)
+    ) -> WatchRelayTransferObservation {
+        WatchRelayTransferObservation(
+            asOf: Self.now,
+            segmentID: id,
+            idState: .parseable,
+            relation: relation,
+            appManifestState: relation == .orphaned ? nil : WatchSegmentState.transferring.rawValue,
+            appOwnedEnqueueAgeSeconds: .available(30),
+            appOwnedSourceBytes: .available(bundleBytes),
+            sourcePresent: .available(bundlePresent),
+            isTransferring: .available(true),
+            progress: .available(MockWatchConnectivitySession.defaultProgress()),
+            originalAudioFile: audio,
+            originalLocationFile: location,
+            relayBundlePresent: .available(bundlePresent),
+            relayBundleBytes: .available(bundleBytes),
+            collectionResolution: collectionResolution
+        )
+    }
+
+    static func original(_ state: WatchRelayOriginalFileState, bytes: Int64?) -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
+        .available(WatchRelayOriginalFileFact(state: state, byteCount: bytes))
+    }
+
+    static func ledgerSnapshot(
+        entries: [UUID: WatchSegmentLedgerEntrySnapshot]
+    ) -> WatchSegmentLedgerReadSnapshot {
+        var received = 0
+        var handed = 0
+        var dropped = 0
+        var handedAndDropped = 0
+        for entry in entries.values {
+            switch entry.state {
+            case .received:
+                received += 1
+            case .handed:
+                handed += 1
+            case .dropped:
+                dropped += 1
+            case .handedAndDropped:
+                handedAndDropped += 1
+            }
+        }
+        return WatchSegmentLedgerReadSnapshot(
+            asOf: Self.now,
+            entriesByID: entries,
+            counts: WatchSegmentLedgerSnapshotCounts(
+                retainedEntryCount: entries.count,
+                receivedOnlyCount: received,
+                handedCount: handed,
+                droppedCount: dropped,
+                handedAndDroppedCount: handedAndDropped
+            )
+        )
+    }
+
+    static func ledgerEntry(
+        id: UUID,
+        state: WatchSegmentLedgerEntryState
+    ) -> WatchSegmentLedgerEntrySnapshot {
+        let receivedAt = Self.now.addingTimeInterval(-30)
+        let handedAt = state == .handed || state == .handedAndDropped ? Self.now.addingTimeInterval(-20) : nil
+        let droppedAt = state == .dropped || state == .handedAndDropped ? Self.now.addingTimeInterval(-10) : nil
+        return WatchSegmentLedgerEntrySnapshot(
+            segmentID: id,
+            state: state,
+            receivedAt: state == .dropped ? nil : receivedAt,
+            handedAt: handedAt,
+            droppedAt: droppedAt,
+            receivedAgeSeconds: state == .dropped ? nil : 30,
+            handedAgeSeconds: handedAt == nil ? nil : 20,
+            droppedAgeSeconds: droppedAt == nil ? nil : 10
+        )
+    }
+
+    static func ackSnapshot(ids: [UUID]) -> WatchRelayACKQueueSnapshot {
+        WatchRelayACKQueueSnapshot(userInfoTransfers: ids.map { id in
+            WatchConnectivityUserInfoTransferSnapshot(
+                asOf: Self.now,
+                recognizedType: .watchSegmentACK,
+                segmentID: id,
+                idState: .parseable,
+                isTransferring: true
+            )
+        })
     }
 }

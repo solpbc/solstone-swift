@@ -240,6 +240,138 @@ final class WatchSegmentLedgerTests: XCTestCase {
         XCTAssertNotNil(ledger.lastLedgerError)
     }
 
+    func testDeliveredHookPathRecordsHandedOnlyForSuccessfulWatchDelivery() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+
+        let now = Date(timeIntervalSince1970: 12_000)
+        let ledgerURL = self.ledgerFileURL("delivered-hook")
+        let resolver = TransferEndpointResolverStub(.available(Self.endpoint()))
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("delivered-hook-transfer", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: resolver
+        )
+        let pipeline = makeWatchPhonePipeline(
+            transferEngine: harness.engine,
+            transferStatusMirror: harness.mirror,
+            transferEnqueuer: harness.enqueuer,
+            watchConnectivitySession: MockWatchConnectivitySession(),
+            ledgerFileURL: ledgerURL,
+            ledgerClock: { now },
+            drainStagingRootURL: self.tempDirectory.appendingPathComponent("delivered-hook-drain", isDirectory: true),
+            receiverStagingRootURL: self.tempDirectory.appendingPathComponent("delivered-hook-receiver", isDirectory: true)
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 204), Data())
+        }
+        try await harness.engine.start()
+
+        let deliveredID = UUID()
+        _ = try await harness.enqueuer.enqueueWatchSegment(
+            manifest: Self.watchManifest(id: deliveredID, index: 1, now: now),
+            audioData: Data("delivered".utf8),
+            locationData: nil
+        )
+        try await self.waitFor("watch delivered hook ledger handoff") {
+            pipeline.watchSegmentLedger.readSnapshot(asOf: now).value?.entriesByID[deliveredID]?.state == .handed
+        }
+
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 500), Data())
+        }
+        let failedID = UUID()
+        _ = try await harness.enqueuer.enqueueWatchSegment(
+            manifest: Self.watchManifest(id: failedID, index: 2, now: now),
+            audioData: Data("failed".utf8),
+            locationData: nil
+        )
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNotEqual(
+            pipeline.watchSegmentLedger.readSnapshot(asOf: now).value?.entriesByID[failedID]?.state,
+            .handed
+        )
+
+        resolver.setResolution(.unavailable("held"))
+        let inFlightID = UUID()
+        _ = try await harness.enqueuer.enqueueWatchSegment(
+            manifest: Self.watchManifest(id: inFlightID, index: 3, now: now),
+            audioData: Data("held".utf8),
+            locationData: nil
+        )
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNotEqual(
+            pipeline.watchSegmentLedger.readSnapshot(asOf: now).value?.entriesByID[inFlightID]?.state,
+            .handed
+        )
+
+        await harness.engine.pause()
+    }
+
+    func testReadSnapshotIsReadOnlyAndRetainsOldTerminalEntriesOnDisk() throws {
+        let fileURL = self.ledgerFileURL("read-snapshot")
+        let asOf = Date(timeIntervalSince1970: 10_000)
+        let receivedID = UUID()
+        let handedID = UUID()
+        let droppedID = UUID()
+        let handedAndDroppedID = UUID()
+        let oldTerminalID = UUID()
+        let store = WatchSegmentLedgerStore(
+            entries: [
+                receivedID.uuidString: WatchSegmentLedgerStore.Entry(receivedAt: asOf.addingTimeInterval(-10)),
+                handedID.uuidString: WatchSegmentLedgerStore.Entry(receivedAt: asOf.addingTimeInterval(-30), handedAt: asOf.addingTimeInterval(-20)),
+                droppedID.uuidString: WatchSegmentLedgerStore.Entry(droppedAt: asOf.addingTimeInterval(-40)),
+                handedAndDroppedID.uuidString: WatchSegmentLedgerStore.Entry(
+                    receivedAt: asOf.addingTimeInterval(-70),
+                    handedAt: asOf.addingTimeInterval(-60),
+                    droppedAt: asOf.addingTimeInterval(-50)
+                ),
+                oldTerminalID.uuidString: WatchSegmentLedgerStore.Entry(
+                    receivedAt: asOf.addingTimeInterval(-(8 * 24 * 60 * 60)),
+                    handedAt: asOf.addingTimeInterval(-(8 * 24 * 60 * 60))
+                ),
+            ],
+            lifetimeReceived: 5,
+            lifetimeHanded: 3
+        )
+        try self.writeStore(store, to: fileURL)
+        let before = try Data(contentsOf: fileURL)
+        let ledger = WatchSegmentLedger(fileURL: fileURL, clock: { asOf })
+
+        let snapshot = try XCTUnwrap(ledger.readSnapshot(asOf: asOf).value)
+
+        XCTAssertEqual(snapshot.asOf, asOf)
+        XCTAssertEqual(snapshot.counts.retainedEntryCount, 5)
+        XCTAssertEqual(snapshot.counts.receivedOnlyCount, 1)
+        XCTAssertEqual(snapshot.counts.handedCount, 2)
+        XCTAssertEqual(snapshot.counts.droppedCount, 1)
+        XCTAssertEqual(snapshot.counts.handedAndDroppedCount, 1)
+        XCTAssertEqual(snapshot.entriesByID[receivedID]?.state, .received)
+        XCTAssertEqual(snapshot.entriesByID[receivedID]?.receivedAgeSeconds, 10)
+        XCTAssertEqual(snapshot.entriesByID[handedID]?.state, .handed)
+        XCTAssertEqual(snapshot.entriesByID[handedID]?.handedAgeSeconds, 20)
+        XCTAssertEqual(snapshot.entriesByID[droppedID]?.state, .dropped)
+        XCTAssertEqual(snapshot.entriesByID[droppedID]?.droppedAgeSeconds, 40)
+        XCTAssertEqual(snapshot.entriesByID[handedAndDroppedID]?.state, .handedAndDropped)
+        XCTAssertEqual(snapshot.entriesByID[oldTerminalID]?.state, .handed)
+        XCTAssertEqual(try Data(contentsOf: fileURL), before)
+        XCTAssertNotNil(try self.loadStore(fileURL).entries[oldTerminalID.uuidString])
+    }
+
+    func testReadSnapshotSurfacesLastLedgerErrorAsUnavailable() throws {
+        let fileURL = self.ledgerFileURL("read-snapshot-error")
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: fileURL)
+        let ledger = WatchSegmentLedger(fileURL: fileURL)
+
+        let snapshot = ledger.readSnapshot(asOf: Date(timeIntervalSince1970: 1_000))
+
+        XCTAssertNil(snapshot.value)
+        XCTAssertNotNil(snapshot.unavailableReason)
+        XCTAssertNotEqual(snapshot.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.absent)
+    }
+
     func testAC6bTransientWriteFailureSetsAndClearsLedgerError() throws {
         let directory = self.tempDirectory.appendingPathComponent("locked", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -285,6 +417,45 @@ private extension WatchSegmentLedgerTests {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(store)
         try data.write(to: fileURL)
+    }
+
+    nonisolated static func endpoint() -> TransferResolvedEndpoint {
+        TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)
+    }
+
+    nonisolated static func response(for request: URLRequest, statusCode: Int) -> HTTPURLResponse {
+        HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
+    }
+
+    nonisolated static func watchManifest(id: UUID, index: Int, now: Date) -> WatchSegmentManifest {
+        WatchSegmentManifest(
+            id: id,
+            day: "20260715",
+            segment: String(format: "120%03d_300", index),
+            startedAt: now.addingTimeInterval(TimeInterval(index)),
+            duration: 300,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .queued
+        )
+    }
+
+    func waitFor(
+        _ label: String,
+        timeout: Duration = .seconds(2),
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Timed out waiting for \(label)")
     }
 
     func pipelineInput(

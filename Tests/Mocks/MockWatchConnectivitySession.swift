@@ -142,11 +142,15 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     func seedOutstandingUserInfoTransfer(
         recognizedType: WatchConnectivityUserInfoTransferType?,
+        segmentID: UUID? = nil,
+        idState: WatchRelayTransferIDState? = nil,
         isTransferring: Bool = true
     ) {
         self.outstandingUserInfoTransferSnapshots.append(WatchConnectivityUserInfoTransferSnapshot(
             asOf: Date(timeIntervalSince1970: 0),
             recognizedType: recognizedType,
+            segmentID: segmentID,
+            idState: idState ?? (segmentID == nil ? .missing : .parseable),
             isTransferring: isTransferring
         ))
     }

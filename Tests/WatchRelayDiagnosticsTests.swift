@@ -83,6 +83,186 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue((try storage.scanManifests()).allSatisfy { $0.manifest.state == .transferring })
     }
 
+    func testWatchCaptureModelSourceRetainsDiagnosticsCollectorStrongly() throws {
+        let root = Self.worktreeRoot()
+        let modelURL = root.appendingPathComponent("Watch/Sources/WatchCaptureModel.swift")
+        let appURL = root.appendingPathComponent("Watch/Sources/SolstoneWatchApp.swift")
+        let modelSource = try String(contentsOf: modelURL, encoding: .utf8)
+        let appSource = try String(contentsOf: appURL, encoding: .utf8)
+
+        XCTAssertTrue(modelSource.contains("@ObservationIgnored private let diagnosticsCollector: WatchRelayDiagnosticsCollector?"))
+        XCTAssertTrue(modelSource.contains("self.diagnosticsCollector = diagnosticsCollector"))
+        XCTAssertTrue(modelSource.contains("self.diagnosticsCollector = nil"))
+        XCTAssertTrue(modelSource.contains("engine.onDiagnosticsEnvelopeRequested = { [diagnosticsCollector] asOf in"))
+        XCTAssertFalse(modelSource.contains("[weak diagnosticsCollector]"))
+        XCTAssertTrue(appSource.contains("diagnosticsCollector: diagnosticsCollector"))
+    }
+
+    func testOriginalPayloadFactsCoverAllStatesAndAggregateReadableBytes() throws {
+        let now = Self.now
+        let writer = ForcedExistingWatchFileWriter()
+        let storage = try self.storage("original-payload", fileWriter: writer)
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let missing = try self.writeManifest(id: Self.uuid(100), state: .transferring, storage: storage)
+        let zero = try self.writeManifest(id: Self.uuid(101), state: .transferring, storage: storage)
+        let readable = try self.writeManifest(id: Self.uuid(102), state: .transferring, storage: storage)
+        let unreadable = try self.writeManifest(id: Self.uuid(103), state: .transferring, storage: storage)
+
+        try storage.fileWriter.writeData(Data(), to: storage.audioURL(directory: zero.directoryURL), options: .atomic)
+        try storage.fileWriter.writeData(Data(), to: storage.locationURL(directory: zero.directoryURL), options: .atomic)
+        try storage.fileWriter.writeData(
+            Data(repeating: 1, count: 11),
+            to: storage.audioURL(directory: readable.directoryURL),
+            options: .atomic
+        )
+        try storage.fileWriter.writeData(
+            Data(repeating: 2, count: 13),
+            to: storage.locationURL(directory: readable.directoryURL),
+            options: .atomic
+        )
+        writer.forceExists(at: storage.audioURL(directory: unreadable.directoryURL))
+        writer.forceExists(at: storage.locationURL(directory: unreadable.directoryURL))
+
+        for (index, entry) in [missing, zero, readable, unreadable].enumerated() {
+            try self.recordEnqueue(
+                store: store,
+                entry: entry,
+                storage: storage,
+                byte: UInt8(index + 1),
+                at: now.addingTimeInterval(TimeInterval(-index))
+            )
+        }
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: collector.makeEnvelopeData(asOf: now)).payload)
+        let observations = Dictionary(uniqueKeysWithValues: payload.observedFileTransfers.compactMap { observation in
+            observation.segmentID.map { ($0, observation) }
+        })
+        XCTAssertEqual(observations[missing.manifest.id]?.originalAudioFile.value?.state, .missing)
+        XCTAssertEqual(observations[missing.manifest.id]?.originalLocationFile.value?.state, .missing)
+        XCTAssertEqual(observations[zero.manifest.id]?.originalAudioFile.value?.state, .zeroLength)
+        XCTAssertEqual(observations[zero.manifest.id]?.originalLocationFile.value?.state, .zeroLength)
+        XCTAssertEqual(observations[readable.manifest.id]?.originalAudioFile.value, WatchRelayOriginalFileFact(state: .readableNonempty, byteCount: 11))
+        XCTAssertEqual(observations[readable.manifest.id]?.originalLocationFile.value, WatchRelayOriginalFileFact(state: .readableNonempty, byteCount: 13))
+        XCTAssertEqual(observations[unreadable.manifest.id]?.originalAudioFile.value?.state, .unreadable)
+        XCTAssertEqual(observations[unreadable.manifest.id]?.originalLocationFile.value?.state, .unreadable)
+
+        let summary = try XCTUnwrap(payload.manifestSummary.value)
+        XCTAssertEqual(summary.originalAudioFileCounts.value, WatchRelayOriginalFileStateCounts(
+            missing: 1,
+            readableNonempty: 1,
+            zeroLength: 1,
+            unreadable: 1
+        ))
+        XCTAssertEqual(summary.originalLocationFileCounts.value, WatchRelayOriginalFileStateCounts(
+            missing: 1,
+            readableNonempty: 1,
+            zeroLength: 1,
+            unreadable: 1
+        ))
+        XCTAssertEqual(summary.originalPayloadReadableBytes.value, 24)
+    }
+
+    func testLegacySourcePresentRemainsRelayBundleExistenceWithExplicitBundleFacts() throws {
+        let now = Self.now
+        let storage = try self.storage("legacy-source-present")
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try self.writeManifest(id: Self.uuid(110), state: .transferring, storage: storage)
+        try self.recordEnqueue(store: store, entry: entry, storage: storage, byte: 7, at: now)
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: collector.makeEnvelopeData(asOf: now)).payload)
+        let observation = try XCTUnwrap(payload.observedFileTransfers.first { $0.segmentID == entry.manifest.id })
+
+        XCTAssertEqual(observation.sourcePresent.value, true)
+        XCTAssertEqual(observation.relayBundlePresent.value, observation.sourcePresent.value)
+        XCTAssertEqual(observation.relayBundleBytes.value, observation.appOwnedSourceBytes.value)
+        XCTAssertEqual(observation.appOwnedSourceBytes.value, 256)
+        XCTAssertEqual(observation.originalAudioFile.value?.state, .missing)
+        XCTAssertEqual(observation.originalLocationFile.value?.state, .missing)
+    }
+
+    func testMixedVersionEnvelopeDecodeDefaultsNewFieldsAndKeepsVersionOne() throws {
+        let now = Self.now
+        let observation = Self.observation(id: Self.uuid(120), age: 10)
+        let payload = Self.payload(
+            generatedAt: now,
+            manifestSummary: WatchRelayManifestSummary(
+                counts: .zero,
+                activeBacklogCount: 1,
+                retainedSourceBytes: .available(256),
+                oldestActiveEnqueuedAt: .available(now.addingTimeInterval(-10)),
+                oldestActiveEnqueueAgeSeconds: .available(10)
+            ),
+            observations: [observation]
+        )
+        let newData = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
+            generatedAt: now,
+            diagnostics: .available(payload)
+        ))
+        let newObject = try XCTUnwrap(JSONSerialization.jsonObject(with: newData) as? [String: Any])
+        XCTAssertEqual(newObject["version"] as? Int, WatchRelayDiagnosticsEnvelope.currentVersion)
+        XCTAssertLessThanOrEqual(newData.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
+        XCTAssertNotNil(WatchRelayDiagnosticsEnvelope.decodeResult(from: newData).payload)
+
+        let oldData = try Self.removingNewDiagnosticKeys(from: newData)
+        let oldDecoded = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: oldData).payload)
+        let oldSummary = try XCTUnwrap(oldDecoded.manifestSummary.value)
+        let oldObservation = try XCTUnwrap(oldDecoded.observedFileTransfers.first)
+        XCTAssertEqual(oldSummary.originalAudioFileCounts.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        XCTAssertEqual(oldSummary.originalLocationFileCounts.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        XCTAssertEqual(oldSummary.originalPayloadReadableBytes.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        XCTAssertEqual(oldSummary.retainedRelayBundleBytes.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        XCTAssertEqual(oldObservation.originalAudioFile.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        XCTAssertEqual(oldObservation.relayBundlePresent.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        XCTAssertEqual(oldObservation.sourcePresent.value, observation.sourcePresent.value)
+    }
+
+    func testSnapshotWitnessMarksChangedFactsUnresolvedWithoutWritesOrSessionCalls() throws {
+        let now = Self.now
+        let writer = MutatingWatchFileWriter()
+        let storage = try self.storage("snapshot-witness", fileWriter: writer)
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try self.writeManifest(id: Self.uuid(130), state: .transferring, storage: storage)
+        let audioURL = storage.audioURL(directory: entry.directoryURL)
+        try storage.fileWriter.writeData(Data(repeating: 9, count: 10), to: audioURL, options: .atomic)
+        try self.recordEnqueue(store: store, entry: entry, storage: storage, byte: 9, at: now)
+        writer.mutateBeforeSecondFileExists(at: audioURL) {
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+        writer.resetWriteCount()
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: collector.makeEnvelopeData(asOf: now)).payload)
+        let observation = try XCTUnwrap(payload.observedFileTransfers.first { $0.segmentID == entry.manifest.id })
+
+        XCTAssertEqual(observation.collectionResolution.value, .snapshotChangedDuringCollection)
+        XCTAssertEqual(observation.originalAudioFile.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
+        XCTAssertEqual(observation.originalLocationFile.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
+        XCTAssertEqual(observation.relayBundlePresent.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
+        XCTAssertEqual(observation.relayBundleBytes.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
+        XCTAssertTrue(session.callLedger.isEmpty)
+        XCTAssertEqual(writer.writeCount, 0)
+    }
+
     func testReconciliationDistinguishesMatchedMissingDuplicateOrphanedAndUnparseable() {
         let activeA = Self.uuid(1)
         let activeB = Self.uuid(2)
@@ -648,6 +828,45 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         return encoder
+    }
+
+    private static func removingNewDiagnosticKeys(from data: Data) throws -> Data {
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var diagnostics = try XCTUnwrap(root["diagnostics"] as? [String: Any])
+        var payload = try XCTUnwrap(diagnostics["value"] as? [String: Any])
+
+        if var manifestSummary = payload["manifestSummary"] as? [String: Any],
+           var manifestValue = manifestSummary["value"] as? [String: Any] {
+            for key in [
+                "originalAudioFileCounts",
+                "originalLocationFileCounts",
+                "originalPayloadReadableBytes",
+                "retainedRelayBundleBytes",
+            ] {
+                manifestValue.removeValue(forKey: key)
+            }
+            manifestSummary["value"] = manifestValue
+            payload["manifestSummary"] = manifestSummary
+        }
+
+        if var observations = payload["observedFileTransfers"] as? [[String: Any]] {
+            for index in observations.indices {
+                for key in [
+                    "originalAudioFile",
+                    "originalLocationFile",
+                    "relayBundlePresent",
+                    "relayBundleBytes",
+                    "collectionResolution",
+                ] {
+                    observations[index].removeValue(forKey: key)
+                }
+            }
+            payload["observedFileTransfers"] = observations
+        }
+
+        diagnostics["value"] = payload
+        root["diagnostics"] = diagnostics
+        return try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
     }
 }
 
@@ -1641,6 +1860,123 @@ private final class WriteFailingWatchFileWriter: WatchFileWriting {
 }
 
 @MainActor
+private final class ForcedExistingWatchFileWriter: WatchFileWriting {
+    private let base = FoundationWatchFileWriter()
+    private var forcedExistingPaths: Set<String> = []
+
+    func forceExists(at url: URL) {
+        self.forcedExistingPaths.insert(url.standardizedFileURL.path)
+    }
+
+    func createDirectory(at url: URL) throws {
+        try self.base.createDirectory(at: url)
+    }
+
+    func createFileIfNeeded(at url: URL) throws {
+        try self.base.createFileIfNeeded(at: url)
+    }
+
+    func fileExists(at url: URL) -> Bool {
+        self.forcedExistingPaths.contains(url.standardizedFileURL.path) || self.base.fileExists(at: url)
+    }
+
+    func readData(from url: URL) throws -> Data {
+        try self.base.readData(from: url)
+    }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        try self.base.writeData(data, to: url, options: options)
+    }
+
+    func appendLine(_ line: Data, to url: URL) throws {
+        try self.base.appendLine(line, to: url)
+    }
+
+    func atomicReplaceFile(at url: URL, with data: Data) throws {
+        try self.base.atomicReplaceFile(at: url, with: data)
+    }
+
+    func removeItem(at url: URL) throws {
+        try self.base.removeItem(at: url)
+    }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try self.base.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try self.base.contentsOfDirectory(at: url)
+    }
+}
+
+@MainActor
+private final class MutatingWatchFileWriter: WatchFileWriting {
+    private let base = FoundationWatchFileWriter()
+    private var fileExistsCounts: [String: Int] = [:]
+    private var mutationPath: String?
+    private var mutation: (() -> Void)?
+    private(set) var writeCount = 0
+
+    func mutateBeforeSecondFileExists(at url: URL, _ mutation: @escaping () -> Void) {
+        self.mutationPath = url.standardizedFileURL.path
+        self.mutation = mutation
+    }
+
+    func resetWriteCount() {
+        self.writeCount = 0
+    }
+
+    func createDirectory(at url: URL) throws {
+        try self.base.createDirectory(at: url)
+    }
+
+    func createFileIfNeeded(at url: URL) throws {
+        try self.base.createFileIfNeeded(at: url)
+    }
+
+    func fileExists(at url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let count = (self.fileExistsCounts[path] ?? 0) + 1
+        self.fileExistsCounts[path] = count
+        if path == self.mutationPath, count == 2 {
+            let mutation = self.mutation
+            self.mutation = nil
+            mutation?()
+        }
+        return self.base.fileExists(at: url)
+    }
+
+    func readData(from url: URL) throws -> Data {
+        try self.base.readData(from: url)
+    }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        self.writeCount += 1
+        try self.base.writeData(data, to: url, options: options)
+    }
+
+    func appendLine(_ line: Data, to url: URL) throws {
+        try self.base.appendLine(line, to: url)
+    }
+
+    func atomicReplaceFile(at url: URL, with data: Data) throws {
+        try self.base.atomicReplaceFile(at: url, with: data)
+    }
+
+    func removeItem(at url: URL) throws {
+        try self.base.removeItem(at: url)
+    }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try self.base.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try self.base.contentsOfDirectory(at: url)
+    }
+}
+
+@MainActor
 private final class MockWatchBatteryDevice: WatchBatteryDevice {
     var isBatteryMonitoringEnabled: Bool {
         didSet {
@@ -1684,6 +2020,12 @@ private extension WatchRelayDiagnosticsCollectorTests {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index))!
     }
 
+    nonisolated static func worktreeRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     nonisolated static func transfer(
         id: UUID?,
         idState: WatchRelayTransferIDState? = nil
@@ -1701,7 +2043,16 @@ private extension WatchRelayDiagnosticsCollectorTests {
         id: UUID?,
         age: TimeInterval?,
         relation: WatchRelayObservationRelation = .matched,
-        progress: DiagnosticAvailability<WatchConnectivityProgressSnapshot> = .available(MockWatchConnectivitySession.defaultProgress())
+        progress: DiagnosticAvailability<WatchConnectivityProgressSnapshot> = .available(MockWatchConnectivitySession.defaultProgress()),
+        originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact> = .available(
+            WatchRelayOriginalFileFact(state: .missing, byteCount: 0)
+        ),
+        originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact> = .available(
+            WatchRelayOriginalFileFact(state: .missing, byteCount: 0)
+        ),
+        relayBundlePresent: DiagnosticAvailability<Bool> = .available(true),
+        relayBundleBytes: DiagnosticAvailability<Int64> = .available(128),
+        collectionResolution: DiagnosticAvailability<WatchRelayObservationCollectionResolution> = .available(.stable)
     ) -> WatchRelayTransferObservation {
         WatchRelayTransferObservation(
             asOf: Self.now,
@@ -1713,7 +2064,12 @@ private extension WatchRelayDiagnosticsCollectorTests {
             appOwnedSourceBytes: .available(128),
             sourcePresent: .available(true),
             isTransferring: .available(true),
-            progress: progress
+            progress: progress,
+            originalAudioFile: originalAudioFile,
+            originalLocationFile: originalLocationFile,
+            relayBundlePresent: relayBundlePresent,
+            relayBundleBytes: relayBundleBytes,
+            collectionResolution: collectionResolution
         )
     }
 
@@ -1728,7 +2084,12 @@ private extension WatchRelayDiagnosticsCollectorTests {
             appOwnedSourceBytes: .unavailable(reason: "no app-active manifest"),
             sourcePresent: .unavailable(reason: "no app-active manifest"),
             isTransferring: .available(true),
-            progress: .available(MockWatchConnectivitySession.defaultProgress())
+            progress: .available(MockWatchConnectivitySession.defaultProgress()),
+            originalAudioFile: .unavailable(reason: "no app-active manifest"),
+            originalLocationFile: .unavailable(reason: "no app-active manifest"),
+            relayBundlePresent: .unavailable(reason: "no app-active manifest"),
+            relayBundleBytes: .unavailable(reason: "no app-active manifest"),
+            collectionResolution: .available(.stable)
         )
     }
 
@@ -1846,8 +2207,20 @@ private extension WatchRelayDiagnosticsCollectorTests {
             iphoneBatteryState: .available("unplugged"),
             iphoneLowPowerModeEnabled: .available(false),
             iphoneThermalState: .available("nominal"),
-            iphoneOutstandingUserInfoTransferCountACKControl: iphoneACKCount
+            iphoneACKQueueSnapshot: Self.ackSnapshot(total: iphoneACKCount)
         )
+    }
+
+    nonisolated static func ackSnapshot(total: Int) -> WatchRelayACKQueueSnapshot {
+        WatchRelayACKQueueSnapshot(userInfoTransfers: (0..<max(0, total)).map { _ in
+            WatchConnectivityUserInfoTransferSnapshot(
+                asOf: Self.now,
+                recognizedType: nil,
+                segmentID: nil,
+                idState: .missing,
+                isTransferring: true
+            )
+        })
     }
 
     nonisolated static func context(asOf: Date) -> WatchStatusContext {
