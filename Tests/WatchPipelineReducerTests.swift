@@ -364,6 +364,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         let copyBackedID = Self.uuid(205)
         let staleID = Self.uuid(206)
         let unresolvedID = Self.uuid(207)
+        let missingBundleID = Self.uuid(208)
         let observations = [
             Self.observation(id: handedWithACKID),
             Self.observation(id: handedWithoutACKID),
@@ -373,6 +374,14 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             Self.observation(id: copyBackedID, audio: Self.original(.missing, bytes: 0), location: Self.original(.zeroLength, bytes: 0), bundlePresent: true, bundleBytes: 128),
             Self.observation(id: staleID, audio: Self.original(.missing, bytes: 0), location: Self.original(.unreadable, bytes: nil), bundlePresent: false, bundleBytes: 0),
             Self.observation(id: unresolvedID, collectionResolution: .available(.snapshotChangedDuringCollection)),
+            Self.observation(
+                id: missingBundleID,
+                audio: Self.original(.missing, bytes: 0),
+                location: Self.original(.zeroLength, bytes: 0),
+                bundlePresent: false,
+                bundleBytes: 0,
+                relayBundleBytes: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+            ),
         ]
         let ledgerSnapshot = Self.ledgerSnapshot(entries: [
             handedWithACKID: Self.ledgerEntry(id: handedWithACKID, state: .handed),
@@ -397,6 +406,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(byID[pendingID]?.sourceAssessment, .pending)
         XCTAssertEqual(byID[copyBackedID]?.sourceAssessment, .copyBacked)
         XCTAssertEqual(byID[staleID]?.sourceAssessment, .staleSourceEmpty)
+        XCTAssertEqual(byID[missingBundleID]?.sourceAssessment, .staleSourceEmpty)
         XCTAssertEqual(byID[unresolvedID]?.sourceAssessment, .unresolved)
 
         let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
@@ -554,6 +564,7 @@ private extension WatchPipelineReducerTests {
         ),
         bundlePresent: Bool = true,
         bundleBytes: Int64 = 128,
+        relayBundleBytes: DiagnosticAvailability<Int64>? = nil,
         collectionResolution: DiagnosticAvailability<WatchRelayObservationCollectionResolution> = .available(.stable)
     ) -> WatchRelayTransferObservation {
         WatchRelayTransferObservation(
@@ -570,7 +581,7 @@ private extension WatchPipelineReducerTests {
             originalAudioFile: audio,
             originalLocationFile: location,
             relayBundlePresent: .available(bundlePresent),
-            relayBundleBytes: .available(bundleBytes),
+            relayBundleBytes: relayBundleBytes ?? .available(bundleBytes),
             collectionResolution: collectionResolution
         )
     }

@@ -380,6 +380,9 @@ final class WatchSegmentLedgerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
         ledger.recordReceived(id: UUID())
         XCTAssertNotNil(ledger.lastLedgerError)
+        let snapshotWithError = ledger.readSnapshot(asOf: Date(timeIntervalSince1970: 1_000))
+        XCTAssertNil(snapshotWithError.value)
+        XCTAssertFalse(snapshotWithError.unavailableReason?.contains(directory.path) ?? false)
         let rowsWithError = WatchPipelineReducer.reduce(self.pipelineInput(
             now: Date(timeIntervalSince1970: 1_000),
             lastLedgerError: ledger.lastLedgerError

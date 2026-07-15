@@ -222,9 +222,10 @@ nonisolated enum WatchPipelineReducer {
         }
 
         let observations = self.visibleActiveObservations(payload.observedFileTransfers)
-        let classifications = observations.map { observation in
+        let classifications = observations.map { visible in
             self.classification(
-                observation: observation,
+                segmentID: visible.segmentID,
+                observation: visible.observation,
                 ledgerSnapshot: input.phoneLedgerSnapshot,
                 ackSnapshot: input.iphoneACKQueueSnapshot
             )
@@ -268,14 +269,14 @@ nonisolated enum WatchPipelineReducer {
 private extension WatchPipelineReducer {
     nonisolated static func visibleActiveObservations(
         _ observations: [WatchRelayTransferObservation]
-    ) -> [WatchRelayTransferObservation] {
+    ) -> [(segmentID: UUID, observation: WatchRelayTransferObservation)] {
         var seen = Set<UUID>()
-        var visible: [WatchRelayTransferObservation] = []
+        var visible: [(segmentID: UUID, observation: WatchRelayTransferObservation)] = []
         for observation in observations where self.isAppActiveRelation(observation.relation) {
             guard let segmentID = observation.segmentID, seen.insert(segmentID).inserted else {
                 continue
             }
-            visible.append(observation)
+            visible.append((segmentID: segmentID, observation: observation))
         }
         return visible
     }
@@ -290,20 +291,11 @@ private extension WatchPipelineReducer {
     }
 
     nonisolated static func classification(
+        segmentID: UUID,
         observation: WatchRelayTransferObservation,
         ledgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot>,
         ackSnapshot: WatchRelayACKQueueSnapshot
     ) -> WatchRelayIdentityClassification {
-        guard let segmentID = observation.segmentID else {
-            return WatchRelayIdentityClassification(
-                segmentID: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
-                observation: observation,
-                phoneOutcome: .ledgerUnavailable,
-                sourceAssessment: nil,
-                ledgerEntry: nil
-            )
-        }
-
         switch ledgerSnapshot {
         case .unavailable:
             return WatchRelayIdentityClassification(
@@ -351,8 +343,7 @@ private extension WatchPipelineReducer {
               collectionResolution == .stable,
               case let .available(audioFact) = observation.originalAudioFile,
               case let .available(locationFact) = observation.originalLocationFile,
-              case let .available(relayBundlePresent) = observation.relayBundlePresent,
-              case let .available(relayBundleBytes) = observation.relayBundleBytes
+              case let .available(relayBundlePresent) = observation.relayBundlePresent
         else {
             return .unresolved
         }
@@ -360,9 +351,14 @@ private extension WatchPipelineReducer {
         if audioFact.state == .readableNonempty || locationFact.state == .readableNonempty {
             return .pending
         }
-        if relayBundlePresent && relayBundleBytes > 0 {
-            return .copyBacked
+
+        if relayBundlePresent {
+            guard case let .available(relayBundleBytes) = observation.relayBundleBytes else {
+                return .unresolved
+            }
+            return relayBundleBytes > 0 ? .copyBacked : .staleSourceEmpty
         }
+
         return .staleSourceEmpty
     }
 

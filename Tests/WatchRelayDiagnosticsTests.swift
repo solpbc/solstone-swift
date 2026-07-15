@@ -194,6 +194,49 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(observation.originalLocationFile.value?.state, .missing)
     }
 
+    func testDecodedMissingRelayBundleClassifiesAsStaleSourceEmpty() throws {
+        let now = Self.now
+        let storage = try self.storage("missing-relay-bundle-classification")
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try self.writeManifest(id: Self.uuid(115), state: .transferring, storage: storage)
+        try storage.fileWriter.writeData(Data(), to: storage.audioURL(directory: entry.directoryURL), options: .atomic)
+        try storage.fileWriter.writeData(Data(), to: storage.locationURL(directory: entry.directoryURL), options: .atomic)
+
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: collector.makeEnvelopeData(asOf: now)).payload)
+        let observation = try XCTUnwrap(payload.observedFileTransfers.first { $0.segmentID == entry.manifest.id })
+        XCTAssertEqual(observation.relayBundlePresent.value, false)
+        XCTAssertEqual(observation.relayBundleBytes.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+
+        let emptyLedger = WatchSegmentLedgerReadSnapshot(
+            asOf: now,
+            entriesByID: [:],
+            counts: WatchSegmentLedgerSnapshotCounts(
+                retainedEntryCount: 0,
+                receivedOnlyCount: 0,
+                handedCount: 0,
+                droppedCount: 0,
+                handedAndDroppedCount: 0
+            )
+        )
+        let input = Self.pipelineInput(
+            payload: payload,
+            lastReceivedAt: nil,
+            phoneLedgerSnapshot: .available(emptyLedger)
+        )
+        let report = WatchPipelineReducer.classifyRelayIdentities(input)
+        let classification = try XCTUnwrap(report.classifications.first { $0.segmentID == entry.manifest.id })
+        XCTAssertEqual(classification.phoneOutcome, .ledgerAbsent)
+        XCTAssertEqual(classification.sourceAssessment, .staleSourceEmpty)
+        XCTAssertTrue(WatchPipelineReducer.reduce(input).diagnosticsExportText.contains("source stale-source-empty"))
+    }
+
     func testMixedVersionEnvelopeDecodeDefaultsNewFieldsAndKeepsVersionOne() throws {
         let now = Self.now
         let observation = Self.observation(id: Self.uuid(120), age: 10)
@@ -2176,7 +2219,8 @@ private extension WatchRelayDiagnosticsCollectorTests {
         lastReceivedAt: Date? = WatchRelayDiagnosticsCollectorTests.now,
         iphoneBuild: DiagnosticAvailability<String> = .available("55"),
         iphoneACKCount: Int = 0,
-        lastUploadError: String? = nil
+        lastUploadError: String? = nil,
+        phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided")
     ) -> WatchPipelineInput {
         WatchPipelineInput(
             now: now,
@@ -2207,6 +2251,7 @@ private extension WatchRelayDiagnosticsCollectorTests {
             iphoneBatteryState: .available("unplugged"),
             iphoneLowPowerModeEnabled: .available(false),
             iphoneThermalState: .available("nominal"),
+            phoneLedgerSnapshot: phoneLedgerSnapshot,
             iphoneACKQueueSnapshot: Self.ackSnapshot(total: iphoneACKCount)
         )
     }

@@ -70,14 +70,6 @@ nonisolated struct WatchSegmentLedgerSnapshotCounts: Codable, Equatable, Sendabl
     let handedCount: Int
     let droppedCount: Int
     let handedAndDroppedCount: Int
-
-    static let zero = WatchSegmentLedgerSnapshotCounts(
-        retainedEntryCount: 0,
-        receivedOnlyCount: 0,
-        handedCount: 0,
-        droppedCount: 0,
-        handedAndDroppedCount: 0
-    )
 }
 
 nonisolated struct WatchSegmentLedgerReadSnapshot: Codable, Equatable, Sendable {
@@ -252,7 +244,8 @@ final class WatchSegmentLedger {
 
     func readSnapshot(asOf: Date) -> DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> {
         if let lastLedgerError, !lastLedgerError.isEmpty {
-            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.bounded(lastLedgerError))
+            let redactedReason = WatchTransferFailureFormatter.redactedDescription(lastLedgerError)
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.bounded(redactedReason))
         }
 
         var entriesByID: [UUID: WatchSegmentLedgerEntrySnapshot] = [:]
