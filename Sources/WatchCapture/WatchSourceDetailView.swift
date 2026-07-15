@@ -5,10 +5,82 @@
 import Foundation
 import CoreTransferable
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 import os
 
 private let watchSourceLog = Logger(subsystem: "app.solstone.swift", category: "watch")
+
+@MainActor
+private struct WatchDiagnosticsIPhoneEnvironment {
+    let appMarketingVersion: DiagnosticAvailability<String>
+    let appBuild: DiagnosticAvailability<String>
+    let iOSVersion: DiagnosticAvailability<String>
+    let batteryLevel: DiagnosticAvailability<Double>
+    let batteryState: DiagnosticAvailability<String>
+    let lowPowerModeEnabled: DiagnosticAvailability<Bool>
+    let thermalState: DiagnosticAvailability<String>
+
+    static func current() -> Self {
+        let device = UIDevice.current
+        let previousBatteryMonitoring = device.isBatteryMonitoringEnabled
+        device.isBatteryMonitoringEnabled = true
+        let batteryLevel = device.batteryLevel >= 0
+            ? DiagnosticAvailability<Double>.available(Double(device.batteryLevel))
+            : DiagnosticAvailability<Double>.unavailable(reason: "not provided")
+        let batteryState = DiagnosticAvailability<String>.available(Self.batteryStateString(device.batteryState))
+        device.isBatteryMonitoringEnabled = previousBatteryMonitoring
+
+        return Self(
+            appMarketingVersion: Self.bundleString("CFBundleShortVersionString"),
+            appBuild: Self.bundleString("CFBundleVersion"),
+            iOSVersion: .available(device.systemVersion),
+            batteryLevel: batteryLevel,
+            batteryState: batteryState,
+            lowPowerModeEnabled: .available(ProcessInfo.processInfo.isLowPowerModeEnabled),
+            thermalState: .available(Self.thermalStateString(ProcessInfo.processInfo.thermalState))
+        )
+    }
+
+    private static func bundleString(_ key: String) -> DiagnosticAvailability<String> {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !value.isEmpty
+        else {
+            return .unavailable(reason: "not provided")
+        }
+        return .available(value)
+    }
+
+    private static func batteryStateString(_ state: UIDevice.BatteryState) -> String {
+        switch state {
+        case .unknown:
+            "unknown"
+        case .unplugged:
+            "unplugged"
+        case .charging:
+            "charging"
+        case .full:
+            "full"
+        @unknown default:
+            "unknown"
+        }
+    }
+
+    private static func thermalStateString(_ state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal:
+            "nominal"
+        case .fair:
+            "fair"
+        case .serious:
+            "serious"
+        case .critical:
+            "critical"
+        @unknown default:
+            "unknown"
+        }
+    }
+}
 
 nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
     let text: String
@@ -99,7 +171,8 @@ struct WatchSourceDetailView: View {
     @State private var now = Date()
 
     var pipelineInput: WatchPipelineInput {
-        WatchPipelineInput(
+        let iphoneEnvironment = WatchDiagnosticsIPhoneEnvironment.current()
+        return WatchPipelineInput(
             now: self.now,
             watchStatus: self.watchLink.watchStatus,
             lifetimeReceived: self.watchSegmentLedger.lifetimeReceived,
@@ -119,7 +192,16 @@ struct WatchSourceDetailView: View {
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
             activationState: self.watchLink.activationState,
             isReachable: self.watchLink.isReachable,
-            isJournalReachable: isJournalReachable(self.connectionSyncModel.status)
+            isJournalReachable: isJournalReachable(self.connectionSyncModel.status),
+            watchDiagnostics: self.watchLink.watchDiagnosticsEnvelopeResult,
+            iphoneAppMarketingVersion: iphoneEnvironment.appMarketingVersion,
+            iphoneAppBuild: iphoneEnvironment.appBuild,
+            iOSVersion: iphoneEnvironment.iOSVersion,
+            iphoneBatteryLevel: iphoneEnvironment.batteryLevel,
+            iphoneBatteryState: iphoneEnvironment.batteryState,
+            iphoneLowPowerModeEnabled: iphoneEnvironment.lowPowerModeEnabled,
+            iphoneThermalState: iphoneEnvironment.thermalState,
+            iphoneOutstandingUserInfoTransferCountACKControl: self.watchLink.iPhoneOutstandingUserInfoTransferCountACKControl
         )
     }
     // KILL-LIST-EXEMPT:END

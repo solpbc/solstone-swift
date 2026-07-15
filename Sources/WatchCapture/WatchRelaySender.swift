@@ -31,21 +31,24 @@ final class WatchRelaySender {
 
     private let storage: WatchCaptureStorage
     private let session: any WatchConnectivitySession
+    private let diagnosticsStore: WatchRelayDiagnosticsStore?
     private let clock: @MainActor @Sendable () -> Date
 
     init(
         storage: WatchCaptureStorage,
         session: any WatchConnectivitySession,
+        diagnosticsStore: WatchRelayDiagnosticsStore? = nil,
         clock: @escaping @MainActor @Sendable () -> Date = Date.init
     ) {
         self.storage = storage
         self.session = session
+        self.diagnosticsStore = diagnosticsStore
         self.clock = clock
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
         }
-        self.session.onFileTransferFinished = { [weak self] id, errorDescription in
-            self?.handleFileTransferFinished(id: id, errorDescription: errorDescription)
+        self.session.onFileTransferFinished = { [weak self] id, failure in
+            self?.handleFileTransferFinished(id: id, failure: failure)
         }
     }
 
@@ -67,6 +70,7 @@ final class WatchRelaySender {
 
             let refreshedEntries = try self.storage.scanManifests()
             let outstanding = self.groupedOutstandingFileTransfers()
+            self.recordQueueReconciliation(entries: refreshedEntries)
             var manifestStatesByID: [UUID: WatchSegmentState] = [:]
             for entry in refreshedEntries {
                 manifestStatesByID[entry.manifest.id] = entry.manifest.state
@@ -135,17 +139,26 @@ private extension WatchRelaySender {
         }
     }
 
-    func handleFileTransferFinished(id: UUID, errorDescription: String?) {
+    func handleFileTransferFinished(id: UUID, failure: WatchConnectivityTransferFailureSnapshot?) {
         do {
             let entries = try self.storage.scanManifests()
             guard let entry = entries.first(where: { $0.manifest.id == id }) else { return }
             var manifest = entry.manifest
-            if let errorDescription {
+            if let failure {
                 guard manifest.state == .transferring else { return }
                 manifest.state = .queued
                 try self.storage.writeManifest(manifest, in: entry.directoryURL)
                 self.notifyStateChanged()
-                watchRelaySenderLog.notice("watch relay transfer failed id=\(id.uuidString, privacy: .public): \(errorDescription, privacy: .public)")
+                self.diagnosticsStore?.recordTransferCompletion(
+                    manifest: manifest,
+                    directoryURL: entry.directoryURL,
+                    succeeded: false,
+                    failure: failure,
+                    at: self.clock()
+                )
+                watchRelaySenderLog.notice(
+                    "watch relay transfer failed id=\(id.uuidString, privacy: .public): \(failure.boundedRedactedDescription, privacy: .public)"
+                )
                 return
             }
 
@@ -154,6 +167,13 @@ private extension WatchRelaySender {
             manifest.deliveredAt = self.clock()
             try self.storage.writeManifest(manifest, in: entry.directoryURL)
             self.notifyStateChanged()
+            self.diagnosticsStore?.recordTransferCompletion(
+                manifest: manifest,
+                directoryURL: entry.directoryURL,
+                succeeded: true,
+                failure: nil,
+                at: self.clock()
+            )
         } catch {
             watchRelaySenderLog.error("watch relay finish handling failed: \(String(describing: error), privacy: .public)")
         }
@@ -172,6 +192,11 @@ private extension WatchRelaySender {
             try self.storage.writeManifest(manifest, in: entry.directoryURL)
             self.notifyStateChanged()
         }
+        self.diagnosticsStore?.recordDurableACK(
+            manifest: manifest,
+            directoryURL: entry.directoryURL,
+            at: self.clock()
+        )
 
         manifest.state = .safeToDelete
         try self.storage.writeManifest(manifest, in: entry.directoryURL)
@@ -240,6 +265,12 @@ private extension WatchRelaySender {
             to: bundleURL
         )
         self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest))
+        self.diagnosticsStore?.recordEnqueue(
+            manifest: manifest,
+            directoryURL: directoryURL,
+            bundleURL: bundleURL,
+            at: self.clock()
+        )
         watchRelaySenderLog.info("watch relay transfer enqueued id=\(manifest.id.uuidString, privacy: .public)")
     }
 
@@ -271,6 +302,24 @@ private extension WatchRelaySender {
         for transfer in transfers {
             transfer.cancel()
         }
+    }
+
+    func recordQueueReconciliation(entries: [WatchCaptureStorage.ManifestEntry]) {
+        guard let diagnosticsStore else { return }
+        let activeEntries = entries.filter { entry in
+            entry.manifest.state == .queued || entry.manifest.state == .transferring
+        }
+        let snapshots = self.session.outstandingFileTransferSnapshots
+        let counts = WatchRelayDiagnosticsCollector.reconciliationCounts(
+            activeManifestIDs: Set(activeEntries.map(\.manifest.id)),
+            fileTransfers: snapshots
+        )
+        diagnosticsStore.recordQueueReconciliation(
+            counts: counts,
+            observedFileTransferCount: snapshots.count,
+            activeEntries: activeEntries,
+            at: self.clock()
+        )
     }
 
     func notifyStateChanged() {

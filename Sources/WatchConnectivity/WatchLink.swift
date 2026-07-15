@@ -17,12 +17,17 @@ final class WatchLink {
     private(set) var isWatchAppInstalled: Bool
     private(set) var activationState: WCSessionActivationState
     private(set) var watchStatus: WatchStatusContext?
+    private(set) var watchDiagnosticsEnvelopeResult: WatchRelayDiagnosticsEnvelopeResult = .absent
 
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
 
     var lastReceivedAt: Date? {
         self.receiver?.lastReceivedAt
+    }
+
+    var iPhoneOutstandingUserInfoTransferCountACKControl: Int {
+        self.session.outstandingUserInfoTransferSnapshots.count
     }
 
     init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?) {
@@ -51,7 +56,7 @@ final class WatchLink {
         }
         self.session.onReceiveApplicationContext = { [weak self] applicationContext in
             Task { @MainActor [weak self] in
-                self?.watchStatus = WatchStatusContext(applicationContext: applicationContext)
+                self?.applyWatchStatus(WatchStatusContext(applicationContext: applicationContext))
             }
         }
     }
@@ -79,7 +84,14 @@ private extension WatchLink {
     }
 
     func refreshWatchStatus() {
-        self.watchStatus = WatchStatusContext(applicationContext: self.session.receivedApplicationContext)
+        self.applyWatchStatus(WatchStatusContext(applicationContext: self.session.receivedApplicationContext))
+    }
+
+    func applyWatchStatus(_ status: WatchStatusContext?) {
+        self.watchStatus = status
+        self.watchDiagnosticsEnvelopeResult = WatchRelayDiagnosticsEnvelope.decodeResult(
+            from: status?.diagnosticsEnvelope
+        )
     }
 
     func handleActivationChanged(_ didActivate: Bool) {

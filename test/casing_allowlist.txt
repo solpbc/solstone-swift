@@ -67,6 +67,9 @@ WatchHomeView.swift|SolRingActive
 WatchHomeView.swift|SolRingPaused
 WatchHomeView.swift|SolRingAlert
 
+# Spec-mandated directional relay-queue label (Apple Watch → iPhone proper nouns)
+SourceVocabulary.swift|Watch → iPhone
+
 # Internal logger/type names
 *|OnboardingRootView
 *|ContentView

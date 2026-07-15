@@ -32,7 +32,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(summary.syncSummary, WatchSourceSyncSummary(received: 5, waiting: 2, handedToJournal: 3, lastSyncAt: now))
         XCTAssertEqual(summary.stuck, WatchPipelineStuck.none)
         XCTAssertEqual(summary.diagnosticsRows.first { $0.label == SourceVocabulary.watchStatusLabel }?.value, "idle · \(Self.relativeText(secondsAgo: 10))")
-        XCTAssertTrue(summary.diagnosticsExportText.contains("\(SourceVocabulary.watchPipelineSaved): 3"))
+        XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchDiagnosticsStageRetentionAppleQueue))
     }
 
     func testReduceWatchSuspendedStaleAgesOnlyWatchRows() {
@@ -294,9 +294,10 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             oldestNonTerminalReceivedAt: now.addingTimeInterval(-1_800)
         ))
 
+        XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchDiagnosticsStageWatchSnapshot))
         XCTAssertTrue(
             summary.diagnosticsExportText.contains(
-                "\(SourceVocabulary.watchPipelineSaved): 3 (\(SourceVocabulary.watchPipelineStaleAsOf(relative)))"
+                "\(SourceVocabulary.watchStatusLabel): idle · \(relative)"
             )
         )
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))

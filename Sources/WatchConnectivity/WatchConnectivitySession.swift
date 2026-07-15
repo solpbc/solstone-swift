@@ -13,6 +13,38 @@ struct OutstandingFileTransfer {
     let cancel: @MainActor () -> Void
 }
 
+nonisolated struct WatchConnectivityProgressSnapshot: Codable, Equatable, Sendable {
+    let isIndeterminate: Bool
+    let isFinished: Bool
+    let isCancelled: Bool
+    let completedUnitCount: Int64
+    let totalUnitCount: Int64
+    let fractionCompleted: Double?
+    let throughputBytesPerSecond: Int?
+    let estimatedTimeRemainingSeconds: TimeInterval?
+    let kind: String?
+    let fileTotalCount: Int?
+    let fileCompletedCount: Int?
+}
+
+nonisolated struct WatchConnectivityFileTransferSnapshot: Codable, Equatable, Sendable {
+    let asOf: Date
+    let segmentID: UUID?
+    let idState: WatchRelayTransferIDState
+    let isTransferring: Bool
+    let progress: WatchConnectivityProgressSnapshot
+}
+
+nonisolated struct WatchConnectivityUserInfoTransferSnapshot: Codable, Equatable, Sendable {
+    let asOf: Date
+    let recognizedType: WatchConnectivityUserInfoTransferType?
+    let isTransferring: Bool
+}
+
+nonisolated enum WatchConnectivityUserInfoTransferType: String, Codable, Equatable, Sendable {
+    case watchSegmentACK
+}
+
 @MainActor
 protocol WatchConnectivitySession: AnyObject {
     var isSupported: Bool { get }
@@ -23,13 +55,17 @@ protocol WatchConnectivitySession: AnyObject {
     var hasContentPending: Bool { get }
     var receivedApplicationContext: [String: Any] { get }
     var outstandingFileTransfers: [OutstandingFileTransfer] { get }
+    var outstandingFileTransferSnapshots: [WatchConnectivityFileTransferSnapshot] { get }
+    var outstandingUserInfoTransferSnapshots: [WatchConnectivityUserInfoTransferSnapshot] { get }
+    var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> { get }
+    var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> { get }
     var onActivationChanged: (@Sendable (Bool) -> Void)? { get set }
     var onReachabilityChanged: (@Sendable (Bool) -> Void)? { get set }
     var onWatchStateChanged: (@Sendable () -> Void)? { get set }
     var onReceiveFile: ((URL, [String: Any]) -> Void)? { get set }
     var onReceiveUserInfo: (([String: Any]) -> Void)? { get set }
     var onReceiveApplicationContext: (([String: Any]) -> Void)? { get set }
-    var onFileTransferFinished: ((UUID, String?) -> Void)? { get set }
+    var onFileTransferFinished: ((UUID, WatchConnectivityTransferFailureSnapshot?) -> Void)? { get set }
     var onSessionEvent: (() -> Void)? { get set }
 
     func activate()
@@ -47,7 +83,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
     var onReceiveApplicationContext: (([String: Any]) -> Void)?
-    var onFileTransferFinished: ((UUID, String?) -> Void)?
+    var onFileTransferFinished: ((UUID, WatchConnectivityTransferFailureSnapshot?) -> Void)?
     var onSessionEvent: (() -> Void)?
 
     private let session: WCSession?
@@ -87,6 +123,20 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         }
     }
 
+    var outstandingFileTransferSnapshots: [WatchConnectivityFileTransferSnapshot] {
+        let asOf = Date()
+        return (self.session?.outstandingFileTransfers ?? []).map { transfer in
+            Self.fileTransferSnapshot(from: transfer, asOf: asOf)
+        }
+    }
+
+    var outstandingUserInfoTransferSnapshots: [WatchConnectivityUserInfoTransferSnapshot] {
+        let asOf = Date()
+        return (self.session?.outstandingUserInfoTransfers ?? []).map { transfer in
+            Self.userInfoTransferSnapshot(from: transfer, asOf: asOf)
+        }
+    }
+
 #if os(iOS)
     var isPaired: Bool {
         self.session?.isPaired ?? false
@@ -95,6 +145,14 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var isWatchAppInstalled: Bool {
         self.session?.isWatchAppInstalled ?? false
     }
+
+    var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> {
+        .unavailable(reason: "not available on iphone")
+    }
+
+    var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> {
+        .unavailable(reason: "not available on iphone")
+    }
 #else
     var isPaired: Bool {
         false
@@ -102,6 +160,20 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 
     var isWatchAppInstalled: Bool {
         false
+    }
+
+    var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> {
+        guard let session else {
+            return .unavailable(reason: "watch connectivity unavailable")
+        }
+        return .available(session.isCompanionAppInstalled)
+    }
+
+    var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> {
+        guard let session else {
+            return .unavailable(reason: "watch connectivity unavailable")
+        }
+        return .available(session.iOSDeviceNeedsUnlockAfterRebootForReachability)
     }
 #endif
 
@@ -227,7 +299,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 
     nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?) {
         let idString = fileTransfer.file.metadata?["id"] as? String
-        let errorDescription = error.map { String(describing: $0) }
+        let failure = error.map { WatchConnectivityTransferFailureSnapshot(error: $0) }
         Task { @MainActor [weak self] in
             defer {
                 self?.onSessionEvent?()
@@ -240,7 +312,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
                 watchConnectivityLog.error("watch connectivity file transfer finished with invalid segment id")
                 return
             }
-            self?.onFileTransferFinished?(id, errorDescription)
+            self?.onFileTransferFinished?(id, failure)
         }
     }
 
@@ -288,6 +360,67 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 }
 
 private extension LiveWatchConnectivitySession {
+    nonisolated static func fileTransferSnapshot(
+        from transfer: WCSessionFileTransfer,
+        asOf: Date
+    ) -> WatchConnectivityFileTransferSnapshot {
+        let idParse = Self.segmentID(from: transfer.file.metadata?["id"])
+        return WatchConnectivityFileTransferSnapshot(
+            asOf: asOf,
+            segmentID: idParse.id,
+            idState: idParse.state,
+            isTransferring: transfer.isTransferring,
+            progress: Self.progressSnapshot(from: transfer.progress)
+        )
+    }
+
+    nonisolated static func progressSnapshot(from progress: Progress) -> WatchConnectivityProgressSnapshot {
+        WatchConnectivityProgressSnapshot(
+            isIndeterminate: progress.isIndeterminate,
+            isFinished: progress.isFinished,
+            isCancelled: progress.isCancelled,
+            completedUnitCount: progress.completedUnitCount,
+            totalUnitCount: progress.totalUnitCount,
+            fractionCompleted: progress.isIndeterminate ? nil : progress.fractionCompleted,
+            throughputBytesPerSecond: progress.throughput,
+            estimatedTimeRemainingSeconds: progress.estimatedTimeRemaining,
+            kind: progress.kind?.rawValue,
+            fileTotalCount: progress.fileTotalCount,
+            fileCompletedCount: progress.fileCompletedCount
+        )
+    }
+
+    nonisolated static func userInfoTransferSnapshot(
+        from transfer: WCSessionUserInfoTransfer,
+        asOf: Date
+    ) -> WatchConnectivityUserInfoTransferSnapshot {
+        WatchConnectivityUserInfoTransferSnapshot(
+            asOf: asOf,
+            recognizedType: Self.userInfoType(from: transfer.userInfo["type"]),
+            isTransferring: transfer.isTransferring
+        )
+    }
+
+    nonisolated static func segmentID(from rawValue: Any?) -> (id: UUID?, state: WatchRelayTransferIDState) {
+        guard let idString = rawValue as? String else {
+            return (nil, .missing)
+        }
+        guard let id = UUID(uuidString: idString) else {
+            return (nil, .unparseable)
+        }
+        return (id, .parseable)
+    }
+
+    nonisolated static func userInfoType(from rawValue: Any?) -> WatchConnectivityUserInfoTransferType? {
+        guard let type = rawValue as? String else { return nil }
+        switch type {
+        case WatchRelayACK.type:
+            return .watchSegmentACK
+        default:
+            return nil
+        }
+    }
+
     nonisolated static func moveIncomingFileToScratch(_ fileURL: URL) throws -> URL {
         let fileManager = FileManager.default
         let scratchDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)

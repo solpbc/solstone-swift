@@ -548,7 +548,7 @@ final class WatchRelayTests: XCTestCase {
 
         var stateChanges = 0
         sender.onStateChanged = { stateChanges += 1 }
-        watchSession.finishTransfer(id: successID, error: nil)
+        watchSession.finishTransfer(id: successID, failure: nil)
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: successID), .delivered)
         XCTAssertEqual(try self.manifest(storage: storage, id: successID)?.deliveredAt, now)
@@ -558,12 +558,12 @@ final class WatchRelayTests: XCTestCase {
 
         let queuedSuccessID = UUID()
         _ = try self.writeSegment(storage: storage, id: queuedSuccessID, index: 1)
-        watchSession.finishTransfer(id: queuedSuccessID, error: nil)
+        watchSession.finishTransfer(id: queuedSuccessID, failure: nil)
         XCTAssertEqual(try self.manifestState(storage: storage, id: queuedSuccessID), .delivered)
         XCTAssertEqual(try self.manifest(storage: storage, id: queuedSuccessID)?.deliveredAt, now)
         XCTAssertEqual(stateChanges, 2)
 
-        watchSession.finishTransfer(id: queuedSuccessID, error: nil)
+        watchSession.finishTransfer(id: queuedSuccessID, failure: nil)
         XCTAssertEqual(try self.manifestState(storage: storage, id: queuedSuccessID), .delivered)
         XCTAssertEqual(stateChanges, 2)
 
@@ -571,16 +571,16 @@ final class WatchRelayTests: XCTestCase {
         _ = try self.writeSegment(storage: storage, id: failureID, index: 2)
         sender.drain()
         let transferCountBeforeFailure = watchSession.transferredFiles.count
-        watchSession.finishTransfer(id: failureID, error: "network unavailable")
+        watchSession.finishTransfer(id: failureID, failure: Self.transferFailure("network unavailable"))
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: failureID), .queued)
         XCTAssertEqual(watchSession.transferredFiles.count, transferCountBeforeFailure)
 
-        watchSession.finishTransfer(id: successID, error: "late failure")
+        watchSession.finishTransfer(id: successID, failure: Self.transferFailure("late failure"))
         XCTAssertEqual(try self.manifestState(storage: storage, id: successID), .delivered)
 
-        watchSession.finishTransfer(id: UUID(), error: nil)
-        watchSession.finishTransfer(id: UUID(), error: "missing")
+        watchSession.finishTransfer(id: UUID(), failure: nil)
+        watchSession.finishTransfer(id: UUID(), failure: Self.transferFailure("missing"))
         XCTAssertEqual(watchSession.transferredFiles.count, transferCountBeforeFailure)
     }
 
@@ -667,13 +667,13 @@ final class WatchRelayTests: XCTestCase {
         sender.drain()
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
 
-        watchSession.finishTransfer(id: id, error: "first failure")
+        watchSession.finishTransfer(id: id, failure: Self.transferFailure("first failure"))
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .queued)
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
 
         sender.drain()
         XCTAssertEqual(watchSession.transferredFiles.count, 2)
-        watchSession.finishTransfer(id: id, error: "second failure")
+        watchSession.finishTransfer(id: id, failure: Self.transferFailure("second failure"))
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .queued)
     }
@@ -783,7 +783,7 @@ final class WatchRelayTests: XCTestCase {
         let bundleURL = sender.bundleURL(for: id)
         XCTAssertTrue(storage.fileWriter.fileExists(at: bundleURL))
 
-        watchSession.finishTransfer(id: id, error: nil)
+        watchSession.finishTransfer(id: id, failure: nil)
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .delivered)
 
         watchSession.deliverUserInfo(WatchRelayACK.userInfo(id: id))
@@ -792,8 +792,8 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(try storage.scanManifests().count, 0)
 
         let transferCount = watchSession.transferredFiles.count
-        watchSession.finishTransfer(id: id, error: nil)
-        watchSession.finishTransfer(id: id, error: "late failure")
+        watchSession.finishTransfer(id: id, failure: nil)
+        watchSession.finishTransfer(id: id, failure: Self.transferFailure("late failure"))
         XCTAssertEqual(watchSession.transferredFiles.count, transferCount)
     }
 
@@ -974,7 +974,7 @@ private extension WatchRelayTests {
         switch call {
         case let .transferUserInfo(userInfo):
             self.assertRelayACK(userInfo, id: id, file: file, line: line)
-        case .sendMessage:
+        default:
             XCTFail("expected transferUserInfo call", file: file, line: line)
         }
     }
@@ -986,10 +986,18 @@ private extension WatchRelayTests {
         line: UInt = #line
     ) {
         switch call {
-        case .transferUserInfo:
-            XCTFail("expected sendMessage call", file: file, line: line)
         case let .sendMessage(message):
             self.assertRelayACK(message, id: id, file: file, line: line)
+        default:
+            XCTFail("expected sendMessage call", file: file, line: line)
         }
+    }
+
+    static func transferFailure(_ description: String) -> WatchConnectivityTransferFailureSnapshot {
+        WatchConnectivityTransferFailureSnapshot(
+            domain: "MockWatchConnectivity",
+            code: 1,
+            boundedRedactedDescription: description
+        )
     }
 }

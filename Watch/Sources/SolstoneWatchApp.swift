@@ -12,22 +12,36 @@ struct SolstoneWatchApp: App {
 
     init() {
         let session = LiveWatchConnectivitySession()
+        let diagnosticsStore: WatchRelayDiagnosticsStore?
         do {
             let storage = try WatchCaptureStorage()
-            let relaySender = WatchRelaySender(storage: storage, session: session)
+            let store = WatchRelayDiagnosticsStore(storage: storage)
+            diagnosticsStore = store
+            let relaySender = WatchRelaySender(storage: storage, session: session, diagnosticsStore: store)
+            let diagnosticsCollector = WatchRelayDiagnosticsCollector(
+                storage: storage,
+                diagnosticsStore: store,
+                session: session
+            )
             let sessionModel = WatchSessionModel(session: session, relaySender: relaySender)
-            let captureModel = WatchCaptureModel(storage: storage, relaySender: relaySender, session: session)
+            let captureModel = WatchCaptureModel(
+                storage: storage,
+                relaySender: relaySender,
+                session: session,
+                diagnosticsCollector: diagnosticsCollector
+            )
             sessionModel.onReachableRepublish = { [weak captureModel] in captureModel?.republishStatusOnReconnect() }
             self._sessionModel = State(initialValue: sessionModel)
             self._captureModel = State(initialValue: captureModel)
         } catch {
+            diagnosticsStore = nil
             self._sessionModel = State(initialValue: WatchSessionModel(
                 session: session,
                 relaySender: nil
             ))
             self._captureModel = State(initialValue: WatchCaptureModel(initializationError: error))
         }
-        let coordinator = WatchBackgroundTaskCoordinator(session: session)
+        let coordinator = WatchBackgroundTaskCoordinator(session: session, diagnosticsStore: diagnosticsStore)
         self._backgroundTaskCoordinator = State(initialValue: coordinator)
         self.appDelegate.session = session
         self.appDelegate.backgroundTaskCoordinator = coordinator

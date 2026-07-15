@@ -23,7 +23,8 @@ final class WatchCaptureModel {
     init(
         storage: WatchCaptureStorage,
         relaySender: WatchRelaySender,
-        session: any WatchConnectivitySession
+        session: any WatchConnectivitySession,
+        diagnosticsCollector: WatchRelayDiagnosticsCollector? = nil
     ) {
         let engine = WatchCaptureEngine(
             audioRecorder: LiveWatchAudioRecorder(),
@@ -42,8 +43,33 @@ final class WatchCaptureModel {
             do {
                 try session.updateApplicationContext(context.applicationContext())
             } catch {
+                if context.diagnosticsEnvelope != nil,
+                   let fallbackEnvelope = WatchRelayDiagnosticsCollector.unavailableEnvelopeData(
+                    generatedAt: context.asOf,
+                    reason: WatchRelayDiagnosticsEnvelopeReason.publicationFailed
+                   ) {
+                    let fallbackContext = WatchStatusContext(
+                        phase: context.phase,
+                        sessionID: context.sessionID,
+                        startedAt: context.startedAt,
+                        asOf: context.asOf,
+                        seq: context.seq,
+                        queuedCount: context.queuedCount,
+                        transferringCount: context.transferringCount,
+                        diagnosticsEnvelope: fallbackEnvelope
+                    )
+                    do {
+                        try session.updateApplicationContext(fallbackContext.applicationContext())
+                        return
+                    } catch {
+                        watchCaptureModelLog.error("watch status fallback publish failed: \(String(describing: error), privacy: .public)")
+                    }
+                }
                 watchCaptureModelLog.error("watch status publish failed: \(String(describing: error), privacy: .public)")
             }
+        }
+        engine.onDiagnosticsEnvelopeRequested = { [weak diagnosticsCollector] asOf in
+            diagnosticsCollector?.makeEnvelopeData(asOf: asOf)
         }
         relaySender.onStateChanged = { [weak self, weak engine] in
             engine?.refreshRelayCountsFromDisk()

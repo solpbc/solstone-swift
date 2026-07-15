@@ -19,6 +19,7 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
     let seq: Int
     let queuedCount: Int
     let transferringCount: Int
+    let diagnosticsEnvelope: Data?
 
     enum CodingKeys: String, CodingKey {
         case phase
@@ -28,6 +29,7 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         case seq
         case queuedCount
         case transferringCount
+        case diagnosticsEnvelope
     }
 
     init(
@@ -37,7 +39,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         asOf: Date,
         seq: Int,
         queuedCount: Int,
-        transferringCount: Int
+        transferringCount: Int,
+        diagnosticsEnvelope: Data? = nil
     ) {
         self.phase = phase
         self.sessionID = sessionID
@@ -46,6 +49,7 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = seq
         self.queuedCount = queuedCount
         self.transferringCount = transferringCount
+        self.diagnosticsEnvelope = diagnosticsEnvelope
     }
 
     init(from decoder: any Decoder) throws {
@@ -57,6 +61,7 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = try container.decode(Int.self, forKey: .seq)
         self.queuedCount = max(0, try container.decodeIfPresent(Int.self, forKey: .queuedCount) ?? 0)
         self.transferringCount = max(0, try container.decodeIfPresent(Int.self, forKey: .transferringCount) ?? 0)
+        self.diagnosticsEnvelope = try? container.decodeIfPresent(Data.self, forKey: .diagnosticsEnvelope)
     }
 
     func applicationContext() -> [String: Any] {

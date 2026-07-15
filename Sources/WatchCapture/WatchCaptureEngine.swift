@@ -12,6 +12,7 @@ final class WatchCaptureEngine {
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
     var onRelayDrainRequested: (@MainActor () -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
+    var onDiagnosticsEnvelopeRequested: (@MainActor (Date) -> Data?)?
 
     private let audioRecorder: any WatchAudioRecording
     private let audioSession: any WatchAudioSessionControlling
@@ -680,7 +681,8 @@ private extension WatchCaptureEngine {
             asOf: asOf,
             seq: self.statusSeq,
             queuedCount: max(0, self.queuedCount),
-            transferringCount: max(0, self.transferringCount)
+            transferringCount: max(0, self.transferringCount),
+            diagnosticsEnvelope: self.onDiagnosticsEnvelopeRequested?(asOf)
         )
         self.onPublishStatus?(context)
     }
