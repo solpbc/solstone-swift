@@ -537,7 +537,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(export.contains("source copy-backed"))
         XCTAssertTrue(export.contains("apple relation matched"))
         XCTAssertTrue(export.contains("apple relation duplicate"))
-        XCTAssertTrue(export.contains("relation matched"))
+        XCTAssertTrue(export.contains("relation matched; id "))
     }
 }
 
