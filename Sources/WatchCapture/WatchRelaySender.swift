@@ -317,7 +317,7 @@ private extension WatchRelaySender {
         diagnosticsStore.recordQueueReconciliation(
             counts: counts,
             observedFileTransferCount: snapshots.count,
-            activeEntries: activeEntries,
+            activeManifestCount: activeEntries.count,
             at: self.clock()
         )
     }

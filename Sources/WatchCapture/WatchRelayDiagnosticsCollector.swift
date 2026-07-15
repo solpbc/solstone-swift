@@ -17,6 +17,20 @@ nonisolated struct WatchRelayDiagnosticsEnvironmentSnapshot: Codable, Equatable,
     let watchThermalState: DiagnosticAvailability<String>
 }
 
+nonisolated enum WatchBatteryStateReading: String, Equatable, Sendable {
+    case unknown
+    case unplugged
+    case charging
+    case full
+}
+
+@MainActor
+protocol WatchBatteryDevice: AnyObject {
+    var isBatteryMonitoringEnabled: Bool { get set }
+    var batteryLevelReading: Float { get }
+    var batteryStateReading: WatchBatteryStateReading { get }
+}
+
 @MainActor
 protocol WatchRelayDiagnosticsEnvironmentProviding: AnyObject {
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot
@@ -25,15 +39,33 @@ protocol WatchRelayDiagnosticsEnvironmentProviding: AnyObject {
 @MainActor
 final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsEnvironmentProviding {
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot {
-        WatchRelayDiagnosticsEnvironmentSnapshot(
+        let battery = Self.watchBatterySnapshot()
+        return WatchRelayDiagnosticsEnvironmentSnapshot(
             watchAppMarketingVersion: Self.bundleString("CFBundleShortVersionString"),
             watchAppBuild: Self.bundleString("CFBundleVersion"),
             watchOSVersion: Self.watchOSVersion(),
-            watchBatteryLevel: Self.watchBatteryLevel(),
-            watchBatteryState: Self.watchBatteryState(),
+            watchBatteryLevel: battery.level,
+            watchBatteryState: battery.state,
             watchLowPowerModeEnabled: .available(ProcessInfo.processInfo.isLowPowerModeEnabled),
             watchThermalState: .available(Self.thermalStateString(ProcessInfo.processInfo.thermalState))
         )
+    }
+
+    static func batterySnapshot(
+        device: any WatchBatteryDevice
+    ) -> (level: DiagnosticAvailability<Double>, state: DiagnosticAvailability<String>) {
+        let previous = device.isBatteryMonitoringEnabled
+        device.isBatteryMonitoringEnabled = true
+        defer { device.isBatteryMonitoringEnabled = previous }
+
+        let levelReading = device.batteryLevelReading
+        let level: DiagnosticAvailability<Double>
+        if levelReading >= 0 {
+            level = .available(Double(levelReading))
+        } else {
+            level = .unavailable(reason: "not provided")
+        }
+        return (level, .available(device.batteryStateReading.rawValue))
     }
 }
 
@@ -152,6 +184,8 @@ private extension WatchRelayDiagnosticsCollector {
             fileTransfers: fileTransferSnapshots,
             asOf: asOf
         )
+        let lastFacts = self.diagnosticsStore.readSummary()
+        let failureSegmentID = Self.failureSegmentID(from: lastFacts)
 
         let manifestSummary: DiagnosticAvailability<WatchRelayManifestSummary>
         switch entriesResult {
@@ -182,8 +216,12 @@ private extension WatchRelayDiagnosticsCollector {
                 reconciliation: reconciliation,
                 exactObservationCountBeforeCompaction: observations.count
             )),
-            lastFacts: self.diagnosticsStore.readSummary(),
-            observedFileTransfers: self.orderedForCompaction(observations, activeFacts: activeFacts),
+            lastFacts: lastFacts,
+            observedFileTransfers: self.orderedForCompaction(
+                observations,
+                activeFacts: activeFacts,
+                failureSegmentID: failureSegmentID
+            ),
             omittedObservationCount: 0
         )
     }
@@ -205,6 +243,7 @@ private extension WatchRelayDiagnosticsCollector {
         }
 
         var sourceBytes: Int64 = 0
+        var sourceBytesOverflowed = false
         var enqueueDates: [Date] = []
         for fact in activeFacts {
             guard case let .available(sidecar) = fact.sidecar,
@@ -219,7 +258,14 @@ private extension WatchRelayDiagnosticsCollector {
                     oldestActiveEnqueueAgeSeconds: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
                 ))
             }
-            sourceBytes += bytes
+            if !sourceBytesOverflowed {
+                let (nextSourceBytes, overflow) = sourceBytes.addingReportingOverflow(bytes)
+                if overflow {
+                    sourceBytesOverflowed = true
+                } else {
+                    sourceBytes = nextSourceBytes
+                }
+            }
             enqueueDates.append(originalEnqueuedAt)
         }
 
@@ -227,7 +273,9 @@ private extension WatchRelayDiagnosticsCollector {
         return .available(WatchRelayManifestSummary(
             counts: counts,
             activeBacklogCount: activeFacts.count,
-            retainedSourceBytes: .available(sourceBytes),
+            retainedSourceBytes: sourceBytesOverflowed
+                ? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+                : .available(sourceBytes),
             oldestActiveEnqueuedAt: .available(oldest),
             oldestActiveEnqueueAgeSeconds: .available(oldest.map { max(0, asOf.timeIntervalSince($0)) })
         ))
@@ -240,16 +288,32 @@ private extension WatchRelayDiagnosticsCollector {
     ) -> [WatchRelayTransferObservation] {
         let activeByID = Dictionary(uniqueKeysWithValues: activeFacts.map { ($0.entry.manifest.id, $0) })
         var observations: [WatchRelayTransferObservation] = []
-        var consumedTransferIndexes = Set<Int>()
+        var transfersByID: [UUID: [(index: Int, transfer: WatchConnectivityFileTransferSnapshot)]] = [:]
+        var firstSeenOrder: [UUID] = []
+        var unparseables: [(index: Int, transfer: WatchConnectivityFileTransferSnapshot)] = []
+
+        for (index, transfer) in fileTransfers.enumerated() {
+            guard transfer.idState == .parseable,
+                  let segmentID = transfer.segmentID
+            else {
+                unparseables.append((index, transfer))
+                continue
+            }
+            if transfersByID[segmentID] == nil {
+                firstSeenOrder.append(segmentID)
+            }
+            transfersByID[segmentID, default: []].append((index, transfer))
+        }
+
+        var consumedIDs = Set<UUID>()
 
         for fact in activeFacts {
-            let matching = fileTransfers.enumerated().filter { _, transfer in
-                transfer.idState == .parseable && transfer.segmentID == fact.entry.manifest.id
-            }
+            let id = fact.entry.manifest.id
+            let matching = transfersByID[id] ?? []
             if matching.isEmpty {
                 observations.append(self.observation(
                     asOf: asOf,
-                    segmentID: fact.entry.manifest.id,
+                    segmentID: id,
                     idState: .parseable,
                     relation: .appActiveNotObserved,
                     fact: fact,
@@ -259,11 +323,11 @@ private extension WatchRelayDiagnosticsCollector {
             }
 
             let relation: WatchRelayObservationRelation = matching.count == 1 ? .matched : .duplicate
-            for (index, transfer) in matching {
-                consumedTransferIndexes.insert(index)
+            consumedIDs.insert(id)
+            for (_, transfer) in matching {
                 observations.append(self.observation(
                     asOf: transfer.asOf,
-                    segmentID: fact.entry.manifest.id,
+                    segmentID: id,
                     idState: .parseable,
                     relation: relation,
                     fact: fact,
@@ -272,26 +336,28 @@ private extension WatchRelayDiagnosticsCollector {
             }
         }
 
-        for (index, transfer) in fileTransfers.enumerated() where !consumedTransferIndexes.contains(index) {
-            if transfer.idState == .parseable, let segmentID = transfer.segmentID {
+        for id in firstSeenOrder where activeByID[id] == nil && !consumedIDs.contains(id) {
+            for (_, transfer) in transfersByID[id] ?? [] {
                 observations.append(self.observation(
                     asOf: transfer.asOf,
-                    segmentID: segmentID,
+                    segmentID: id,
                     idState: .parseable,
-                    relation: activeByID[segmentID] == nil ? .orphaned : .matched,
-                    fact: activeByID[segmentID],
-                    transfer: transfer
-                ))
-            } else {
-                observations.append(self.observation(
-                    asOf: transfer.asOf,
-                    segmentID: nil,
-                    idState: transfer.idState,
-                    relation: .unparseable,
+                    relation: .orphaned,
                     fact: nil,
                     transfer: transfer
                 ))
             }
+        }
+
+        for (_, transfer) in unparseables {
+            observations.append(self.observation(
+                asOf: transfer.asOf,
+                segmentID: nil,
+                idState: transfer.idState,
+                relation: .unparseable,
+                fact: nil,
+                transfer: transfer
+            ))
         }
 
         return observations
@@ -368,10 +434,10 @@ private extension WatchRelayDiagnosticsCollector {
 
     func orderedForCompaction(
         _ observations: [WatchRelayTransferObservation],
-        activeFacts: [ActiveManifestFact]
+        activeFacts: [ActiveManifestFact],
+        failureSegmentID: UUID?
     ) -> [WatchRelayTransferObservation] {
         let activeOrder = self.activeCompactionOrder(activeFacts)
-        let failureSegmentID = self.mostRecentFailureSegmentID(activeFacts)
         let indexed = observations.enumerated().map { index, observation in
             (index: index, observation: observation)
         }
@@ -407,15 +473,16 @@ private extension WatchRelayDiagnosticsCollector {
         return Dictionary(uniqueKeysWithValues: pairs)
     }
 
-    func mostRecentFailureSegmentID(_ activeFacts: [ActiveManifestFact]) -> UUID? {
-        activeFacts.compactMap { fact -> (UUID, Date)? in
-            guard case let .available(sidecar) = fact.sidecar,
-                  let failure = sidecar.lastFacts.lastStructuredFailure
-            else { return nil }
-            return (fact.entry.manifest.id, failure.time)
+    static func failureSegmentID(from lastFacts: DiagnosticAvailability<WatchRelayLastFactsSummary>) -> UUID? {
+        guard case let .available(summary) = lastFacts,
+              let completion = summary.lastTransferCompletion,
+              completion.succeeded == false,
+              let failure = summary.lastStructuredFailure,
+              failure.time == completion.at
+        else {
+            return nil
         }
-        .max { lhs, rhs in lhs.1 < rhs.1 }?
-        .0
+        return completion.segmentID
     }
 
     func compactionKey(
@@ -424,13 +491,13 @@ private extension WatchRelayDiagnosticsCollector {
         activeOrder: [UUID: String],
         failureSegmentID: UUID?
     ) -> String {
-        if let failureSegmentID,
-           observation.segmentID == failureSegmentID {
-            return "1|\(failureSegmentID.uuidString)|\(index)"
-        }
         if let segmentID = observation.segmentID,
            let order = activeOrder[segmentID] {
             return "0|\(order)|\(index)"
+        }
+        if let failureSegmentID,
+           observation.segmentID == failureSegmentID {
+            return "1|\(failureSegmentID.uuidString)|\(index)"
         }
         if let segmentID = observation.segmentID {
             return "2|\(segmentID.uuidString)|\(index)"
@@ -552,34 +619,75 @@ private extension WatchRelayDiagnosticsCollector {
         generatedAt: Date,
         payload: WatchRelayDiagnosticsPayload
     ) -> Data? {
-        var observations = payload.observedFileTransfers
-        var omitted = 0
-        while true {
-            let compacted = self.payload(payload, observations: observations, omittedObservationCount: omitted)
-            do {
-                let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
-                    generatedAt: generatedAt,
-                    diagnostics: .available(compacted)
-                ))
-                if data.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount {
-                    return data
-                }
-            } catch {
-                return self.unavailableEnvelopeData(
-                    generatedAt: generatedAt,
-                    reason: WatchRelayDiagnosticsEnvelopeReason.encodeFailed
-                )
+        let observations = payload.observedFileTransfers
+        let observationCount = observations.count
+        do {
+            let fullData = try self.encodedEnvelopeData(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: observationCount
+            )
+            guard fullData.count > WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
+                return fullData
             }
 
-            guard !observations.isEmpty else {
+            let emptyData = try self.encodedEnvelopeData(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: 0
+            )
+            guard emptyData.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
                 return self.unavailableEnvelopeData(
                     generatedAt: generatedAt,
                     reason: WatchRelayDiagnosticsEnvelopeReason.publicationFailed
                 )
             }
-            observations.removeLast()
-            omitted += 1
+
+            var low = 0
+            var lowData = emptyData
+            var high = observationCount
+            while high - low > 1 {
+                let mid = low + (high - low) / 2
+                let data = try self.encodedEnvelopeData(
+                    generatedAt: generatedAt,
+                    payload: payload,
+                    observations: observations,
+                    retainedObservationCount: mid
+                )
+                if data.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount {
+                    low = mid
+                    lowData = data
+                } else {
+                    high = mid
+                }
+            }
+            return lowData
+        } catch {
+            return self.unavailableEnvelopeData(
+                generatedAt: generatedAt,
+                reason: WatchRelayDiagnosticsEnvelopeReason.encodeFailed
+            )
         }
+    }
+
+    nonisolated static func encodedEnvelopeData(
+        generatedAt: Date,
+        payload: WatchRelayDiagnosticsPayload,
+        observations: [WatchRelayTransferObservation],
+        retainedObservationCount: Int
+    ) throws -> Data {
+        let retainedObservations = Array(observations.prefix(retainedObservationCount))
+        let compacted = self.payload(
+            payload,
+            observations: retainedObservations,
+            omittedObservationCount: observations.count - retainedObservationCount
+        )
+        return try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
+            generatedAt: generatedAt,
+            diagnostics: .available(compacted)
+        ))
     }
 
     nonisolated static func payload(
@@ -646,44 +754,55 @@ private extension LiveWatchRelayDiagnosticsEnvironmentProvider {
         #endif
     }
 
-    static func watchBatteryLevel() -> DiagnosticAvailability<Double> {
+    static func watchBatterySnapshot() -> (level: DiagnosticAvailability<Double>, state: DiagnosticAvailability<String>) {
         #if os(watchOS)
-        let device = WKInterfaceDevice.current()
-        let previous = device.isBatteryMonitoringEnabled
-        device.isBatteryMonitoringEnabled = true
-        defer { device.isBatteryMonitoringEnabled = previous }
-        let level = device.batteryLevel
-        guard level >= 0 else {
-            return .unavailable(reason: "not provided")
-        }
-        return .available(Double(level))
+        return LiveWatchRelayDiagnosticsEnvironmentProvider.batterySnapshot(
+            device: WatchKitBatteryDevice(device: WKInterfaceDevice.current())
+        )
         #else
-        return .unavailable(reason: "not available off watch")
+        return (
+            .unavailable(reason: "not available off watch"),
+            .unavailable(reason: "not available off watch")
+        )
         #endif
     }
-
-    static func watchBatteryState() -> DiagnosticAvailability<String> {
-        #if os(watchOS)
-        return .available(self.batteryStateString(WKInterfaceDevice.current().batteryState))
-        #else
-        return .unavailable(reason: "not available off watch")
-        #endif
-    }
-
-    #if os(watchOS)
-    static func batteryStateString(_ state: WKInterfaceDeviceBatteryState) -> String {
-        switch state {
-        case .unknown:
-            return "unknown"
-        case .unplugged:
-            return "unplugged"
-        case .charging:
-            return "charging"
-        case .full:
-            return "full"
-        @unknown default:
-            return "unknown"
-        }
-    }
-    #endif
 }
+
+#if os(watchOS)
+@MainActor
+private final class WatchKitBatteryDevice: WatchBatteryDevice {
+    private let device: WKInterfaceDevice
+
+    init(device: WKInterfaceDevice) {
+        self.device = device
+    }
+
+    var isBatteryMonitoringEnabled: Bool {
+        get {
+            self.device.isBatteryMonitoringEnabled
+        }
+        set {
+            self.device.isBatteryMonitoringEnabled = newValue
+        }
+    }
+
+    var batteryLevelReading: Float {
+        self.device.batteryLevel
+    }
+
+    var batteryStateReading: WatchBatteryStateReading {
+        switch self.device.batteryState {
+        case .unknown:
+            return .unknown
+        case .unplugged:
+            return .unplugged
+        case .charging:
+            return .charging
+        case .full:
+            return .full
+        @unknown default:
+            return .unknown
+        }
+    }
+}
+#endif

@@ -87,6 +87,7 @@ final class WatchRelayDiagnosticsStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var loggedCorruptURLs: Set<String> = []
+    private var historyUnavailableAfterWriteFailure = false
 
     init(storage: WatchCaptureStorage) {
         self.storage = storage
@@ -109,6 +110,9 @@ final class WatchRelayDiagnosticsStore {
         manifest: WatchSegmentManifest,
         directoryURL: URL
     ) -> DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar> {
+        guard !self.historyUnavailableAfterWriteFailure else {
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        }
         let url = self.sidecarURL(directoryURL: directoryURL)
         guard self.storage.fileWriter.fileExists(at: url) else {
             return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
@@ -123,6 +127,9 @@ final class WatchRelayDiagnosticsStore {
     }
 
     func readSummary() -> DiagnosticAvailability<WatchRelayLastFactsSummary> {
+        guard !self.historyUnavailableAfterWriteFailure else {
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        }
         let url = self.summaryURL()
         guard self.storage.fileWriter.fileExists(at: url) else {
             return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
@@ -150,7 +157,7 @@ final class WatchRelayDiagnosticsStore {
                 sidecar.originalEnqueuedAt = date
             }
             sidecar.latestEnqueuedAt = date
-            sidecar.attemptCount = max(0, sidecar.attemptCount) + 1
+            sidecar.attemptCount = try Self.incrementCounter(sidecar.attemptCount)
             sidecar.sourceBytes = sourceBytes
             sidecar.sourcePresent = sourcePresent
             let fact = WatchRelayFactCounter(at: date, count: sidecar.attemptCount, segmentID: manifest.id)
@@ -178,8 +185,8 @@ final class WatchRelayDiagnosticsStore {
                 at: date,
                 segmentID: manifest.id,
                 succeeded: succeeded,
-                successCount: previousSuccess + (succeeded ? 1 : 0),
-                failureCount: previousFailure + (succeeded ? 0 : 1)
+                successCount: succeeded ? try Self.incrementCounter(previousSuccess) : previousSuccess,
+                failureCount: succeeded ? previousFailure : try Self.incrementCounter(previousFailure)
             )
             var sidecar = self.sidecarForUpdate(manifest: manifest, directoryURL: directoryURL)
             sidecar.lastFacts.lastTransferCompletion = completion
@@ -203,7 +210,7 @@ final class WatchRelayDiagnosticsStore {
     ) {
         self.performWrite("durable ack", segmentID: manifest.id) {
             var summary = self.summaryForUpdate()
-            let count = (summary.lastDurableACK?.count ?? 0) + 1
+            let count = try Self.incrementCounter(summary.lastDurableACK?.count ?? 0)
             let fact = WatchRelayFactCounter(at: date, count: count, segmentID: manifest.id)
 
             var sidecar = self.sidecarForUpdate(manifest: manifest, directoryURL: directoryURL)
@@ -218,7 +225,7 @@ final class WatchRelayDiagnosticsStore {
     func recordQueueReconciliation(
         counts: WatchRelayReconciliationCounts,
         observedFileTransferCount: Int,
-        activeEntries: [WatchCaptureStorage.ManifestEntry],
+        activeManifestCount: Int,
         at date: Date
     ) {
         self.performWrite("queue reconciliation", segmentID: nil) {
@@ -226,13 +233,8 @@ final class WatchRelayDiagnosticsStore {
                 at: date,
                 counts: counts,
                 observedFileTransferCount: observedFileTransferCount,
-                activeManifestCount: activeEntries.count
+                activeManifestCount: activeManifestCount
             )
-            for entry in activeEntries {
-                var sidecar = self.sidecarForUpdate(manifest: entry.manifest, directoryURL: entry.directoryURL)
-                sidecar.lastFacts.lastQueueReconciliationObservation = fact
-                try self.writeSidecar(sidecar, directoryURL: entry.directoryURL)
-            }
 
             var summary = self.summaryForUpdate()
             summary.lastQueueReconciliationObservation = fact
@@ -271,9 +273,10 @@ private extension WatchRelayDiagnosticsStore {
         do {
             try body()
         } catch {
+            self.historyUnavailableAfterWriteFailure = true
             let id = segmentID?.uuidString ?? "none"
             watchRelayDiagnosticsLog.error(
-                "watch relay diagnostic \(label, privacy: .public) write failed id=\(id, privacy: .public): \(String(describing: error), privacy: .public)"
+                "watch relay diagnostic \(label, privacy: .public) write failed id=\(id, privacy: .public): \(String(describing: error), privacy: .private)"
             )
         }
     }
@@ -333,6 +336,7 @@ private extension WatchRelayDiagnosticsStore {
         else {
             throw WatchRelayDiagnosticsStoreError.unsupportedOrMismatchedSidecar
         }
+        try Self.validateSidecarInvariants(sidecar)
         return sidecar
     }
 
@@ -344,6 +348,7 @@ private extension WatchRelayDiagnosticsStore {
         guard summary.version <= WatchRelayDiagnosticsSummaryFile.currentVersion else {
             throw WatchRelayDiagnosticsStoreError.unsupportedSummary
         }
+        try Self.validateSummaryInvariants(summary)
         return summary
     }
 
@@ -365,14 +370,93 @@ private extension WatchRelayDiagnosticsStore {
         let key = url.standardizedFileURL.path
         if self.loggedCorruptURLs.insert(key).inserted {
             watchRelayDiagnosticsLog.error(
-                "watch relay diagnostic file reset path=\(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)"
+                "watch relay diagnostic file reset path=\(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .private)"
             )
         }
         try? self.storage.fileWriter.removeItem(at: url)
+    }
+
+    nonisolated static func incrementCounter(_ current: Int) throws -> Int {
+        let (next, overflow) = max(0, current).addingReportingOverflow(1)
+        guard !overflow, next < Int.max else {
+            throw WatchRelayDiagnosticsStoreError.counterOverflow
+        }
+        return next
+    }
+
+    nonisolated static func validateSidecarInvariants(_ sidecar: WatchRelaySegmentDiagnosticsSidecar) throws {
+        try self.validateCounter(sidecar.attemptCount)
+        if let sourceBytes = sidecar.sourceBytes {
+            try self.validateNonNegative(sourceBytes)
+        }
+        try self.validateSegmentLastFacts(sidecar.lastFacts)
+    }
+
+    nonisolated static func validateSummaryInvariants(_ summary: WatchRelayDiagnosticsSummaryFile) throws {
+        try self.validateFactCounter(summary.lastEnqueue)
+        try self.validateTransferCompletion(summary.lastTransferCompletion)
+        try self.validateFactCounter(summary.lastDurableACK)
+        try self.validateQueueReconciliation(summary.lastQueueReconciliationObservation)
+        try self.validateBackgroundWake(summary.lastBackgroundWakeCompletion)
+        try self.validateBackgroundWake(summary.lastBackgroundWakeDeadline)
+    }
+
+    nonisolated static func validateSegmentLastFacts(_ facts: WatchRelaySegmentLastFacts) throws {
+        try self.validateFactCounter(facts.lastEnqueue)
+        try self.validateTransferCompletion(facts.lastTransferCompletion)
+        try self.validateFactCounter(facts.lastDurableACK)
+        try self.validateQueueReconciliation(facts.lastQueueReconciliationObservation)
+    }
+
+    nonisolated static func validateFactCounter(_ fact: WatchRelayFactCounter?) throws {
+        guard let fact else { return }
+        try self.validateCounter(fact.count)
+    }
+
+    nonisolated static func validateTransferCompletion(_ fact: WatchRelayTransferCompletionFact?) throws {
+        guard let fact else { return }
+        try self.validateCounter(fact.successCount)
+        try self.validateCounter(fact.failureCount)
+    }
+
+    nonisolated static func validateQueueReconciliation(_ fact: WatchRelayQueueReconciliationFact?) throws {
+        guard let fact else { return }
+        try self.validateReconciliationCounts(fact.counts)
+        try self.validateCounter(fact.observedFileTransferCount)
+        try self.validateCounter(fact.activeManifestCount)
+    }
+
+    nonisolated static func validateReconciliationCounts(_ counts: WatchRelayReconciliationCounts) throws {
+        try self.validateCounter(counts.matched)
+        try self.validateCounter(counts.appActiveNotObserved)
+        try self.validateCounter(counts.duplicate)
+        try self.validateCounter(counts.orphaned)
+        try self.validateCounter(counts.unparseable)
+    }
+
+    nonisolated static func validateBackgroundWake(_ fact: WatchRelayBackgroundWakeFact?) throws {
+        guard let fact else { return }
+        try self.validateCounter(fact.heldTaskCount)
+        try self.validateCounter(fact.completedTaskCount)
+        try self.validateCounter(fact.deadlineCount)
+    }
+
+    nonisolated static func validateCounter(_ value: Int) throws {
+        guard value >= 0, value < Int.max else {
+            throw WatchRelayDiagnosticsStoreError.invalidNumericInvariant
+        }
+    }
+
+    nonisolated static func validateNonNegative(_ value: Int64) throws {
+        guard value >= 0 else {
+            throw WatchRelayDiagnosticsStoreError.invalidNumericInvariant
+        }
     }
 }
 
 nonisolated enum WatchRelayDiagnosticsStoreError: Error, Equatable, Sendable {
     case unsupportedOrMismatchedSidecar
     case unsupportedSummary
+    case invalidNumericInvariant
+    case counterOverflow
 }
