@@ -83,16 +83,22 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testConnectEntryOpensPairFlowAndHostedDoorIsHidden() {
+    func testConnectEntryOpensPairFlowAndShowsOnYourPhoneLane() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
 
         app.buttons["onThisPhone.connectJournalButton"].tap()
         XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["your own journal"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["connectJournal.hostedJournal"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.onYourPhone"].waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            app.descendants(matching: .any)["connectJournal.onYourPhone.comingLater"].label,
+            "coming later"
+        )
+        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.noJournalYet"].exists)
+        XCTAssertTrue(app.buttons["connectJournal.howJournalsWork"].exists)
 
         app.buttons["connectJournal.ownJournal"].tap()
-        XCTAssertTrue(app.staticTexts["scan your pairing code"].waitForExistence(timeout: 5))
+        self.assertSinglePairFlowMarker(in: app)
     }
 
     @MainActor
@@ -116,12 +122,42 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testDayHomeAskBarOpensConnectJournalFlow() {
+    func testDayHomeAskBarOpensAskPreviewWithoutConnectSheet() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         app.buttons["dayHome.askBar"].tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["askPreview.heading"].exists)
+        XCTAssertTrue(app.staticTexts["askPreview.body"].exists)
+        XCTAssertTrue(app.staticTexts["askPreview.seed1"].exists)
+        XCTAssertTrue(app.staticTexts["askPreview.seed2"].exists)
+        XCTAssertTrue(app.staticTexts["askPreview.stateLine"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["connectJournal.sheet"].exists)
+        XCTAssertFalse(app.navigationBars["connect a journal"].exists)
+    }
+
+    @MainActor
+    func testAskPreviewConnectOpensConnectJournalFlow() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        app.buttons["dayHome.askBar"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForExistence(timeout: 5))
+
+        app.buttons["askPreview.connect"].tap()
         XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["connectJournal.hostedJournal"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].exists)
+    }
+
+    @MainActor
+    func testAskPreviewNotYetDismisses() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        app.buttons["dayHome.askBar"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForExistence(timeout: 5))
+
+        app.buttons["askPreview.notYet"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["connectJournal.sheet"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].exists)
     }
 
     @MainActor
@@ -195,16 +231,24 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(promise.exists)
         XCTAssertEqual(promise.label, "your journal is always private, only yours.")
 
-        XCTAssertTrue(app.staticTexts["your memories rest here, yours and nowhere else."].exists)
-        XCTAssertTrue(app.staticTexts["pair to your journal on your computer — everything sol has taken in so far flows in."].exists)
-        XCTAssertTrue(app.staticTexts["a journal sol pbc keeps for you. operated by sol pbc."].exists)
+        XCTAssertTrue(app.staticTexts["your own journal"].exists)
+        XCTAssertTrue(app.staticTexts["pair to your journal on your computer. everything sol has taken in so far flows in."].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
+        XCTAssertTrue(app.staticTexts["your journal as its own app, right on this phone."].exists)
+        XCTAssertTrue(app.staticTexts["right now, just your cached memories are on this phone, waiting to be processed."].exists)
+        XCTAssertFalse(app.staticTexts["your memories rest here, yours and nowhere else."].exists)
 
-        XCTAssertTrue(app.descendants(matching: .any)["journalLives.onThisPhone.current"].exists)
+        let currentRows = app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
+            "journalLives.",
+            ".current"
+        ))
+        XCTAssertEqual(currentRows.count, 0)
         XCTAssertFalse(app.descendants(matching: .any)["journalLives.ownJournal.current"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["journalLives.hosted.current"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.onYourPhone.current"].exists)
 
-        XCTAssertFalse(app.buttons["journalLives.hosted"].exists)
-        let comingLater = app.descendants(matching: .any)["journalLives.hosted.comingLater"]
+        XCTAssertFalse(app.buttons["journalLives.onYourPhone"].exists)
+        let comingLater = app.descendants(matching: .any)["journalLives.onYourPhone.comingLater"]
         XCTAssertTrue(comingLater.exists)
         XCTAssertEqual(comingLater.label, "coming later")
 
@@ -221,7 +265,24 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
         app.buttons["journalLives.ownJournal"].tap()
 
-        XCTAssertTrue(app.staticTexts["scan your pairing code"].waitForExistence(timeout: 5))
+        self.assertSinglePairFlowMarker(in: app)
+    }
+
+    @MainActor
+    func testHowJournalsWorkPresentsJournalLivesAboveConnectSheet() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
+
+        app.buttons["onThisPhone.connectJournalButton"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].waitForExistence(timeout: 5))
+        app.buttons["connectJournal.howJournalsWork"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+
+        app.buttons["journalLives.ownJournal"].tap()
+        self.assertSinglePairFlowMarker(in: app)
+
+        self.dismissPresentedSheet(in: app, untilMissingElementID: "journalLives.sheet")
+        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["connect a journal"].exists)
     }
 
     @MainActor
@@ -375,6 +436,18 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.buttons["onThisPhone.connectJournal"].tap()
         XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
+    }
+
+    @MainActor
+    func testMagicMomentSecondaryButtonOpensConnectSheetDirectly() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-audio-magic"])
+
+        XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
+        app.buttons["magicMoment.connectJournal"].tap()
+        XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
     }
 
     @MainActor
@@ -441,5 +514,20 @@ private extension NoJournalShellTests {
                 return
             }
         }
+    }
+
+    func assertSinglePairFlowMarker(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let markerText = "scan your pairing code"
+        XCTAssertTrue(app.staticTexts[markerText].waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label == %@", markerText)).count,
+            1,
+            file: file,
+            line: line
+        )
     }
 }

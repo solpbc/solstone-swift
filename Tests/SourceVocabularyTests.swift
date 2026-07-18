@@ -76,7 +76,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.chatEmptyHeading, "ask sol about your day")
         XCTAssertEqual(
             SourceVocabulary.chatEmptyBody,
-            "sol answers from your journal — and tells you where every answer comes from."
+            "sol answers from the memories in your journal."
         )
         XCTAssertEqual(SourceVocabulary.chatEmptySeed1, "what did i agree to this morning?")
         XCTAssertEqual(SourceVocabulary.chatEmptySeed2, "who did i talk to about the budget?")
@@ -131,15 +131,41 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
-            "your memories are kept on this phone. connect a journal and everything sol has taken in so far flows in."
+            "your memories are cached on this phone. connect a journal and everything sol has taken in so far flows in."
         )
         XCTAssertEqual(SourceVocabulary.connectDoorOwnTitle, "your own journal")
         XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this phone to your journal running on your computer.")
-        XCTAssertEqual(SourceVocabulary.connectDoorHostedTitle, "a hosted journal")
+        XCTAssertEqual(SourceVocabulary.connectDoorOnYourPhoneTitle, "on your phone")
         XCTAssertEqual(
-            SourceVocabulary.connectDoorHostedSubtitle,
-            "a journal sol pbc keeps for you. on by you, off by you, yours either way."
+            SourceVocabulary.connectDoorOnYourPhoneBody,
+            "your journal as its own app, right on this phone."
         )
+        XCTAssertEqual(
+            SourceVocabulary.connectJournalFloorLine,
+            "no journal yet? that's fine. everything sol takes in is saved safely on this phone."
+        )
+        XCTAssertEqual(SourceVocabulary.connectJournalHowJournalsWork, "how journals work →")
+        XCTAssertEqual(
+            SourceVocabulary.askPreviewStateLine,
+            "your day so far is resting on this phone. connect a journal so that sol can read it."
+        )
+        XCTAssertEqual(SourceVocabulary.journalLivesTitle, "where your journal lives")
+        XCTAssertEqual(SourceVocabulary.journalLivesPromise, "your journal is always private, only yours.")
+        XCTAssertEqual(SourceVocabulary.journalLivesOwnTitle, "your own journal")
+        XCTAssertEqual(
+            SourceVocabulary.journalLivesOwnBody,
+            "pair to your journal on your computer. everything sol has taken in so far flows in."
+        )
+        XCTAssertEqual(SourceVocabulary.journalLivesOnYourPhoneTitle, "on your phone")
+        XCTAssertEqual(
+            SourceVocabulary.journalLivesOnYourPhoneBody,
+            "your journal as its own app, right on this phone."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.journalLivesCachedLine,
+            "right now, just your cached memories are on this phone, waiting to be processed."
+        )
+        XCTAssertEqual(SourceVocabulary.journalLivesComingLater, "coming later")
         XCTAssertEqual(SourceVocabulary.pairingLinked, "journal connected")
         XCTAssertEqual(SourceVocabulary.pairingAlreadyConnected, "this journal is already connected")
         XCTAssertEqual(SourceVocabulary.pairingReconnected, "journal connection updated")
@@ -568,8 +594,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         }
     }
 
-    func testLodeL1NewUnpairedStringsDoNotUseEmDash() {
-        for string in self.lodeL1NewUnpairedStrings {
+    func testEmDashCheckedOwnerVisibleStringsDoNotUseEmDash() {
+        for string in self.emDashCheckedOwnerVisibleStrings {
             XCTAssertFalse(string.contains("—"), string)
         }
     }
@@ -686,9 +712,20 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         ]
     }
 
-    private var lodeL1NewUnpairedStrings: [String] {
+    private var emDashCheckedOwnerVisibleStrings: [String] {
         [
             SourceVocabulary.dayLocalityNoJournal,
+            SourceVocabulary.chatEmptyBody,
+            SourceVocabulary.connectJournalIntro,
+            SourceVocabulary.connectDoorOnYourPhoneTitle,
+            SourceVocabulary.connectDoorOnYourPhoneBody,
+            SourceVocabulary.connectJournalFloorLine,
+            SourceVocabulary.connectJournalHowJournalsWork,
+            SourceVocabulary.askPreviewStateLine,
+            SourceVocabulary.journalLivesOwnBody,
+            SourceVocabulary.journalLivesOnYourPhoneTitle,
+            SourceVocabulary.journalLivesOnYourPhoneBody,
+            SourceVocabulary.journalLivesCachedLine,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneTruthLine,
             SourceVocabulary.onThisPhoneConnectJournalButton,
@@ -727,6 +764,17 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
             SourceVocabulary.bringingInYourselfHeader,
             SourceVocabulary.dayLocalityNoJournal,
+            SourceVocabulary.chatEmptyBody,
+            SourceVocabulary.connectJournalIntro,
+            SourceVocabulary.connectDoorOnYourPhoneTitle,
+            SourceVocabulary.connectDoorOnYourPhoneBody,
+            SourceVocabulary.connectJournalFloorLine,
+            SourceVocabulary.connectJournalHowJournalsWork,
+            SourceVocabulary.askPreviewStateLine,
+            SourceVocabulary.journalLivesOwnBody,
+            SourceVocabulary.journalLivesOnYourPhoneTitle,
+            SourceVocabulary.journalLivesOnYourPhoneBody,
+            SourceVocabulary.journalLivesCachedLine,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneTruthLine,
             SourceVocabulary.onThisPhoneConnectJournalButton,
@@ -801,6 +849,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.chatEmptyBody,
             SourceVocabulary.chatEmptySeed1,
             SourceVocabulary.chatEmptySeed2,
+            SourceVocabulary.askPreviewStateLine,
             SourceVocabulary.chatOfflineBanner,
             SourceVocabulary.chatPendingStatusA11y,
             SourceVocabulary.chatFailedStatusA11y,
@@ -917,8 +966,20 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOwnTitle,
             SourceVocabulary.connectDoorOwnSubtitle,
-            SourceVocabulary.connectDoorHostedTitle,
-            SourceVocabulary.connectDoorHostedSubtitle,
+            SourceVocabulary.connectDoorOnYourPhoneTitle,
+            SourceVocabulary.connectDoorOnYourPhoneBody,
+            SourceVocabulary.connectJournalFloorLine,
+            SourceVocabulary.connectJournalHowJournalsWork,
+            SourceVocabulary.journalLivesTitle,
+            SourceVocabulary.journalLivesPromise,
+            SourceVocabulary.journalLivesOwnTitle,
+            SourceVocabulary.journalLivesOwnBody,
+            SourceVocabulary.journalLivesOnYourPhoneTitle,
+            SourceVocabulary.journalLivesOnYourPhoneBody,
+            SourceVocabulary.journalLivesCachedLine,
+            SourceVocabulary.journalLivesComingLater,
+            SourceVocabulary.journalLivesConnectAction,
+            SourceVocabulary.journalLivesRepairAction,
             SourceVocabulary.pairingLinked,
             SourceVocabulary.pairingAlreadyConnected,
             SourceVocabulary.pairingReconnected,

@@ -6,14 +6,12 @@ import SwiftUI
 struct ConnectJournalSheet: View {
     private enum Destination: Hashable {
         case ownJournal
-        case hostedJournal
     }
-
-    static let hostedJournalAvailable = false
 
     @Binding var isPresented: Bool
     @Environment(TunnelManager.self) private var tunnelManager
     @State private var path: [Destination] = []
+    @State private var showingJournalLives = false
 
     var body: some View {
         NavigationStack(path: self.$path) {
@@ -34,18 +32,46 @@ struct ConnectJournalSheet: View {
                     }
                     .accessibilityIdentifier("connectJournal.ownJournal")
 
-                    if Self.hostedJournalAvailable {
-                        NavigationLink(value: Destination.hostedJournal) {
-                            self.doorRow(
-                                label: SourceVocabulary.connectDoorHostedTitle,
-                                subtitle: SourceVocabulary.connectDoorHostedSubtitle,
-                                systemImage: "cloud"
-                            )
+                    HStack(spacing: 12) {
+                        Image(systemName: "iphone")
+                            .font(.title3.weight(.semibold))
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(SourceVocabulary.connectDoorOnYourPhoneTitle)
+                                .font(.headline)
+                                .accessibilityIdentifier("connectJournal.onYourPhone")
+                            Text(SourceVocabulary.connectDoorOnYourPhoneBody)
+                                .font(.subheadline)
                         }
-                        .accessibilityIdentifier("connectJournal.hostedJournal")
+
+                        Spacer(minLength: 0)
+
+                        Text(SourceVocabulary.journalLivesComingLater)
+                            .font(.subheadline.weight(.semibold))
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityIdentifier("connectJournal.onYourPhone.comingLater")
                     }
+                    .padding(.vertical, 6)
+                    .foregroundStyle(.secondary)
+
+                    Text(SourceVocabulary.connectJournalFloorLine)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("connectJournal.noJournalYet")
+
+                    Button {
+                        self.showingJournalLives = true
+                    } label: {
+                        Text(SourceVocabulary.connectJournalHowJournalsWork)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.orangeInk)
+                    .accessibilityIdentifier("connectJournal.howJournalsWork")
                 }
             }
+            .accessibilityIdentifier("connectJournal.sheet")
             .navigationTitle("connect a journal")
             .navigationDestination(for: Destination.self) { destination in
                 switch destination {
@@ -57,13 +83,14 @@ struct ConnectJournalSheet: View {
                             }
                         },
                         onComplete: {
-                            self.tunnelManager.armOwnerConnectSuccessBanner()
+                            OwnerPairingCompletion.completeOwnerPairing(tunnelManager: self.tunnelManager)
                             self.isPresented = false
                         }
                     )
-                case .hostedJournal:
-                    EmptyView()
                 }
+            }
+            .sheet(isPresented: self.$showingJournalLives) {
+                JournalLivesSheet(isPresented: self.$showingJournalLives)
             }
         }
     }

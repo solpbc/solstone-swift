@@ -82,6 +82,7 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var aggregate: OnThisPhoneAggregateSnapshot?
     @State private var dropController = OnThisPhoneDropController()
     @State private var showingConnectJournal = false
+    @State private var showingAskPreview = false
     @State private var showingOfflineExplanation = false
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
@@ -225,6 +226,9 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             }
             .sheet(isPresented: self.$showingConnectJournal) {
                 ConnectJournalSheet(isPresented: self.$showingConnectJournal)
+            }
+            .sheet(isPresented: self.$showingAskPreview) {
+                AskSolPreviewSheet(isPresented: self.$showingAskPreview)
             }
 
             if let askBarState = self.askBarState {
@@ -423,6 +427,7 @@ private extension OnThisPhoneMomentsView {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("magicMoment.connectJournal")
             }
         }
         .padding(12)
@@ -438,7 +443,7 @@ private extension OnThisPhoneMomentsView {
             return (
                 title: SourceVocabulary.dayHomeAskBarHint,
                 isEnabled: true,
-                action: { self.showingConnectJournal = true }
+                action: { self.showingAskPreview = true }
             )
         case .linkedOffline:
             return (

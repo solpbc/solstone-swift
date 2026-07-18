@@ -69,6 +69,15 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testOwnerPairingCompletionArmsOwnerConnectSuccessBanner() {
+        let manager = TunnelManager()
+
+        XCTAssertFalse(manager.ownerConnectSuccessBannerArmedForTesting)
+        OwnerPairingCompletion.completeOwnerPairing(tunnelManager: manager)
+        XCTAssertTrue(manager.ownerConnectSuccessBannerArmedForTesting)
+    }
+
+    @MainActor
     func testSuccessfulDirectConnectPublishesLoopbackPort() async {
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plDirect

@@ -10,6 +10,7 @@ struct JournalLivesSheet: View {
 
     @Binding var isPresented: Bool
     @Environment(AppConfig.self) private var appConfig
+    @Environment(TunnelManager.self) private var tunnelManager
     @State private var path: [Destination] = []
 
     var body: some View {
@@ -23,15 +24,6 @@ struct JournalLivesSheet: View {
                 }
 
                 Section {
-                    self.positionRow(
-                        rowID: "journalLives.onThisPhone",
-                        title: SourceVocabulary.journalLivesOnThisPhoneTitle,
-                        body: SourceVocabulary.journalLivesOnThisPhoneBody,
-                        current: !self.appConfig.isPaired
-                    ) {
-                        EmptyView()
-                    }
-
                     NavigationLink(value: Destination.connect) {
                         self.positionRow(
                             rowID: "journalLives.ownJournal",
@@ -47,16 +39,23 @@ struct JournalLivesSheet: View {
                     .accessibilityIdentifier("journalLives.ownJournal")
 
                     self.positionRow(
-                        rowID: "journalLives.hosted",
-                        title: SourceVocabulary.journalLivesHostedTitle,
-                        body: SourceVocabulary.journalLivesHostedBody,
+                        rowID: "journalLives.onYourPhone",
+                        title: SourceVocabulary.journalLivesOnYourPhoneTitle,
+                        body: SourceVocabulary.journalLivesOnYourPhoneBody,
                         current: false
                     ) {
                         Text(SourceVocabulary.journalLivesComingLater)
                             .font(.subheadline.weight(.semibold))
-                            .accessibilityIdentifier("journalLives.hosted.comingLater")
+                            .accessibilityIdentifier("journalLives.onYourPhone.comingLater")
                     }
                     .foregroundStyle(.secondary)
+                } footer: {
+                    if !self.appConfig.isPaired {
+                        Text(SourceVocabulary.journalLivesCachedLine)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("journalLives.cachedLine")
+                    }
                 }
             }
             .accessibilityIdentifier("journalLives.sheet")
@@ -77,6 +76,7 @@ struct JournalLivesSheet: View {
                         }
                     },
                     onComplete: {
+                        OwnerPairingCompletion.completeOwnerPairing(tunnelManager: self.tunnelManager)
                         self.isPresented = false
                     }
                 )

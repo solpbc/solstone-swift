@@ -543,6 +543,10 @@ final class TunnelManager {
     }
 
 #if DEBUG
+    var ownerConnectSuccessBannerArmedForTesting: Bool {
+        self.ownerConnectSuccessBannerArmed
+    }
+
     // Integration tests use this to bypass real tunnel startup.
     func forceConnected(port: Int, via: ConnectionEndpoint) {
         self.connectionEpoch += 1
