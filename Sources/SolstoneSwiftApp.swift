@@ -175,7 +175,8 @@ struct SolstoneSwiftApp: App {
         let mobileSegmentStorageDisabledReason: String?
         let mobileSegmentMigrationDiagnostics: [String]
         do {
-            let appGroupMobileSegmentRoot = try AppGroupContainer.rootURL()
+            let appGroupRoot = try AppGroupContainer.rootURL()
+            let appGroupMobileSegmentRoot = appGroupRoot
                 .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
             mobileSegmentStore = MobileSegmentStore(rootURL: appGroupMobileSegmentRoot)
             mobileSegmentStorageDisabledReason = nil
@@ -186,6 +187,10 @@ struct SolstoneSwiftApp: App {
             } else {
                 mobileSegmentMigrationDiagnostics = []
             }
+            Self.applyMagicMomentLaunchGuard(
+                mobileSegmentStore: mobileSegmentStore,
+                appGroupRootURL: appGroupRoot
+            )
         } catch {
             let diagnostic = "mobile segment storage unavailable source=app-group"
             Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
@@ -577,6 +582,26 @@ struct SolstoneSwiftApp: App {
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
+    }
+
+    @MainActor
+    private static func applyMagicMomentLaunchGuard(
+        mobileSegmentStore: MobileSegmentStore,
+        appGroupRootURL: URL
+    ) {
+        let magicMomentFirstSeen = UserDefaults.standard.bool(forKey: AudioStorageKey.magicMomentFirstSeen)
+        let hasExistingOnThisPhoneItems = OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
+            mobileSegmentStore: mobileSegmentStore,
+            appGroupRootURL: appGroupRootURL
+        )
+        guard shouldMarkMagicMomentFirstSeenOnLaunch(
+            magicMomentFirstSeen: magicMomentFirstSeen,
+            hasExistingOnThisPhoneItems: hasExistingOnThisPhoneItems,
+            isUITest: Self.isUITest
+        ) else {
+            return
+        }
+        UserDefaults.standard.set(true, forKey: AudioStorageKey.magicMomentFirstSeen)
     }
 
     var body: some Scene {

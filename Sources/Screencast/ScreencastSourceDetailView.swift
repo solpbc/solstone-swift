@@ -4,6 +4,7 @@
 import SwiftUI
 
 struct ScreencastSourceDetailView: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
@@ -38,7 +39,8 @@ struct ScreencastSourceDetailView: View {
 private extension ScreencastSourceDetailView {
     var stateBlock: some View {
         let source = screencastSourcePresentation(
-            managerState: self.screencastManager.state
+            managerState: self.screencastManager.state,
+            isJournalPaired: self.appConfig.isPaired
         )
 
         return VStack(alignment: .leading, spacing: 12) {

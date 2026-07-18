@@ -73,6 +73,7 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         )
 
         XCTAssertTrue(presentationCall.contains("isReachable: self.watchLink.isReachable"))
+        XCTAssertTrue(presentationCall.contains("isJournalPaired: self.appConfig.isPaired"))
     }
 
     private static func contents(_ relativePath: String) throws -> (String, URL) {

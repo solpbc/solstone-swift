@@ -20,16 +20,18 @@ nonisolated struct LocationEnrollmentPresentation: Equatable, Sendable {
     let alwaysPrimerHeader: String
     let alwaysPrimerContinue: String
 
-    static let current = LocationEnrollmentPresentation(
-        preEnrollmentValue: LocationVocabulary.preEnrollmentValue,
-        tierDialHeader: LocationVocabulary.tierDialHeader,
-        tierDialSubhead: LocationVocabulary.tierDialSubhead,
-        batteryHonesty: LocationVocabulary.batteryHonesty,
-        alwaysBackgroundPrimer: LocationVocabulary.alwaysBackgroundPrimer,
-        turnOnLocation: LocationVocabulary.turnOnLocation,
-        alwaysPrimerHeader: LocationVocabulary.alwaysPrimerHeader,
-        alwaysPrimerContinue: LocationVocabulary.alwaysPrimerContinue
-    )
+    static func current(isJournalPaired: Bool) -> LocationEnrollmentPresentation {
+        LocationEnrollmentPresentation(
+            preEnrollmentValue: LocationVocabulary.preEnrollmentValue(isJournalPaired: isJournalPaired),
+            tierDialHeader: LocationVocabulary.tierDialHeader,
+            tierDialSubhead: LocationVocabulary.tierDialSubhead,
+            batteryHonesty: LocationVocabulary.batteryHonesty,
+            alwaysBackgroundPrimer: LocationVocabulary.alwaysBackgroundPrimer,
+            turnOnLocation: LocationVocabulary.turnOnLocation,
+            alwaysPrimerHeader: LocationVocabulary.alwaysPrimerHeader,
+            alwaysPrimerContinue: LocationVocabulary.alwaysPrimerContinue
+        )
+    }
 }
 
 @MainActor

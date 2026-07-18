@@ -196,6 +196,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
+                .environment(appConfig)
                 .environment(locationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
@@ -203,10 +204,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         }
         let omiSourceDetailView = NavigationStack {
             OmiSourceDetailView()
+                .environment(appConfig)
                 .environment(omiSourceManager)
         }
         let watchSourceDetailView = NavigationStack {
             WatchSourceDetailView()
+                .environment(appConfig)
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
@@ -215,6 +218,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         }
         let activeLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
+                .environment(appConfig)
                 .environment(activeLocationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
@@ -222,6 +226,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         }
         let needsAttentionLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
+                .environment(appConfig)
                 .environment(needsAttentionLocationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
@@ -350,6 +355,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             kind: .importer,
             group: .bringingInYourself,
             state: .active,
+            isJournalPaired: true,
             activeSubtext: SourceVocabulary.importerActiveSubtext,
             attention: nil,
             pendingStatus: .nonePending

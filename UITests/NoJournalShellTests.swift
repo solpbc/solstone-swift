@@ -31,6 +31,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         let turnOnSource = app.buttons["onThisPhone.turnOnSource"]
         XCTAssertTrue(turnOnSource.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["onThisPhone.truthLine"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["onThisPhone.connectJournalButton"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["onThisPhone.notBackedUp"].exists)
 
         turnOnSource.tap()
@@ -67,30 +69,24 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testNoJournalSourcesShowsUnpairedTrustLineAndConnectBanner() {
+    func testNoJournalSourcesShowsSimplifiedSheet() {
         let app = self.launchNoJournalApp()
 
         app.buttons["dayHome.sourcesEntry"].tap()
 
-        let footer = app.staticTexts["sources.trustLine"]
-        XCTAssertTrue(footer.waitForExistence(timeout: 5))
-        XCTAssertEqual(
-            footer.label,
-            "kept on this phone, only — nowhere else, until you connect a journal"
-        )
-
-        let banner = app.buttons["sources.connectBanner"]
-        XCTAssertTrue(banner.waitForExistence(timeout: 5))
-        banner.tap()
-
-        XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["experiencing your day with you"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["import other memories"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["sources.connectBanner"].exists)
+        XCTAssertFalse(app.staticTexts["sources.trustLine"].exists)
+        XCTAssertFalse(app.staticTexts["nothing is on right now"].exists)
     }
 
     @MainActor
     func testConnectEntryOpensPairFlowAndHostedDoorIsHidden() {
-        let app = self.launchNoJournalApp()
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
 
-        app.buttons["onThisPhone.connectJournal"].tap()
+        app.buttons["onThisPhone.connectJournalButton"].tap()
         XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["your own journal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["connectJournal.hostedJournal"].exists)
@@ -184,7 +180,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(["good morning", "good afternoon", "good evening"].contains(greeting.label))
         let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        XCTAssertEqual(locality.label, "no journal connected yet")
+        XCTAssertEqual(locality.label, "on this phone, no journal yet")
         XCTAssertFalse(app.navigationBars["on this phone"].exists)
     }
 
@@ -265,6 +261,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testAudioEnrollmentPermissionDeniedDoesNotShowMagicMoment() {
         let app = self.launchNoJournalApp(extraArguments: [
+            "--ui-test-reset-on-this-phone",
             "--ui-test-reset-audio-l5",
             "--ui-test-observer-permission-denied",
         ])

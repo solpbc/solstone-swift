@@ -30,6 +30,39 @@ nonisolated enum LoadTrigger: String, Sendable {
     case activePort
 }
 
+nonisolated enum OnThisPhoneEmptyInviteBranch: Equatable, Sendable {
+    case allQuiet
+    case invite(includesJournalTruth: Bool)
+}
+
+nonisolated func onThisPhoneEmptyInviteBranch(
+    isJournalPaired: Bool,
+    hasWelcomeFraming: Bool
+) -> OnThisPhoneEmptyInviteBranch {
+    if isJournalPaired && !hasWelcomeFraming {
+        return .allQuiet
+    }
+    return .invite(includesJournalTruth: !isJournalPaired)
+}
+
+nonisolated func magicMomentShownCandidate(
+    from snapshot: OnThisPhoneAggregateSnapshot,
+    magicMomentFirstSeen: Bool,
+    magicMomentDismissed: Bool,
+    hasCurrentMagicMomentItem: Bool,
+    isObserverPermissionDenied: Bool
+) -> OnThisPhoneItem? {
+    guard !magicMomentFirstSeen,
+          !magicMomentDismissed,
+          !hasCurrentMagicMomentItem,
+          !isObserverPermissionDenied
+    else {
+        return nil
+    }
+
+    return snapshot.items.first
+}
+
 struct OnThisPhoneMomentsView<Header: View>: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
@@ -697,7 +730,11 @@ private extension OnThisPhoneMomentsView {
     @ViewBuilder
     func content(snapshot: OnThisPhoneAggregateSnapshot) -> some View {
         if snapshot.items.isEmpty {
-            if self.appConfig.isPaired, self.welcomeFraming == nil {
+            switch onThisPhoneEmptyInviteBranch(
+                isJournalPaired: self.appConfig.isPaired,
+                hasWelcomeFraming: self.welcomeFraming != nil
+            ) {
+            case .allQuiet:
                 VStack(alignment: .leading, spacing: 12) {
                     Image("SolWordmark")
                         .resizable()
@@ -714,22 +751,8 @@ private extension OnThisPhoneMomentsView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("onThisPhone.allQuiet")
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(SourceVocabulary.onThisPhoneEmpty)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Button {
-                        self.onTurnOnSource()
-                    } label: {
-                        Label(SourceVocabulary.onThisPhoneTurnOnSourceButton, systemImage: "square.stack.3d.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .accessibilityIdentifier("onThisPhone.turnOnSource")
-                }
+            case .invite(let includesJournalTruth):
+                self.emptyInvite(includesJournalTruth: includesJournalTruth)
             }
         } else {
             LazyVStack(alignment: .leading, spacing: 10) {
@@ -742,6 +765,41 @@ private extension OnThisPhoneMomentsView {
                         onDrop: { item in self.pendingDropItem = item }
                     )
                 }
+            }
+        }
+    }
+
+    func emptyInvite(includesJournalTruth: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(SourceVocabulary.onThisPhoneEmpty)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Button {
+                self.onTurnOnSource()
+            } label: {
+                Label(SourceVocabulary.onThisPhoneTurnOnSourceButton, systemImage: "square.stack.3d.up")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .accessibilityIdentifier("onThisPhone.turnOnSource")
+
+            if includesJournalTruth {
+                Text(SourceVocabulary.onThisPhoneTruthLine)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .accessibilityIdentifier("onThisPhone.truthLine")
+
+                Button {
+                    self.showingConnectJournal = true
+                } label: {
+                    Text(SourceVocabulary.onThisPhoneConnectJournalButton)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .accessibilityIdentifier("onThisPhone.connectJournalButton")
             }
         }
     }
@@ -816,20 +874,17 @@ private extension OnThisPhoneMomentsView {
     }
 
     func updateMagicMoment(from snapshot: OnThisPhoneAggregateSnapshot) {
-        guard self.audioEnrolled,
-              !self.magicMomentFirstSeen,
-              !self.magicMomentDismissed,
-              self.magicMomentItem == nil,
-              self.observerManager.state != .error(.permissionDenied)
-        else {
+        guard let item = magicMomentShownCandidate(
+            from: snapshot,
+            magicMomentFirstSeen: self.magicMomentFirstSeen,
+            magicMomentDismissed: self.magicMomentDismissed,
+            hasCurrentMagicMomentItem: self.magicMomentItem != nil,
+            isObserverPermissionDenied: self.observerManager.state == .error(.permissionDenied)
+        ) else {
             return
         }
 
-        guard let audioItem = snapshot.items.first(where: { $0.sourceKind == .audio }) else {
-            return
-        }
-
-        self.magicMomentItem = audioItem
+        self.magicMomentItem = item
         self.magicMomentFirstSeen = true
     }
 }

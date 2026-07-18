@@ -161,6 +161,7 @@ nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
 
 struct WatchSourceDetailView: View {
     // KILL-LIST-EXEMPT:BEGIN
+    @Environment(AppConfig.self) private var appConfig
     @Environment(WatchLink.self) private var watchLink
     @Environment(WatchRelayReceiver.self) private var receiver: WatchRelayReceiver?
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
@@ -364,7 +365,8 @@ private extension WatchSourceDetailView {
         return phoneWatchSourcePresentation(
             install: self.installState,
             recordingStatus: self.recordingStatus,
-            isReachable: input.isReachable
+            isReachable: input.isReachable,
+            isJournalPaired: self.appConfig.isPaired
         )
     }
 

@@ -72,6 +72,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             kind: .observer,
             group: .experiencingAlongsideYou,
             state: .active,
+            isJournalPaired: true,
             activeSubtext: SourceVocabulary.observerActiveSubtext,
             attention: nil,
             pendingStatus: .nonePending,
@@ -83,6 +84,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             kind: .importer,
             group: .bringingInYourself,
             state: .needsAttention,
+            isJournalPaired: true,
             activeSubtext: SourceVocabulary.importerActiveSubtext,
             attention: SourceAttention(message: SourceVocabulary.needsAttentionSubtext),
             pendingStatus: .nonePending
@@ -93,6 +95,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             kind: .watch,
             group: .experiencingAlongsideYou,
             state: .off,
+            isJournalPaired: true,
             activeSubtext: SourceVocabulary.watchListeningSubtext,
             subtextOverride: SourceVocabulary.watchIdleSubtext,
             attention: nil,

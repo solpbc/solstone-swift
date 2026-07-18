@@ -8,8 +8,22 @@ import XCTest
 nonisolated final class LocationVocabularyTests: XCTestCase {
     func testLockedLocationCopyVerbatim() {
         XCTAssertEqual(LocationVocabulary.sourceDisplayName, "location")
-        XCTAssertEqual(LocationVocabulary.activeSubtext, "adds where your day happens to your journal while this is on.")
-        XCTAssertEqual(LocationVocabulary.preEnrollmentValue, "where your day happens — kept in your journal, yours alone. as light or complete as you want.")
+        XCTAssertEqual(
+            LocationVocabulary.activeSubtext(isJournalPaired: false),
+            "adds where your day happens, saved on this phone while this is on."
+        )
+        XCTAssertEqual(
+            LocationVocabulary.activeSubtext(isJournalPaired: true),
+            "adds where your day happens to your journal while this is on."
+        )
+        XCTAssertEqual(
+            LocationVocabulary.preEnrollmentValue(isJournalPaired: false),
+            "where your day happens. saved on this phone and not processed until you connect a journal. as light or complete as you want."
+        )
+        XCTAssertEqual(
+            LocationVocabulary.preEnrollmentValue(isJournalPaired: true),
+            "where your day happens — kept in your journal, yours alone. as light or complete as you want."
+        )
         XCTAssertEqual(LocationVocabulary.tierDialHeader, "how much of your day to keep")
         XCTAssertEqual(LocationVocabulary.tierDialSubhead, "your day, your call. you can change this any time.")
         XCTAssertEqual(LocationVocabulary.lightLabel, "places only")
@@ -109,8 +123,10 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
 
         return [
             LocationVocabulary.sourceDisplayName,
-            LocationVocabulary.activeSubtext,
-            LocationVocabulary.preEnrollmentValue,
+            LocationVocabulary.activeSubtext(isJournalPaired: false),
+            LocationVocabulary.activeSubtext(isJournalPaired: true),
+            LocationVocabulary.preEnrollmentValue(isJournalPaired: false),
+            LocationVocabulary.preEnrollmentValue(isJournalPaired: true),
             LocationVocabulary.tierDialHeader,
             LocationVocabulary.tierDialSubhead,
             LocationVocabulary.lightLabel,

@@ -53,12 +53,14 @@ nonisolated func watchInstallState(
 nonisolated func phoneWatchSourceState(
     install: WatchInstallState,
     recordingStatus: WatchRecordingStatus,
-    isReachable: Bool
+    isReachable: Bool,
+    isJournalPaired: Bool
 ) -> (SourceState, SourceAttention?) {
     let presentation = phoneWatchSourcePresentation(
         install: install,
         recordingStatus: recordingStatus,
-        isReachable: isReachable
+        isReachable: isReachable,
+        isJournalPaired: isJournalPaired
     )
     return (presentation.state, presentation.attention)
 }
@@ -66,26 +68,36 @@ nonisolated func phoneWatchSourceState(
 nonisolated func phoneWatchSourcePresentation(
     install: WatchInstallState,
     recordingStatus: WatchRecordingStatus,
-    isReachable: Bool
+    isReachable: Bool,
+    isJournalPaired: Bool
 ) -> PhoneWatchSourcePresentation {
     switch install {
     case .notSupported:
         return PhoneWatchSourcePresentation(
             state: .off,
             attention: SourceAttention(message: SourceVocabulary.watchNotSupported),
-            subtext: SourceState.off.subtext(activeSubtext: SourceVocabulary.watchListeningSubtext)
+            subtext: SourceState.off.subtext(
+                activeSubtext: SourceVocabulary.watchListeningSubtext,
+                isJournalPaired: isJournalPaired
+            )
         )
     case .noWatchPaired:
         return PhoneWatchSourcePresentation(
             state: .needsAttention,
             attention: SourceAttention(message: SourceVocabulary.watchNoWatchPaired),
-            subtext: SourceState.needsAttention.subtext(activeSubtext: SourceVocabulary.watchListeningSubtext)
+            subtext: SourceState.needsAttention.subtext(
+                activeSubtext: SourceVocabulary.watchListeningSubtext,
+                isJournalPaired: isJournalPaired
+            )
         )
     case .pairedNoApp:
         return PhoneWatchSourcePresentation(
             state: .needsAttention,
             attention: SourceAttention(message: SourceVocabulary.watchAppNotInstalled),
-            subtext: SourceState.needsAttention.subtext(activeSubtext: SourceVocabulary.watchListeningSubtext)
+            subtext: SourceState.needsAttention.subtext(
+                activeSubtext: SourceVocabulary.watchListeningSubtext,
+                isJournalPaired: isJournalPaired
+            )
         )
     case .receivingUnconfirmedInstall:
         return PhoneWatchSourcePresentation(

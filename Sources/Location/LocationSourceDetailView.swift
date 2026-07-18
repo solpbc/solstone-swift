@@ -5,6 +5,7 @@ import SwiftUI
 import UIKit
 
 struct LocationSourceDetailView: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(LocationManager.self) private var locationManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
@@ -22,7 +23,10 @@ struct LocationSourceDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if self.locationManager.sourceState == .off {
-                    LocationEnrollmentContent(manager: self.locationManager)
+                    LocationEnrollmentContent(
+                        manager: self.locationManager,
+                        isJournalPaired: self.appConfig.isPaired
+                    )
                 } else {
                     self.stateContent
                 }
@@ -87,7 +91,10 @@ private extension LocationSourceDetailView {
             }
             .font(.headline)
 
-            Text(sourceState.subtext(activeSubtext: LocationVocabulary.activeSubtext))
+            Text(sourceState.subtext(
+                activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: self.appConfig.isPaired),
+                isJournalPaired: self.appConfig.isPaired
+            ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -396,10 +403,11 @@ private extension LocationSourceDetailView {
 private struct LocationEnrollmentContent: View {
     @State private var coordinator: LocationEnrollmentCoordinator
 
-    private let presentation = LocationEnrollmentPresentation.current
+    private let presentation: LocationEnrollmentPresentation
 
-    init(manager: LocationManager) {
+    init(manager: LocationManager, isJournalPaired: Bool) {
         self._coordinator = State(initialValue: LocationEnrollmentCoordinator(manager: manager))
+        self.presentation = LocationEnrollmentPresentation.current(isJournalPaired: isJournalPaired)
     }
 
     var body: some View {

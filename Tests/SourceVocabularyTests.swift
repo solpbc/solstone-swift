@@ -28,19 +28,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     }
 
     func testLockedOwnerSourceCopy() {
-        XCTAssertEqual(
-            SourceVocabulary.trustLineUnpaired,
-            "kept on this phone, only — nowhere else, until you connect a journal"
-        )
         XCTAssertEqual(SourceVocabulary.trustLineConfigured, "syncs only to your journal — nowhere else")
-        XCTAssertEqual(SourceVocabulary.trustLine(isPaired: false), SourceVocabulary.trustLineUnpaired)
-        XCTAssertEqual(SourceVocabulary.trustLine(isPaired: true), SourceVocabulary.trustLineConfigured)
-        XCTAssertEqual(SourceVocabulary.sourcesConnectBanner, "kept here until you connect a journal · connect →")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
-        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext, "share to your journal from any app")
+        XCTAssertEqual(SourceVocabulary.bringingInYourselfHeader, "import other memories")
+        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false), "import from anywhere, it's saved here until you connect your journal.")
+        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true), "share to your journal from any app")
         XCTAssertEqual(
-            SourceVocabulary.shareAlwaysOnExplainer,
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
+            "share is always on. anything you send from another app is saved on this phone until you connect your journal."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
             "share is always on. anything you send from the share sheet comes into your journal here."
         )
         XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
@@ -61,7 +60,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.transferRateIdle, "idle")
         XCTAssertEqual(SourceVocabulary.details, "details")
         XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
-        XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "no journal connected yet")
+        XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "on this phone · no journal yet")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
         XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your journal")
@@ -159,8 +158,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneEmpty,
-            "nothing here yet. turn on a source and sol starts experiencing your day with you — it all waits here and syncs to your journal once you connect one."
+            "nothing here yet. turn on a source and sol starts experiencing your day with you."
         )
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneTruthLine,
+            "your memories are saved only on this phone and not processed until you connect a journal."
+        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneConnectJournalButton, "connect journal")
         XCTAssertEqual(SourceVocabulary.onThisPhoneAllQuietHeadline, "all quiet")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneAllQuietBody,
@@ -469,11 +473,48 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     }
 
     func testLockedSourceSubtexts() {
-        XCTAssertEqual(SourceVocabulary.offSubtext, "not sending to your journal. turn it on any time.")
-        XCTAssertEqual(SourceVocabulary.enrollingSubtext, "getting ready — connecting to your journal.")
+        XCTAssertEqual(SourceVocabulary.offSubtext(isJournalPaired: false), "turn it on any time.")
+        XCTAssertEqual(SourceVocabulary.offSubtext(isJournalPaired: true), "not sending to your journal. turn it on any time.")
+        XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: false), "getting ready…")
+        XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: true), "getting ready — connecting to your journal.")
         XCTAssertEqual(SourceVocabulary.pausedSubtext, "you paused this. resume to start sending again.")
         XCTAssertEqual(SourceVocabulary.needsAttentionSubtext, "something's not getting through.")
         XCTAssertEqual(SourceVocabulary.importerActiveSubtext, "sending to your journal as you share.")
+    }
+
+    func testSourceStateSubtextsUseJournalPairingForVisibleAndVoiceOverText() {
+        XCTAssertEqual(
+            SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            "turn it on any time."
+        )
+        XCTAssertEqual(
+            SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            "off. turn it on any time."
+        )
+        XCTAssertEqual(
+            SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "not sending to your journal. turn it on any time."
+        )
+        XCTAssertEqual(
+            SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "off. not sending to your journal. turn it on any time."
+        )
+        XCTAssertEqual(
+            SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            "getting ready…"
+        )
+        XCTAssertEqual(
+            SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            "setting up. getting ready…"
+        )
+        XCTAssertEqual(
+            SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "getting ready — connecting to your journal."
+        )
+        XCTAssertEqual(
+            SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "setting up. getting ready — connecting to your journal."
+        )
     }
 
     func testLockedDeleteCopyDoesNotMentionSegments() {
@@ -502,6 +543,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "open in convey ↗",
             "open your journal in convey ↗",
             "journal dashboard",
+            "kept on this phone, only — nowhere else, until you connect a journal",
+            "kept here until you connect a journal · connect →",
+            "nothing is on right now",
         ]
 
         for retired in retiredExactStrings {
@@ -522,6 +566,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             )
             let range = NSRange(string.startIndex..<string.endIndex, in: string)
             XCTAssertNil(regex.firstMatch(in: string, range: range), string)
+        }
+    }
+
+    func testLodeL1NewUnpairedStringsDoNotUseEmDash() {
+        for string in self.lodeL1NewUnpairedStrings {
+            XCTAssertFalse(string.contains("—"), string)
         }
     }
 
@@ -637,6 +687,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         ]
     }
 
+    private var lodeL1NewUnpairedStrings: [String] {
+        [
+            SourceVocabulary.dayLocalityNoJournal,
+            SourceVocabulary.onThisPhoneEmpty,
+            SourceVocabulary.onThisPhoneTruthLine,
+            SourceVocabulary.onThisPhoneConnectJournalButton,
+            SourceVocabulary.offSubtext(isJournalPaired: false),
+            SourceVocabulary.enrollingSubtext(isJournalPaired: false),
+            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
+            LocationVocabulary.activeSubtext(isJournalPaired: false),
+            LocationVocabulary.preEnrollmentValue(isJournalPaired: false),
+        ]
+    }
+
     private var lodeCOwnerVisibleStrings: [String] {
         [
             SourceVocabulary.onThisPhoneSourceLabel,
@@ -653,6 +718,19 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.probeReachable,
             SourceVocabulary.probeChecked(alive: true, milliseconds: 42, relative: "just now"),
             SourceVocabulary.probeChecked(alive: false, milliseconds: 0, relative: "just now"),
+            SourceVocabulary.offSubtext(isJournalPaired: false),
+            SourceVocabulary.offSubtext(isJournalPaired: true),
+            SourceVocabulary.enrollingSubtext(isJournalPaired: false),
+            SourceVocabulary.enrollingSubtext(isJournalPaired: true),
+            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
+            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
+            SourceVocabulary.bringingInYourselfHeader,
+            SourceVocabulary.dayLocalityNoJournal,
+            SourceVocabulary.onThisPhoneEmpty,
+            SourceVocabulary.onThisPhoneTruthLine,
+            SourceVocabulary.onThisPhoneConnectJournalButton,
             SourceVocabulary.migrationHeadlineUpToDate,
             SourceVocabulary.syncingPulse,
             SourceVocabulary.syncedHeadline,
@@ -681,15 +759,19 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceState.active.label,
             SourceState.paused.label,
             SourceState.needsAttention.label,
-            SourceVocabulary.offSubtext,
-            SourceVocabulary.enrollingSubtext,
+            SourceVocabulary.offSubtext(isJournalPaired: false),
+            SourceVocabulary.offSubtext(isJournalPaired: true),
+            SourceVocabulary.enrollingSubtext(isJournalPaired: false),
+            SourceVocabulary.enrollingSubtext(isJournalPaired: true),
             SourceVocabulary.pausedSubtext,
             SourceVocabulary.needsAttentionSubtext,
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
             SourceVocabulary.importerActiveSubtext,
-            SourceVocabulary.shareAlwaysOnSubtext,
-            SourceVocabulary.shareAlwaysOnExplainer,
+            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
+            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
+            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
             SourceVocabulary.shareSheetDisplayName,
             SourceVocabulary.shareSendingProgress,
             SourceVocabulary.shareDeliveredProgress,
@@ -700,13 +782,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.sendStateCompactInJournal,
             SourceVocabulary.experiencingAlongsideYouHeader,
             SourceVocabulary.bringingInYourselfHeader,
-            SourceVocabulary.trustLineUnpaired,
             SourceVocabulary.trustLineConfigured,
             SourceVocabulary.recentEmpty,
             SourceVocabulary.recentFailed,
             SourceVocabulary.notConnectedRowAffordance,
-            SourceVocabulary.sourcesConnectBanner,
-            SourceVocabulary.zeroActiveSummary,
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
             SourceVocabulary.removeSeam,
@@ -767,6 +846,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneScopeConnected,
             SourceVocabulary.onThisPhoneScopeOfflinePaired,
             SourceVocabulary.onThisPhoneEmpty,
+            SourceVocabulary.onThisPhoneTruthLine,
+            SourceVocabulary.onThisPhoneConnectJournalButton,
             SourceVocabulary.onThisPhoneAllQuietHeadline,
             SourceVocabulary.onThisPhoneAllQuietBody,
             SourceVocabulary.onThisPhoneNotBackedUp,

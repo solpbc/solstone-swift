@@ -75,6 +75,9 @@ enum OnThisPhoneUITestSeeder {
             } else {
                 try Self.seedDefault(roots: roots, fileManager: fileManager)
             }
+            if !seedAudioMagic {
+                UserDefaults.standard.set(true, forKey: AudioStorageKey.magicMomentFirstSeen)
+            }
             onThisPhoneUITestSeedLog.info("on-this-phone ui-test seed complete")
         } catch {
             let detail = String(describing: error)

@@ -10,20 +10,45 @@ nonisolated final class SourcesTrustLineTests: XCTestCase {
     }
 
     @MainActor
-    func testConfiguredOfflineSourcesShowsConfiguredTrustLineWithoutConnectBanner() {
+    func testNoJournalSourcesShowsSimplifiedSheet() {
+        let app = self.launch(arguments: ["--ui-test", "--ui-test-no-journal"])
+        self.openSources(in: app)
+        self.assertSimplifiedSourcesSheet(in: app)
+    }
+
+    @MainActor
+    func testConfiguredOfflineSourcesShowsSimplifiedSheet() {
+        let app = self.launch(arguments: ["--ui-test", "--ui-test-shell-disconnected"])
+        self.openSources(in: app)
+        self.assertSimplifiedSourcesSheet(in: app)
+    }
+
+    @MainActor
+    private func launch(arguments: [String]) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-test", "--ui-test-shell-disconnected"]
+        app.launchArguments = arguments
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        return app
+    }
+
+    @MainActor
+    private func openSources(in app: XCUIApplication) {
         let sourcesEntry = app.buttons["dayHome.sourcesEntry"]
         XCTAssertTrue(sourcesEntry.waitForExistence(timeout: 10))
         sourcesEntry.tap()
+    }
 
-        let footer = app.staticTexts["sources.trustLine"]
-        XCTAssertTrue(footer.waitForExistence(timeout: 5))
-        XCTAssertEqual(footer.label, "syncs only to your journal — nowhere else")
+    @MainActor
+    private func assertSimplifiedSourcesSheet(in app: XCUIApplication) {
+        XCTAssertTrue(app.staticTexts["experiencing your day with you"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["import other memories"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["source.row.location"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["source.row.share-sheet"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["sources.connectBanner"].exists)
+        XCTAssertFalse(app.staticTexts["sources.trustLine"].exists)
+        XCTAssertFalse(app.staticTexts["nothing is on right now"].exists)
     }
 }

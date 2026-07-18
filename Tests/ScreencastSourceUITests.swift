@@ -7,7 +7,7 @@ import XCTest
 
 nonisolated final class ScreencastSourceUITests: XCTestCase {
     func testScreencastSourcePresentationIsExperiencingAlongsideYou() {
-        let source = screencastSourcePresentation(managerState: .off)
+        let source = screencastSourcePresentation(managerState: .off, isJournalPaired: true)
 
         XCTAssertEqual(source.id, "screencast")
         XCTAssertEqual(source.displayName, SourceVocabulary.screencastDisplayName)
@@ -27,10 +27,11 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
     }
 
     func testScreencastPresentationMapsManagerStates() {
-        XCTAssertEqual(screencastSourcePresentation(managerState: .off).state, .off)
+        XCTAssertEqual(screencastSourcePresentation(managerState: .off, isJournalPaired: true).state, .off)
         XCTAssertEqual(
             screencastSourcePresentation(
-                managerState: .starting(startedAt: Date(timeIntervalSince1970: 1), deadline: Date(timeIntervalSince1970: 21))
+                managerState: .starting(startedAt: Date(timeIntervalSince1970: 1), deadline: Date(timeIntervalSince1970: 21)),
+                isJournalPaired: true
             ).state,
             .enrolling
         )
@@ -40,22 +41,23 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
                     sessionID: UUID(),
                     segmentID: UUID(),
                     startedAt: Date(timeIntervalSince1970: 1)
-                )
+                ),
+                isJournalPaired: true
             ).state,
             .active
         )
         XCTAssertEqual(
-            screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed)).state,
+            screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed), isJournalPaired: true).state,
             .needsAttention
         )
         XCTAssertEqual(
-            screencastSourcePresentation(managerState: .unavailable(.extensionUnavailable)).state,
+            screencastSourcePresentation(managerState: .unavailable(.extensionUnavailable), isJournalPaired: true).state,
             .needsAttention
         )
     }
 
     func testScreencastBacklogNeverDrivesNeedsAttention() {
-        let offSource = screencastSourcePresentation(managerState: .off)
+        let offSource = screencastSourcePresentation(managerState: .off, isJournalPaired: true)
         XCTAssertNil(offSource.attention)
         XCTAssertNotEqual(offSource.state, .needsAttention)
 
@@ -64,11 +66,12 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
                 sessionID: UUID(),
                 segmentID: UUID(),
                 startedAt: Date(timeIntervalSince1970: 1)
-            )
+            ),
+            isJournalPaired: true
         )
         XCTAssertNil(activeSource.attention)
 
-        let faultSource = screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed))
+        let faultSource = screencastSourcePresentation(managerState: .needsAttention(.finalizeFailed), isJournalPaired: true)
         XCTAssertEqual(faultSource.state, .needsAttention)
         XCTAssertEqual(faultSource.attention?.message, screencastAttentionMessage(.finalizeFailed))
     }

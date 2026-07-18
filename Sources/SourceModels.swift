@@ -47,6 +47,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let kind: SourceKind
     let group: SourceGroup
     let state: SourceState
+    let isJournalPaired: Bool
     let activeSubtext: String
     let subtextOverride: String?
     let attention: SourceAttention?
@@ -59,6 +60,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         kind: SourceKind,
         group: SourceGroup,
         state: SourceState,
+        isJournalPaired: Bool,
         activeSubtext: String,
         subtextOverride: String? = nil,
         attention: SourceAttention?,
@@ -70,6 +72,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.kind = kind
         self.group = group
         self.state = state
+        self.isJournalPaired = isJournalPaired
         self.activeSubtext = activeSubtext
         self.subtextOverride = subtextOverride
         self.attention = attention
@@ -78,7 +81,10 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     }
 
     var subtext: String {
-        self.subtextOverride ?? self.state.subtext(activeSubtext: self.activeSubtext)
+        self.subtextOverride ?? self.state.subtext(
+            activeSubtext: self.activeSubtext,
+            isJournalPaired: self.isJournalPaired
+        )
     }
 
     var voiceOverText: String {
@@ -86,7 +92,10 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         if let subtextOverride {
             base = "\(self.state.label). \(Self.sentence(subtextOverride))"
         } else {
-            base = self.state.voiceOverText(activeSubtext: self.activeSubtext)
+            base = self.state.voiceOverText(
+                activeSubtext: self.activeSubtext,
+                isJournalPaired: self.isJournalPaired
+            )
         }
         guard let detailSubtext else {
             return base

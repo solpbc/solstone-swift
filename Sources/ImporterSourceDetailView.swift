@@ -17,7 +17,7 @@ struct ImporterSourceDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 SourceDetailBlock(title: "always on") {
-                    Text(SourceVocabulary.shareAlwaysOnExplainer)
+                    Text(SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: self.source.isJournalPaired))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

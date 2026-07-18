@@ -19,7 +19,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             let mapped = phoneWatchSourceState(
                 install: install,
                 recordingStatus: .observing,
-                isReachable: false
+                isReachable: false,
+                isJournalPaired: true
             )
 
             XCTAssertEqual(mapped.0, expectedState)
@@ -160,7 +161,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let presentation = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: status,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
 
         XCTAssertEqual(status, .noContextButReceiving)
@@ -200,7 +202,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let presentation = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: status,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
 
         XCTAssertEqual(status, .observing)
@@ -258,7 +261,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let presentation = phoneWatchSourcePresentation(
             install: receiving,
             recordingStatus: .noContext,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
 
         XCTAssertEqual(receiving, .receivingUnconfirmedInstall)
@@ -286,7 +290,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let observing = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: .observing,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
         XCTAssertEqual(observing.state, .active)
         XCTAssertNil(observing.attention)
@@ -295,7 +300,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let idle = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: .idle,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
         XCTAssertEqual(idle.state, .off)
         XCTAssertNil(idle.attention)
@@ -304,7 +310,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let noContext = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: .noContext,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
         XCTAssertEqual(noContext.state, .off)
         XCTAssertNil(noContext.attention)
@@ -313,7 +320,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let receiving = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: .noContextButReceiving,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
         XCTAssertEqual(receiving.state, .off)
         XCTAssertNil(receiving.attention)
@@ -339,7 +347,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let presentation = phoneWatchSourcePresentation(
             install: install,
             recordingStatus: status,
-            isReachable: true
+            isReachable: true,
+            isJournalPaired: true
         )
 
         XCTAssertEqual(install, .appInstalled)
@@ -364,7 +373,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let presentation = phoneWatchSourcePresentation(
             install: install,
             recordingStatus: status,
-            isReachable: true
+            isReachable: true,
+            isJournalPaired: true
         )
 
         XCTAssertEqual(install, .appInstalled)
@@ -385,7 +395,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let presentation = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: status,
-            isReachable: true
+            isReachable: true,
+            isJournalPaired: true
         )
 
         XCTAssertEqual(status, .idle)
@@ -398,7 +409,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let receiving = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: .noContextButReceiving,
-            isReachable: true
+            isReachable: true,
+            isJournalPaired: true
         )
         XCTAssertEqual(receiving.state, .off)
         XCTAssertNil(receiving.attention)
@@ -407,7 +419,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let observing = phoneWatchSourcePresentation(
             install: .appInstalled,
             recordingStatus: .observing,
-            isReachable: true
+            isReachable: true,
+            isJournalPaired: true
         )
         XCTAssertEqual(observing.state, .active)
         XCTAssertNil(observing.attention)
@@ -416,12 +429,14 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         let reachablePairedNoApp = phoneWatchSourcePresentation(
             install: .pairedNoApp,
             recordingStatus: .noContext,
-            isReachable: true
+            isReachable: true,
+            isJournalPaired: true
         )
         let notReachablePairedNoApp = phoneWatchSourcePresentation(
             install: .pairedNoApp,
             recordingStatus: .noContext,
-            isReachable: false
+            isReachable: false,
+            isJournalPaired: true
         )
         XCTAssertEqual(reachablePairedNoApp, notReachablePairedNoApp)
     }

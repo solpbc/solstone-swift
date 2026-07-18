@@ -4,7 +4,8 @@
 import Foundation
 
 nonisolated func screencastSourcePresentation(
-    managerState: ScreencastManager.State
+    managerState: ScreencastManager.State,
+    isJournalPaired: Bool
 ) -> Source {
     let state = screencastSourceState(for: managerState)
     let subtextOverride: String
@@ -34,6 +35,7 @@ nonisolated func screencastSourcePresentation(
         kind: .screencast,
         group: .experiencingAlongsideYou,
         state: state,
+        isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.screencastActiveSubtext,
         subtextOverride: subtextOverride,
         attention: attention,

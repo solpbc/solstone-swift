@@ -4,6 +4,7 @@
 import SwiftUI
 
 struct OmiSourceDetailView: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(OmiSourceManager.self) private var manager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var diagnosticsExportURL: URL?
@@ -68,7 +69,10 @@ private extension OmiSourceDetailView {
             self.stateLine
 
             let mapped = self.mappedState
-            Text(mapped.state.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
+            Text(mapped.state.subtext(
+                activeSubtext: SourceVocabulary.observerActiveSubtext,
+                isJournalPaired: self.appConfig.isPaired
+            ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 

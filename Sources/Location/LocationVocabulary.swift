@@ -5,8 +5,10 @@ import Foundation
 
 nonisolated enum LocationVocabulary {
     static let sourceDisplayName = "location"
-    static let activeSubtext = "adds where your day happens to your journal while this is on."
-    static let preEnrollmentValue = "where your day happens — kept in your journal, yours alone. as light or complete as you want."
+    private static let activeSubtextUnpaired = "adds where your day happens, saved on this phone while this is on."
+    private static let activeSubtextPaired = "adds where your day happens to your journal while this is on."
+    private static let preEnrollmentValueUnpaired = "where your day happens. saved on this phone and not processed until you connect a journal. as light or complete as you want."
+    private static let preEnrollmentValuePaired = "where your day happens — kept in your journal, yours alone. as light or complete as you want."
     static let tierDialHeader = "how much of your day to keep"
     static let tierDialSubhead = "your day, your call. you can change this any time."
     static let lightLabel = "places only"
@@ -37,6 +39,14 @@ nonisolated enum LocationVocabulary {
     static let deleteConfirmBody = "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone."
     static let deleteConfirmButton = "delete location's contributions"
     static let deleteReceiptHeadlineTemplate = "deleted. removed from your journal: where your day happened, across {N} days."
+
+    static func activeSubtext(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.activeSubtextPaired : Self.activeSubtextUnpaired
+    }
+
+    static func preEnrollmentValue(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.preEnrollmentValuePaired : Self.preEnrollmentValueUnpaired
+    }
 
     static func sharingStatus(for capability: LocationCapability) -> String {
         switch capability {

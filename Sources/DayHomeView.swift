@@ -89,13 +89,12 @@ struct DayHomeView: View {
             Button {
                 self.showingJournalLives = true
             } label: {
-                Text(self.localityText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                self.localityLabel
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("dayHome.locality")
+            .accessibilityLabel(self.localityAccessibilityLabel)
+            .accessibilityHint("opens where your journal lives")
             .sheet(isPresented: self.$showingJournalLives) {
                 JournalLivesSheet(isPresented: self.$showingJournalLives)
             }
@@ -127,6 +126,33 @@ struct DayHomeView: View {
 
     private var statCardsSlot: some View { EmptyView() }
 
+    @ViewBuilder
+    private var localityLabel: some View {
+        if self.journalState == .noJournal {
+            HStack(spacing: 4) {
+                Text(self.localityText)
+                    .foregroundStyle(.secondary)
+                Text("›")
+                    .foregroundStyle(Color.orangeInk)
+            }
+            .font(.subheadline)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(minHeight: 44)
+            .background(Color.solCream, in: Capsule(style: .continuous))
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(Color.orangeInk.opacity(0.32), lineWidth: 0.5)
+            }
+        } else {
+            Text(self.localityText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
     private var localityText: String {
         switch self.journalState {
         case .noJournal:
@@ -135,6 +161,15 @@ struct DayHomeView: View {
             SourceVocabulary.journalOffline
         case .linkedOnline:
             SourceVocabulary.journalConnected
+        }
+    }
+
+    private var localityAccessibilityLabel: String {
+        switch self.journalState {
+        case .noJournal:
+            "on this phone, no journal yet"
+        case .linkedOffline, .linkedOnline:
+            self.localityText
         }
     }
 }

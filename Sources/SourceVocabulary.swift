@@ -40,12 +40,12 @@ nonisolated enum SourceState: Equatable, Sendable {
         }
     }
 
-    var universalSubtext: String? {
+    func universalSubtext(isJournalPaired: Bool) -> String? {
         switch self {
         case .off:
-            SourceVocabulary.offSubtext
+            SourceVocabulary.offSubtext(isJournalPaired: isJournalPaired)
         case .enrolling:
-            SourceVocabulary.enrollingSubtext
+            SourceVocabulary.enrollingSubtext(isJournalPaired: isJournalPaired)
         case .active:
             nil
         case .paused:
@@ -55,16 +55,16 @@ nonisolated enum SourceState: Equatable, Sendable {
         }
     }
 
-    func subtext(activeSubtext: String) -> String {
-        self.universalSubtext ?? activeSubtext
+    func subtext(activeSubtext: String, isJournalPaired: Bool) -> String {
+        self.universalSubtext(isJournalPaired: isJournalPaired) ?? activeSubtext
     }
 
-    func voiceOverText(activeSubtext: String) -> String {
+    func voiceOverText(activeSubtext: String, isJournalPaired: Bool) -> String {
         switch self {
         case .off:
-            "off. \(SourceVocabulary.offSubtext)"
+            "off. \(SourceVocabulary.offSubtext(isJournalPaired: isJournalPaired))"
         case .enrolling:
-            "setting up. \(SourceVocabulary.enrollingSubtext)"
+            "setting up. \(SourceVocabulary.enrollingSubtext(isJournalPaired: isJournalPaired))"
         case .active:
             "on. \(Self.sentence(activeSubtext))"
         case .paused:
@@ -80,8 +80,10 @@ nonisolated enum SourceState: Equatable, Sendable {
 }
 
 nonisolated enum SourceVocabulary {
-    static let offSubtext = "not sending to your journal. turn it on any time."
-    static let enrollingSubtext = "getting ready — connecting to your journal."
+    private static let offSubtextUnpaired = "turn it on any time."
+    private static let offSubtextPaired = "not sending to your journal. turn it on any time."
+    private static let enrollingSubtextUnpaired = "getting ready…"
+    private static let enrollingSubtextPaired = "getting ready — connecting to your journal."
     static let pausedSubtext = "you paused this. resume to start sending again."
     static let needsAttentionSubtext = "something's not getting through."
     static let needsAttention = "needs attention"
@@ -89,8 +91,10 @@ nonisolated enum SourceVocabulary {
     static let observerActiveSubtext = "on"
     static let modeExplanation = "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
     static let importerActiveSubtext = "sending to your journal as you share."
-    static let shareAlwaysOnSubtext = "share to your journal from any app"
-    static let shareAlwaysOnExplainer = "share is always on. anything you send from the share sheet comes into your journal here."
+    private static let shareAlwaysOnSubtextUnpaired = "import from anywhere, it's saved here until you connect your journal."
+    private static let shareAlwaysOnSubtextPaired = "share to your journal from any app"
+    private static let shareAlwaysOnExplainerUnpaired = "share is always on. anything you send from another app is saved on this phone until you connect your journal."
+    private static let shareAlwaysOnExplainerPaired = "share is always on. anything you send from the share sheet comes into your journal here."
     static let shareSheetDisplayName = "share sheet"
     static let shareSendingProgress = "sending to your journal…"
     static let shareDeliveredProgress = "saved to your journal"
@@ -124,8 +128,7 @@ nonisolated enum SourceVocabulary {
     static let screencastPointerFailedText = "screen could not connect to this journal"
 
     static let experiencingAlongsideYouHeader = "experiencing your day with you"
-    static let bringingInYourselfHeader = "bringing in yourself"
-    static let trustLineUnpaired = "kept on this phone, only — nowhere else, until you connect a journal"
+    static let bringingInYourselfHeader = "import other memories"
     static let trustLineConfigured = "syncs only to your journal — nowhere else"
     static let watchHeadlineOff = "off"
     static let watchHeadlineEnrolling = "setting up"
@@ -250,10 +253,6 @@ nonisolated enum SourceVocabulary {
     static let problemReportsMissingTitle = "problem report unavailable"
     static let problemReportsMissingBody = "it may have already been deleted."
 
-    static func trustLine(isPaired: Bool) -> String {
-        isPaired ? Self.trustLineConfigured : Self.trustLineUnpaired
-    }
-
     static func watchPipelineStaleAsOf(_ relative: String) -> String {
         "as of \(relative)"
     }
@@ -277,8 +276,6 @@ nonisolated enum SourceVocabulary {
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"
     static let notConnectedRowAffordance = "connect your journal first"
-    static let sourcesConnectBanner = "kept here until you connect a journal · connect →"
-    static let zeroActiveSummary = "nothing is on right now"
     static let whatItAdds = "adds what you say and nearby sound while this is on."
     static let pendingSeam = "nothing pending right now."
     static let removeSeam = "removing audio is coming later."
@@ -289,7 +286,7 @@ nonisolated enum SourceVocabulary {
     static let greetingMorning = "good morning"
     static let greetingAfternoon = "good afternoon"
     static let greetingEvening = "good evening"
-    static let dayLocalityNoJournal = "no journal connected yet"
+    static let dayLocalityNoJournal = "on this phone · no journal yet"
     static let journalConnected = "your journal · connected"
     static let journalOffline = "your journal · offline"
     static let dayToday = "today"
@@ -359,7 +356,9 @@ nonisolated enum SourceVocabulary {
     static let chatDraftDiagnosticsIncluded = "diagnostics included"
     static let chatSourceOpenTitle = "open ↗"
     static let chatSourceSeparator = " · "
-    static let onThisPhoneEmpty = "nothing here yet. turn on a source and sol starts experiencing your day with you — it all waits here and syncs to your journal once you connect one."
+    static let onThisPhoneEmpty = "nothing here yet. turn on a source and sol starts experiencing your day with you."
+    static let onThisPhoneTruthLine = "your memories are saved only on this phone and not processed until you connect a journal."
+    static let onThisPhoneConnectJournalButton = "connect journal"
     static let onThisPhoneAllQuietHeadline = "all quiet"
     static let onThisPhoneAllQuietBody = "everything you've gathered is in your journal. new moments rest here on their way through."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
@@ -469,6 +468,22 @@ nonisolated enum SourceVocabulary {
     static let resume = "resume"
     static let delete = "delete"
     static let deleteJournalUnreachableLine = "couldn't reach your journal — nothing was deleted."
+
+    static func offSubtext(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.offSubtextPaired : Self.offSubtextUnpaired
+    }
+
+    static func enrollingSubtext(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.enrollingSubtextPaired : Self.enrollingSubtextUnpaired
+    }
+
+    static func shareAlwaysOnSubtext(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.shareAlwaysOnSubtextPaired : Self.shareAlwaysOnSubtextUnpaired
+    }
+
+    static func shareAlwaysOnExplainer(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.shareAlwaysOnExplainerPaired : Self.shareAlwaysOnExplainerUnpaired
+    }
 
     static func onThisPhoneAgedBacklog(count: Int) -> String {
         if count == 1 {
