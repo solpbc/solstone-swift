@@ -356,7 +356,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             group: .bringingInYourself,
             state: .active,
             isJournalPaired: true,
-            activeSubtext: SourceVocabulary.importerActiveSubtext,
+            activeSubtext: SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
             attention: nil,
             pendingStatus: .nonePending
         )

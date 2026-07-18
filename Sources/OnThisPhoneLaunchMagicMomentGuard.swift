@@ -15,19 +15,24 @@ nonisolated func shouldMarkMagicMomentFirstSeenOnLaunch(
 enum OnThisPhoneLaunchMagicMomentStoreProbe {
     static func hasExistingOnThisPhoneItems(
         mobileSegmentStore: MobileSegmentStore,
-        appGroupRootURL: URL?,
+        appGroupRootURL: URL,
+        cachesRootURL: URL?,
         fileManager: FileManager = .default
     ) -> Bool {
         if self.hasMobileSegmentItems(store: mobileSegmentStore) {
             return true
         }
-        guard let appGroupRootURL else {
-            return false
-        }
         if self.hasShareImportItems(appGroupRootURL: appGroupRootURL, fileManager: fileManager) {
             return true
         }
         // Omi/watch enqueue directly to transfer at OmiSegmentWriter.swift:209 and WatchSegmentDrain.swift:113.
+        // Their legacy roots migrate into transfer after this guard runs, so probe those roots here too.
+        if self.hasLegacyOmiItems(appGroupRootURL: appGroupRootURL, cachesRootURL: cachesRootURL, fileManager: fileManager) {
+            return true
+        }
+        if self.hasLegacyWatchItems(cachesRootURL: cachesRootURL, fileManager: fileManager) {
+            return true
+        }
         return self.hasTransferSpoolEntries(appGroupRootURL: appGroupRootURL, fileManager: fileManager)
     }
 
@@ -77,6 +82,20 @@ enum OnThisPhoneLaunchMagicMomentStoreProbe {
                 fileManager: fileManager
             )
         }
+    }
+
+    private static func hasLegacyOmiItems(appGroupRootURL: URL, cachesRootURL: URL?, fileManager: FileManager) -> Bool {
+        let roots = [
+            appGroupRootURL.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+            cachesRootURL?.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+        ].compactMap { $0 }
+        return roots.contains { self.directoryContainsEntries($0, fileManager: fileManager) }
+    }
+
+    private static func hasLegacyWatchItems(cachesRootURL: URL?, fileManager: FileManager) -> Bool {
+        let legacyRoot = (cachesRootURL ?? fileManager.temporaryDirectory)
+            .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true)
+        return self.directoryContainsEntries(legacyRoot, fileManager: fileManager)
     }
 
     private static func directoryContainsEntries(_ url: URL, fileManager: FileManager) -> Bool {

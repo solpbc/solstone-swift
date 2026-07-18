@@ -16,12 +16,6 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(sourceState(for: .idle, paused: true), .paused)
     }
 
-    func testImporterActiveSubtextMapping() {
-        XCTAssertEqual(importerActiveSubtext(pendingCount: 1, lastDeliveredAt: nil), SourceVocabulary.shareSendingProgress)
-        XCTAssertEqual(importerActiveSubtext(pendingCount: 0, lastDeliveredAt: Date()), SourceVocabulary.shareDeliveredProgress)
-        XCTAssertEqual(importerActiveSubtext(pendingCount: 0, lastDeliveredAt: nil), SourceVocabulary.importerActiveSubtext)
-    }
-
     func testOnThisPhoneSendStateMapping() {
         XCTAssertEqual(onThisPhoneSendState(location: .delivered, canRetry: false, isActivelyUploading: false), .inYourJournal)
         XCTAssertEqual(onThisPhoneSendState(location: .delivered, canRetry: true, isActivelyUploading: true), .inYourJournal)
@@ -85,7 +79,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             group: .bringingInYourself,
             state: .needsAttention,
             isJournalPaired: true,
-            activeSubtext: SourceVocabulary.importerActiveSubtext,
+            activeSubtext: SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
             attention: SourceAttention(message: SourceVocabulary.needsAttentionSubtext),
             pendingStatus: .nonePending
         )

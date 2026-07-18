@@ -48,6 +48,32 @@ nonisolated final class OnThisPhoneFirstContactTests: XCTestCase {
         )
     }
 
+    func testFreshInstallFirstItemStillShowsMagicMoment() {
+        let markedFirstSeenOnLaunch = shouldMarkMagicMomentFirstSeenOnLaunch(
+            magicMomentFirstSeen: false,
+            hasExistingOnThisPhoneItems: false,
+            isUITest: false
+        )
+        XCTAssertFalse(markedFirstSeenOnLaunch)
+
+        let firstItem = Self.item(id: "omi", sourceKind: .audio)
+        let snapshot = OnThisPhoneAggregateSnapshot(
+            sources: [],
+            items: [firstItem]
+        )
+
+        XCTAssertEqual(
+            magicMomentShownCandidate(
+                from: snapshot,
+                magicMomentFirstSeen: markedFirstSeenOnLaunch,
+                magicMomentDismissed: false,
+                hasCurrentMagicMomentItem: false,
+                isObserverPermissionDenied: false
+            ),
+            firstItem
+        )
+    }
+
     func testMagicMomentCandidateRespectsExistingSuppressors() {
         let snapshot = OnThisPhoneAggregateSnapshot(
             sources: [],

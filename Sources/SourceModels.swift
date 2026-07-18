@@ -113,16 +113,3 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
 final class ObserverSourcePauseState {
     var isPaused = false
 }
-
-nonisolated func importerActiveSubtext(
-    pendingCount: Int,
-    lastDeliveredAt: Date?
-) -> String {
-    if pendingCount > 0 {
-        return SourceVocabulary.shareSendingProgress
-    }
-    if lastDeliveredAt != nil {
-        return SourceVocabulary.shareDeliveredProgress
-    }
-    return SourceVocabulary.importerActiveSubtext
-}

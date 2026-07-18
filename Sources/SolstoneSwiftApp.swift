@@ -180,16 +180,18 @@ struct SolstoneSwiftApp: App {
                 .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
             mobileSegmentStore = MobileSegmentStore(rootURL: appGroupMobileSegmentRoot)
             mobileSegmentStorageDisabledReason = nil
-            let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            let legacyMobileSegmentRoot = cachesRoot?
                 .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
-            if let cachesRoot {
-                mobileSegmentMigrationDiagnostics = mobileSegmentStore.migrateRoot(fromLegacyCachesRoot: cachesRoot)
+            if let legacyMobileSegmentRoot {
+                mobileSegmentMigrationDiagnostics = mobileSegmentStore.migrateRoot(fromLegacyCachesRoot: legacyMobileSegmentRoot)
             } else {
                 mobileSegmentMigrationDiagnostics = []
             }
             Self.applyMagicMomentLaunchGuard(
                 mobileSegmentStore: mobileSegmentStore,
-                appGroupRootURL: appGroupRoot
+                appGroupRootURL: appGroupRoot,
+                cachesRootURL: cachesRoot
             )
         } catch {
             let diagnostic = "mobile segment storage unavailable source=app-group"
@@ -587,12 +589,14 @@ struct SolstoneSwiftApp: App {
     @MainActor
     private static func applyMagicMomentLaunchGuard(
         mobileSegmentStore: MobileSegmentStore,
-        appGroupRootURL: URL
+        appGroupRootURL: URL,
+        cachesRootURL: URL?
     ) {
         let magicMomentFirstSeen = UserDefaults.standard.bool(forKey: AudioStorageKey.magicMomentFirstSeen)
         let hasExistingOnThisPhoneItems = OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
             mobileSegmentStore: mobileSegmentStore,
-            appGroupRootURL: appGroupRootURL
+            appGroupRootURL: appGroupRootURL,
+            cachesRootURL: cachesRootURL
         )
         guard shouldMarkMagicMomentFirstSeenOnLaunch(
             magicMomentFirstSeen: magicMomentFirstSeen,

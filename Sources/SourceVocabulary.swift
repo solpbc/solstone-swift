@@ -90,7 +90,6 @@ nonisolated enum SourceVocabulary {
 
     static let observerActiveSubtext = "on"
     static let modeExplanation = "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
-    static let importerActiveSubtext = "sending to your journal as you share."
     private static let shareAlwaysOnSubtextUnpaired = "import from anywhere, it's saved here until you connect your journal."
     private static let shareAlwaysOnSubtextPaired = "share to your journal from any app"
     private static let shareAlwaysOnExplainerUnpaired = "share is always on. anything you send from another app is saved on this phone until you connect your journal."

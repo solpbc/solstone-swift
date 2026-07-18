@@ -479,7 +479,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: true), "getting ready — connecting to your journal.")
         XCTAssertEqual(SourceVocabulary.pausedSubtext, "you paused this. resume to start sending again.")
         XCTAssertEqual(SourceVocabulary.needsAttentionSubtext, "something's not getting through.")
-        XCTAssertEqual(SourceVocabulary.importerActiveSubtext, "sending to your journal as you share.")
     }
 
     func testSourceStateSubtextsUseJournalPairingForVisibleAndVoiceOverText() {
@@ -767,7 +766,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.needsAttentionSubtext,
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
-            SourceVocabulary.importerActiveSubtext,
             SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),

@@ -54,7 +54,8 @@ nonisolated final class OnThisPhoneLaunchMagicMomentGuardTests: XCTestCase {
 
         XCTAssertTrue(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
             mobileSegmentStore: store,
-            appGroupRootURL: self.tempDirectory
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: self.cachesRoot()
         ))
     }
 
@@ -66,13 +67,15 @@ nonisolated final class OnThisPhoneLaunchMagicMomentGuardTests: XCTestCase {
         try Data("{}".utf8).write(to: importRoot.appendingPathComponent("ledger.json", isDirectory: false))
         XCTAssertFalse(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
             mobileSegmentStore: store,
-            appGroupRootURL: self.tempDirectory
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: self.cachesRoot()
         ))
 
         try Data(#"{"share-item":{}}"#.utf8).write(to: importRoot.appendingPathComponent("ledger.json", isDirectory: false))
         XCTAssertTrue(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
             mobileSegmentStore: store,
-            appGroupRootURL: self.tempDirectory
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: self.cachesRoot()
         ))
     }
 
@@ -92,7 +95,8 @@ nonisolated final class OnThisPhoneLaunchMagicMomentGuardTests: XCTestCase {
         }
         XCTAssertFalse(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
             mobileSegmentStore: store,
-            appGroupRootURL: self.tempDirectory
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: self.cachesRoot()
         ))
 
         try FileManager.default.createDirectory(
@@ -103,12 +107,59 @@ nonisolated final class OnThisPhoneLaunchMagicMomentGuardTests: XCTestCase {
         )
         XCTAssertTrue(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
             mobileSegmentStore: store,
-            appGroupRootURL: self.tempDirectory
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: self.cachesRoot()
+        ))
+    }
+
+    @MainActor
+    func testStoreProbeDetectsLegacyOmiAndWatchRoots() throws {
+        let store = self.makeStore()
+        let cachesRoot = self.cachesRoot()
+        let legacyOmiRoot = self.tempDirectory
+            .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("pending", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyOmiRoot, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: legacyOmiRoot.appendingPathComponent("chunk.m4a", isDirectory: false))
+
+        XCTAssertTrue(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
+            mobileSegmentStore: store,
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: cachesRoot
+        ))
+
+        try FileManager.default.removeItem(
+            at: self.tempDirectory.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+        )
+        let legacyWatchRoot = cachesRoot
+            .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true)
+            .appendingPathComponent("pending", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyWatchRoot, withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: legacyWatchRoot.appendingPathComponent("chunk.m4a", isDirectory: false))
+
+        XCTAssertTrue(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
+            mobileSegmentStore: store,
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: cachesRoot
+        ))
+    }
+
+    @MainActor
+    func testStoreProbeDoesNotSuppressGenuinelyEmptyInstall() {
+        XCTAssertFalse(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
+            mobileSegmentStore: self.makeStore(),
+            appGroupRootURL: self.tempDirectory,
+            cachesRootURL: self.cachesRoot()
         ))
     }
 
     @MainActor
     private func makeStore() -> MobileSegmentStore {
         MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true))
+    }
+
+    private func cachesRoot() -> URL {
+        self.tempDirectory.appendingPathComponent("Caches", isDirectory: true)
     }
 }
