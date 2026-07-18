@@ -86,6 +86,30 @@ nonisolated final class PostPairStateTests: XCTestCase {
     }
 
     @MainActor
+    func testPairedJournalLivesSheetShowsCurrentOwnJournal() {
+        let app = self.makeIntegrationApp()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        self.assertDayHomeRoot(in: app)
+
+        let locality = app.buttons["dayHome.locality"]
+        XCTAssertTrue(locality.waitForExistence(timeout: 5))
+        locality.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+
+        let ownJournal = app.buttons["journalLives.ownJournal"]
+        XCTAssertTrue(ownJournal.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.ownJournal.current"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.cachedLine"].exists)
+        XCTAssertTrue(ownJournal.label.contains("re-pair"), ownJournal.label)
+
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
+        let comingLater = app.descendants(matching: .any)["journalLives.onYourPhone.comingLater"]
+        XCTAssertTrue(comingLater.exists)
+        XCTAssertEqual(comingLater.label, "coming later")
+    }
+
+    @MainActor
     func testChatComposerAcceptsMessageInIntegrationMode() {
         let app = self.makeIntegrationApp()
         app.launch()
