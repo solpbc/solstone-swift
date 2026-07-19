@@ -34,11 +34,10 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         }
     }
 
-    func testContentViewOfflineBannerUsesConnectionSyncModelDebounce() throws {
+    func testContentViewHasNoOfflineBanner() throws {
         let text = try Self.sourceText("Sources/ContentView.swift")
 
-        XCTAssertTrue(text.contains("connectionSyncModel.status == .offline"))
-        for forbidden in ["updateOfflineBannerVisibility", "showOfflineBanner", "offlineSettleTask", "isNetworkSatisfied"] {
+        for forbidden in ["OfflineBanner", "updateOfflineBannerVisibility", "showOfflineBanner", "offlineSettleTask", "isNetworkSatisfied"] {
             XCTAssertFalse(text.contains(forbidden), forbidden)
         }
     }

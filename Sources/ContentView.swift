@@ -56,12 +56,9 @@ struct ContentView: View {
                 RePairBanner {
                     self.showPairing = true
                 }
-            } else if self.appConfig.isPaired && self.connectionSyncModel.status == .offline {
-                OfflineBanner()
-                    .allowsHitTesting(false)
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.connectionSyncModel.status)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.isRevoked)
         .sheet(isPresented: self.$showPairing) {
             NavigationStack {
                 PairFlowView(

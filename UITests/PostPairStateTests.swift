@@ -14,6 +14,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
     @MainActor
     func testOfflineShellShowsNativeDayHome() {
         let app = self.makeSeededApp(extraArguments: [
+            "--ui-test-seed-on-this-phone",
             "--ui-test-shell-disconnected",
             "--ui-test-network-unsatisfied",
             "--integration-test-push-tap=chat",
@@ -24,11 +25,10 @@ nonisolated final class PostPairStateTests: XCTestCase {
 
         let bannerText = app.staticTexts["offline — safe on this phone · your journal will catch up"]
         let bannerElement = app.otherElements["Offline. Safe on this phone; your journal will catch up."]
-        XCTAssertTrue(
-            bannerText.waitForExistence(timeout: 10) || bannerElement.waitForExistence(timeout: 10)
-        )
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["everything sol has taken in, ready for your journal when it reconnects."].waitForExistence(timeout: 5))
+        XCTAssertFalse(bannerText.exists)
+        XCTAssertFalse(bannerElement.exists)
         let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
         XCTAssertEqual(locality.label, "your journal · offline")
@@ -44,6 +44,25 @@ nonisolated final class PostPairStateTests: XCTestCase {
         askBar.tap()
         XCTAssertTrue(app.staticTexts["sol needs your journal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].waitForExistence(timeout: 3))
+    }
+
+    @MainActor
+    func testOfflineLocalityOpensYourJournalDetails() {
+        let app = self.makeSeededApp(extraArguments: [
+            "--ui-test-seed-on-this-phone",
+            "--ui-test-shell-disconnected",
+            "--ui-test-network-unsatisfied",
+        ])
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        self.assertDayHomeRoot(in: app)
+
+        let locality = app.buttons["dayHome.locality"]
+        XCTAssertTrue(locality.waitForExistence(timeout: 5))
+        locality.tap()
+
+        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.sheet"].exists)
     }
 
     @MainActor

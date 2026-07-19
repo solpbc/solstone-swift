@@ -45,6 +45,21 @@ nonisolated func onThisPhoneEmptyInviteBranch(
     return .invite(includesJournalTruth: !isJournalPaired)
 }
 
+nonisolated func onThisPhoneScopeLine(
+    state: DayHomeJournalState?,
+    migration: OnThisPhoneMigration
+) -> String? {
+    switch state {
+    case .linkedOffline:
+        guard migration.onThisPhone + migration.needsAttention > 0 else { return nil }
+        return SourceVocabulary.onThisPhoneScopeOfflinePaired
+    case .linkedOnline:
+        return SourceVocabulary.onThisPhoneScopeConnected
+    case .noJournal, nil:
+        return SourceVocabulary.onThisPhoneScope
+    }
+}
+
 nonisolated func magicMomentShownCandidate(
     from snapshot: OnThisPhoneAggregateSnapshot,
     magicMomentFirstSeen: Bool,
@@ -116,6 +131,11 @@ struct OnThisPhoneMomentsView<Header: View>: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    let displayAggregate = self.displayAggregate
+                    let migration = displayAggregate.map { onThisPhoneMigration(snapshot: $0) }
+                        ?? OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
+                    let hasItems = displayAggregate?.items.isEmpty == false
+
                     self.header
 
                     if let welcomeFraming = self.welcomeFraming {
@@ -127,22 +147,21 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                             .accessibilityIdentifier("onThisPhone.welcomeFraming")
                     }
 
-                    if self.hasItems, !self.isShowingNotBackedUpNudge {
-                        Text(self.onThisPhoneScopeText)
+                    if hasItems,
+                       !self.isShowingNotBackedUpNudge,
+                       let scope = onThisPhoneScopeLine(state: self.askBarState, migration: migration) {
+                        Text(scope)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
 
                     self.magicMomentSection
 
-                    if self.hasItems, self.isShowingNotBackedUpNudge {
+                    if hasItems, self.isShowingNotBackedUpNudge {
                         self.notBackedUpNudge
                     }
 
-                    if let displayAggregate = self.displayAggregate {
-                        let migration = onThisPhoneMigration(
-                            snapshot: displayAggregate
-                        )
+                    if let displayAggregate = displayAggregate {
                         if !displayAggregate.items.isEmpty,
                            self.appConfig.isPaired {
                             self.statusBlock(
@@ -252,23 +271,8 @@ struct OnThisPhoneMomentsView<Header: View>: View {
 }
 
 private extension OnThisPhoneMomentsView {
-    var onThisPhoneScopeText: String {
-        switch self.askBarState {
-        case .linkedOnline:
-            SourceVocabulary.onThisPhoneScopeConnected
-        case .linkedOffline:
-            SourceVocabulary.onThisPhoneScopeOfflinePaired
-        case .noJournal, nil:
-            SourceVocabulary.onThisPhoneScope
-        }
-    }
-
     var displayAggregate: OnThisPhoneAggregateSnapshot? {
         self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
-    }
-
-    var hasItems: Bool {
-        self.displayAggregate?.items.isEmpty == false
     }
 
     var isPresentingSwipeDropConfirm: Binding<Bool> {

@@ -87,14 +87,19 @@ struct DayHomeView: View {
                 .accessibilityIdentifier("dayHome.greeting")
 
             Button {
-                self.showingJournalLives = true
+                switch self.journalState {
+                case .linkedOffline:
+                    self.onOpenYourSolstone()
+                case .noJournal, .linkedOnline:
+                    self.showingJournalLives = true
+                }
             } label: {
                 self.localityLabel
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("dayHome.locality")
             .accessibilityLabel(self.localityAccessibilityLabel)
-            .accessibilityHint("opens where your journal lives")
+            .accessibilityHint(self.localityAccessibilityHint)
             .sheet(isPresented: self.$showingJournalLives) {
                 JournalLivesSheet(isPresented: self.$showingJournalLives)
             }
@@ -128,28 +133,34 @@ struct DayHomeView: View {
 
     @ViewBuilder
     private var localityLabel: some View {
-        if self.journalState == .noJournal {
-            HStack(spacing: 4) {
-                Text(self.localityText)
-                    .foregroundStyle(.secondary)
-                Text("›")
-                    .foregroundStyle(Color.orangeInk)
-            }
-            .font(.subheadline)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(minHeight: 44)
-            .background(Color.solCream, in: Capsule(style: .continuous))
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(Color.orangeInk.opacity(0.32), lineWidth: 0.5)
-            }
-        } else {
+        switch self.journalState {
+        case .noJournal, .linkedOffline:
+            self.localityChip(self.localityText)
+        case .linkedOnline:
             Text(self.localityText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+        }
+    }
+
+    @ViewBuilder
+    private func localityChip(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .foregroundStyle(.secondary)
+            Text("›")
+                .foregroundStyle(Color.orangeInk)
+        }
+        .font(.subheadline)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(minHeight: 44)
+        .background(Color.solCream, in: Capsule(style: .continuous))
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(Color.orangeInk.opacity(0.32), lineWidth: 0.5)
         }
     }
 
@@ -170,6 +181,15 @@ struct DayHomeView: View {
             "on this phone, no journal yet"
         case .linkedOffline, .linkedOnline:
             self.localityText
+        }
+    }
+
+    private var localityAccessibilityHint: String {
+        switch self.journalState {
+        case .linkedOffline:
+            "opens your journal connection details"
+        case .noJournal, .linkedOnline:
+            "opens where your journal lives"
         }
     }
 }
