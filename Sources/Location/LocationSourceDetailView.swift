@@ -275,7 +275,7 @@ private extension LocationSourceDetailView {
             }
 
             if self.journalURL == nil {
-                Text(SourceVocabulary.notConnectedRowAffordance)
+                Text(SourceVocabulary.notConnectedRowAffordance(isJournalPaired: self.appConfig.isPaired))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

@@ -39,6 +39,6 @@ extension SourceVocabulary {
     nonisolated static func standingSyncFootnote(sustaining: Bool) -> String {
         sustaining
             ? "syncs while sol is open, and keeps going in the background while location is on."
-            : "sol syncs to your journal while it's open, and keeps going in the background for as long as your phone allows — longer when you have location on."
+            : "sol syncs to your journal while it's open, and keeps going in the background for as long as your phone allows. with location on, that lasts longer."
     }
 }

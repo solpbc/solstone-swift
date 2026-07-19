@@ -274,7 +274,12 @@ nonisolated enum SourceVocabulary {
 
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"
-    static let notConnectedRowAffordance = "connect your journal first"
+    private static let notConnectedRowAffordancePaired = "opens when your journal reconnects."
+    private static let notConnectedRowAffordanceUnpaired = "connect your journal first."
+
+    static func notConnectedRowAffordance(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.notConnectedRowAffordancePaired : Self.notConnectedRowAffordanceUnpaired
+    }
     static let whatItAdds = "adds what you say and nearby sound while this is on."
     static let pendingSeam = "nothing pending right now."
     static let removeSeam = "removing audio is coming later."

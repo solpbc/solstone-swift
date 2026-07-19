@@ -18,6 +18,28 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.journalLivesAction(isPaired: true), "re-pair")
     }
 
+    func testStandingSyncFootnoteCopyReflectsSustainingState() {
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncFootnote(sustaining: true),
+            "syncs while sol is open, and keeps going in the background while location is on."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.standingSyncFootnote(sustaining: false),
+            "sol syncs to your journal while it's open, and keeps going in the background for as long as your phone allows. with location on, that lasts longer."
+        )
+    }
+
+    func testNotConnectedRowAffordanceCopyReflectsPairingState() {
+        XCTAssertEqual(
+            SourceVocabulary.notConnectedRowAffordance(isJournalPaired: false),
+            "connect your journal first."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.notConnectedRowAffordance(isJournalPaired: true),
+            "opens when your journal reconnects."
+        )
+    }
+
     func testTransferRateValueFormatsApproximateThroughput() {
         let kbRate = SourceVocabulary.transferRateValue(bytesPerSecond: 240_000)
         XCTAssertTrue(kbRate.contains("~"), kbRate)
@@ -600,6 +622,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         }
     }
 
+    func testNotConnectedRowAffordanceRenderSitesPassPairingState() throws {
+        let expected = "SourceVocabulary.notConnectedRowAffordance(isJournalPaired: self.appConfig.isPaired)"
+        for relativePath in [
+            "Sources/MoreView.swift",
+            "Sources/Location/LocationSourceDetailView.swift",
+        ] {
+            let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertTrue(text.contains(expected), relativePath)
+        }
+    }
+
     private static let forbiddenLodeCTerms = [
         "capture",
         "record",
@@ -733,6 +767,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
+            SourceVocabulary.standingSyncFootnote(sustaining: true),
+            SourceVocabulary.standingSyncFootnote(sustaining: false),
             LocationVocabulary.activeSubtext(isJournalPaired: false),
             LocationVocabulary.preEnrollmentValue(isJournalPaired: false),
         ]
@@ -762,6 +798,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
+            SourceVocabulary.standingSyncFootnote(sustaining: true),
+            SourceVocabulary.standingSyncFootnote(sustaining: false),
             SourceVocabulary.bringingInYourselfHeader,
             SourceVocabulary.dayLocalityNoJournal,
             SourceVocabulary.chatEmptyBody,
@@ -831,7 +869,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.trustLineConfigured,
             SourceVocabulary.recentEmpty,
             SourceVocabulary.recentFailed,
-            SourceVocabulary.notConnectedRowAffordance,
+            SourceVocabulary.notConnectedRowAffordance(isJournalPaired: false),
+            SourceVocabulary.notConnectedRowAffordance(isJournalPaired: true),
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
             SourceVocabulary.removeSeam,

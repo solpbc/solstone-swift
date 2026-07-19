@@ -173,7 +173,7 @@ struct MoreView: View {
                 }
 
                 if conveyURL == nil {
-                    Text(SourceVocabulary.notConnectedRowAffordance)
+                    Text(SourceVocabulary.notConnectedRowAffordance(isJournalPaired: self.appConfig.isPaired))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
