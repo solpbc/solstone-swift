@@ -372,6 +372,330 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(WatchPipelineReducer.reduce(reachable).stuck, WatchPipelineReducer.reduce(base).stuck)
     }
 
+    func testSteadyVerdictStuckWinsAndCarriesReasonAndNextStep() {
+        let input = Self.input(
+            nonTerminalCount: 3,
+            oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800)
+        )
+
+        let verdict = Self.steadyVerdict(input)
+
+        XCTAssertEqual(verdict.kind, .stuck(.orphan))
+        XCTAssertEqual(verdict.state, .needsAttention)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchStuckNoticeTitle)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchPipelineOrphanStuckReason)
+        XCTAssertEqual(verdict.nextStep, SourceVocabulary.watchPipelineOrphanStuckNextStep)
+    }
+
+    func testSteadyVerdictObservingUsesRequiredCopyAndElapsedSuffix() {
+        let input = Self.input(
+            watchStatus: Self.context(
+                phase: .observing,
+                queuedCount: 2,
+                transferringCount: 0,
+                asOf: Self.now,
+                startedAt: Self.now.addingTimeInterval(-125)
+            ),
+            nonTerminalCount: 3,
+            lastReceivedAt: Self.now.addingTimeInterval(-5)
+        )
+
+        let verdict = Self.steadyVerdict(input)
+
+        XCTAssertEqual(verdict.kind, .observing)
+        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyObservingHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchObservingSentence(elapsedMinutes: 2))
+    }
+
+    func testSteadyVerdictStaleObservingContextDoesNotRenderObservingAtFreshnessBoundary() {
+        let input = Self.input(
+            watchStatus: Self.context(
+                phase: .observing,
+                asOf: Self.now.addingTimeInterval(-(WatchPipelineReducer.watchClaimFreshnessWindow + 1)),
+                startedAt: Self.now.addingTimeInterval(-300)
+            )
+        )
+
+        let verdict = Self.steadyVerdict(input)
+
+        XCTAssertNotEqual(verdict.kind, .observing)
+        XCTAssertEqual(verdict.kind, .quiet)
+    }
+
+    func testSteadyVerdictReceivingReusesReceivingSubtext() {
+        let input = Self.input(
+            nonTerminalCount: 2,
+            lastReceivedAt: Self.now.addingTimeInterval(-5)
+        )
+
+        let verdict = Self.steadyVerdict(input)
+
+        XCTAssertEqual(verdict.kind, .receiving)
+        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyReceivingHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchReceivingNowSubtext)
+    }
+
+    func testSteadyVerdictWatchWaitingUsesLeadingFreshWatchPortion() {
+        let input = Self.input(
+            watchStatus: Self.context(queuedCount: 4, transferringCount: 1, asOf: Self.now),
+            nonTerminalCount: 3
+        )
+
+        let verdict = Self.steadyVerdict(input)
+
+        XCTAssertEqual(verdict.kind, .watchWaiting)
+        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyWatchWaitingHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyWatchWaitingSentence(5))
+    }
+
+    func testSteadyVerdictPhoneSyncingUsesLeadingPhonePortion() {
+        let input = Self.input(
+            watchStatus: Self.context(queuedCount: 1, transferringCount: 0, asOf: Self.now),
+            nonTerminalCount: 3
+        )
+
+        let verdict = Self.steadyVerdict(input)
+
+        XCTAssertEqual(verdict.kind, .phoneSyncing)
+        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyPhoneSyncingHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyPhoneSyncingSentence(3))
+    }
+
+    func testSteadyVerdictCaughtUpRequiresAvailableLedger() {
+        let handedID = Self.uuid(900)
+        let input = Self.input(
+            lifetimeReceived: 1,
+            lifetimeHanded: 1,
+            phoneLedgerSnapshot: .available(Self.ledgerSnapshot(entries: [
+                handedID: Self.ledgerEntry(id: handedID, state: .handed)
+            ]))
+        )
+
+        let verdict = Self.steadyVerdict(input)
+        let unavailable = Self.steadyVerdict(Self.input(lifetimeReceived: 1, lifetimeHanded: 1))
+
+        XCTAssertEqual(verdict.kind, .caughtUp)
+        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.syncedHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyCaughtUpSentence)
+        XCTAssertEqual(unavailable.kind, .quiet)
+    }
+
+    func testSteadyVerdictQuietReceivesLedgerUnavailableAndNoSignalFallbacks() {
+        let verdict = Self.steadyVerdict(Self.input(), facts: Self.facts(watchAppCheckedIn: true))
+
+        XCTAssertEqual(verdict.kind, .quiet)
+        XCTAssertEqual(verdict.state, .off)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyQuietHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchIdleNowSubtext)
+        XCTAssertNil(verdict.presenceLine)
+        XCTAssertNil(verdict.todayLine)
+    }
+
+    func testSteadyVerdictPresenceLineFourOutcomes() {
+        let connected = Self.steadyVerdict(
+            Self.input(isReachable: true),
+            facts: Self.facts(watchAppCheckedIn: false)
+        )
+        let lastHeardInput = Self.input(
+            watchStatus: Self.context(asOf: Self.now.addingTimeInterval(-120)),
+            lastReceivedAt: Self.now.addingTimeInterval(-300)
+        )
+        let lastHeard = Self.steadyVerdict(lastHeardInput)
+        let suppressed = Self.steadyVerdict(Self.input(), facts: Self.facts(watchAppCheckedIn: true))
+        let neverHeard = Self.steadyVerdict(Self.input(), facts: Self.facts(watchAppCheckedIn: false))
+
+        XCTAssertEqual(connected.presenceLine, SourceVocabulary.watchPresenceConnectedNow)
+        XCTAssertEqual(
+            lastHeard.presenceLine,
+            SourceVocabulary.watchPresenceLastHeard(relative: Self.relativeText(secondsAgo: 120))
+        )
+        XCTAssertNil(suppressed.presenceLine)
+        XCTAssertEqual(neverHeard.presenceLine, SourceVocabulary.watchPresenceNeverHeard)
+    }
+
+    func testSteadyVerdictTodayLineLedgerCases() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: -7 * 3_600)!
+        let now = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 7,
+            day: 20,
+            hour: 10
+        ))!
+        let today = now.addingTimeInterval(-300)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let handedTodayID = Self.uuid(910)
+        let handedAndDroppedTodayID = Self.uuid(911)
+        let handedYesterdayID = Self.uuid(912)
+        let ledger = Self.ledgerSnapshot(entries: [
+            handedTodayID: Self.ledgerEntry(id: handedTodayID, state: .handed, handedAt: today),
+            handedAndDroppedTodayID: Self.ledgerEntry(
+                id: handedAndDroppedTodayID,
+                state: .handedAndDropped,
+                handedAt: today
+            ),
+            handedYesterdayID: Self.ledgerEntry(id: handedYesterdayID, state: .handed, handedAt: yesterday),
+        ])
+        let verdict = Self.steadyVerdict(
+            Self.input(now: now, phoneLedgerSnapshot: .available(ledger)),
+            calendar: calendar
+        )
+
+        let nearMidnightNow = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 7,
+            day: 20,
+            hour: 0,
+            minute: 30
+        ))!
+        let afterMidnight = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 7,
+            day: 20,
+            hour: 0,
+            minute: 1
+        ))!
+        let beforeMidnight = calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone,
+            year: 2026,
+            month: 7,
+            day: 19,
+            hour: 23,
+            minute: 59
+        ))!
+        let afterMidnightID = Self.uuid(913)
+        let beforeMidnightID = Self.uuid(914)
+        let nearMidnightLedger = Self.ledgerSnapshot(entries: [
+            afterMidnightID: Self.ledgerEntry(id: afterMidnightID, state: .handed, handedAt: afterMidnight),
+            beforeMidnightID: Self.ledgerEntry(id: beforeMidnightID, state: .handed, handedAt: beforeMidnight),
+        ])
+        let nearMidnight = Self.steadyVerdict(
+            Self.input(now: nearMidnightNow, phoneLedgerSnapshot: .available(nearMidnightLedger)),
+            calendar: calendar
+        )
+        let empty = Self.steadyVerdict(
+            Self.input(now: now, phoneLedgerSnapshot: .available(Self.ledgerSnapshot(entries: [:]))),
+            calendar: calendar
+        )
+        let unavailable = Self.steadyVerdict(Self.input(now: now), calendar: calendar)
+
+        XCTAssertEqual(verdict.todayLine, SourceVocabulary.watchTodayHandedLine(2))
+        XCTAssertEqual(nearMidnight.todayLine, SourceVocabulary.watchTodayHandedLine(1))
+        XCTAssertNil(empty.todayLine)
+        XCTAssertNil(unavailable.todayLine)
+    }
+
+    func testSteadyVerdictClosedSummaryReadsWaitingBreakdownCounts() {
+        let input = Self.input(
+            watchStatus: Self.context(queuedCount: 4, transferringCount: 0, asOf: Self.now),
+            nonTerminalCount: 2
+        )
+        let waiting = WatchPipelineReducer.waitingBreakdown(input)
+
+        let verdict = Self.steadyVerdict(input, waiting: waiting)
+
+        XCTAssertEqual(waiting.freshWatchWaitingCount, 4)
+        XCTAssertEqual(
+            verdict.detailsSummary,
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 4, phoneWaiting: 2)
+        )
+    }
+
+    func testSteadyVerdictFreshCoherenceMatchesRowSubtextAndClosedSummary() {
+        let input = Self.input(
+            watchStatus: Self.context(queuedCount: 4, transferringCount: 0, asOf: Self.now),
+            nonTerminalCount: 2
+        )
+        let waiting = WatchPipelineReducer.waitingBreakdown(input)
+        let row = Self.rowPresentation(input: input, waiting: waiting)
+        let verdict = Self.steadyVerdict(input, waiting: waiting)
+
+        XCTAssertEqual(row.subtext, SourceVocabulary.watchWaitingToSyncFromWatch(4))
+        XCTAssertEqual(verdict.kind, .watchWaiting)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyWatchWaitingSentence(4))
+        XCTAssertEqual(
+            verdict.detailsSummary,
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 4, phoneWaiting: 2)
+        )
+    }
+
+    func testSteadyVerdictStaleCoherenceGatesWatchCountButDisclosureRowsKeepStaleDetail() {
+        let input = Self.input(
+            now: Self.now,
+            watchStatus: Self.context(queuedCount: 3, transferringCount: 0, asOf: Self.now.addingTimeInterval(-91)),
+            phoneLedgerSnapshot: .available(Self.ledgerSnapshot(entries: [:]))
+        )
+        let waiting = WatchPipelineReducer.waitingBreakdown(input)
+        let summary = WatchPipelineReducer.reduce(input)
+        let verdict = Self.steadyVerdict(input, waiting: waiting)
+
+        XCTAssertEqual(waiting.freshWatchWaitingCount, 0)
+        XCTAssertEqual(verdict.kind, .caughtUp)
+        XCTAssertEqual(
+            verdict.detailsSummary,
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 0, phoneWaiting: 0)
+        )
+        XCTAssertEqual(summary.pipelineRows[0].value, "3")
+        XCTAssertEqual(
+            summary.pipelineRows[0].detail,
+            SourceVocabulary.watchPipelineStaleAsOf(Self.relativeText(secondsAgo: 91))
+        )
+    }
+
+    func testSteadyVerdictStateClassCoherenceMatrix() {
+        let observing = Self.input(
+            watchStatus: Self.context(phase: .observing, asOf: Self.now, startedAt: Self.now.addingTimeInterval(-60))
+        )
+        let receiving = Self.input(lastReceivedAt: Self.now.addingTimeInterval(-5))
+        let waiting = Self.input(
+            watchStatus: Self.context(queuedCount: 3, asOf: Self.now),
+            nonTerminalCount: 1
+        )
+        let stuck = Self.input(oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800))
+
+        for input in [observing, receiving] {
+            let breakdown = WatchPipelineReducer.waitingBreakdown(input)
+            let row = Self.rowPresentation(input: input, waiting: breakdown)
+            let verdict = Self.steadyVerdict(input, waiting: breakdown)
+            XCTAssertEqual(row.state, .active)
+            switch verdict.kind {
+            case .observing, .receiving:
+                break
+            case .stuck, .watchWaiting, .phoneSyncing, .caughtUp, .quiet:
+                XCTFail("expected on-family verdict for \(verdict.kind)")
+            }
+        }
+
+        let waitingBreakdown = WatchPipelineReducer.waitingBreakdown(waiting)
+        let waitingRow = Self.rowPresentation(input: waiting, waiting: waitingBreakdown)
+        let waitingVerdict = Self.steadyVerdict(waiting, waiting: waitingBreakdown)
+        XCTAssertNotNil(waitingRow.subtext)
+        XCTAssertEqual(waitingVerdict.kind, .watchWaiting)
+
+        let stuckBreakdown = WatchPipelineReducer.waitingBreakdown(stuck)
+        let stuckRow = Self.rowPresentation(input: stuck, waiting: stuckBreakdown)
+        let stuckVerdict = Self.steadyVerdict(stuck, waiting: stuckBreakdown)
+        XCTAssertEqual(stuckRow.state, .needsAttention)
+        XCTAssertEqual(stuckVerdict.kind, .stuck(.orphan))
+    }
+
+    func testDiagnosticsExportForStuckContainsReasonButNoNextStep() {
+        let summary = WatchPipelineReducer.reduce(Self.input(
+            oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800)
+        ))
+
+        XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))
+        XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckNextStep))
+    }
+
     func testClassificationDenominatorsUseVisibleActiveDistinctNotOmittedObservationCount() {
         let visible = (0..<10).map { index in
             Self.observation(id: Self.uuid(index), relation: index == 0 ? .duplicate : .matched)
@@ -598,12 +922,13 @@ private extension WatchPipelineReducerTests {
         phase: WatchStatusContext.Phase = .idle,
         queuedCount: Int = 0,
         transferringCount: Int = 0,
-        asOf: Date = Date(timeIntervalSince1970: 2_000)
+        asOf: Date = Date(timeIntervalSince1970: 2_000),
+        startedAt: Date? = nil
     ) -> WatchStatusContext {
         WatchStatusContext(
             phase: phase,
             sessionID: nil,
-            startedAt: nil,
+            startedAt: startedAt,
             asOf: asOf,
             seq: 1,
             queuedCount: queuedCount,
@@ -670,6 +995,58 @@ private extension WatchPipelineReducerTests {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(fromTimeInterval: -secondsAgo)
+    }
+
+    static func facts(
+        watchAppCheckedIn: Bool = true,
+        segmentFileReceived: Bool = false
+    ) -> WatchSourceFacts.Snapshot {
+        WatchSourceFacts.Snapshot(
+            watchAppCheckedIn: watchAppCheckedIn,
+            segmentFileReceived: segmentFileReceived,
+            installTapped: false,
+            firstSegmentCelebrationShown: false
+        )
+    }
+
+    static func steadyVerdict(
+        _ input: WatchPipelineInput,
+        waiting: WatchWaitingBreakdown? = nil,
+        facts: WatchSourceFacts.Snapshot = WatchSourceFacts.Snapshot(
+            watchAppCheckedIn: true,
+            segmentFileReceived: false,
+            installTapped: false,
+            firstSegmentCelebrationShown: false
+        ),
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> WatchSteadyVerdict {
+        WatchSteadyVerdictReducer.reduce(
+            input,
+            waiting: waiting ?? WatchPipelineReducer.waitingBreakdown(input),
+            facts: facts,
+            calendar: calendar
+        )
+    }
+
+    static func rowPresentation(
+        input: WatchPipelineInput,
+        waiting: WatchWaitingBreakdown
+    ) -> PhoneWatchSourcePresentation {
+        let recordingStatus = watchRecordingStatus(
+            context: input.watchStatus,
+            now: input.now,
+            lastReceivedAt: input.lastReceivedAt
+        )
+        return phoneWatchSourcePresentation(
+            lane: phoneWatchSourceLane(
+                session: .activated(.installedActive),
+                flow: WatchInstalledFlowInput(
+                    stuck: WatchPipelineReducer.stuckState(input),
+                    recordingStatus: recordingStatus,
+                    waiting: waiting
+                )
+            )
+        )
     }
 
     static func uuid(_ index: Int) -> UUID {
@@ -793,20 +1170,27 @@ private extension WatchPipelineReducerTests {
 
     static func ledgerEntry(
         id: UUID,
-        state: WatchSegmentLedgerEntryState
+        state: WatchSegmentLedgerEntryState,
+        receivedAt receivedAtOverride: Date? = nil,
+        handedAt handedAtOverride: Date? = nil,
+        droppedAt droppedAtOverride: Date? = nil
     ) -> WatchSegmentLedgerEntrySnapshot {
-        let receivedAt = Self.now.addingTimeInterval(-30)
-        let handedAt = state == .handed || state == .handedAndDropped ? Self.now.addingTimeInterval(-20) : nil
-        let droppedAt = state == .dropped || state == .handedAndDropped ? Self.now.addingTimeInterval(-10) : nil
+        let receivedAt = state == .dropped ? nil : receivedAtOverride ?? Self.now.addingTimeInterval(-30)
+        let handedAt = state == .handed || state == .handedAndDropped
+            ? handedAtOverride ?? Self.now.addingTimeInterval(-20)
+            : nil
+        let droppedAt = state == .dropped || state == .handedAndDropped
+            ? droppedAtOverride ?? Self.now.addingTimeInterval(-10)
+            : nil
         return WatchSegmentLedgerEntrySnapshot(
             segmentID: id,
             state: state,
-            receivedAt: state == .dropped ? nil : receivedAt,
+            receivedAt: receivedAt,
             handedAt: handedAt,
             droppedAt: droppedAt,
-            receivedAgeSeconds: state == .dropped ? nil : 30,
-            handedAgeSeconds: handedAt == nil ? nil : 20,
-            droppedAgeSeconds: droppedAt == nil ? nil : 10
+            receivedAgeSeconds: receivedAt.map { Self.now.timeIntervalSince($0) },
+            handedAgeSeconds: handedAt.map { Self.now.timeIntervalSince($0) },
+            droppedAgeSeconds: droppedAt.map { Self.now.timeIntervalSince($0) }
         )
     }
 

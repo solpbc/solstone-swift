@@ -10,12 +10,6 @@ nonisolated struct WatchSourceSyncSummary: Equatable, Sendable {
     let lastSyncAt: Date?
 }
 
-nonisolated struct WatchStuckNotice: Equatable, Sendable {
-    let title: String
-    let reason: String
-    let nextStep: String
-}
-
 nonisolated enum WatchDetailContentMode: Equatable, Sendable {
     case setup(WatchSetupCard)
     case celebrate
@@ -233,24 +227,6 @@ nonisolated enum WatchSourceDetailPresentation {
             WatchPipelineRowGroup(label: SourceVocabulary.watchPipelineReportedGroupLabel, rows: Array(rows.prefix(2))),
             WatchPipelineRowGroup(label: SourceVocabulary.watchPipelineKnownGroupLabel, rows: Array(rows.dropFirst(2)))
         ]
-    }
-
-    static func stuckNotice(for stuck: WatchPipelineStuck) -> WatchStuckNotice? {
-        guard let reason = stuck.reason else {
-            return nil
-        }
-        let nextStep: String
-        switch stuck {
-        case .none:
-            return nil
-        case .relay:
-            nextStep = SourceVocabulary.watchPipelineRelayStuckNextStep
-        case .handoff:
-            nextStep = SourceVocabulary.watchPipelineHandoffStuckNextStep
-        case .orphan:
-            nextStep = SourceVocabulary.watchPipelineOrphanStuckNextStep
-        }
-        return WatchStuckNotice(title: SourceVocabulary.watchStuckNoticeTitle, reason: reason, nextStep: nextStep)
     }
 
     private static func stepState(

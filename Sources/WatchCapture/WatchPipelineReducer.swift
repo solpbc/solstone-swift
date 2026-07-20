@@ -1280,6 +1280,15 @@ private extension WatchPipelineReducer {
         )
     }
 
+    nonisolated static func watchStatusText(_ status: WatchStatusContext?, now: Date) -> String {
+        guard let status else {
+            return SourceVocabulary.watchDetailNone
+        }
+        return "\(status.phase.rawValue) · \(self.relativeText(secondsAgo: self.age(of: status.asOf, now: now) ?? 0))"
+    }
+}
+
+extension WatchPipelineReducer {
     nonisolated static func relativeText(secondsAgo: TimeInterval) -> String {
         if secondsAgo < 60 {
             return SourceVocabulary.watchRelativeJustNow
@@ -1287,12 +1296,5 @@ private extension WatchPipelineReducer {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(fromTimeInterval: -secondsAgo)
-    }
-
-    nonisolated static func watchStatusText(_ status: WatchStatusContext?, now: Date) -> String {
-        guard let status else {
-            return SourceVocabulary.watchDetailNone
-        }
-        return "\(status.phase.rawValue) · \(self.relativeText(secondsAgo: self.age(of: status.asOf, now: now) ?? 0))"
     }
 }

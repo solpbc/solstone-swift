@@ -12,6 +12,7 @@ struct WatchPipelineAssembly {
     let session: WatchSessionReadiness
     let recordingStatus: WatchRecordingStatus
     let waiting: WatchWaitingBreakdown
+    let steadyVerdict: WatchSteadyVerdict
 
     var installedFlowInput: WatchInstalledFlowInput {
         WatchInstalledFlowInput(
@@ -42,6 +43,7 @@ struct WatchPipelineInputReader: DynamicProperty {
     }
 
     func assembly(now: Date) -> WatchPipelineAssembly {
+        let factsSnapshot = self.watchSourceFacts.snapshot
         let sessionReadiness = watchSessionReadiness(
             isSupported: self.watchLink.isSupported,
             activationState: self.watchLink.activationState,
@@ -50,7 +52,7 @@ struct WatchPipelineInputReader: DynamicProperty {
             watchActivatedReadiness(
                 isPaired: self.watchLink.isPaired,
                 isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-                facts: self.watchSourceFacts.snapshot
+                facts: factsSnapshot
             )
         }
 
@@ -87,16 +89,25 @@ struct WatchPipelineInputReader: DynamicProperty {
             phoneLedgerSnapshot: self.watchSegmentLedger.readSnapshot(asOf: now),
             iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot
         )
+        let recordingStatus = watchRecordingStatus(
+            context: input.watchStatus,
+            now: input.now,
+            lastReceivedAt: input.lastReceivedAt
+        )
+        let waiting = WatchPipelineReducer.waitingBreakdown(input)
+        let steadyVerdict = WatchSteadyVerdictReducer.reduce(
+            input,
+            waiting: waiting,
+            facts: factsSnapshot,
+            calendar: .current
+        )
 
         return WatchPipelineAssembly(
             input: input,
             session: sessionReadiness,
-            recordingStatus: watchRecordingStatus(
-                context: input.watchStatus,
-                now: input.now,
-                lastReceivedAt: input.lastReceivedAt
-            ),
-            waiting: WatchPipelineReducer.waitingBreakdown(input)
+            recordingStatus: recordingStatus,
+            waiting: waiting,
+            steadyVerdict: steadyVerdict
         )
     }
     // KILL-LIST-EXEMPT:END

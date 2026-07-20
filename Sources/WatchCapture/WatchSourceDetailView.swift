@@ -98,6 +98,7 @@ struct WatchSourceDetailView: View {
         isExpanded: false,
         lastHandledForegroundReturnGeneration: 0
     )
+    @State private var steadyDetailsExpanded = false
     @State private var foregroundReturnGeneration = 0
     @State private var hasObservedNonActiveScenePhase = false
     @State private var celebrationRenderedThisVisit = false
@@ -159,41 +160,61 @@ private extension WatchSourceDetailView {
             self.stateBlock
         }
 
-        SourceDetailBlock(title: SourceVocabulary.watchDeviceBlockTitle) {
-            self.watchBlock
-        }
-
         SourceDetailBlock(title: SourceVocabulary.watchDiagnosticsBlockTitle) {
             self.diagnosticsBlock
         }
     }
 
     var stateBlock: some View {
-        let presentation = self.watchPresentation
+        let verdict = self.watchSteadyVerdict
         return VStack(alignment: .leading, spacing: 12) {
-            self.stateLine
-
-            if let subtext = presentation.subtext {
-                Text(subtext)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let attention = presentation.attention {
-                Text(attention.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            self.verdictBlock(verdict)
+            self.steadyDetailsDisclosure(verdict)
         }
     }
 
-    var stateLine: some View {
-        let sourceState = self.watchPresentation.state
-        return HStack(spacing: 8) {
-            Image(systemName: sourceState.symbol)
-            Text(sourceState.label)
+    func verdictBlock(_ verdict: WatchSteadyVerdict) -> some View {
+        let stuck = self.isStuck(verdict)
+        return HStack(alignment: .top, spacing: 8) {
+            Image(systemName: verdict.state.symbol)
+                .foregroundStyle(stuck ? Color.solOrange : Color.primary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verdict.headline)
+                    .font(.headline)
+                    .foregroundStyle(stuck ? Color.orangeInk : Color.primary)
+                Text(verdict.sentence)
+                    .font(.subheadline)
+                    .foregroundStyle(stuck ? Color.orangeInk : Color.secondary)
+                if let nextStep = verdict.nextStep {
+                    Text(nextStep)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.secondary)
+                }
+                if let presenceLine = verdict.presenceLine {
+                    Text(presenceLine)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.secondary)
+                }
+                if let todayLine = verdict.todayLine {
+                    Text(todayLine)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.secondary)
+                }
+            }
         }
-        .font(.headline)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(verdict.accessibilityLabel)
+        .accessibilityIdentifier(stuck ? "watch.pipelineStuckNotice" : "watch.steadyVerdict")
+    }
+
+    func steadyDetailsDisclosure(_ verdict: WatchSteadyVerdict) -> some View {
+        DisclosureGroup(isExpanded: self.$steadyDetailsExpanded) {
+            self.watchBlock
+        } label: {
+            Text(verdict.detailsSummary)
+                .font(.subheadline.weight(.semibold))
+        }
+        .accessibilityLabel(verdict.detailsSummary)
     }
 
     var watchBlock: some View {
@@ -219,7 +240,6 @@ private extension WatchSourceDetailView {
                     }
                 }
             }
-            self.stuckNoticeBlock(summary.stuck)
         }
         .font(.subheadline)
     }
@@ -355,6 +375,10 @@ private extension WatchSourceDetailView {
         phoneWatchSourcePresentation(lane: self.watchLane)
     }
 
+    var watchSteadyVerdict: WatchSteadyVerdict {
+        self.watchPipelineAssembly.steadyVerdict
+    }
+
     var summary: WatchPipelineSummary {
         WatchPipelineReducer.reduce(self.pipelineInput)
     }
@@ -393,26 +417,11 @@ private extension WatchSourceDetailView {
         )
     }
 
-    @ViewBuilder
-    func stuckNoticeBlock(_ stuck: WatchPipelineStuck) -> some View {
-        if let notice = WatchSourceDetailPresentation.stuckNotice(for: stuck) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(Color.solOrange)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(notice.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.orangeInk)
-                    Text(notice.reason)
-                        .font(.subheadline)
-                        .foregroundStyle(Color.orangeInk)
-                    Text(notice.nextStep)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .accessibilityIdentifier("watch.pipelineStuckNotice")
+    func isStuck(_ verdict: WatchSteadyVerdict) -> Bool {
+        if case .stuck = verdict.kind {
+            return true
         }
+        return false
     }
 
     func refreshNowPeriodically() async {

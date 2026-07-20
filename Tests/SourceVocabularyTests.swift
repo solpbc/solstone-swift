@@ -431,6 +431,26 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchWaitingToSyncFromWatch(1), "1 waiting to sync from your watch")
         XCTAssertEqual(SourceVocabulary.watchWaitingToSyncFromWatch(3), "3 waiting to sync from your watch")
         XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch, taking in audio")
+        XCTAssertEqual(SourceVocabulary.watchSteadyObservingHeadline, "on right now")
+        XCTAssertEqual(SourceVocabulary.watchObservingSentenceBase, "taking in audio on your watch")
+        XCTAssertEqual(SourceVocabulary.watchObservingSentence(elapsedMinutes: nil), "taking in audio on your watch")
+        XCTAssertEqual(SourceVocabulary.watchObservingSentence(elapsedMinutes: 0), "taking in audio on your watch")
+        XCTAssertEqual(SourceVocabulary.watchObservingSentence(elapsedMinutes: 2), "taking in audio on your watch · 2 min")
+        XCTAssertEqual(SourceVocabulary.watchSteadyReceivingHeadline, "receiving now")
+        XCTAssertEqual(SourceVocabulary.watchSteadyWatchWaitingHeadline, "saved on your watch")
+        XCTAssertEqual(SourceVocabulary.watchSteadyWatchWaitingSentence(2), "2 waiting on your watch")
+        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingHeadline, "on this iphone")
+        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingSentence(2), "2 waiting to reach your journal")
+        XCTAssertEqual(SourceVocabulary.watchSteadyCaughtUpSentence, "everything from your watch is in your journal.")
+        XCTAssertEqual(SourceVocabulary.watchSteadyQuietHeadline, "quiet right now")
+        XCTAssertEqual(SourceVocabulary.watchPresenceConnectedNow, "your watch is connected right now")
+        XCTAssertEqual(SourceVocabulary.watchPresenceNeverHeard, "haven't heard from your watch yet")
+        XCTAssertEqual(SourceVocabulary.watchPresenceLastHeard(relative: "1m ago"), "last heard from your watch · 1m ago")
+        XCTAssertEqual(SourceVocabulary.watchTodayHandedLine(2), "today · handed 2 to your journal")
+        XCTAssertEqual(
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 2, phoneWaiting: 3),
+            "details · watch 2 · iphone 3 waiting"
+        )
         XCTAssertEqual(SourceVocabulary.watchSetupHeader, "sol on your watch")
         XCTAssertEqual(
             SourceVocabulary.watchSetupValueLine,
@@ -770,6 +790,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchIdleNowSubtext,
             SourceVocabulary.watchWaitingToSyncFromWatch(2),
             SourceVocabulary.watchListeningSubtext,
+            SourceVocabulary.watchSteadyObservingHeadline,
+            SourceVocabulary.watchObservingSentenceBase,
+            SourceVocabulary.watchObservingSentence(elapsedMinutes: 2),
+            SourceVocabulary.watchSteadyReceivingHeadline,
+            SourceVocabulary.watchSteadyWatchWaitingHeadline,
+            SourceVocabulary.watchSteadyWatchWaitingSentence(2),
+            SourceVocabulary.watchSteadyPhoneSyncingHeadline,
+            SourceVocabulary.watchSteadyPhoneSyncingSentence(2),
+            SourceVocabulary.watchSteadyCaughtUpSentence,
+            SourceVocabulary.watchSteadyQuietHeadline,
+            SourceVocabulary.watchPresenceConnectedNow,
+            SourceVocabulary.watchPresenceNeverHeard,
+            SourceVocabulary.watchPresenceLastHeard(relative: "1m ago"),
+            SourceVocabulary.watchTodayHandedLine(2),
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 2, phoneWaiting: 3),
             SourceVocabulary.watchSetupHeader,
             SourceVocabulary.watchSetupValueLine,
             SourceVocabulary.watchSetupNoWatchBody,
@@ -859,6 +894,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchSetupStepPending,
             SourceVocabulary.watchSetupStepActive,
             SourceVocabulary.watchSetupStepComplete,
+            SourceVocabulary.watchSteadyObservingHeadline,
+            SourceVocabulary.watchObservingSentenceBase,
+            SourceVocabulary.watchObservingSentence(elapsedMinutes: 2),
+            SourceVocabulary.watchSteadyReceivingHeadline,
+            SourceVocabulary.watchSteadyWatchWaitingHeadline,
+            SourceVocabulary.watchSteadyWatchWaitingSentence(2),
+            SourceVocabulary.watchSteadyPhoneSyncingHeadline,
+            SourceVocabulary.watchSteadyPhoneSyncingSentence(2),
+            SourceVocabulary.watchSteadyCaughtUpSentence,
+            SourceVocabulary.watchSteadyQuietHeadline,
+            SourceVocabulary.watchPresenceConnectedNow,
+            SourceVocabulary.watchPresenceNeverHeard,
+            SourceVocabulary.watchPresenceLastHeard(relative: "1m ago"),
+            SourceVocabulary.watchTodayHandedLine(2),
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 2, phoneWaiting: 3),
             SourceVocabulary.standingSyncFootnote(sustaining: true),
             SourceVocabulary.standingSyncFootnote(sustaining: false),
             LocationVocabulary.activeSubtext(isJournalPaired: false),

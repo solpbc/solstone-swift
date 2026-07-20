@@ -176,6 +176,15 @@ nonisolated enum SourceVocabulary {
     static let watchReceivingNowSubtext = "receiving from your watch"
     static let watchIdleNowSubtext = "start sol on your watch when you want it with you."
     static let watchListeningSubtext = "on your watch, taking in audio"
+    static let watchSteadyObservingHeadline = "on right now"
+    static let watchObservingSentenceBase = "taking in audio on your watch"
+    static let watchSteadyReceivingHeadline = "receiving now"
+    static let watchSteadyWatchWaitingHeadline = "saved on your watch"
+    static let watchSteadyPhoneSyncingHeadline = "on this iphone"
+    static let watchSteadyCaughtUpSentence = "everything from your watch is in your journal."
+    static let watchSteadyQuietHeadline = "quiet right now"
+    static let watchPresenceConnectedNow = "your watch is connected right now"
+    static let watchPresenceNeverHeard = "haven't heard from your watch yet"
     static let watchSetupHeader = "sol on your watch"
     static let watchSetupValueLine = "sol on your watch takes in audio and location from your wrist, hands it to this iphone, and it all syncs into your journal."
     static let watchSetupNoWatchBody = "pair an apple watch to this iphone and sol can come along on your wrist. everything else in solstone works without one."
@@ -306,6 +315,33 @@ nonisolated enum SourceVocabulary {
 
     static func watchWaitingToSyncFromWatch(_ n: Int) -> String {
         "\(n) waiting to sync from your watch"
+    }
+
+    static func watchObservingSentence(elapsedMinutes: Int?) -> String {
+        guard let elapsedMinutes, elapsedMinutes >= 1 else {
+            return Self.watchObservingSentenceBase
+        }
+        return "\(Self.watchObservingSentenceBase) · \(elapsedMinutes) min"
+    }
+
+    static func watchSteadyWatchWaitingSentence(_ n: Int) -> String {
+        "\(n) waiting on your watch"
+    }
+
+    static func watchSteadyPhoneSyncingSentence(_ n: Int) -> String {
+        "\(n) waiting to reach your journal"
+    }
+
+    static func watchPresenceLastHeard(relative: String) -> String {
+        "last heard from your watch · \(relative)"
+    }
+
+    static func watchTodayHandedLine(_ n: Int) -> String {
+        "today · handed \(n) to your journal"
+    }
+
+    static func watchSteadyDetailsSummary(watchWaiting: Int, phoneWaiting: Int) -> String {
+        "details · watch \(watchWaiting) · iphone \(phoneWaiting) waiting"
     }
 
     static let recentEmpty = "nothing recent yet"

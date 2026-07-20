@@ -186,27 +186,40 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertTrue(viewText.contains(".accessibilityHint(SourceVocabulary.watchSetupInstallButtonHint)"))
     }
 
-    func testStuckNoticeMapsCopyWhenStuck() throws {
-        XCTAssertNil(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.none))
+    func testSteadyLayoutUsesVerdictDisclosureAndDeletesStuckNoticeBlock() throws {
+        let viewText = try String(
+            contentsOf: Self.worktreeRoot().appendingPathComponent("Sources/WatchCapture/WatchSourceDetailView.swift"),
+            encoding: .utf8
+        )
+        let presentationText = try String(
+            contentsOf: Self.worktreeRoot().appendingPathComponent("Sources/WatchCapture/WatchSourceDetailPresentation.swift"),
+            encoding: .utf8
+        )
 
-        let relay = try XCTUnwrap(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.relay))
-        let handoff = try XCTUnwrap(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.handoff))
-        let orphan = try XCTUnwrap(WatchSourceDetailPresentation.stuckNotice(for: WatchPipelineStuck.orphan))
-
-        XCTAssertEqual(relay.title, SourceVocabulary.watchStuckNoticeTitle)
-        XCTAssertEqual(relay.reason, SourceVocabulary.watchPipelineRelayStuckReason)
-        XCTAssertEqual(relay.nextStep, SourceVocabulary.watchPipelineRelayStuckNextStep)
-        XCTAssertEqual(handoff.title, SourceVocabulary.watchStuckNoticeTitle)
-        XCTAssertEqual(handoff.reason, SourceVocabulary.watchPipelineHandoffStuckReason)
-        XCTAssertEqual(handoff.nextStep, SourceVocabulary.watchPipelineHandoffStuckNextStep)
-        XCTAssertEqual(orphan.title, SourceVocabulary.watchStuckNoticeTitle)
-        XCTAssertEqual(orphan.reason, SourceVocabulary.watchPipelineOrphanStuckReason)
-        XCTAssertEqual(orphan.nextStep, SourceVocabulary.watchPipelineOrphanStuckNextStep)
+        let stateBlockRange = try XCTUnwrap(viewText.range(
+            of: "SourceDetailBlock(title: SourceVocabulary.watchStateBlockTitle)"
+        ))
+        let diagnosticsBlockRange = try XCTUnwrap(viewText.range(
+            of: "SourceDetailBlock(title: SourceVocabulary.watchDiagnosticsBlockTitle)"
+        ))
+        XCTAssertLessThan(stateBlockRange.lowerBound, diagnosticsBlockRange.lowerBound)
+        XCTAssertFalse(viewText.contains("SourceDetailBlock(title: SourceVocabulary.watchDeviceBlockTitle)"))
+        XCTAssertTrue(viewText.contains("@State private var steadyDetailsExpanded = false"))
+        XCTAssertTrue(viewText.contains("DisclosureGroup(isExpanded: self.$steadyDetailsExpanded)"))
+        XCTAssertTrue(viewText.contains("Text(verdict.detailsSummary)"))
+        XCTAssertTrue(viewText.contains(".accessibilityElement(children: .combine)"))
+        XCTAssertTrue(viewText.contains(".accessibilityLabel(verdict.accessibilityLabel)"))
+        XCTAssertTrue(viewText.contains(".accessibilityLabel(verdict.detailsSummary)"))
+        XCTAssertTrue(viewText.contains("WatchSourceDetailPresentation.pipelineGroups(summary.pipelineRows)"))
+        XCTAssertFalse(viewText.contains("stuckNoticeBlock(summary.stuck)"))
+        XCTAssertFalse(viewText.contains("func stuckNoticeBlock"))
+        XCTAssertFalse(presentationText.contains("WatchStuckNotice"))
+        XCTAssertFalse(presentationText.contains("stuckNotice(for:"))
     }
 
     func testPipelineGroupsSplitWatchReportedAndPhoneKnownRows() {
         let rows = [
-            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: "3"),
+            WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: "3", detail: "as of 1m ago"),
             WatchSourceDetailRow(label: SourceVocabulary.watchPipelineSending, value: "1"),
             WatchSourceDetailRow(label: SourceVocabulary.watchReceivedLabel, value: "5"),
             WatchSourceDetailRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "2"),
@@ -221,6 +234,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             SourceVocabulary.watchPipelineSaved,
             SourceVocabulary.watchPipelineSending,
         ])
+        XCTAssertEqual(groups[0].rows[0].detail, "as of 1m ago")
         XCTAssertEqual(groups[1].label, SourceVocabulary.watchPipelineKnownGroupLabel)
         XCTAssertEqual(groups[1].rows.map(\.label), [
             SourceVocabulary.watchReceivedLabel,
