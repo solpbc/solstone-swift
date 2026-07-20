@@ -693,6 +693,8 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         ))
 
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))
+        XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineRelayStuckNextStep))
+        XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineHandoffStuckNextStep))
         XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckNextStep))
     }
 

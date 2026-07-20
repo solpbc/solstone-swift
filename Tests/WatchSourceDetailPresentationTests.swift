@@ -186,7 +186,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertTrue(viewText.contains(".accessibilityHint(SourceVocabulary.watchSetupInstallButtonHint)"))
     }
 
-    func testSteadyLayoutUsesVerdictDisclosureAndDeletesStuckNoticeBlock() throws {
+    func testSteadySourceOrderUsesVerdictDisclosureAndDeletesStuckNoticeBlock() throws {
         let viewText = try String(
             contentsOf: Self.worktreeRoot().appendingPathComponent("Sources/WatchCapture/WatchSourceDetailView.swift"),
             encoding: .utf8
@@ -202,8 +202,11 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         let diagnosticsBlockRange = try XCTUnwrap(viewText.range(
             of: "SourceDetailBlock(title: SourceVocabulary.watchDiagnosticsBlockTitle)"
         ))
+        let verdictBlockRange = try XCTUnwrap(viewText.range(of: "self.verdictBlock(verdict)"))
+        let detailsDisclosureRange = try XCTUnwrap(viewText.range(of: "self.steadyDetailsDisclosure(verdict)"))
         XCTAssertLessThan(stateBlockRange.lowerBound, diagnosticsBlockRange.lowerBound)
-        XCTAssertFalse(viewText.contains("SourceDetailBlock(title: SourceVocabulary.watchDeviceBlockTitle)"))
+        XCTAssertLessThan(verdictBlockRange.lowerBound, detailsDisclosureRange.lowerBound)
+        XCTAssertFalse(viewText.contains("SourceDetailBlock(title: \"watch\")"))
         XCTAssertTrue(viewText.contains("@State private var steadyDetailsExpanded = false"))
         XCTAssertTrue(viewText.contains("DisclosureGroup(isExpanded: self.$steadyDetailsExpanded)"))
         XCTAssertTrue(viewText.contains("Text(verdict.detailsSummary)"))

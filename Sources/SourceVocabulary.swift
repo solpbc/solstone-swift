@@ -203,7 +203,6 @@ nonisolated enum SourceVocabulary {
     static let watchSetupStepActive = "active"
     static let watchSetupStepComplete = "complete"
     static let watchStateBlockTitle = "state"
-    static let watchDeviceBlockTitle = "watch"
     static let watchDiagnosticsBlockTitle = "diagnostics"
     static let watchTechnicalDetailTitle = "technical detail"
     static let watchReceivedLabel = "received"

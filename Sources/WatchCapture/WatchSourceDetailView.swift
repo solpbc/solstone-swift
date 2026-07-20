@@ -367,14 +367,6 @@ private extension WatchSourceDetailView {
         self.watchSourceFacts.snapshot
     }
 
-    var watchLane: PhoneWatchSourceLane {
-        self.watchPipelineAssembly.lane
-    }
-
-    var watchPresentation: PhoneWatchSourcePresentation {
-        phoneWatchSourcePresentation(lane: self.watchLane)
-    }
-
     var watchSteadyVerdict: WatchSteadyVerdict {
         self.watchPipelineAssembly.steadyVerdict
     }

@@ -38,14 +38,7 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         XCTAssertTrue(reachability.contains("self.onReachableRepublish?()"))
     }
 
-    func testWatchSourceDetailKeepsReachabilityInDiagnosticsInputOnly() throws {
-        let (text, path) = try Self.contents("Sources/WatchCapture/WatchSourceDetailView.swift")
-        let presentation = try Self.section(
-            from: "var watchPresentation: PhoneWatchSourcePresentation {",
-            to: "    var summary: WatchPipelineSummary {",
-            in: text,
-            path: path.path
-        )
+    func testWatchPipelineInputAssemblerThreadsReachabilityIntoDiagnosticsInput() throws {
         let (assemblerText, assemblerPath) = try Self.contents("Sources/WatchCapture/WatchPipelineInputAssembler.swift")
         let pipelineInput = try Self.section(
             from: "let input = WatchPipelineInput(",
@@ -54,8 +47,10 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
             path: assemblerPath.path
         )
 
+        // WatchSourceDetailView no longer builds row presentation, so there is no
+        // detail-view reachability assertion here; the reducer-side presence line
+        // is allowed to read reachability under the pipeline-input isolation guard.
         XCTAssertTrue(pipelineInput.contains("isReachable: self.watchLink.isReachable"))
-        XCTAssertFalse(presentation.contains("isReachable"))
     }
 
     func testSourcesViewWatchSourceDoesNotThreadReachabilityIntoPresentation() throws {

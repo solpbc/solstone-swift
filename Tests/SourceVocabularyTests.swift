@@ -484,7 +484,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchSetupStepActive, "active")
         XCTAssertEqual(SourceVocabulary.watchSetupStepComplete, "complete")
         XCTAssertEqual(SourceVocabulary.watchStateBlockTitle, "state")
-        XCTAssertEqual(SourceVocabulary.watchDeviceBlockTitle, "watch")
         XCTAssertEqual(SourceVocabulary.watchDiagnosticsBlockTitle, "diagnostics")
         XCTAssertEqual(SourceVocabulary.watchTechnicalDetailTitle, "technical detail")
         XCTAssertEqual(SourceVocabulary.watchReceivedLabel, "received")
@@ -823,7 +822,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchSetupStepActive,
             SourceVocabulary.watchSetupStepComplete,
             SourceVocabulary.watchStateBlockTitle,
-            SourceVocabulary.watchDeviceBlockTitle,
             SourceVocabulary.watchDiagnosticsBlockTitle,
             SourceVocabulary.watchTechnicalDetailTitle,
             SourceVocabulary.watchReceivedLabel,
