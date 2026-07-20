@@ -181,9 +181,9 @@ private extension WatchSteadyVerdictReducer {
         switch kind {
         case .stuck:
             .needsAttention
-        case .observing, .receiving, .watchWaiting, .phoneSyncing, .caughtUp:
+        case .observing, .receiving:
             .active
-        case .quiet:
+        case .watchWaiting, .phoneSyncing, .caughtUp, .quiet:
             .off
         }
     }

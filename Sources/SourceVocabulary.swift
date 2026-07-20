@@ -324,11 +324,11 @@ nonisolated enum SourceVocabulary {
     }
 
     static func watchSteadyWatchWaitingSentence(_ n: Int) -> String {
-        "\(n) waiting on your watch"
+        "\(n) on your watch, waiting to come over. keep your watch nearby and sol handles the rest."
     }
 
     static func watchSteadyPhoneSyncingSentence(_ n: Int) -> String {
-        "\(n) waiting to reach your journal"
+        "\(n) syncing to your journal…"
     }
 
     static func watchPresenceLastHeard(relative: String) -> String {

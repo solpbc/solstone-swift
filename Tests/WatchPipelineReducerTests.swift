@@ -446,7 +446,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         let verdict = Self.steadyVerdict(input)
 
         XCTAssertEqual(verdict.kind, .watchWaiting)
-        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.state, .off)
         XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyWatchWaitingHeadline)
         XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyWatchWaitingSentence(5))
     }
@@ -460,7 +460,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         let verdict = Self.steadyVerdict(input)
 
         XCTAssertEqual(verdict.kind, .phoneSyncing)
-        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.state, .off)
         XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyPhoneSyncingHeadline)
         XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyPhoneSyncingSentence(3))
     }
@@ -479,7 +479,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         let unavailable = Self.steadyVerdict(Self.input(lifetimeReceived: 1, lifetimeHanded: 1))
 
         XCTAssertEqual(verdict.kind, .caughtUp)
-        XCTAssertEqual(verdict.state, .active)
+        XCTAssertEqual(verdict.state, .off)
         XCTAssertEqual(verdict.headline, SourceVocabulary.syncedHeadline)
         XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyCaughtUpSentence)
         XCTAssertEqual(unavailable.kind, .quiet)
@@ -659,6 +659,18 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             watchStatus: Self.context(queuedCount: 3, asOf: Self.now),
             nonTerminalCount: 1
         )
+        let phoneSyncing = Self.input(
+            watchStatus: Self.context(queuedCount: 1, transferringCount: 0, asOf: Self.now),
+            nonTerminalCount: 3
+        )
+        let caughtUpID = Self.uuid(901)
+        let caughtUp = Self.input(
+            lifetimeReceived: 1,
+            lifetimeHanded: 1,
+            phoneLedgerSnapshot: .available(Self.ledgerSnapshot(entries: [
+                caughtUpID: Self.ledgerEntry(id: caughtUpID, state: .handed)
+            ]))
+        )
         let stuck = Self.input(oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800))
 
         for input in [observing, receiving] {
@@ -666,6 +678,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             let row = Self.rowPresentation(input: input, waiting: breakdown)
             let verdict = Self.steadyVerdict(input, waiting: breakdown)
             XCTAssertEqual(row.state, .active)
+            XCTAssertEqual(verdict.state, .active)
             switch verdict.kind {
             case .observing, .receiving:
                 break
@@ -679,12 +692,29 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         let waitingVerdict = Self.steadyVerdict(waiting, waiting: waitingBreakdown)
         XCTAssertNotNil(waitingRow.subtext)
         XCTAssertEqual(waitingVerdict.kind, .watchWaiting)
+        XCTAssertEqual(waitingRow.state, .off)
+        XCTAssertEqual(waitingVerdict.state, .off)
+
+        let phoneSyncingBreakdown = WatchPipelineReducer.waitingBreakdown(phoneSyncing)
+        let phoneSyncingRow = Self.rowPresentation(input: phoneSyncing, waiting: phoneSyncingBreakdown)
+        let phoneSyncingVerdict = Self.steadyVerdict(phoneSyncing, waiting: phoneSyncingBreakdown)
+        XCTAssertEqual(phoneSyncingRow.state, .off)
+        XCTAssertEqual(phoneSyncingVerdict.kind, .phoneSyncing)
+        XCTAssertEqual(phoneSyncingVerdict.state, .off)
+
+        let caughtUpBreakdown = WatchPipelineReducer.waitingBreakdown(caughtUp)
+        let caughtUpRow = Self.rowPresentation(input: caughtUp, waiting: caughtUpBreakdown)
+        let caughtUpVerdict = Self.steadyVerdict(caughtUp, waiting: caughtUpBreakdown)
+        XCTAssertEqual(caughtUpRow.state, .off)
+        XCTAssertEqual(caughtUpVerdict.kind, .caughtUp)
+        XCTAssertEqual(caughtUpVerdict.state, .off)
 
         let stuckBreakdown = WatchPipelineReducer.waitingBreakdown(stuck)
         let stuckRow = Self.rowPresentation(input: stuck, waiting: stuckBreakdown)
         let stuckVerdict = Self.steadyVerdict(stuck, waiting: stuckBreakdown)
         XCTAssertEqual(stuckRow.state, .needsAttention)
         XCTAssertEqual(stuckVerdict.kind, .stuck(.orphan))
+        XCTAssertEqual(stuckVerdict.state, .needsAttention)
     }
 
     func testDiagnosticsExportForStuckContainsReasonButNoNextStep() {

@@ -438,9 +438,17 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchObservingSentence(elapsedMinutes: 2), "taking in audio on your watch · 2 min")
         XCTAssertEqual(SourceVocabulary.watchSteadyReceivingHeadline, "receiving now")
         XCTAssertEqual(SourceVocabulary.watchSteadyWatchWaitingHeadline, "saved on your watch")
-        XCTAssertEqual(SourceVocabulary.watchSteadyWatchWaitingSentence(2), "2 waiting on your watch")
+        XCTAssertEqual(
+            SourceVocabulary.watchSteadyWatchWaitingSentence(1),
+            "1 on your watch, waiting to come over. keep your watch nearby and sol handles the rest."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.watchSteadyWatchWaitingSentence(2),
+            "2 on your watch, waiting to come over. keep your watch nearby and sol handles the rest."
+        )
         XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingHeadline, "on this iphone")
-        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingSentence(2), "2 waiting to reach your journal")
+        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingSentence(1), "1 syncing to your journal…")
+        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingSentence(2), "2 syncing to your journal…")
         XCTAssertEqual(SourceVocabulary.watchSteadyCaughtUpSentence, "everything from your watch is in your journal.")
         XCTAssertEqual(SourceVocabulary.watchSteadyQuietHeadline, "quiet right now")
         XCTAssertEqual(SourceVocabulary.watchPresenceConnectedNow, "your watch is connected right now")
