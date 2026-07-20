@@ -257,6 +257,7 @@ final class WatchSegmentLedgerTests: XCTestCase {
             transferStatusMirror: harness.mirror,
             transferEnqueuer: harness.enqueuer,
             watchConnectivitySession: MockWatchConnectivitySession(),
+            watchSourceFacts: Self.watchSourceFacts(),
             ledgerFileURL: ledgerURL,
             ledgerClock: { now },
             drainStagingRootURL: self.tempDirectory.appendingPathComponent("delivered-hook-drain", isDirectory: true),
@@ -370,6 +371,13 @@ final class WatchSegmentLedgerTests: XCTestCase {
         XCTAssertNil(snapshot.value)
         XCTAssertNotNil(snapshot.unavailableReason)
         XCTAssertNotEqual(snapshot.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.absent)
+    }
+
+    private static func watchSourceFacts() -> WatchSourceFacts {
+        let suite = "WatchSegmentLedgerTests-WatchFacts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return WatchSourceFacts(defaults: defaults)
     }
 
     func testAC6bTransientWriteFailureSetsAndClearsLedgerError() throws {

@@ -23,7 +23,7 @@ final class WatchRelayReceiver {
     private let session: any WatchConnectivitySession
     private let ledger: WatchSegmentLedger
     private let fileWriter: any WatchFileWriting
-    private let facts: WatchSourceFacts?
+    private let facts: WatchSourceFacts
 
     init(
         session: any WatchConnectivitySession,
@@ -31,7 +31,7 @@ final class WatchRelayReceiver {
         stagingRootURL: URL? = nil,
         fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
         fileManager: FileManager = .default,
-        facts: WatchSourceFacts? = nil
+        facts: WatchSourceFacts
     ) throws {
         self.session = session
         self.ledger = ledger
@@ -62,7 +62,7 @@ final class WatchRelayReceiver {
         if self.ledger.isTerminal(id: id) {
             watchRelayReceiverLog.info("watch relay terminal duplicate id=\(id.uuidString, privacy: .public)")
             self.lastReceivedAt = Date()
-            self.facts?.noteSegmentFileReceived()
+            self.facts.noteSegmentFileReceived()
             self.sendACK(id: id)
             return
         }
@@ -71,7 +71,7 @@ final class WatchRelayReceiver {
         if self.fileWriter.fileExists(at: committedURL) {
             watchRelayReceiverLog.info("watch relay duplicate staged id=\(id.uuidString, privacy: .public)")
             self.lastReceivedAt = Date()
-            self.facts?.noteSegmentFileReceived()
+            self.facts.noteSegmentFileReceived()
             self.sendACK(id: id)
             self.onSegmentStaged?(id)
             return
@@ -89,7 +89,7 @@ final class WatchRelayReceiver {
             try self.fileWriter.moveItem(at: incomingURL, to: committedURL)
             self.ledger.recordReceived(id: id)
             self.lastReceivedAt = Date()
-            self.facts?.noteSegmentFileReceived()
+            self.facts.noteSegmentFileReceived()
             self.lastStagingError = nil
             self.sendACK(id: id)
             self.onSegmentStaged?(id)

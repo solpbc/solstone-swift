@@ -849,8 +849,16 @@ private extension WatchRelayTests {
         try WatchRelayReceiver(
             session: session,
             ledger: ledger ?? self.makeLedger("receiver-ledger-\(UUID().uuidString)"),
-            stagingRootURL: stagingRoot
+            stagingRootURL: stagingRoot,
+            facts: self.watchSourceFacts()
         )
+    }
+
+    func watchSourceFacts() -> WatchSourceFacts {
+        let suite = "WatchRelayTests-WatchFacts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return WatchSourceFacts(defaults: defaults)
     }
 
     func pipelineInput(

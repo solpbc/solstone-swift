@@ -20,6 +20,17 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.source.id == "watch" })
     }
 
+    func testWatchSourceFromLaneOmitsUnsupportedAndBuildsNonUnsupportedSource() throws {
+        XCTAssertNil(watchSourceModel(from: .unsupported, isJournalPaired: true))
+
+        let source = try XCTUnwrap(watchSourceModel(from: .readyToSetUp(.installApp), isJournalPaired: true))
+
+        XCTAssertEqual(source.id, "watch")
+        XCTAssertEqual(source.kind, .watch)
+        XCTAssertEqual(source.state, .readyToSetUp)
+        XCTAssertEqual(source.subtextOverride, SourceVocabulary.watchReadyToSetUpSubtext)
+    }
+
     func testPrimaryRowsKeepWatchOrderWhenPresent() {
         let rows = SourcesViewRowBuilder.primaryRows(
             audio: Self.source(id: "audio", kind: .observer),
@@ -34,8 +45,13 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
 
     func testSourcesViewDoesNotRestoreWatchRowAttentionThirdLine() throws {
         let text = try String(contentsOf: Self.sourcesViewURL(), encoding: .utf8)
+        let watchSourceConstruction = try Self.section(
+            in: text,
+            from: "nonisolated func watchSourceModel(",
+            to: "private extension SourcesView"
+        )
 
-        XCTAssertFalse(text.contains("detailSubtext: presentation.attention?.message"))
+        XCTAssertFalse(watchSourceConstruction.contains("detailSubtext:"))
     }
 }
 
@@ -59,5 +75,11 @@ private extension SourcesViewRowBuilderTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/SourcesView.swift")
+    }
+
+    static func section(in text: String, from start: String, to end: String) throws -> String {
+        let startRange = try XCTUnwrap(text.range(of: start))
+        let endRange = try XCTUnwrap(text.range(of: end, range: startRange.upperBound..<text.endIndex))
+        return String(text[startRange.lowerBound..<endRange.lowerBound])
     }
 }

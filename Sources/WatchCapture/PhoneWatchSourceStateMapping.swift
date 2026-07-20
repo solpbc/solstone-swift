@@ -138,13 +138,6 @@ nonisolated func phoneWatchSourceLane(
     }
 }
 
-nonisolated func phoneWatchSourceState(
-    lane: PhoneWatchSourceLane
-) -> (SourceState, SourceAttention?) {
-    let presentation = phoneWatchSourcePresentation(lane: lane)
-    return (presentation.state, presentation.attention)
-}
-
 nonisolated func phoneWatchSourcePresentation(
     lane: PhoneWatchSourceLane
 ) -> PhoneWatchSourcePresentation {

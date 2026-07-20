@@ -61,14 +61,14 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
     func testSourcesViewWatchSourceDoesNotThreadReachabilityIntoPresentation() throws {
         let (text, path) = try Self.contents("Sources/SourcesView.swift")
         let watchSource = try Self.section(
-            from: "var watchSource: Source? {",
-            to: "    func refreshNowPeriodically() async {",
+            from: "nonisolated func watchSourceModel(",
+            to: "private extension SourcesView",
             in: text,
             path: path.path
         )
         let presentationCall = try Self.section(
-            from: "let presentation = phoneWatchSourcePresentation(lane: assembly.lane)",
-            to: "        return Source(",
+            from: "let presentation = phoneWatchSourcePresentation(lane: lane)",
+            to: "    return Source(",
             in: watchSource,
             path: path.path
         )

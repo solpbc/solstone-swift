@@ -514,6 +514,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             transferStatusMirror: transferHarness.mirror,
             transferEnqueuer: transferHarness.enqueuer,
             watchConnectivitySession: MockWatchConnectivitySession(),
+            watchSourceFacts: Self.watchSourceFacts(),
             ledgerFileURL: ledgerURL,
             drainStagingRootURL: stagingRoot
         )
@@ -595,6 +596,14 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             mirror: mirror,
             store: ShareImportStore(cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true))
         )
+    }
+
+    @MainActor
+    private static func watchSourceFacts() -> WatchSourceFacts {
+        let suite = "OnThisPhoneDropControllerTests-WatchFacts-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return WatchSourceFacts(defaults: defaults)
     }
 
     @MainActor

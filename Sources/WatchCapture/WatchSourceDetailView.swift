@@ -234,10 +234,6 @@ private extension WatchSourceDetailView {
         self.watchPipelineInputs.assembly(now: self.now)
     }
 
-    var recordingStatus: WatchRecordingStatus {
-        self.watchPipelineAssembly.recordingStatus
-    }
-
     var watchLane: PhoneWatchSourceLane {
         self.watchPipelineAssembly.lane
     }

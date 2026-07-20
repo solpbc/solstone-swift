@@ -19,7 +19,7 @@ func makeWatchPhonePipeline(
     transferStatusMirror: TransferStatusMirror,
     transferEnqueuer: ObserverAudioTransferEnqueuer,
     watchConnectivitySession: any WatchConnectivitySession,
-    watchSourceFacts: WatchSourceFacts? = nil,
+    watchSourceFacts: WatchSourceFacts,
     ledgerFileURL: URL? = nil,
     ledgerClock: @escaping @MainActor @Sendable () -> Date = Date.init,
     drainStagingRootURL: URL? = nil,

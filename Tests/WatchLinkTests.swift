@@ -15,7 +15,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
         self.session.isWatchAppInstalled = true
         self.session.activationState = .activated
 
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
 
         XCTAssertTrue(watchLink.isSupported)
         XCTAssertTrue(watchLink.isPaired)
@@ -25,7 +25,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testActivateInvokesSessionActivation() async {
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
 
         watchLink.activate()
         await self.yieldToMainActor()
@@ -35,7 +35,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testActivationRefreshesWatchState() async {
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
 
         watchLink.activate()
         await self.yieldToMainActor()
@@ -45,7 +45,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testReachabilityTransitionIsSurfaced() async {
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
         XCTAssertEqual(watchLink.isReachable, false)
 
         self.session.emitReachability(true)
@@ -59,7 +59,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testWatchStateTransitionIsSurfaced() async {
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
         XCTAssertFalse(watchLink.isPaired)
         XCTAssertFalse(watchLink.isWatchAppInstalled)
         XCTAssertEqual(watchLink.activationState, .notActivated)
@@ -89,7 +89,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
 
     @MainActor
     func testDeliveredApplicationContextUpdatesWatchStatus() async {
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
         let status = Self.status(seq: 1)
 
         self.session.deliverApplicationContext(status.applicationContext())
@@ -102,7 +102,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
     func testActivateRecoversReceivedApplicationContext() async {
         let status = Self.status(seq: 2)
         self.session.receivedApplicationContext = status.applicationContext()
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
 
         watchLink.activate()
         await self.yieldToMainActor()
@@ -121,7 +121,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
     @MainActor
     func testReachabilityDoesNotAffectWatchStatus() async {
         let status = Self.status(seq: 3)
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts())
         self.session.deliverApplicationContext(status.applicationContext())
         await self.yieldToMainActor()
 
@@ -142,7 +142,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
         self.session.isReachable = true
         let facts = WatchSourceFacts(defaults: Self.defaults())
         facts.noteStatusContextCheckedIn()
-        let watchLink = WatchLink(session: self.session, receiver: nil)
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: facts)
 
         let recordingStatus = watchRecordingStatus(
             context: watchLink.watchStatus,
@@ -204,7 +204,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
         self.session.seedOutstandingUserInfoTransfer(recognizedType: .watchSegmentACK, idState: .unparseable)
         self.session.seedOutstandingUserInfoTransfer(recognizedType: nil)
 
-        let snapshot = WatchLink(session: self.session, receiver: nil).iPhoneACKQueueSnapshot
+        let snapshot = WatchLink(session: self.session, receiver: nil, facts: Self.facts()).iPhoneACKQueueSnapshot
 
         XCTAssertEqual(snapshot.total, 6)
         XCTAssertEqual(snapshot.recognizedACK, 5)
@@ -284,5 +284,10 @@ nonisolated final class WatchLinkTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults
+    }
+
+    @MainActor
+    private static func facts() -> WatchSourceFacts {
+        WatchSourceFacts(defaults: Self.defaults())
     }
 }

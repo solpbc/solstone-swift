@@ -86,7 +86,7 @@ final class WatchLink {
 
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
-    @ObservationIgnored private let facts: WatchSourceFacts?
+    @ObservationIgnored private let facts: WatchSourceFacts
 
     var lastReceivedAt: Date? {
         self.receiver?.lastReceivedAt
@@ -96,7 +96,7 @@ final class WatchLink {
         WatchRelayACKQueueSnapshot(userInfoTransfers: self.session.outstandingUserInfoTransferSnapshots)
     }
 
-    init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?, facts: WatchSourceFacts? = nil) {
+    init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?, facts: WatchSourceFacts) {
         self.session = session
         self.receiver = receiver
         self.facts = facts
@@ -161,7 +161,7 @@ private extension WatchLink {
     func applyWatchStatus(_ status: WatchStatusContext?) {
         self.watchStatus = status
         if status != nil {
-            self.facts?.noteStatusContextCheckedIn()
+            self.facts.noteStatusContextCheckedIn()
         }
         self.watchDiagnosticsEnvelopeResult = WatchRelayDiagnosticsEnvelope.decodeResult(
             from: status?.diagnosticsEnvelope

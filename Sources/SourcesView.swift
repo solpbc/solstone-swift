@@ -130,6 +130,26 @@ nonisolated enum SourcesViewRowBuilder {
     }
 }
 
+nonisolated func watchSourceModel(from lane: PhoneWatchSourceLane, isJournalPaired: Bool) -> Source? {
+    guard lane != .unsupported else {
+        return nil
+    }
+    let presentation = phoneWatchSourcePresentation(lane: lane)
+    return Source(
+        id: "watch",
+        displayName: SourceVocabulary.watchSourceDisplayName,
+        kind: .watch,
+        group: .experiencingAlongsideYou,
+        state: presentation.state,
+        isJournalPaired: isJournalPaired,
+        activeSubtext: SourceVocabulary.watchListeningSubtext,
+        subtextOverride: presentation.subtext,
+        attention: presentation.attention,
+        pendingStatus: .nonePending,
+        showsSubtext: presentation.subtext != nil
+    )
+}
+
 private extension SourcesView {
     var audioSource: Source {
         let state = sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
@@ -224,23 +244,7 @@ private extension SourcesView {
 
     var watchSource: Source? {
         let assembly = self.watchPipelineInputs.assembly(now: self.now)
-        guard assembly.lane != .unsupported else {
-            return nil
-        }
-        let presentation = phoneWatchSourcePresentation(lane: assembly.lane)
-        return Source(
-            id: "watch",
-            displayName: SourceVocabulary.watchSourceDisplayName,
-            kind: .watch,
-            group: .experiencingAlongsideYou,
-            state: presentation.state,
-            isJournalPaired: self.appConfig.isPaired,
-            activeSubtext: SourceVocabulary.watchListeningSubtext,
-            subtextOverride: presentation.subtext,
-            attention: presentation.attention,
-            pendingStatus: .nonePending,
-            showsSubtext: presentation.subtext != nil
-        )
+        return watchSourceModel(from: assembly.lane, isJournalPaired: self.appConfig.isPaired)
     }
 
     func refreshNowPeriodically() async {
