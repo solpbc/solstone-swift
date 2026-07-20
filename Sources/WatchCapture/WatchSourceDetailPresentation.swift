@@ -23,14 +23,9 @@ nonisolated enum WatchDetailContentMode: Equatable, Sendable {
     case notice(String)
 }
 
-nonisolated enum WatchSetupCardLine: Equatable, Sendable {
-    case value(String)
-    case body(String)
-}
-
 nonisolated struct WatchSetupCard: Equatable, Sendable {
     let header: String
-    let line: WatchSetupCardLine
+    let line: String
     let steps: [WatchSetupStep]
 }
 
@@ -133,7 +128,7 @@ nonisolated enum WatchSourceDetailPresentation {
         }
         return WatchSetupCard(
             header: SourceVocabulary.watchSetupHeader,
-            line: .value(SourceVocabulary.watchSetupValueLine),
+            line: SourceVocabulary.watchSetupValueLine,
             steps: self.stepStates(
                 lane: lane,
                 installed: installed,
@@ -146,7 +141,7 @@ nonisolated enum WatchSourceDetailPresentation {
     static func noWatchSetupCard() -> WatchSetupCard {
         WatchSetupCard(
             header: SourceVocabulary.watchSetupHeader,
-            line: .body(SourceVocabulary.watchSetupNoWatchBody),
+            line: SourceVocabulary.watchSetupNoWatchBody,
             steps: []
         )
     }
@@ -166,6 +161,7 @@ nonisolated enum WatchSourceDetailPresentation {
             checkedIn || firstSegment,
             firstSegment,
         ]
+        // Step 1 is index 0, so it is only ever active or done; the first not-done step is always active.
         let activeIndex = done.firstIndex(of: false)
 
         return [

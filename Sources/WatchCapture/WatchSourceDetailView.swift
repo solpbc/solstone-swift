@@ -254,12 +254,9 @@ private extension WatchSourceDetailView {
 
     func setupCardBlock(_ card: WatchSetupCard) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            switch card.line {
-            case .value(let line), .body(let line):
-                Text(line)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            Text(card.line)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
             if !card.steps.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {

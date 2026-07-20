@@ -34,11 +34,11 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
 
         let noWatch = try XCTUnwrap(Self.setupCard(from: Self.contentMode(lane: .noWatchPaired)))
         XCTAssertEqual(noWatch.header, SourceVocabulary.watchSetupHeader)
-        XCTAssertEqual(noWatch.line, .body(SourceVocabulary.watchSetupNoWatchBody))
+        XCTAssertEqual(noWatch.line, SourceVocabulary.watchSetupNoWatchBody)
         XCTAssertEqual(noWatch.steps, [])
 
         let ready = try XCTUnwrap(Self.setupCard(from: Self.contentMode(lane: .readyToSetUp(.installApp))))
-        XCTAssertEqual(ready.line, .value(SourceVocabulary.watchSetupValueLine))
+        XCTAssertEqual(ready.line, SourceVocabulary.watchSetupValueLine)
         XCTAssertEqual(ready.steps.map(\.state), [.active, .pending, .pending])
 
         let unopened = try XCTUnwrap(Self.setupCard(from: Self.contentMode(
