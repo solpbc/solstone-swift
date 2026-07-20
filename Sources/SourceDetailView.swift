@@ -334,7 +334,7 @@ private extension SourceDetailView {
         switch self.currentSourceState {
         case .active, .paused:
             self.observerManager.state == .stopping
-        case .off, .enrolling, .needsAttention:
+        case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
             true
         }
     }
@@ -373,7 +373,7 @@ private extension SourceDetailView {
         case .paused:
             self.observerSourcePauseState.isPaused = false
             await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
-        case .off, .enrolling, .needsAttention:
+        case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
             break
         }
     }

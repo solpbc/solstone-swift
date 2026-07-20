@@ -9,12 +9,19 @@ nonisolated final class WatchPipelineReducerIsolationGrepTests: XCTestCase {
         let root = Self.worktreeRoot()
         let presentation = root.appendingPathComponent("Sources/WatchCapture/WatchSourceDetailPresentation.swift")
         let view = root.appendingPathComponent("Sources/WatchCapture/WatchSourceDetailView.swift")
+        let assembler = root.appendingPathComponent("Sources/WatchCapture/WatchPipelineInputAssembler.swift")
 
-        try self.assertNoForbiddenSymbols(in: String(contentsOf: presentation, encoding: .utf8), path: presentation.path)
+        let presentationText = try String(contentsOf: presentation, encoding: .utf8)
+        XCTAssertNoThrow(try Self.assertExemptMarkerCount(in: presentationText, path: presentation.path, expected: 0))
+        try self.assertNoForbiddenSymbols(in: presentationText, path: presentation.path)
 
         let viewText = try String(contentsOf: view, encoding: .utf8)
-        let strippedViewText = try Self.removingExemptSeam(from: viewText, path: view.path)
-        try self.assertNoForbiddenSymbols(in: strippedViewText, path: view.path)
+        XCTAssertNoThrow(try Self.assertExemptMarkerCount(in: viewText, path: view.path, expected: 0))
+        try self.assertNoForbiddenSymbols(in: viewText, path: view.path)
+
+        let assemblerText = try String(contentsOf: assembler, encoding: .utf8)
+        let strippedAssemblerText = try Self.removingExemptSeam(from: assemblerText, path: assembler.path)
+        try self.assertNoForbiddenSymbols(in: strippedAssemblerText, path: assembler.path)
     }
 
     private static let forbiddenSymbols = [
@@ -40,6 +47,13 @@ nonisolated final class WatchPipelineReducerIsolationGrepTests: XCTestCase {
         for forbidden in Self.forbiddenSymbols where text.contains(forbidden) {
             XCTFail("forbidden watch pipeline builder symbol \(forbidden) in \(path)")
         }
+    }
+
+    private static func assertExemptMarkerCount(in text: String, path: String, expected: Int) throws {
+        let beginRanges = text.ranges(of: self.exemptBegin)
+        let endRanges = text.ranges(of: self.exemptEnd)
+        XCTAssertEqual(beginRanges.count, expected, "unexpected watch pipeline exempt begin marker count in \(path)")
+        XCTAssertEqual(endRanges.count, expected, "unexpected watch pipeline exempt end marker count in \(path)")
     }
 
     private static func removingExemptSeam(from text: String, path: String) throws -> String {

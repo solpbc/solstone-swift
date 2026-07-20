@@ -6,86 +6,198 @@ import WatchConnectivity
 import XCTest
 
 nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
-    func testInstallStatesMapToSourceStateAndAttention() {
-        let cases: [(WatchInstallState, SourceState, SourceAttention?)] = [
-            (.notSupported, .off, SourceAttention(message: SourceVocabulary.watchNotSupported)),
-            (.noWatchPaired, .needsAttention, SourceAttention(message: SourceVocabulary.watchNoWatchPaired)),
-            (.pairedNoApp, .needsAttention, SourceAttention(message: SourceVocabulary.watchAppNotInstalled)),
-            (.receivingUnconfirmedInstall, .off, nil),
-            (.appInstalled, .active, nil),
-        ]
-
-        for (install, expectedState, expectedAttention) in cases {
-            let mapped = phoneWatchSourceState(
-                install: install,
-                recordingStatus: .observing,
-                isReachable: false,
-                isJournalPaired: true
-            )
-
-            XCTAssertEqual(mapped.0, expectedState)
-            XCTAssertEqual(mapped.1, expectedAttention)
-        }
-    }
-
-    func testWatchInstallStateDerivation() {
-        let now = Date(timeIntervalSince1970: 1_000)
-
+    func testReadinessDoesNotConsultActivatedFactsUntilActivatedAndRecomputesOnExit() {
         XCTAssertEqual(
-            watchInstallState(
-                isSupported: false,
-                isPaired: true,
-                isWatchAppInstalled: true,
-                activationState: .activated,
-                now: now,
-                lastReceivedAt: nil
+            watchSessionReadiness(
+                isSupported: true,
+                activationState: .notActivated,
+                activationFailed: false,
+                activatedReadiness: Self.crashIfConsulted
             ),
-            .notSupported
+            .checking
         )
         XCTAssertEqual(
-            watchInstallState(
+            watchSessionReadiness(
                 isSupported: true,
+                activationState: .inactive,
+                activationFailed: false,
+                activatedReadiness: Self.crashIfConsulted
+            ),
+            .checking
+        )
+
+        let activated = watchSessionReadiness(
+            isSupported: true,
+            activationState: .activated,
+            activationFailed: false
+        ) {
+            .installedNeverOpened
+        }
+
+        XCTAssertEqual(activated, .activated(.installedNeverOpened))
+        XCTAssertEqual(
+            phoneWatchSourceLane(
+                session: activated,
+                flow: Self.flow(recordingStatus: .noContext)
+            ),
+            .installedNeverOpened
+        )
+    }
+
+    func testActivationFailedIsDistinctFromChecking() {
+        let readiness = watchSessionReadiness(
+            isSupported: true,
+            activationState: .inactive,
+            activationFailed: true,
+            activatedReadiness: Self.crashIfConsulted
+        )
+        let presentation = phoneWatchSourcePresentation(
+            lane: phoneWatchSourceLane(
+                session: readiness,
+                flow: Self.flow(recordingStatus: .observing)
+            )
+        )
+
+        XCTAssertEqual(readiness, .activationFailed)
+        XCTAssertEqual(presentation.state, .off)
+        XCTAssertNil(presentation.attention)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchActivationFailedSubtext)
+    }
+
+    func testActivatedReadinessSetupLogic() {
+        XCTAssertEqual(
+            watchActivatedReadiness(
                 isPaired: false,
                 isWatchAppInstalled: true,
-                activationState: .activated,
-                now: now,
-                lastReceivedAt: nil
+                facts: Self.facts()
             ),
             .noWatchPaired
         )
         XCTAssertEqual(
-            watchInstallState(
-                isSupported: true,
+            watchActivatedReadiness(
                 isPaired: true,
                 isWatchAppInstalled: false,
-                activationState: .activated,
-                now: now,
-                lastReceivedAt: nil
+                facts: Self.facts()
             ),
-            .pairedNoApp
+            .readyToSetUp(.installApp)
         )
         XCTAssertEqual(
-            watchInstallState(
-                isSupported: true,
+            watchActivatedReadiness(
                 isPaired: true,
                 isWatchAppInstalled: true,
-                activationState: .inactive,
-                now: now,
-                lastReceivedAt: nil
+                facts: Self.facts()
             ),
-            .pairedNoApp
+            .installedNeverOpened
         )
         XCTAssertEqual(
-            watchInstallState(
-                isSupported: true,
+            watchActivatedReadiness(
                 isPaired: true,
-                isWatchAppInstalled: true,
-                activationState: .activated,
-                now: now,
-                lastReceivedAt: nil
+                isWatchAppInstalled: false,
+                facts: Self.facts(watchAppCheckedIn: true)
             ),
-            .appInstalled
+            .installedActive
         )
+        XCTAssertEqual(
+            watchActivatedReadiness(
+                isPaired: true,
+                isWatchAppInstalled: false,
+                facts: Self.facts(segmentFileReceived: true)
+            ),
+            .installedActive
+        )
+    }
+
+    func testLanePresentationMatrixUsesReviewedCopy() {
+        let cases: [(PhoneWatchSourceLane, SourceState, String?, SourceAttention?)] = [
+            (.unsupported, .off, nil, nil),
+            (.checking, .checking, nil, nil),
+            (.activationFailed, .off, SourceVocabulary.watchActivationFailedSubtext, nil),
+            (.noWatchPaired, .off, SourceVocabulary.watchNoWatchPairedSubtext, nil),
+            (.readyToSetUp(.installApp), .readyToSetUp, SourceVocabulary.watchReadyToSetUpSubtext, nil),
+            (.installedNeverOpened, .enrolling, SourceVocabulary.watchInstalledNeverOpenedSubtext, nil),
+            (.installedActive(.observing), .active, SourceVocabulary.watchListeningSubtext, nil),
+            (.installedActive(.receiving), .active, SourceVocabulary.watchReceivingNowSubtext, nil),
+            (.installedActive(.waiting(Self.waiting(count: 2))), .off, SourceVocabulary.watchWaitingToSyncFromWatch(2), nil),
+            (.installedActive(.idle), .off, SourceVocabulary.watchIdleNowSubtext, nil),
+        ]
+
+        for (lane, expectedState, expectedSubtext, expectedAttention) in cases {
+            let presentation = phoneWatchSourcePresentation(lane: lane)
+            XCTAssertEqual(presentation.state, expectedState, "\(lane)")
+            XCTAssertEqual(presentation.subtext, expectedSubtext, "\(lane)")
+            XCTAssertEqual(presentation.attention, expectedAttention, "\(lane)")
+        }
+
+        let stuck = phoneWatchSourcePresentation(lane: .installedActive(.stuck(.handoff)))
+        XCTAssertEqual(stuck.state, .needsAttention)
+        XCTAssertEqual(stuck.subtext, SourceVocabulary.watchPipelineHandoffStuckReason)
+        XCTAssertEqual(stuck.attention, SourceAttention(message: SourceVocabulary.watchPipelineHandoffStuckReason))
+    }
+
+    func testInstalledFlowPrecedenceMatrix() {
+        let waiting = Self.waiting(count: 2)
+
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(stuck: .relay, recordingStatus: .observing, waiting: waiting)),
+            .stuck(.relay)
+        )
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(recordingStatus: .observing, waiting: waiting)),
+            .observing
+        )
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(recordingStatus: .noContextButReceiving, waiting: waiting)),
+            .receiving
+        )
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(recordingStatus: .idle, waiting: waiting)),
+            .waiting(waiting)
+        )
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(recordingStatus: .idle, waiting: Self.waiting(count: 0))),
+            .idle
+        )
+    }
+
+    func testRetryableBacklogRendersCalmWaitingAndStuckRendersReason() {
+        let waitingPresentation = phoneWatchSourcePresentation(
+            lane: .installedActive(.waiting(Self.waiting(count: 1)))
+        )
+        XCTAssertEqual(waitingPresentation.state, .off)
+        XCTAssertNil(waitingPresentation.attention)
+        XCTAssertEqual(waitingPresentation.subtext, "1 waiting to sync from your watch")
+
+        let stuckPresentation = phoneWatchSourcePresentation(lane: .installedActive(.stuck(.orphan)))
+        XCTAssertEqual(stuckPresentation.state, .needsAttention)
+        XCTAssertEqual(stuckPresentation.subtext, SourceVocabulary.watchPipelineOrphanStuckReason)
+        XCTAssertEqual(
+            stuckPresentation.attention,
+            SourceAttention(message: SourceVocabulary.watchPipelineOrphanStuckReason)
+        )
+    }
+
+    func testWatchRowPresentationNeverFallsThroughToGenericAttentionCopy() {
+        let lanes: [PhoneWatchSourceLane] = [
+            .unsupported,
+            .checking,
+            .activationFailed,
+            .noWatchPaired,
+            .readyToSetUp(.installApp),
+            .installedNeverOpened,
+            .installedActive(.stuck(.relay)),
+            .installedActive(.stuck(.handoff)),
+            .installedActive(.stuck(.orphan)),
+            .installedActive(.observing),
+            .installedActive(.receiving),
+            .installedActive(.waiting(Self.waiting(count: 2))),
+            .installedActive(.idle),
+        ]
+
+        for lane in lanes {
+            let presentation = phoneWatchSourcePresentation(lane: lane)
+            XCTAssertNotEqual(presentation.subtext, SourceVocabulary.needsAttentionSubtext, "\(lane)")
+            XCTAssertNotEqual(presentation.attention?.message, SourceVocabulary.needsAttentionSubtext, "\(lane)")
+        }
     }
 
     func testRecordingStatusFromContext() {
@@ -150,7 +262,7 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
     }
 
-    func testFreshReceiptCorroboratesMissingContextWithoutActivating() {
+    func testFreshReceiptCorroboratesMissingContextAsReceiving() {
         let now = Date(timeIntervalSince1970: 1_000)
 
         let status = watchRecordingStatus(
@@ -159,18 +271,13 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             lastReceivedAt: now.addingTimeInterval(-5)
         )
         let presentation = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: status,
-            isReachable: false,
-            isJournalPaired: true
+            lane: .installedActive(watchInstalledFlow(Self.flow(recordingStatus: status)))
         )
 
         XCTAssertEqual(status, .noContextButReceiving)
-        XCTAssertEqual(presentation.state, .off)
+        XCTAssertEqual(presentation.state, .active)
         XCTAssertNil(presentation.attention)
-        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchReceivingSubtext)
-        XCTAssertNotEqual(presentation.subtext, SourceVocabulary.watchNoContextSubtext)
-        XCTAssertNotEqual(presentation.state, .active)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchReceivingNowSubtext)
         XCTAssertNotEqual(presentation.subtext, SourceVocabulary.watchListeningSubtext)
     }
 
@@ -200,249 +307,47 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             lastReceivedAt: now.addingTimeInterval(-5)
         )
         let presentation = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: status,
-            isReachable: false,
-            isJournalPaired: true
+            lane: .installedActive(watchInstalledFlow(Self.flow(recordingStatus: status)))
         )
 
         XCTAssertEqual(status, .observing)
         XCTAssertEqual(presentation.state, .active)
         XCTAssertEqual(presentation.subtext, SourceVocabulary.watchListeningSubtext)
     }
-
-    func testReceiptCorroborationBoundaryAndCadence() {
-        let base = Date(timeIntervalSince1970: 1_000)
-
-        XCTAssertEqual(
-            watchRecordingStatus(
-                context: nil,
-                now: base,
-                lastReceivedAt: base.addingTimeInterval(-46)
-            ),
-            .noContextButReceiving
-        )
-
-        for offset in stride(from: 0, through: 30, by: 5) {
-            let now = base.addingTimeInterval(TimeInterval(offset))
-            let trailingReceipt = now.addingTimeInterval(TimeInterval(offset.isMultiple(of: 10) ? -10 : -5))
-            XCTAssertEqual(
-                watchRecordingStatus(
-                    context: nil,
-                    now: now,
-                    lastReceivedAt: trailingReceipt
-                ),
-                .noContextButReceiving
-            )
-        }
-
-        XCTAssertEqual(
-            watchRecordingStatus(
-                context: nil,
-                now: base,
-                lastReceivedAt: base.addingTimeInterval(-61)
-            ),
-            .noContext
-        )
-    }
-
-    func testInstallReceiptCorroborationAvoidsInstallCTAAndPairedScopeOnly() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let freshReceipt = now.addingTimeInterval(-5)
-
-        let receiving = watchInstallState(
-            isSupported: true,
-            isPaired: true,
-            isWatchAppInstalled: false,
-            activationState: .activated,
-            now: now,
-            lastReceivedAt: freshReceipt
-        )
-        let presentation = phoneWatchSourcePresentation(
-            install: receiving,
-            recordingStatus: .noContext,
-            isReachable: false,
-            isJournalPaired: true
-        )
-
-        XCTAssertEqual(receiving, .receivingUnconfirmedInstall)
-        XCTAssertNotEqual(receiving, .pairedNoApp)
-        XCTAssertNotEqual(receiving, .appInstalled)
-        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(install: receiving))
-        XCTAssertEqual(presentation.state, .off)
-        XCTAssertNil(presentation.attention)
-        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchReceivingSubtext)
-
-        XCTAssertEqual(
-            watchInstallState(
-                isSupported: true,
-                isPaired: false,
-                isWatchAppInstalled: false,
-                activationState: .activated,
-                now: now,
-                lastReceivedAt: freshReceipt
-            ),
-            .noWatchPaired
-        )
-    }
-
-    func testPresentationCopyForInstalledWatch() {
-        let observing = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: .observing,
-            isReachable: false,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(observing.state, .active)
-        XCTAssertNil(observing.attention)
-        XCTAssertEqual(observing.subtext, SourceVocabulary.watchListeningSubtext)
-
-        let idle = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: .idle,
-            isReachable: false,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(idle.state, .off)
-        XCTAssertNil(idle.attention)
-        XCTAssertEqual(idle.subtext, SourceVocabulary.watchIdleSubtext)
-
-        let noContext = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: .noContext,
-            isReachable: false,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(noContext.state, .off)
-        XCTAssertNil(noContext.attention)
-        XCTAssertEqual(noContext.subtext, SourceVocabulary.watchNoContextSubtext)
-
-        let receiving = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: .noContextButReceiving,
-            isReachable: false,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(receiving.state, .off)
-        XCTAssertNil(receiving.attention)
-        XCTAssertEqual(receiving.subtext, SourceVocabulary.watchReceivingSubtext)
-    }
-
-    func testReachableInstalledIdleUsesConnectedNowCopy() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let install = watchInstallState(
-            isSupported: true,
-            isPaired: true,
-            isWatchAppInstalled: true,
-            activationState: .activated,
-            now: now,
-            lastReceivedAt: nil
-        )
-        let status = watchRecordingStatus(
-            context: Self.context(phase: .idle, asOf: now),
-            now: now,
-            lastReceivedAt: nil
-        )
-
-        let presentation = phoneWatchSourcePresentation(
-            install: install,
-            recordingStatus: status,
-            isReachable: true,
-            isJournalPaired: true
-        )
-
-        XCTAssertEqual(install, .appInstalled)
-        XCTAssertEqual(status, .idle)
-        XCTAssertEqual(presentation.state, .off)
-        XCTAssertNil(presentation.attention)
-        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchConnectedNowSubtext)
-    }
-
-    func testReachableInstalledNoContextStaysOffWithConnectedNowCopy() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let install = watchInstallState(
-            isSupported: true,
-            isPaired: true,
-            isWatchAppInstalled: true,
-            activationState: .activated,
-            now: now,
-            lastReceivedAt: nil
-        )
-        let status = watchRecordingStatus(context: nil, now: now, lastReceivedAt: nil)
-
-        let presentation = phoneWatchSourcePresentation(
-            install: install,
-            recordingStatus: status,
-            isReachable: true,
-            isJournalPaired: true
-        )
-
-        XCTAssertEqual(install, .appInstalled)
-        XCTAssertEqual(status, .noContext)
-        XCTAssertEqual(presentation.state, .off)
-        XCTAssertNil(presentation.attention)
-        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchConnectedNowSubtext)
-    }
-
-    func testReachableStaleObservingUsesConnectedNowIdleCopy() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let status = watchRecordingStatus(
-            context: Self.context(phase: .observing, asOf: now.addingTimeInterval(-45)),
-            now: now,
-            lastReceivedAt: nil
-        )
-
-        let presentation = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: status,
-            isReachable: true,
-            isJournalPaired: true
-        )
-
-        XCTAssertEqual(status, .idle)
-        XCTAssertEqual(presentation.state, .off)
-        XCTAssertNil(presentation.attention)
-        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchConnectedNowSubtext)
-    }
-
-    func testReachabilityDoesNotOverrideReceivingObservingOrInstallState() {
-        let receiving = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: .noContextButReceiving,
-            isReachable: true,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(receiving.state, .off)
-        XCTAssertNil(receiving.attention)
-        XCTAssertEqual(receiving.subtext, SourceVocabulary.watchReceivingSubtext)
-
-        let observing = phoneWatchSourcePresentation(
-            install: .appInstalled,
-            recordingStatus: .observing,
-            isReachable: true,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(observing.state, .active)
-        XCTAssertNil(observing.attention)
-        XCTAssertEqual(observing.subtext, SourceVocabulary.watchListeningSubtext)
-
-        let reachablePairedNoApp = phoneWatchSourcePresentation(
-            install: .pairedNoApp,
-            recordingStatus: .noContext,
-            isReachable: true,
-            isJournalPaired: true
-        )
-        let notReachablePairedNoApp = phoneWatchSourcePresentation(
-            install: .pairedNoApp,
-            recordingStatus: .noContext,
-            isReachable: false,
-            isJournalPaired: true
-        )
-        XCTAssertEqual(reachablePairedNoApp, notReachablePairedNoApp)
-    }
 }
 
 private extension PhoneWatchSourceStateMappingTests {
+    static func crashIfConsulted() -> WatchActivatedReadiness {
+        fatalError("activated readiness should not be consulted before activation")
+    }
+
+    static func facts(
+        watchAppCheckedIn: Bool = false,
+        segmentFileReceived: Bool = false
+    ) -> WatchSourceFacts.Snapshot {
+        WatchSourceFacts.Snapshot(
+            watchAppCheckedIn: watchAppCheckedIn,
+            segmentFileReceived: segmentFileReceived
+        )
+    }
+
+    static func flow(
+        stuck: WatchPipelineStuck = .none,
+        recordingStatus: WatchRecordingStatus,
+        waiting: WatchWaitingBreakdown = waiting(count: 0)
+    ) -> WatchInstalledFlowInput {
+        WatchInstalledFlowInput(stuck: stuck, recordingStatus: recordingStatus, waiting: waiting)
+    }
+
+    static func waiting(count: Int) -> WatchWaitingBreakdown {
+        let phone = PhoneSideWaiting(count: count)
+        return WatchWaitingBreakdown(
+            watch: WatchSideWaiting(count: 0, freshness: .unknown),
+            phone: phone,
+            leading: count > 0 ? .phone(count: count) : nil
+        )
+    }
+
     static func context(
         phase: WatchStatusContext.Phase,
         asOf: Date

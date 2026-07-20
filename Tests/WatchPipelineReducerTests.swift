@@ -126,6 +126,56 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(summary.syncSummary, WatchSourceSyncSummary(received: 0, waiting: 0, handedToJournal: 0, lastSyncAt: nil))
     }
 
+    func testPhoneWaitingUsesLedgerNonTerminalCountOnly() {
+        let input = Self.input(
+            nonTerminalCount: 2,
+            pendingCount: 2,
+            failedCount: 2,
+            inFlightCount: 2
+        )
+
+        XCTAssertEqual(WatchPipelineReducer.phoneWaitingCount(input), 2)
+        XCTAssertEqual(WatchPipelineReducer.reduce(input).syncSummary.waiting, 2)
+        XCTAssertTrue(
+            WatchPipelineReducer.reduce(input).diagnosticsExportText.contains(
+                "\(SourceVocabulary.watchNotYetInJournalLabel): 2"
+            )
+        )
+    }
+
+    func testWaitingBreakdownSelectsLeadingPortionWithoutSumming() {
+        let now = Self.now
+
+        let freshWatchBeatsPhone = WatchPipelineReducer.waitingBreakdown(Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 3, transferringCount: 0, asOf: now),
+            nonTerminalCount: 2
+        ))
+        XCTAssertEqual(freshWatchBeatsPhone.leading, .watch(count: 3, freshness: .fresh(asOf: now)))
+
+        let staleWatchFallsBackToPhone = WatchPipelineReducer.waitingBreakdown(Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 3, transferringCount: 0, asOf: now.addingTimeInterval(-91)),
+            nonTerminalCount: 2
+        ))
+        XCTAssertEqual(staleWatchFallsBackToPhone.leading, .phone(count: 2))
+
+        let zeroEverywhere = WatchPipelineReducer.waitingBreakdown(Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, asOf: now),
+            nonTerminalCount: 0
+        ))
+        XCTAssertNil(zeroEverywhere.leading)
+
+        let overlapTie = WatchPipelineReducer.waitingBreakdown(Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 1, asOf: now),
+            nonTerminalCount: 1
+        ))
+        XCTAssertEqual(overlapTie.leading, .phone(count: 1))
+        XCTAssertNotEqual(overlapTie.leading?.count, 2)
+    }
+
     func testWatchClaimStalenessUsesNinetySecondBoundary() {
         let now = Self.now
         let atBoundary = WatchPipelineReducer.reduce(Self.input(

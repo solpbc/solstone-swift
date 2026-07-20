@@ -38,42 +38,43 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         XCTAssertTrue(reachability.contains("self.onReachableRepublish?()"))
     }
 
-    func testWatchSourceDetailThreadsReachability() throws {
+    func testWatchSourceDetailKeepsReachabilityInDiagnosticsInputOnly() throws {
         let (text, path) = try Self.contents("Sources/WatchCapture/WatchSourceDetailView.swift")
-        let pipelineInput = try Self.section(
-            from: "var pipelineInput: WatchPipelineInput {",
-            to: "    // KILL-LIST-EXEMPT:END",
-            in: text,
-            path: path.path
-        )
         let presentation = try Self.section(
             from: "var watchPresentation: PhoneWatchSourcePresentation {",
             to: "    var summary: WatchPipelineSummary {",
             in: text,
             path: path.path
         )
+        let (assemblerText, assemblerPath) = try Self.contents("Sources/WatchCapture/WatchPipelineInputAssembler.swift")
+        let pipelineInput = try Self.section(
+            from: "let input = WatchPipelineInput(",
+            to: "        )",
+            in: assemblerText,
+            path: assemblerPath.path
+        )
 
         XCTAssertTrue(pipelineInput.contains("isReachable: self.watchLink.isReachable"))
-        XCTAssertTrue(presentation.contains("isReachable: input.isReachable"))
+        XCTAssertFalse(presentation.contains("isReachable"))
     }
 
-    func testSourcesViewWatchSourceThreadsReachability() throws {
+    func testSourcesViewWatchSourceDoesNotThreadReachabilityIntoPresentation() throws {
         let (text, path) = try Self.contents("Sources/SourcesView.swift")
         let watchSource = try Self.section(
-            from: "var watchSource: Source {",
+            from: "var watchSource: Source? {",
             to: "    func refreshNowPeriodically() async {",
             in: text,
             path: path.path
         )
         let presentationCall = try Self.section(
-            from: "let presentation = phoneWatchSourcePresentation(",
-            to: "        )",
+            from: "let presentation = phoneWatchSourcePresentation(lane: assembly.lane)",
+            to: "        return Source(",
             in: watchSource,
             path: path.path
         )
 
-        XCTAssertTrue(presentationCall.contains("isReachable: self.watchLink.isReachable"))
-        XCTAssertTrue(presentationCall.contains("isJournalPaired: self.appConfig.isPaired"))
+        XCTAssertFalse(presentationCall.contains("isReachable"))
+        XCTAssertFalse(presentationCall.contains("isJournalPaired"))
     }
 
     private static func contents(_ relativePath: String) throws -> (String, URL) {

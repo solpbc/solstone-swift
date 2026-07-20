@@ -5,82 +5,10 @@
 import Foundation
 import CoreTransferable
 import SwiftUI
-import UIKit
 import UniformTypeIdentifiers
 import os
 
 private let watchSourceLog = Logger(subsystem: "app.solstone.swift", category: "watch")
-
-@MainActor
-private struct WatchDiagnosticsIPhoneEnvironment {
-    let appMarketingVersion: DiagnosticAvailability<String>
-    let appBuild: DiagnosticAvailability<String>
-    let iOSVersion: DiagnosticAvailability<String>
-    let batteryLevel: DiagnosticAvailability<Double>
-    let batteryState: DiagnosticAvailability<String>
-    let lowPowerModeEnabled: DiagnosticAvailability<Bool>
-    let thermalState: DiagnosticAvailability<String>
-
-    static func current() -> Self {
-        let device = UIDevice.current
-        let previousBatteryMonitoring = device.isBatteryMonitoringEnabled
-        device.isBatteryMonitoringEnabled = true
-        let batteryLevel = device.batteryLevel >= 0
-            ? DiagnosticAvailability<Double>.available(Double(device.batteryLevel))
-            : DiagnosticAvailability<Double>.unavailable(reason: "not provided")
-        let batteryState = DiagnosticAvailability<String>.available(Self.batteryStateString(device.batteryState))
-        device.isBatteryMonitoringEnabled = previousBatteryMonitoring
-
-        return Self(
-            appMarketingVersion: Self.bundleString("CFBundleShortVersionString"),
-            appBuild: Self.bundleString("CFBundleVersion"),
-            iOSVersion: .available(device.systemVersion),
-            batteryLevel: batteryLevel,
-            batteryState: batteryState,
-            lowPowerModeEnabled: .available(ProcessInfo.processInfo.isLowPowerModeEnabled),
-            thermalState: .available(Self.thermalStateString(ProcessInfo.processInfo.thermalState))
-        )
-    }
-
-    private static func bundleString(_ key: String) -> DiagnosticAvailability<String> {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
-              !value.isEmpty
-        else {
-            return .unavailable(reason: "not provided")
-        }
-        return .available(value)
-    }
-
-    private static func batteryStateString(_ state: UIDevice.BatteryState) -> String {
-        switch state {
-        case .unknown:
-            "unknown"
-        case .unplugged:
-            "unplugged"
-        case .charging:
-            "charging"
-        case .full:
-            "full"
-        @unknown default:
-            "unknown"
-        }
-    }
-
-    private static func thermalStateString(_ state: ProcessInfo.ThermalState) -> String {
-        switch state {
-        case .nominal:
-            "nominal"
-        case .fair:
-            "fair"
-        case .serious:
-            "serious"
-        case .critical:
-            "critical"
-        @unknown default:
-            "unknown"
-        }
-    }
-}
 
 nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
     let text: String
@@ -160,53 +88,14 @@ nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
 }
 
 struct WatchSourceDetailView: View {
-    // KILL-LIST-EXEMPT:BEGIN
-    @Environment(AppConfig.self) private var appConfig
-    @Environment(WatchLink.self) private var watchLink
-    @Environment(WatchRelayReceiver.self) private var receiver: WatchRelayReceiver?
-    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
-    @Environment(WatchSegmentLedger.self) private var watchSegmentLedger
-    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
+    @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
     @State private var now = Date()
 
     var pipelineInput: WatchPipelineInput {
-        let iphoneEnvironment = WatchDiagnosticsIPhoneEnvironment.current()
-        return WatchPipelineInput(
-            now: self.now,
-            watchStatus: self.watchLink.watchStatus,
-            lifetimeReceived: self.watchSegmentLedger.lifetimeReceived,
-            lifetimeHanded: self.watchSegmentLedger.lifetimeHanded,
-            nonTerminalCount: self.watchSegmentLedger.nonTerminalCount,
-            lastHandedAt: self.watchSegmentLedger.lastHandedAt,
-            oldestNonTerminalReceivedAt: self.watchSegmentLedger.oldestNonTerminalReceivedAt,
-            lastLedgerError: self.watchSegmentLedger.lastLedgerError,
-            pendingCount: self.watchUploaderHolder.pendingCount,
-            failedCount: self.watchUploaderHolder.failedCount,
-            inFlightCount: self.watchUploaderHolder.inFlightCount,
-            lastUploadAt: self.watchUploaderHolder.lastUploadAt,
-            lastUploadError: self.watchUploaderHolder.lastError,
-            lastReceivedAt: self.receiver?.lastReceivedAt,
-            lastStagingError: self.receiver?.lastStagingError,
-            isPaired: self.watchLink.isPaired,
-            isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-            activationState: self.watchLink.activationState,
-            isReachable: self.watchLink.isReachable,
-            isJournalReachable: isJournalReachable(self.connectionSyncModel.status),
-            watchDiagnostics: self.watchLink.watchDiagnosticsEnvelopeResult,
-            iphoneAppMarketingVersion: iphoneEnvironment.appMarketingVersion,
-            iphoneAppBuild: iphoneEnvironment.appBuild,
-            iOSVersion: iphoneEnvironment.iOSVersion,
-            iphoneBatteryLevel: iphoneEnvironment.batteryLevel,
-            iphoneBatteryState: iphoneEnvironment.batteryState,
-            iphoneLowPowerModeEnabled: iphoneEnvironment.lowPowerModeEnabled,
-            iphoneThermalState: iphoneEnvironment.thermalState,
-            phoneLedgerSnapshot: self.watchSegmentLedger.readSnapshot(asOf: self.now),
-            iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot
-        )
+        self.watchPipelineAssembly.input
     }
-    // KILL-LIST-EXEMPT:END
 
     var body: some View {
         ScrollView {
@@ -246,9 +135,11 @@ private extension WatchSourceDetailView {
         return VStack(alignment: .leading, spacing: 12) {
             self.stateLine
 
-            Text(presentation.subtext)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let subtext = presentation.subtext {
+                Text(subtext)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
             if let attention = presentation.attention {
                 Text(attention.message)
@@ -256,7 +147,7 @@ private extension WatchSourceDetailView {
                     .foregroundStyle(.secondary)
             }
 
-            if let affordance = WatchSourceDetailPresentation.installAffordance(install: self.installState) {
+            if let affordance = WatchSourceDetailPresentation.installAffordance(lane: self.watchLane) {
                 Button {
                     self.openURL(URL(string: "itms-watchs://")!) { accepted in
                         if !accepted {
@@ -339,35 +230,20 @@ private extension WatchSourceDetailView {
         .font(.subheadline)
     }
 
-    var installState: WatchInstallState {
-        let input = self.pipelineInput
-        return watchInstallState(
-            isSupported: self.watchLink.isSupported,
-            isPaired: input.isPaired,
-            isWatchAppInstalled: input.isWatchAppInstalled,
-            activationState: input.activationState,
-            now: input.now,
-            lastReceivedAt: input.lastReceivedAt
-        )
+    var watchPipelineAssembly: WatchPipelineAssembly {
+        self.watchPipelineInputs.assembly(now: self.now)
     }
 
     var recordingStatus: WatchRecordingStatus {
-        let input = self.pipelineInput
-        return watchRecordingStatus(
-            context: input.watchStatus,
-            now: input.now,
-            lastReceivedAt: input.lastReceivedAt
-        )
+        self.watchPipelineAssembly.recordingStatus
+    }
+
+    var watchLane: PhoneWatchSourceLane {
+        self.watchPipelineAssembly.lane
     }
 
     var watchPresentation: PhoneWatchSourcePresentation {
-        let input = self.pipelineInput
-        return phoneWatchSourcePresentation(
-            install: self.installState,
-            recordingStatus: self.recordingStatus,
-            isReachable: input.isReachable,
-            isJournalPaired: self.appConfig.isPaired
-        )
+        phoneWatchSourcePresentation(lane: self.watchLane)
     }
 
     var summary: WatchPipelineSummary {

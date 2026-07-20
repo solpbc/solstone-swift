@@ -181,7 +181,7 @@ private extension SourceState {
         switch self {
         case .enrolling, .active, .needsAttention:
             true
-        case .off, .paused:
+        case .off, .readyToSetUp, .checking, .paused:
             false
         }
     }

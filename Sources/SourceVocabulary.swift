@@ -6,6 +6,8 @@ import Foundation
 nonisolated enum SourceState: Equatable, Sendable {
     case off
     case enrolling
+    case readyToSetUp
+    case checking
     case active
     case paused
     case needsAttention
@@ -16,6 +18,10 @@ nonisolated enum SourceState: Equatable, Sendable {
             "off"
         case .enrolling:
             "setting up"
+        case .readyToSetUp:
+            SourceVocabulary.sourceStateReadyToSetUpLabel
+        case .checking:
+            SourceVocabulary.sourceStateCheckingLabel
         case .active:
             "on"
         case .paused:
@@ -30,6 +36,10 @@ nonisolated enum SourceState: Equatable, Sendable {
         case .off:
             "power.circle"
         case .enrolling:
+            "arrow.triangle.2.circlepath"
+        case .readyToSetUp:
+            "plus.circle"
+        case .checking:
             "arrow.triangle.2.circlepath"
         case .active:
             "checkmark.circle"
@@ -46,6 +56,8 @@ nonisolated enum SourceState: Equatable, Sendable {
             SourceVocabulary.offSubtext(isJournalPaired: isJournalPaired)
         case .enrolling:
             SourceVocabulary.enrollingSubtext(isJournalPaired: isJournalPaired)
+        case .readyToSetUp, .checking:
+            nil
         case .active:
             nil
         case .paused:
@@ -65,6 +77,10 @@ nonisolated enum SourceState: Equatable, Sendable {
             "off. \(SourceVocabulary.offSubtext(isJournalPaired: isJournalPaired))"
         case .enrolling:
             "setting up. \(SourceVocabulary.enrollingSubtext(isJournalPaired: isJournalPaired))"
+        case .readyToSetUp:
+            "\(SourceVocabulary.sourceStateReadyToSetUpLabel). \(Self.sentence(activeSubtext))"
+        case .checking:
+            "checking."
         case .active:
             "on. \(Self.sentence(activeSubtext))"
         case .paused:
@@ -84,6 +100,8 @@ nonisolated enum SourceVocabulary {
     private static let offSubtextPaired = "not sending to your journal. turn it on any time."
     private static let enrollingSubtextUnpaired = "getting ready…"
     private static let enrollingSubtextPaired = "getting ready — connecting to your journal."
+    static let sourceStateReadyToSetUpLabel = "ready to set up"
+    static let sourceStateCheckingLabel = "checking…"
     static let pausedSubtext = "you paused this. resume to start sending again."
     static let needsAttentionSubtext = "something's not getting through."
     static let needsAttention = "needs attention"
@@ -150,14 +168,13 @@ nonisolated enum SourceVocabulary {
     static let watchWaitingForPhone = "waiting for your iphone"
     static let watchLinkConnected = "phone link: in range"
     static let watchLinkNotConnected = "phone link: out of range"
-    static let watchNotSupported = "not available on this device"
-    static let watchNoWatchPaired = "no watch paired with this iphone"
-    static let watchAppNotInstalled = "sol isn't on your watch yet"
     static let watchSourceDisplayName = "watch"
-    static let watchNoContextSubtext = "haven't heard from your watch"
-    static let watchConnectedNowSubtext = "your watch is connected right now"
-    static let watchReceivingSubtext = "your watch is sending data"
-    static let watchIdleSubtext = "no watch session right now — start sol on your watch"
+    static let watchActivationFailedSubtext = "can't check your watch right now."
+    static let watchNoWatchPairedSubtext = "no watch paired with this iphone."
+    static let watchReadyToSetUpSubtext = "sol can be on your watch. tap to set it up."
+    static let watchInstalledNeverOpenedSubtext = "installed. now open sol on your watch."
+    static let watchReceivingNowSubtext = "receiving from your watch"
+    static let watchIdleNowSubtext = "start sol on your watch when you want it with you."
     static let watchListeningSubtext = "on your watch, taking in audio"
     static let watchInstallTitle = "install sol on your watch"
     static let watchInstallInstruction = "open the Watch app to install it"
@@ -270,6 +287,10 @@ nonisolated enum SourceVocabulary {
 
     static func watchHandedToPhoneCount(_ n: Int) -> String {
         "\(n) \(Self.watchPipelineHandedOff)"
+    }
+
+    static func watchWaitingToSyncFromWatch(_ n: Int) -> String {
+        "\(n) waiting to sync from your watch"
     }
 
     static let recentEmpty = "nothing recent yet"

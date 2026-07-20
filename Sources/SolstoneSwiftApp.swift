@@ -25,6 +25,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchRegistration: ObserverRegistration
     @State private var watchHealthBeacon: ObserverHealthBeacon
     @State private var watchUploaderHolder: WatchUploaderHolder
+    @State private var watchSourceFacts: WatchSourceFacts
     @State private var transferEndpointResolver: LoopbackTransferEndpointResolver
     @State private var transferStatusMirror: TransferStatusMirror
     @State private var transferConditionsSource: TransferConditionsSource
@@ -338,6 +339,7 @@ struct SolstoneSwiftApp: App {
             transferEngine: transferEngine,
             mirror: transferStatusMirror
         )
+        let watchSourceFacts = WatchSourceFacts()
         let watchHealthBeacon = ObserverHealthBeacon(
             registration: watchRegistration,
             uploader: watchUploaderHolderForHealth,
@@ -352,7 +354,8 @@ struct SolstoneSwiftApp: App {
             transferEngine: transferEngine,
             transferStatusMirror: transferStatusMirror,
             transferEnqueuer: transferEnqueuer,
-            watchConnectivitySession: watchConnectivitySession
+            watchConnectivitySession: watchConnectivitySession,
+            watchSourceFacts: watchSourceFacts
         )
         let watchUploaderHolder = watchPipeline.watchUploaderHolder
         let watchSegmentDrain = watchPipeline.watchSegmentDrain
@@ -563,6 +566,7 @@ struct SolstoneSwiftApp: App {
         self._watchRegistration = State(initialValue: watchRegistration)
         self._watchHealthBeacon = State(initialValue: watchHealthBeacon)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
+        self._watchSourceFacts = State(initialValue: watchSourceFacts)
         self._transferEndpointResolver = State(initialValue: transferEndpointResolver)
         self._transferStatusMirror = State(initialValue: transferStatusMirror)
         self._transferConditionsSource = State(initialValue: transferConditionsSource)
@@ -623,6 +627,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.mobileSegmentTransferHolder)
                 .environment(self.omiUploaderHolder)
                 .environment(self.watchUploaderHolder)
+                .environment(self.watchSourceFacts)
                 .environment(self.watchLink)
                 .environment(self.watchRelayReceiver)
                 .environment(self.watchSegmentLedger)

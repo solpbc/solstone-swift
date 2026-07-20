@@ -80,11 +80,13 @@ final class WatchLink {
     private(set) var isPaired: Bool
     private(set) var isWatchAppInstalled: Bool
     private(set) var activationState: WCSessionActivationState
+    private(set) var activationFailed: Bool
     private(set) var watchStatus: WatchStatusContext?
     private(set) var watchDiagnosticsEnvelopeResult: WatchRelayDiagnosticsEnvelopeResult = .absent
 
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
+    @ObservationIgnored private let facts: WatchSourceFacts?
 
     var lastReceivedAt: Date? {
         self.receiver?.lastReceivedAt
@@ -94,14 +96,16 @@ final class WatchLink {
         WatchRelayACKQueueSnapshot(userInfoTransfers: self.session.outstandingUserInfoTransferSnapshots)
     }
 
-    init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?) {
+    init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?, facts: WatchSourceFacts? = nil) {
         self.session = session
         self.receiver = receiver
+        self.facts = facts
         self.isSupported = session.isSupported
         self.isReachable = session.isReachable
         self.isPaired = session.isPaired
         self.isWatchAppInstalled = session.isWatchAppInstalled
         self.activationState = session.activationState
+        self.activationFailed = false
         self.watchStatus = nil
         self.session.onActivationChanged = { [weak self] didActivate in
             Task { @MainActor [weak self] in
@@ -145,6 +149,9 @@ private extension WatchLink {
         self.isPaired = self.session.isPaired
         self.isWatchAppInstalled = self.session.isWatchAppInstalled
         self.activationState = self.session.activationState
+        if self.activationState == .activated {
+            self.activationFailed = false
+        }
     }
 
     func refreshWatchStatus() {
@@ -153,6 +160,9 @@ private extension WatchLink {
 
     func applyWatchStatus(_ status: WatchStatusContext?) {
         self.watchStatus = status
+        if status != nil {
+            self.facts?.noteStatusContextCheckedIn()
+        }
         self.watchDiagnosticsEnvelopeResult = WatchRelayDiagnosticsEnvelope.decodeResult(
             from: status?.diagnosticsEnvelope
         )
@@ -161,6 +171,7 @@ private extension WatchLink {
     func handleActivationChanged(_ didActivate: Bool) {
         let detail = didActivate ? "completed" : "failed"
         watchLog.info("watch: activation \(detail, privacy: .public)")
+        self.activationFailed = !didActivate
         self.refreshWatchState()
     }
 

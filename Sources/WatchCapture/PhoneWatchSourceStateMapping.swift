@@ -4,12 +4,40 @@
 import Foundation
 import WatchConnectivity
 
-nonisolated enum WatchInstallState: Equatable, Sendable {
-    case notSupported
+nonisolated enum WatchSessionReadiness: Equatable, Sendable {
+    case unsupported
+    case checking
+    case activationFailed
+    case activated(WatchActivatedReadiness)
+}
+
+nonisolated enum WatchActivatedReadiness: Equatable, Sendable {
     case noWatchPaired
-    case pairedNoApp
-    case receivingUnconfirmedInstall
-    case appInstalled
+    case readyToSetUp(WatchSetupRequirement)
+    case installedNeverOpened
+    case installedActive
+}
+
+nonisolated enum WatchSetupRequirement: Equatable, Sendable {
+    case installApp
+}
+
+nonisolated enum PhoneWatchSourceLane: Equatable, Sendable {
+    case unsupported
+    case checking
+    case activationFailed
+    case noWatchPaired
+    case readyToSetUp(WatchSetupRequirement)
+    case installedNeverOpened
+    case installedActive(InstalledFlow)
+
+    nonisolated enum InstalledFlow: Equatable, Sendable {
+        case stuck(WatchPipelineStuck)
+        case observing
+        case receiving
+        case waiting(WatchWaitingBreakdown)
+        case idle
+    }
 }
 
 nonisolated enum WatchRecordingStatus: Equatable, Sendable {
@@ -24,128 +52,162 @@ nonisolated enum WatchRecordingStatus: Equatable, Sendable {
     case idle
 }
 
+nonisolated struct WatchInstalledFlowInput: Equatable, Sendable {
+    let stuck: WatchPipelineStuck
+    let recordingStatus: WatchRecordingStatus
+    let waiting: WatchWaitingBreakdown
+}
+
 nonisolated struct PhoneWatchSourcePresentation: Equatable, Sendable {
     let state: SourceState
     let attention: SourceAttention?
-    let subtext: String
+    let subtext: String?
 }
 
-nonisolated func watchInstallState(
+nonisolated func watchSessionReadiness(
     isSupported: Bool,
+    activationState: WCSessionActivationState,
+    activationFailed: Bool,
+    activatedReadiness: () -> WatchActivatedReadiness
+) -> WatchSessionReadiness {
+    guard isSupported else {
+        return .unsupported
+    }
+    if activationFailed {
+        return .activationFailed
+    }
+    guard activationState == .activated else {
+        return .checking
+    }
+    return .activated(activatedReadiness())
+}
+
+nonisolated func watchActivatedReadiness(
     isPaired: Bool,
     isWatchAppInstalled: Bool,
-    activationState: WCSessionActivationState,
-    now: Date,
-    lastReceivedAt: Date?
-) -> WatchInstallState {
-    guard isSupported else {
-        return .notSupported
-    }
+    facts: WatchSourceFacts.Snapshot
+) -> WatchActivatedReadiness {
     guard isPaired else {
         return .noWatchPaired
     }
-    if isWatchAppInstalled && activationState == .activated {
-        return .appInstalled
+    if facts.hasCheckedIn {
+        return .installedActive
     }
-    return hasFreshReceipt(lastReceivedAt, now: now) ? .receivingUnconfirmedInstall : .pairedNoApp
+    if isWatchAppInstalled {
+        return .installedNeverOpened
+    }
+    return .readyToSetUp(.installApp)
+}
+
+nonisolated func watchInstalledFlow(_ input: WatchInstalledFlowInput) -> PhoneWatchSourceLane.InstalledFlow {
+    if input.stuck != .none {
+        return .stuck(input.stuck)
+    }
+    switch input.recordingStatus {
+    case .observing:
+        return .observing
+    case .noContextButReceiving:
+        return .receiving
+    case .noContext, .idle:
+        if input.waiting.leading != nil {
+            return .waiting(input.waiting)
+        }
+        return .idle
+    }
+}
+
+nonisolated func phoneWatchSourceLane(
+    session: WatchSessionReadiness,
+    flow: WatchInstalledFlowInput
+) -> PhoneWatchSourceLane {
+    switch session {
+    case .unsupported:
+        return .unsupported
+    case .checking:
+        return .checking
+    case .activationFailed:
+        return .activationFailed
+    case .activated(.noWatchPaired):
+        return .noWatchPaired
+    case .activated(.readyToSetUp(let requirement)):
+        return .readyToSetUp(requirement)
+    case .activated(.installedNeverOpened):
+        return .installedNeverOpened
+    case .activated(.installedActive):
+        return .installedActive(watchInstalledFlow(flow))
+    }
 }
 
 nonisolated func phoneWatchSourceState(
-    install: WatchInstallState,
-    recordingStatus: WatchRecordingStatus,
-    isReachable: Bool,
-    isJournalPaired: Bool
+    lane: PhoneWatchSourceLane
 ) -> (SourceState, SourceAttention?) {
-    let presentation = phoneWatchSourcePresentation(
-        install: install,
-        recordingStatus: recordingStatus,
-        isReachable: isReachable,
-        isJournalPaired: isJournalPaired
-    )
+    let presentation = phoneWatchSourcePresentation(lane: lane)
     return (presentation.state, presentation.attention)
 }
 
 nonisolated func phoneWatchSourcePresentation(
-    install: WatchInstallState,
-    recordingStatus: WatchRecordingStatus,
-    isReachable: Bool,
-    isJournalPaired: Bool
+    lane: PhoneWatchSourceLane
 ) -> PhoneWatchSourcePresentation {
-    switch install {
-    case .notSupported:
-        return PhoneWatchSourcePresentation(
-            state: .off,
-            attention: SourceAttention(message: SourceVocabulary.watchNotSupported),
-            subtext: SourceState.off.subtext(
-                activeSubtext: SourceVocabulary.watchListeningSubtext,
-                isJournalPaired: isJournalPaired
-            )
-        )
-    case .noWatchPaired:
-        return PhoneWatchSourcePresentation(
-            state: .needsAttention,
-            attention: SourceAttention(message: SourceVocabulary.watchNoWatchPaired),
-            subtext: SourceState.needsAttention.subtext(
-                activeSubtext: SourceVocabulary.watchListeningSubtext,
-                isJournalPaired: isJournalPaired
-            )
-        )
-    case .pairedNoApp:
-        return PhoneWatchSourcePresentation(
-            state: .needsAttention,
-            attention: SourceAttention(message: SourceVocabulary.watchAppNotInstalled),
-            subtext: SourceState.needsAttention.subtext(
-                activeSubtext: SourceVocabulary.watchListeningSubtext,
-                isJournalPaired: isJournalPaired
-            )
-        )
-    case .receivingUnconfirmedInstall:
+    switch lane {
+    case .unsupported:
+        return PhoneWatchSourcePresentation(state: .off, attention: nil, subtext: nil)
+    case .checking:
+        return PhoneWatchSourcePresentation(state: .checking, attention: nil, subtext: nil)
+    case .activationFailed:
         return PhoneWatchSourcePresentation(
             state: .off,
             attention: nil,
-            subtext: SourceVocabulary.watchReceivingSubtext
+            subtext: SourceVocabulary.watchActivationFailedSubtext
         )
-    case .appInstalled:
-        switch recordingStatus {
-        case .noContext:
-            if isReachable {
-                return PhoneWatchSourcePresentation(
-                    state: .off,
-                    attention: nil,
-                    subtext: SourceVocabulary.watchConnectedNowSubtext
-                )
-            }
-            return PhoneWatchSourcePresentation(
-                state: .off,
-                attention: nil,
-                subtext: SourceVocabulary.watchNoContextSubtext
-            )
-        case .noContextButReceiving:
-            return PhoneWatchSourcePresentation(
-                state: .off,
-                attention: nil,
-                subtext: SourceVocabulary.watchReceivingSubtext
-            )
-        case .observing:
-            return PhoneWatchSourcePresentation(
-                state: .active,
-                attention: nil,
-                subtext: SourceVocabulary.watchListeningSubtext
-            )
-        case .idle:
-            if isReachable {
-                return PhoneWatchSourcePresentation(
-                    state: .off,
-                    attention: nil,
-                    subtext: SourceVocabulary.watchConnectedNowSubtext
-                )
-            }
-            return PhoneWatchSourcePresentation(
-                state: .off,
-                attention: nil,
-                subtext: SourceVocabulary.watchIdleSubtext
-            )
-        }
+    case .noWatchPaired:
+        return PhoneWatchSourcePresentation(
+            state: .off,
+            attention: nil,
+            subtext: SourceVocabulary.watchNoWatchPairedSubtext
+        )
+    case .readyToSetUp(.installApp):
+        return PhoneWatchSourcePresentation(
+            state: .readyToSetUp,
+            attention: nil,
+            subtext: SourceVocabulary.watchReadyToSetUpSubtext
+        )
+    case .installedNeverOpened:
+        return PhoneWatchSourcePresentation(
+            state: .enrolling,
+            attention: nil,
+            subtext: SourceVocabulary.watchInstalledNeverOpenedSubtext
+        )
+    case .installedActive(.stuck(let stuck)):
+        let reason = stuck.reason
+        return PhoneWatchSourcePresentation(
+            state: .needsAttention,
+            attention: reason.map { SourceAttention(message: $0) },
+            subtext: reason
+        )
+    case .installedActive(.observing):
+        return PhoneWatchSourcePresentation(
+            state: .active,
+            attention: nil,
+            subtext: SourceVocabulary.watchListeningSubtext
+        )
+    case .installedActive(.receiving):
+        return PhoneWatchSourcePresentation(
+            state: .active,
+            attention: nil,
+            subtext: SourceVocabulary.watchReceivingNowSubtext
+        )
+    case .installedActive(.waiting(let waiting)):
+        return PhoneWatchSourcePresentation(
+            state: .off,
+            attention: nil,
+            subtext: waiting.leading.map { SourceVocabulary.watchWaitingToSyncFromWatch($0.count) }
+        )
+    case .installedActive(.idle):
+        return PhoneWatchSourcePresentation(
+            state: .off,
+            attention: nil,
+            subtext: SourceVocabulary.watchIdleNowSubtext
+        )
     }
 }
 

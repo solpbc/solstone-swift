@@ -19,6 +19,7 @@ func makeWatchPhonePipeline(
     transferStatusMirror: TransferStatusMirror,
     transferEnqueuer: ObserverAudioTransferEnqueuer,
     watchConnectivitySession: any WatchConnectivitySession,
+    watchSourceFacts: WatchSourceFacts? = nil,
     ledgerFileURL: URL? = nil,
     ledgerClock: @escaping @MainActor @Sendable () -> Date = Date.init,
     drainStagingRootURL: URL? = nil,
@@ -63,7 +64,8 @@ func makeWatchPhonePipeline(
         receiver = try WatchRelayReceiver(
             session: watchConnectivitySession,
             ledger: ledger,
-            stagingRootURL: receiverStagingRootURL
+            stagingRootURL: receiverStagingRootURL,
+            facts: watchSourceFacts
         )
     } catch {
         Logger(subsystem: "app.solstone.swift", category: "watch-relay")
@@ -77,7 +79,7 @@ func makeWatchPhonePipeline(
         }
     }
 
-    let link = WatchLink(session: watchConnectivitySession, receiver: receiver)
+    let link = WatchLink(session: watchConnectivitySession, receiver: receiver, facts: watchSourceFacts)
     link.activate()
 
     return WatchPhonePipeline(

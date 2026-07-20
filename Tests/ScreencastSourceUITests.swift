@@ -17,13 +17,20 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
     }
 
     func testScreencastRowIsPlacedAfterLocationBeforeOmi() throws {
-        let sourcesView = try String(contentsOf: Self.sourcesViewURL(), encoding: .utf8)
-        let locationRange = try XCTUnwrap(sourcesView.range(of: "SourceRowView(source: self.locationSource)"))
-        let screencastRange = try XCTUnwrap(sourcesView.range(of: "SourceRowView(source: self.screencastSource)"))
-        let omiRange = try XCTUnwrap(sourcesView.range(of: "SourceRowView(source: self.omiSource)"))
+        let rows = SourcesViewRowBuilder.primaryRows(
+            audio: Self.source(id: "audio", kind: .observer),
+            location: Self.source(id: "location", kind: .location),
+            screencast: Self.source(id: "screen", kind: .screencast),
+            omi: Self.source(id: "omi", kind: .omi),
+            watch: Self.source(id: "watch", kind: .watch)
+        )
+        let routes = rows.map(\.route)
+        let locationIndex = try XCTUnwrap(routes.firstIndex(of: .location))
+        let screencastIndex = try XCTUnwrap(routes.firstIndex(of: .screencast))
+        let omiIndex = try XCTUnwrap(routes.firstIndex(of: .omi))
 
-        XCTAssertLessThan(locationRange.lowerBound, screencastRange.lowerBound)
-        XCTAssertLessThan(screencastRange.lowerBound, omiRange.lowerBound)
+        XCTAssertLessThan(locationIndex, screencastIndex)
+        XCTAssertLessThan(screencastIndex, omiIndex)
     }
 
     func testScreencastPresentationMapsManagerStates() {
@@ -76,10 +83,17 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
         XCTAssertEqual(faultSource.attention?.message, screencastAttentionMessage(.finalizeFailed))
     }
 
-    private static func sourcesViewURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/SourcesView.swift")
+    private static func source(id: String, kind: SourceKind) -> Source {
+        Source(
+            id: id,
+            displayName: id,
+            kind: kind,
+            group: .experiencingAlongsideYou,
+            state: .off,
+            isJournalPaired: true,
+            activeSubtext: "on",
+            attention: nil,
+            pendingStatus: .nonePending
+        )
     }
 }

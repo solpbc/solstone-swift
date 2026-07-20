@@ -23,9 +23,12 @@ struct SourceRowView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(self.source.state.label)
                             .font(.subheadline.weight(.semibold))
-                        Text(self.source.subtext)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(self.stateLabelColor)
+                        if let rowSubtext = self.source.rowSubtext {
+                            Text(rowSubtext)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                         // VPX: tune row telemetry density once Omi readings are visible on device.
                         if let detailSubtext = self.source.detailSubtext {
                             Text(detailSubtext)
@@ -61,10 +64,19 @@ private extension SourceRowView {
         switch self.source.state {
         case .needsAttention:
             .red
-        case .active, .enrolling:
+        case .active, .enrolling, .readyToSetUp:
             .solOrange
-        case .off, .paused:
+        case .off, .paused, .checking:
             .secondary
+        }
+    }
+
+    var stateLabelColor: Color {
+        switch self.source.state {
+        case .readyToSetUp:
+            .orangeInk
+        case .off, .enrolling, .checking, .active, .paused, .needsAttention:
+            .primary
         }
     }
 }

@@ -129,6 +129,39 @@ nonisolated struct WatchPipelineSummary: Equatable, Sendable {
     let stuck: WatchPipelineStuck
 }
 
+nonisolated struct WatchWaitingBreakdown: Equatable, Sendable {
+    let watch: WatchSideWaiting
+    let phone: PhoneSideWaiting
+    let leading: WatchWaitingLead?
+}
+
+nonisolated struct WatchSideWaiting: Equatable, Sendable {
+    let count: Int
+    let freshness: WatchClaimFreshness
+}
+
+nonisolated struct PhoneSideWaiting: Equatable, Sendable {
+    let count: Int
+}
+
+nonisolated enum WatchClaimFreshness: Equatable, Sendable {
+    case unknown
+    case fresh(asOf: Date)
+    case stale(asOf: Date, age: TimeInterval)
+}
+
+nonisolated enum WatchWaitingLead: Equatable, Sendable {
+    case watch(count: Int, freshness: WatchClaimFreshness)
+    case phone(count: Int)
+
+    var count: Int {
+        switch self {
+        case .watch(let count, _), .phone(let count):
+            count
+        }
+    }
+}
+
 nonisolated enum WatchRelayPhoneOutcome: Equatable, Sendable {
     case alreadyHanded(ackQueued: Bool)
     case receivedStaged
@@ -195,6 +228,43 @@ nonisolated enum WatchPipelineReducer {
             diagnosticsExportText: diagnosticsExportText,
             stuck: stuck
         )
+    }
+
+    nonisolated static func phoneWaitingCount(_ input: WatchPipelineInput) -> Int {
+        max(0, input.nonTerminalCount)
+    }
+
+    nonisolated static func waitingBreakdown(_ input: WatchPipelineInput) -> WatchWaitingBreakdown {
+        let phone = PhoneSideWaiting(count: self.phoneWaitingCount(input))
+        let watch: WatchSideWaiting
+        if let context = input.watchStatus {
+            let watchCount = max(0, context.queuedCount) + max(0, context.transferringCount)
+            let age = max(0, input.now.timeIntervalSince(context.asOf))
+            let freshness: WatchClaimFreshness = age > self.watchClaimFreshnessWindow
+                ? .stale(asOf: context.asOf, age: age)
+                : .fresh(asOf: context.asOf)
+            watch = WatchSideWaiting(count: watchCount, freshness: freshness)
+        } else {
+            watch = WatchSideWaiting(count: 0, freshness: .unknown)
+        }
+
+        let leading: WatchWaitingLead?
+        switch watch.freshness {
+        case .fresh where watch.count > phone.count:
+            leading = .watch(count: watch.count, freshness: watch.freshness)
+        case _ where phone.count > 0:
+            leading = .phone(count: phone.count)
+        case .fresh where watch.count > 0:
+            leading = .watch(count: watch.count, freshness: watch.freshness)
+        case .unknown, .stale, .fresh:
+            leading = nil
+        }
+
+        return WatchWaitingBreakdown(watch: watch, phone: phone, leading: leading)
+    }
+
+    nonisolated static func stuckState(_ input: WatchPipelineInput) -> WatchPipelineStuck {
+        self.stuck(input)
     }
 
     nonisolated static func classifyRelayIdentities(_ input: WatchPipelineInput) -> WatchRelayClassificationReport {
@@ -371,7 +441,7 @@ private extension WatchPipelineReducer {
     nonisolated static func syncSummary(_ input: WatchPipelineInput) -> WatchSourceSyncSummary {
         WatchSourceSyncSummary(
             received: max(0, input.lifetimeReceived),
-            waiting: max(0, input.nonTerminalCount),
+            waiting: self.phoneWaitingCount(input),
             handedToJournal: max(0, input.lifetimeHanded),
             lastSyncAt: input.lastHandedAt
         )
@@ -590,7 +660,7 @@ private extension WatchPipelineReducer {
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchReceivedLabel, value: "\(max(0, input.lifetimeReceived))"),
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastReceivedLabel, value: self.lastReceivedText(input.lastReceivedAt, now: input.now)),
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastStagingDetailLabel, value: WatchTransferFailureFormatter.exportSafeText(input.lastStagingError)),
-            WatchDiagnosticsExportRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(max(0, input.nonTerminalCount))"),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchNotYetInJournalLabel, value: "\(self.phoneWaitingCount(input))"),
             WatchDiagnosticsExportRow(label: "oldest staged age", value: self.optionalAgeText(input.oldestNonTerminalReceivedAt, now: input.now)),
         ]
         rows.append(contentsOf: self.phoneLedgerRows(input.phoneLedgerSnapshot))

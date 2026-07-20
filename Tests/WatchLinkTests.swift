@@ -140,6 +140,8 @@ nonisolated final class WatchLinkTests: XCTestCase {
         self.session.isWatchAppInstalled = true
         self.session.activationState = .activated
         self.session.isReachable = true
+        let facts = WatchSourceFacts(defaults: Self.defaults())
+        facts.noteStatusContextCheckedIn()
         let watchLink = WatchLink(session: self.session, receiver: nil)
 
         let recordingStatus = watchRecordingStatus(
@@ -147,22 +149,48 @@ nonisolated final class WatchLinkTests: XCTestCase {
             now: Date(timeIntervalSince1970: 1_020),
             lastReceivedAt: nil
         )
-        let presentation = phoneWatchSourcePresentation(
-            install: watchInstallState(
-                isSupported: watchLink.isSupported,
+        let readiness = watchSessionReadiness(
+            isSupported: watchLink.isSupported,
+            activationState: watchLink.activationState,
+            activationFailed: watchLink.activationFailed
+        ) {
+            watchActivatedReadiness(
                 isPaired: watchLink.isPaired,
                 isWatchAppInstalled: watchLink.isWatchAppInstalled,
-                activationState: watchLink.activationState,
-                now: Date(timeIntervalSince1970: 1_020),
-                lastReceivedAt: nil
-            ),
-            recordingStatus: recordingStatus,
-            isReachable: watchLink.isReachable,
-            isJournalPaired: true
+                facts: facts.snapshot
+            )
+        }
+        let presentation = phoneWatchSourcePresentation(
+            lane: phoneWatchSourceLane(
+                session: readiness,
+                flow: WatchInstalledFlowInput(
+                    stuck: .none,
+                    recordingStatus: recordingStatus,
+                    waiting: WatchPipelineReducer.waitingBreakdown(Self.pipelineInput())
+                )
+            )
         )
 
         XCTAssertEqual(recordingStatus, .noContext)
         XCTAssertEqual(presentation.state, .off)
+        XCTAssertEqual(presentation.subtext, SourceVocabulary.watchIdleNowSubtext)
+    }
+
+    @MainActor
+    func testWatchAppInstalledFlipRecomputesInstalledNeverOpenedWithoutRelaunch() async {
+        self.session.isSupported = true
+        self.session.isPaired = true
+        self.session.isWatchAppInstalled = false
+        self.session.activationState = .activated
+        let facts = WatchSourceFacts(defaults: Self.defaults())
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: facts)
+
+        XCTAssertEqual(Self.readiness(link: watchLink, facts: facts), .activated(.readyToSetUp(.installApp)))
+
+        self.session.emitWatchState(isPaired: true, isWatchAppInstalled: true, activationState: .activated)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(Self.readiness(link: watchLink, facts: facts), .activated(.installedNeverOpened))
     }
 
     @MainActor
@@ -198,6 +226,21 @@ nonisolated final class WatchLinkTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(20))
     }
 
+    @MainActor
+    private static func readiness(link: WatchLink, facts: WatchSourceFacts) -> WatchSessionReadiness {
+        watchSessionReadiness(
+            isSupported: link.isSupported,
+            activationState: link.activationState,
+            activationFailed: link.activationFailed
+        ) {
+            watchActivatedReadiness(
+                isPaired: link.isPaired,
+                isWatchAppInstalled: link.isWatchAppInstalled,
+                facts: facts.snapshot
+            )
+        }
+    }
+
     private static func status(seq: Int) -> WatchStatusContext {
         WatchStatusContext(
             phase: .observing,
@@ -208,5 +251,38 @@ nonisolated final class WatchLinkTests: XCTestCase {
             queuedCount: 0,
             transferringCount: 0
         )
+    }
+
+    private static func pipelineInput() -> WatchPipelineInput {
+        WatchPipelineInput(
+            now: Date(timeIntervalSince1970: 1_020),
+            watchStatus: nil,
+            lifetimeReceived: 0,
+            lifetimeHanded: 0,
+            nonTerminalCount: 0,
+            lastHandedAt: nil,
+            oldestNonTerminalReceivedAt: nil,
+            lastLedgerError: nil,
+            pendingCount: 0,
+            failedCount: 0,
+            inFlightCount: 0,
+            lastUploadAt: nil,
+            lastUploadError: nil,
+            lastReceivedAt: nil,
+            lastStagingError: nil,
+            isPaired: true,
+            isWatchAppInstalled: true,
+            activationState: .activated,
+            isReachable: true,
+            isJournalReachable: true
+        )
+    }
+
+    @MainActor
+    private static func defaults() -> UserDefaults {
+        let suite = "WatchLinkTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
     }
 }

@@ -41,10 +41,8 @@ nonisolated struct WatchPipelineRowGroup: Equatable, Sendable {
 }
 
 nonisolated enum WatchSourceDetailPresentation {
-    static func installAffordance(install: WatchInstallState) -> WatchInstallAffordance? {
-        guard install == .pairedNoApp else {
-            return nil
-        }
+    static func installAffordance(lane: PhoneWatchSourceLane) -> WatchInstallAffordance? {
+        guard lane == .readyToSetUp(.installApp) else { return nil }
         return WatchInstallAffordance(
             title: SourceVocabulary.watchInstallTitle,
             instruction: SourceVocabulary.watchInstallInstruction

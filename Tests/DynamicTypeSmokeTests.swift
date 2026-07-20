@@ -52,12 +52,17 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .appendingPathComponent("DynamicTypeSmokeTests-WatchLedger-\(UUID().uuidString).json", isDirectory: false)
         defer { try? FileManager.default.removeItem(at: watchLedgerURL) }
         let watchSegmentLedger = WatchSegmentLedger(fileURL: watchLedgerURL)
+        let watchFactsDefaultsName = "DynamicTypeSmokeTests-WatchFacts-\(UUID().uuidString)"
+        let watchFactsDefaults = try XCTUnwrap(UserDefaults(suiteName: watchFactsDefaultsName))
+        defer { watchFactsDefaults.removePersistentDomain(forName: watchFactsDefaultsName) }
+        let watchSourceFacts = WatchSourceFacts(defaults: watchFactsDefaults)
         let watchRelayReceiver = try WatchRelayReceiver(
             session: watchSession,
             ledger: watchSegmentLedger,
-            stagingRootURL: watchRelayRoot
+            stagingRootURL: watchRelayRoot,
+            facts: watchSourceFacts
         )
-        let watchLink = WatchLink(session: watchSession, receiver: watchRelayReceiver)
+        let watchLink = WatchLink(session: watchSession, receiver: watchRelayReceiver, facts: watchSourceFacts)
         let observerManager = ObserverManager(
             recorder: MockObserverRecorder(),
             mobileSegmentEngine: mobileSegmentEngine
@@ -188,6 +193,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
                 .environment(omiSourceManager)
+                .environment(watchSourceFacts)
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
@@ -210,6 +216,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let watchSourceDetailView = NavigationStack {
             WatchSourceDetailView()
                 .environment(appConfig)
+                .environment(watchSourceFacts)
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)

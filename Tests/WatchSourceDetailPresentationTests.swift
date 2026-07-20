@@ -18,12 +18,13 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         )
     }
 
-    func testInstallAffordanceIsTextOnlyAndOnlyForPairedNoApp() throws {
-        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(install: .notSupported))
-        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(install: .noWatchPaired))
-        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(install: .appInstalled))
+    func testInstallAffordanceIsTextOnlyAndOnlyForReadyToSetUp() throws {
+        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(lane: .unsupported))
+        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(lane: .noWatchPaired))
+        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(lane: .installedNeverOpened))
+        XCTAssertNil(WatchSourceDetailPresentation.installAffordance(lane: .installedActive(.idle)))
 
-        let affordance = try XCTUnwrap(WatchSourceDetailPresentation.installAffordance(install: .pairedNoApp))
+        let affordance = try XCTUnwrap(WatchSourceDetailPresentation.installAffordance(lane: .readyToSetUp(.installApp)))
 
         XCTAssertEqual(affordance.title, SourceVocabulary.watchInstallTitle)
         XCTAssertEqual(affordance.instruction, SourceVocabulary.watchInstallInstruction)

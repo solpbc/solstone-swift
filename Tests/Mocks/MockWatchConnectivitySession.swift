@@ -107,6 +107,11 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
         self.onWatchStateChanged?()
     }
 
+    func emitActivationChanged(_ didActivate: Bool) {
+        self.onActivationChanged?(didActivate)
+        self.onSessionEvent?()
+    }
+
     func deliverFile(_ url: URL, metadata: [String: Any]) {
         self.onReceiveFile?(url, metadata)
         self.onSessionEvent?()

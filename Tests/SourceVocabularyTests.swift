@@ -8,9 +8,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     func testLockedSourceStateLabels() {
         XCTAssertEqual(SourceState.off.label, "off")
         XCTAssertEqual(SourceState.enrolling.label, "setting up")
+        XCTAssertEqual(SourceState.readyToSetUp.label, "ready to set up")
+        XCTAssertEqual(SourceState.checking.label, "checking…")
         XCTAssertEqual(SourceState.active.label, "on")
         XCTAssertEqual(SourceState.paused.label, "paused")
         XCTAssertEqual(SourceState.needsAttention.label, "needs attention")
+    }
+
+    func testLockedSourceStateSymbols() {
+        XCTAssertEqual(SourceState.off.symbol, "power.circle")
+        XCTAssertEqual(SourceState.enrolling.symbol, "arrow.triangle.2.circlepath")
+        XCTAssertEqual(SourceState.readyToSetUp.symbol, "plus.circle")
+        XCTAssertEqual(SourceState.checking.symbol, "arrow.triangle.2.circlepath")
+        XCTAssertEqual(SourceState.active.symbol, "checkmark.circle")
+        XCTAssertEqual(SourceState.paused.symbol, "pause.circle")
+        XCTAssertEqual(SourceState.needsAttention.symbol, "exclamationmark.triangle")
     }
 
     func testJournalLivesActionReflectsPairingState() {
@@ -377,9 +389,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.checkConnection, "check connection")
         XCTAssertEqual(SourceVocabulary.probeReachable, "reachable")
         XCTAssertEqual(SourceVocabulary.probeNotReachable, "not reachable")
-        XCTAssertEqual(SourceVocabulary.watchNotSupported, "not available on this device")
-        XCTAssertEqual(SourceVocabulary.watchNoWatchPaired, "no watch paired with this iphone")
-        XCTAssertEqual(SourceVocabulary.watchAppNotInstalled, "sol isn't on your watch yet")
+        XCTAssertEqual(SourceVocabulary.sourceStateReadyToSetUpLabel, "ready to set up")
+        XCTAssertEqual(SourceVocabulary.sourceStateCheckingLabel, "checking…")
         XCTAssertEqual(SourceVocabulary.watchSourceDisplayName, "watch")
         XCTAssertEqual(SourceVocabulary.watchLinkConnected, "phone link: in range")
         XCTAssertEqual(SourceVocabulary.watchLinkNotConnected, "phone link: out of range")
@@ -411,10 +422,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchPipelineOrphanStuckNextStep,
             "open sol on your watch and keep it near this iphone so it can send them again."
         )
-        XCTAssertEqual(SourceVocabulary.watchNoContextSubtext, "haven't heard from your watch")
-        XCTAssertEqual(SourceVocabulary.watchConnectedNowSubtext, "your watch is connected right now")
-        XCTAssertEqual(SourceVocabulary.watchReceivingSubtext, "your watch is sending data")
-        XCTAssertEqual(SourceVocabulary.watchIdleSubtext, "no watch session right now — start sol on your watch")
+        XCTAssertEqual(SourceVocabulary.watchActivationFailedSubtext, "can't check your watch right now.")
+        XCTAssertEqual(SourceVocabulary.watchNoWatchPairedSubtext, "no watch paired with this iphone.")
+        XCTAssertEqual(SourceVocabulary.watchReadyToSetUpSubtext, "sol can be on your watch. tap to set it up.")
+        XCTAssertEqual(SourceVocabulary.watchInstalledNeverOpenedSubtext, "installed. now open sol on your watch.")
+        XCTAssertEqual(SourceVocabulary.watchReceivingNowSubtext, "receiving from your watch")
+        XCTAssertEqual(SourceVocabulary.watchIdleNowSubtext, "start sol on your watch when you want it with you.")
+        XCTAssertEqual(SourceVocabulary.watchWaitingToSyncFromWatch(1), "1 waiting to sync from your watch")
+        XCTAssertEqual(SourceVocabulary.watchWaitingToSyncFromWatch(3), "3 waiting to sync from your watch")
         XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch, taking in audio")
         XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install sol on your watch")
         XCTAssertEqual(SourceVocabulary.watchInstallInstruction, "open the Watch app to install it")
@@ -562,6 +577,16 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
             "setting up. getting ready — connecting to your journal."
         )
+        XCTAssertNil(SourceState.readyToSetUp.universalSubtext(isJournalPaired: true))
+        XCTAssertEqual(
+            SourceState.readyToSetUp.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "ready to set up. on."
+        )
+        XCTAssertNil(SourceState.checking.universalSubtext(isJournalPaired: true))
+        XCTAssertEqual(
+            SourceState.checking.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "checking."
+        )
     }
 
     func testLockedDeleteCopyDoesNotMentionSegments() {
@@ -689,9 +714,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var watchOwnerVisibleStrings: [String] {
         [
-            SourceVocabulary.watchNotSupported,
-            SourceVocabulary.watchNoWatchPaired,
-            SourceVocabulary.watchAppNotInstalled,
+            SourceVocabulary.sourceStateReadyToSetUpLabel,
+            SourceVocabulary.sourceStateCheckingLabel,
             SourceVocabulary.watchSourceDisplayName,
             SourceVocabulary.watchLinkConnected,
             SourceVocabulary.watchLinkNotConnected,
@@ -706,9 +730,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchPipelineHandoffStuckNextStep,
             SourceVocabulary.watchPipelineOrphanStuckNextStep,
             SourceVocabulary.watchPipelineStaleAsOf("1m ago"),
-            SourceVocabulary.watchNoContextSubtext,
-            SourceVocabulary.watchReceivingSubtext,
-            SourceVocabulary.watchIdleSubtext,
+            SourceVocabulary.watchActivationFailedSubtext,
+            SourceVocabulary.watchNoWatchPairedSubtext,
+            SourceVocabulary.watchReadyToSetUpSubtext,
+            SourceVocabulary.watchInstalledNeverOpenedSubtext,
+            SourceVocabulary.watchReceivingNowSubtext,
+            SourceVocabulary.watchIdleNowSubtext,
+            SourceVocabulary.watchWaitingToSyncFromWatch(2),
             SourceVocabulary.watchListeningSubtext,
             SourceVocabulary.watchInstallTitle,
             SourceVocabulary.watchInstallInstruction,
@@ -841,6 +869,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         [
             SourceState.off.label,
             SourceState.enrolling.label,
+            SourceState.readyToSetUp.label,
+            SourceState.checking.label,
             SourceState.active.label,
             SourceState.paused.label,
             SourceState.needsAttention.label,
@@ -871,6 +901,15 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.recentFailed,
             SourceVocabulary.notConnectedRowAffordance(isJournalPaired: false),
             SourceVocabulary.notConnectedRowAffordance(isJournalPaired: true),
+            SourceVocabulary.sourceStateReadyToSetUpLabel,
+            SourceVocabulary.sourceStateCheckingLabel,
+            SourceVocabulary.watchActivationFailedSubtext,
+            SourceVocabulary.watchNoWatchPairedSubtext,
+            SourceVocabulary.watchReadyToSetUpSubtext,
+            SourceVocabulary.watchInstalledNeverOpenedSubtext,
+            SourceVocabulary.watchReceivingNowSubtext,
+            SourceVocabulary.watchIdleNowSubtext,
+            SourceVocabulary.watchWaitingToSyncFromWatch(2),
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
             SourceVocabulary.removeSeam,

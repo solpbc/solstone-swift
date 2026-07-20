@@ -91,16 +91,30 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             state: .off,
             isJournalPaired: true,
             activeSubtext: SourceVocabulary.watchListeningSubtext,
-            subtextOverride: SourceVocabulary.watchIdleSubtext,
+            subtextOverride: SourceVocabulary.watchIdleNowSubtext,
             attention: nil,
             pendingStatus: .nonePending
+        )
+        let checkingSource = Source(
+            id: "watch-checking",
+            displayName: SourceVocabulary.watchSourceDisplayName,
+            kind: .watch,
+            group: .experiencingAlongsideYou,
+            state: .checking,
+            isJournalPaired: true,
+            activeSubtext: SourceVocabulary.watchListeningSubtext,
+            attention: nil,
+            pendingStatus: .nonePending,
+            showsSubtext: false
         )
 
         XCTAssertTrue(activeSource.voiceOverText.contains("on"))
         XCTAssertTrue(activeSource.voiceOverText.contains("battery 87% as of 12m ago"))
         XCTAssertTrue(needsAttentionSource.voiceOverText.contains("needs attention"))
-        XCTAssertEqual(watchIdleSource.subtext, SourceVocabulary.watchIdleSubtext)
-        XCTAssertTrue(watchIdleSource.voiceOverText.contains(SourceVocabulary.watchIdleSubtext))
+        XCTAssertEqual(watchIdleSource.subtext, SourceVocabulary.watchIdleNowSubtext)
+        XCTAssertTrue(watchIdleSource.voiceOverText.contains(SourceVocabulary.watchIdleNowSubtext))
+        XCTAssertNil(checkingSource.rowSubtext)
+        XCTAssertEqual(checkingSource.voiceOverText, SourceVocabulary.sourceStateCheckingLabel)
     }
 
     func testOnThisPhoneVoiceOverTextIncludesSendStateLabels() {

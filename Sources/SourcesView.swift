@@ -10,7 +10,7 @@ struct SourcesView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(OmiSourceManager.self) private var omiSourceManager
-    @Environment(WatchLink.self) private var watchLink
+    @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedSourceRoute: SourceRoute?
     @State private var now = Date()
@@ -23,20 +23,16 @@ struct SourcesView: View {
                         Text(SourceGroup.experiencingAlongsideYou.header)
                             .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
-                        SourceRowView(source: self.audioSource) {
-                            self.selectedSourceRoute = .audio
-                        }
-                        SourceRowView(source: self.locationSource) {
-                            self.selectedSourceRoute = .location
-                        }
-                        SourceRowView(source: self.screencastSource) {
-                            self.selectedSourceRoute = .screencast
-                        }
-                        SourceRowView(source: self.omiSource) {
-                            self.selectedSourceRoute = .omi
-                        }
-                        SourceRowView(source: self.watchSource) {
-                            self.selectedSourceRoute = .watch
+                        ForEach(SourcesViewRowBuilder.primaryRows(
+                            audio: self.audioSource,
+                            location: self.locationSource,
+                            screencast: self.screencastSource,
+                            omi: self.omiSource,
+                            watch: self.watchSource
+                        )) { row in
+                            SourceRowView(source: row.source) {
+                                self.selectedSourceRoute = row.route
+                            }
                         }
                     }
 
@@ -44,8 +40,10 @@ struct SourcesView: View {
                         Text(SourceGroup.bringingInYourself.header)
                             .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
-                        SourceRowView(source: self.shareSource) {
-                            self.selectedSourceRoute = .share
+                        ForEach(SourcesViewRowBuilder.importRows(share: self.shareSource)) { row in
+                            SourceRowView(source: row.source) {
+                                self.selectedSourceRoute = row.route
+                            }
                         }
                     }
 
@@ -85,7 +83,7 @@ struct SourcesView: View {
     }
 }
 
-private enum SourceRoute: Hashable, Identifiable {
+nonisolated enum SourceRoute: Hashable, Identifiable, Sendable {
     case audio, location, screencast, omi, watch, share
 
     var id: String {
@@ -97,6 +95,38 @@ private enum SourceRoute: Hashable, Identifiable {
         case .watch: "watch"
         case .share: "share"
         }
+    }
+}
+
+nonisolated struct SourcesViewRow: Identifiable, Equatable, Sendable {
+    let route: SourceRoute
+    let source: Source
+
+    var id: String { self.route.id }
+}
+
+nonisolated enum SourcesViewRowBuilder {
+    static func primaryRows(
+        audio: Source,
+        location: Source,
+        screencast: Source,
+        omi: Source,
+        watch: Source?
+    ) -> [SourcesViewRow] {
+        var rows = [
+            SourcesViewRow(route: .audio, source: audio),
+            SourcesViewRow(route: .location, source: location),
+            SourcesViewRow(route: .screencast, source: screencast),
+            SourcesViewRow(route: .omi, source: omi),
+        ]
+        if let watch {
+            rows.append(SourcesViewRow(route: .watch, source: watch))
+        }
+        return rows
+    }
+
+    static func importRows(share: Source) -> [SourcesViewRow] {
+        [SourcesViewRow(route: .share, source: share)]
     }
 }
 
@@ -192,27 +222,12 @@ private extension SourcesView {
         )
     }
 
-    var watchSource: Source {
-        let lastReceivedAt = self.watchLink.lastReceivedAt
-        let install = watchInstallState(
-            isSupported: self.watchLink.isSupported,
-            isPaired: self.watchLink.isPaired,
-            isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
-            activationState: self.watchLink.activationState,
-            now: self.now,
-            lastReceivedAt: lastReceivedAt
-        )
-        let recordingStatus = watchRecordingStatus(
-            context: self.watchLink.watchStatus,
-            now: self.now,
-            lastReceivedAt: lastReceivedAt
-        )
-        let presentation = phoneWatchSourcePresentation(
-            install: install,
-            recordingStatus: recordingStatus,
-            isReachable: self.watchLink.isReachable,
-            isJournalPaired: self.appConfig.isPaired
-        )
+    var watchSource: Source? {
+        let assembly = self.watchPipelineInputs.assembly(now: self.now)
+        guard assembly.lane != .unsupported else {
+            return nil
+        }
+        let presentation = phoneWatchSourcePresentation(lane: assembly.lane)
         return Source(
             id: "watch",
             displayName: SourceVocabulary.watchSourceDisplayName,
@@ -224,7 +239,7 @@ private extension SourcesView {
             subtextOverride: presentation.subtext,
             attention: presentation.attention,
             pendingStatus: .nonePending,
-            detailSubtext: presentation.attention?.message
+            showsSubtext: presentation.subtext != nil
         )
     }
 

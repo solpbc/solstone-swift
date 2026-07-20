@@ -53,6 +53,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let attention: SourceAttention?
     let pendingStatus: SourcePendingStatus
     let detailSubtext: String?
+    let showsSubtext: Bool
 
     init(
         id: String,
@@ -65,7 +66,8 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         subtextOverride: String? = nil,
         attention: SourceAttention?,
         pendingStatus: SourcePendingStatus,
-        detailSubtext: String? = nil
+        detailSubtext: String? = nil,
+        showsSubtext: Bool = true
     ) {
         self.id = id
         self.displayName = displayName
@@ -78,6 +80,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.attention = attention
         self.pendingStatus = pendingStatus
         self.detailSubtext = detailSubtext
+        self.showsSubtext = showsSubtext
     }
 
     var subtext: String {
@@ -87,7 +90,14 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         )
     }
 
+    var rowSubtext: String? {
+        self.showsSubtext ? self.subtext : nil
+    }
+
     var voiceOverText: String {
+        guard self.showsSubtext else {
+            return self.state.label
+        }
         let base: String
         if let subtextOverride {
             base = "\(self.state.label). \(Self.sentence(subtextOverride))"
