@@ -38,6 +38,7 @@ nonisolated final class WatchPipelineReducerIsolationGrepTests: XCTestCase {
         "WatchRelayReceiver",
         "WatchSegmentLedger",
         "ConnectionSyncModel",
+        "canOpenURL",
     ]
 
     private static let exemptBegin = "// KILL-LIST-EXEMPT:BEGIN"

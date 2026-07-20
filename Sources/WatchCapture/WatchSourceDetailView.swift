@@ -89,9 +89,18 @@ nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
 
 struct WatchSourceDetailView: View {
     @WatchPipelineInputReader private var watchPipelineInputs
+    @Environment(WatchSourceFacts.self) private var watchSourceFacts
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var now = Date()
+    @State private var setupDisclosureLatch = WatchSetupDisclosureLatch(
+        isExpanded: false,
+        lastHandledForegroundReturnGeneration: 0
+    )
+    @State private var foregroundReturnGeneration = 0
+    @State private var hasObservedNonActiveScenePhase = false
+    @State private var celebrationRenderedThisVisit = false
 
     var pipelineInput: WatchPipelineInput {
         self.watchPipelineAssembly.input
@@ -111,12 +120,41 @@ struct WatchSourceDetailView: View {
         .task {
             await self.refreshNowPeriodically()
         }
+        .onChange(of: self.scenePhase) { _, newPhase in
+            self.handleScenePhaseChange(newPhase)
+        }
+        .onChange(of: self.setupDisclosureInputs) { _, _ in
+            self.refreshSetupDisclosureLatch()
+        }
     }
 }
 
 private extension WatchSourceDetailView {
     @ViewBuilder
     var content: some View {
+        switch self.watchContentMode {
+        case .setup(let card):
+            SourceDetailBlock(title: card.header) {
+                self.setupCardBlock(card)
+            }
+        case .celebrate:
+            self.celebrationBanner
+            self.steadyContent
+        case .steady:
+            self.steadyContent
+        case .notice(let message):
+            SourceDetailBlock(title: SourceVocabulary.watchSetupHeader) {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        self.shareDiagnosticsLink(summary: self.summary)
+    }
+
+    @ViewBuilder
+    var steadyContent: some View {
         SourceDetailBlock(title: SourceVocabulary.watchStateBlockTitle) {
             self.stateBlock
         }
@@ -145,26 +183,6 @@ private extension WatchSourceDetailView {
                 Text(attention.message)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-            }
-
-            if let affordance = WatchSourceDetailPresentation.installAffordance(lane: self.watchLane) {
-                Button {
-                    self.openURL(URL(string: "itms-watchs://")!) { accepted in
-                        if !accepted {
-                            watchSourceLog.info("watch install deep link not accepted")
-                        }
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(affordance.title)
-                            .font(.subheadline.weight(.semibold))
-                        Text(affordance.instruction)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("watch.installAffordance")
             }
         }
     }
@@ -217,21 +235,119 @@ private extension WatchSourceDetailView {
                     }
                 }
             }
-
-            ShareLink(
-                item: WatchDiagnosticsExport(summary: summary),
-                preview: SharePreview(SourceVocabulary.watchDiagnosticsExportFileName)
-            ) {
-                Label(SourceVocabulary.watchShareDiagnosticsLabel, systemImage: "square.and.arrow.up")
-            }
-            .frame(minHeight: 44)
-            .accessibilityHint(SourceVocabulary.watchShareDiagnosticsHint)
         }
         .font(.subheadline)
     }
 
+    var celebrationBanner: some View {
+        Text(SourceVocabulary.watchSetupCelebration)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.orangeInk)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.solGold.opacity(0.22), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onAppear {
+                self.celebrationRenderedThisVisit = true
+                self.watchSourceFacts.noteFirstSegmentCelebrationShown()
+            }
+    }
+
+    func setupCardBlock(_ card: WatchSetupCard) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            switch card.line {
+            case .value(let line), .body(let line):
+                Text(line)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !card.steps.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(card.steps.enumerated()), id: \.element.id) { index, step in
+                        self.setupStepRow(step, index: index, total: card.steps.count)
+                    }
+                }
+            }
+        }
+    }
+
+    func setupStepRow(_ step: WatchSetupStep, index: Int, total: Int) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: self.setupStepSymbol(step.state))
+                .foregroundStyle(self.setupStepColor(step.state))
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(step.title)
+                    .font(.subheadline.weight(.semibold))
+
+                if let subline = step.subline {
+                    Text(subline)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                if step.id == .install {
+                    self.installStepControls(step)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(WatchSourceDetailPresentation.setupStepAccessibilityLabel(
+            step: step,
+            index: index,
+            total: total
+        ))
+    }
+
+    @ViewBuilder
+    func installStepControls(_ step: WatchSetupStep) -> some View {
+        if let buttonTitle = step.buttonTitle {
+            Button {
+                self.watchSourceFacts.noteInstallTapped()
+                self.openURL(URL(string: "itms-watchs://")!) { accepted in
+                    if !accepted {
+                        watchSourceLog.info("watch install deep link not accepted")
+                    }
+                }
+            } label: {
+                Label(buttonTitle, systemImage: "applewatch")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("watch.installAffordance")
+            .accessibilityHint(SourceVocabulary.watchSetupInstallButtonHint)
+        }
+
+        if let disclosure = step.disclosure {
+            DisclosureGroup(isExpanded: self.setupDisclosureBinding) {
+                Text(disclosure.body)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            } label: {
+                Text(disclosure.summary)
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+    }
+
+    func shareDiagnosticsLink(summary: WatchPipelineSummary) -> some View {
+        ShareLink(
+            item: WatchDiagnosticsExport(summary: summary),
+            preview: SharePreview(SourceVocabulary.watchDiagnosticsExportFileName)
+        ) {
+            Label(SourceVocabulary.watchShareDiagnosticsLabel, systemImage: "square.and.arrow.up")
+        }
+        .frame(minHeight: 44)
+        .accessibilityHint(SourceVocabulary.watchShareDiagnosticsHint)
+    }
+
     var watchPipelineAssembly: WatchPipelineAssembly {
         self.watchPipelineInputs.assembly(now: self.now)
+    }
+
+    var watchFactsSnapshot: WatchSourceFacts.Snapshot {
+        self.watchSourceFacts.snapshot
     }
 
     var watchLane: PhoneWatchSourceLane {
@@ -244,6 +360,40 @@ private extension WatchSourceDetailView {
 
     var summary: WatchPipelineSummary {
         WatchPipelineReducer.reduce(self.pipelineInput)
+    }
+
+    var watchContentMode: WatchDetailContentMode {
+        let assembly = self.watchPipelineAssembly
+        let facts = self.watchFactsSnapshot
+        return WatchSourceDetailPresentation.contentMode(
+            lane: assembly.lane,
+            installed: assembly.input.isWatchAppInstalled,
+            checkedIn: facts.watchAppCheckedIn,
+            firstSegment: facts.segmentFileReceived,
+            celebrationShown: facts.firstSegmentCelebrationShown && !self.celebrationRenderedThisVisit
+        )
+    }
+
+    var setupDisclosureBinding: Binding<Bool> {
+        Binding {
+            self.setupDisclosureLatch.isExpanded
+        } set: { isExpanded in
+            self.setupDisclosureLatch = WatchSetupDisclosureLatch(
+                isExpanded: isExpanded,
+                lastHandledForegroundReturnGeneration: self.setupDisclosureLatch.lastHandledForegroundReturnGeneration
+            )
+        }
+    }
+
+    var setupDisclosureInputs: WatchSetupDisclosureInputs {
+        let assembly = self.watchPipelineAssembly
+        let facts = self.watchFactsSnapshot
+        return WatchSetupDisclosureInputs(
+            installTapped: facts.installTapped,
+            installed: assembly.input.isWatchAppInstalled,
+            firstSegment: facts.segmentFileReceived,
+            foregroundReturnGeneration: self.foregroundReturnGeneration
+        )
     }
 
     @ViewBuilder
@@ -277,5 +427,60 @@ private extension WatchSourceDetailView {
             self.now = Date()
         }
     }
+
+    func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        switch newPhase {
+        case .active:
+            guard self.hasObservedNonActiveScenePhase else {
+                return
+            }
+            self.foregroundReturnGeneration += 1
+            self.refreshSetupDisclosureLatch()
+        case .inactive, .background:
+            self.hasObservedNonActiveScenePhase = true
+        @unknown default:
+            self.hasObservedNonActiveScenePhase = true
+        }
+    }
+
+    func refreshSetupDisclosureLatch() {
+        let inputs = self.setupDisclosureInputs
+        self.setupDisclosureLatch = WatchSourceDetailPresentation.disclosureLatch(
+            current: self.setupDisclosureLatch,
+            installTapped: inputs.installTapped,
+            installed: inputs.installed,
+            firstSegment: inputs.firstSegment,
+            foregroundReturnGeneration: inputs.foregroundReturnGeneration
+        )
+    }
+
+    func setupStepSymbol(_ state: WatchSetupStepState) -> String {
+        switch state {
+        case .pending:
+            "circle"
+        case .active:
+            "circle.dotted"
+        case .done:
+            "checkmark.circle.fill"
+        }
+    }
+
+    func setupStepColor(_ state: WatchSetupStepState) -> Color {
+        switch state {
+        case .pending:
+            .secondary
+        case .active:
+            .solOrange
+        case .done:
+            .solGold
+        }
+    }
+}
+
+private struct WatchSetupDisclosureInputs: Equatable {
+    let installTapped: Bool
+    let installed: Bool
+    let firstSegment: Bool
+    let foregroundReturnGeneration: Int
 }
 #endif

@@ -327,7 +327,9 @@ private extension PhoneWatchSourceStateMappingTests {
     ) -> WatchSourceFacts.Snapshot {
         WatchSourceFacts.Snapshot(
             watchAppCheckedIn: watchAppCheckedIn,
-            segmentFileReceived: segmentFileReceived
+            segmentFileReceived: segmentFileReceived,
+            installTapped: false,
+            firstSegmentCelebrationShown: false
         )
     }
 

@@ -431,8 +431,38 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchWaitingToSyncFromWatch(1), "1 waiting to sync from your watch")
         XCTAssertEqual(SourceVocabulary.watchWaitingToSyncFromWatch(3), "3 waiting to sync from your watch")
         XCTAssertEqual(SourceVocabulary.watchListeningSubtext, "on your watch, taking in audio")
-        XCTAssertEqual(SourceVocabulary.watchInstallTitle, "install sol on your watch")
-        XCTAssertEqual(SourceVocabulary.watchInstallInstruction, "open the Watch app to install it")
+        XCTAssertEqual(SourceVocabulary.watchSetupHeader, "sol on your watch")
+        XCTAssertEqual(
+            SourceVocabulary.watchSetupValueLine,
+            "sol on your watch takes in audio and location from your wrist, hands it to this iphone, and it all syncs into your journal."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.watchSetupNoWatchBody,
+            "pair an apple watch to this iphone and sol can come along on your wrist. everything else in solstone works without one."
+        )
+        XCTAssertEqual(SourceVocabulary.watchCheckingLine, "checking your watch…")
+        XCTAssertEqual(SourceVocabulary.watchSetupInstallTitle, "install sol from the Watch app")
+        XCTAssertEqual(
+            SourceVocabulary.watchSetupInstallSubline,
+            "in My Watch, scroll to Available Apps and tap install next to sol."
+        )
+        XCTAssertEqual(SourceVocabulary.watchSetupInstallButton, "open the Watch app")
+        XCTAssertEqual(SourceVocabulary.watchSetupInstallButtonHint, "opens the Watch app.")
+        XCTAssertEqual(SourceVocabulary.watchSetupInstallDisclosureSummary, "don't see sol in the list?")
+        XCTAssertEqual(
+            SourceVocabulary.watchSetupInstallDisclosureBody,
+            "your watch may need watchos 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch."
+        )
+        XCTAssertEqual(SourceVocabulary.watchSetupOpenTitle, "open sol on your watch")
+        XCTAssertEqual(
+            SourceVocabulary.watchSetupOpenSubline,
+            "sol checks in with this iphone the first time it opens."
+        )
+        XCTAssertEqual(SourceVocabulary.watchSetupFirstMomentTitle, "tap start for your first moment")
+        XCTAssertEqual(SourceVocabulary.watchSetupCelebration, "your watch's first memory just landed on this phone.")
+        XCTAssertEqual(SourceVocabulary.watchSetupStepPending, "pending")
+        XCTAssertEqual(SourceVocabulary.watchSetupStepActive, "active")
+        XCTAssertEqual(SourceVocabulary.watchSetupStepComplete, "complete")
         XCTAssertEqual(SourceVocabulary.watchStateBlockTitle, "state")
         XCTAssertEqual(SourceVocabulary.watchDeviceBlockTitle, "watch")
         XCTAssertEqual(SourceVocabulary.watchDiagnosticsBlockTitle, "diagnostics")
@@ -618,6 +648,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "kept on this phone, only — nowhere else, until you connect a journal",
             "kept here until you connect a journal · connect →",
             "nothing is on right now",
+            "install sol on your watch",
+            "open the Watch app to install it",
         ]
 
         for retired in retiredExactStrings {
@@ -738,8 +770,23 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchIdleNowSubtext,
             SourceVocabulary.watchWaitingToSyncFromWatch(2),
             SourceVocabulary.watchListeningSubtext,
-            SourceVocabulary.watchInstallTitle,
-            SourceVocabulary.watchInstallInstruction,
+            SourceVocabulary.watchSetupHeader,
+            SourceVocabulary.watchSetupValueLine,
+            SourceVocabulary.watchSetupNoWatchBody,
+            SourceVocabulary.watchCheckingLine,
+            SourceVocabulary.watchSetupInstallTitle,
+            SourceVocabulary.watchSetupInstallSubline,
+            SourceVocabulary.watchSetupInstallButton,
+            SourceVocabulary.watchSetupInstallButtonHint,
+            SourceVocabulary.watchSetupInstallDisclosureSummary,
+            SourceVocabulary.watchSetupInstallDisclosureBody,
+            SourceVocabulary.watchSetupOpenTitle,
+            SourceVocabulary.watchSetupOpenSubline,
+            SourceVocabulary.watchSetupFirstMomentTitle,
+            SourceVocabulary.watchSetupCelebration,
+            SourceVocabulary.watchSetupStepPending,
+            SourceVocabulary.watchSetupStepActive,
+            SourceVocabulary.watchSetupStepComplete,
             SourceVocabulary.watchStateBlockTitle,
             SourceVocabulary.watchDeviceBlockTitle,
             SourceVocabulary.watchDiagnosticsBlockTitle,
@@ -795,6 +842,23 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
+            SourceVocabulary.watchSetupHeader,
+            SourceVocabulary.watchSetupValueLine,
+            SourceVocabulary.watchSetupNoWatchBody,
+            SourceVocabulary.watchCheckingLine,
+            SourceVocabulary.watchSetupInstallTitle,
+            SourceVocabulary.watchSetupInstallSubline,
+            SourceVocabulary.watchSetupInstallButton,
+            SourceVocabulary.watchSetupInstallButtonHint,
+            SourceVocabulary.watchSetupInstallDisclosureSummary,
+            SourceVocabulary.watchSetupInstallDisclosureBody,
+            SourceVocabulary.watchSetupOpenTitle,
+            SourceVocabulary.watchSetupOpenSubline,
+            SourceVocabulary.watchSetupFirstMomentTitle,
+            SourceVocabulary.watchSetupCelebration,
+            SourceVocabulary.watchSetupStepPending,
+            SourceVocabulary.watchSetupStepActive,
+            SourceVocabulary.watchSetupStepComplete,
             SourceVocabulary.standingSyncFootnote(sustaining: true),
             SourceVocabulary.standingSyncFootnote(sustaining: false),
             LocationVocabulary.activeSubtext(isJournalPaired: false),
@@ -910,6 +974,23 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchReceivingNowSubtext,
             SourceVocabulary.watchIdleNowSubtext,
             SourceVocabulary.watchWaitingToSyncFromWatch(2),
+            SourceVocabulary.watchSetupHeader,
+            SourceVocabulary.watchSetupValueLine,
+            SourceVocabulary.watchSetupNoWatchBody,
+            SourceVocabulary.watchCheckingLine,
+            SourceVocabulary.watchSetupInstallTitle,
+            SourceVocabulary.watchSetupInstallSubline,
+            SourceVocabulary.watchSetupInstallButton,
+            SourceVocabulary.watchSetupInstallButtonHint,
+            SourceVocabulary.watchSetupInstallDisclosureSummary,
+            SourceVocabulary.watchSetupInstallDisclosureBody,
+            SourceVocabulary.watchSetupOpenTitle,
+            SourceVocabulary.watchSetupOpenSubline,
+            SourceVocabulary.watchSetupFirstMomentTitle,
+            SourceVocabulary.watchSetupCelebration,
+            SourceVocabulary.watchSetupStepPending,
+            SourceVocabulary.watchSetupStepActive,
+            SourceVocabulary.watchSetupStepComplete,
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
             SourceVocabulary.removeSeam,

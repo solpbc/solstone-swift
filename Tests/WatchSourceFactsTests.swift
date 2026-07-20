@@ -27,15 +27,15 @@ final class WatchSourceFactsTests: XCTestCase {
         defer { defaults.defaults.removePersistentDomain(forName: defaults.name) }
         let facts = WatchSourceFacts(defaults: defaults.defaults)
 
-        XCTAssertEqual(facts.snapshot, WatchSourceFacts.Snapshot(watchAppCheckedIn: false, segmentFileReceived: false))
+        XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: false, segmentFileReceived: false))
 
         facts.noteStatusContextCheckedIn()
         facts.noteStatusContextCheckedIn()
 
-        XCTAssertEqual(facts.snapshot, WatchSourceFacts.Snapshot(watchAppCheckedIn: true, segmentFileReceived: false))
+        XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: false))
         XCTAssertEqual(
             WatchSourceFacts(defaults: defaults.defaults).snapshot,
-            WatchSourceFacts.Snapshot(watchAppCheckedIn: true, segmentFileReceived: false)
+            Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: false)
         )
     }
 
@@ -47,10 +47,54 @@ final class WatchSourceFactsTests: XCTestCase {
         facts.noteSegmentFileReceived()
         facts.noteSegmentFileReceived()
 
-        XCTAssertEqual(facts.snapshot, WatchSourceFacts.Snapshot(watchAppCheckedIn: true, segmentFileReceived: true))
+        XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: true))
         XCTAssertEqual(
             WatchSourceFacts(defaults: defaults.defaults).snapshot,
-            WatchSourceFacts.Snapshot(watchAppCheckedIn: true, segmentFileReceived: true)
+            Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: true)
+        )
+    }
+
+    func testInstallTappedFactSetsOnceAndPersistsThroughDefaults() throws {
+        let defaults = try Self.defaults()
+        defer { defaults.defaults.removePersistentDomain(forName: defaults.name) }
+        let facts = WatchSourceFacts(defaults: defaults.defaults)
+
+        facts.noteInstallTapped()
+        facts.noteInstallTapped()
+
+        XCTAssertEqual(
+            facts.snapshot,
+            Self.snapshot(watchAppCheckedIn: false, segmentFileReceived: false, installTapped: true)
+        )
+        XCTAssertEqual(
+            WatchSourceFacts(defaults: defaults.defaults).snapshot,
+            Self.snapshot(watchAppCheckedIn: false, segmentFileReceived: false, installTapped: true)
+        )
+    }
+
+    func testFirstSegmentCelebrationShownFactSetsOnceAndPersistsThroughDefaults() throws {
+        let defaults = try Self.defaults()
+        defer { defaults.defaults.removePersistentDomain(forName: defaults.name) }
+        let facts = WatchSourceFacts(defaults: defaults.defaults)
+
+        facts.noteFirstSegmentCelebrationShown()
+        facts.noteFirstSegmentCelebrationShown()
+
+        XCTAssertEqual(
+            facts.snapshot,
+            Self.snapshot(
+                watchAppCheckedIn: false,
+                segmentFileReceived: false,
+                firstSegmentCelebrationShown: true
+            )
+        )
+        XCTAssertEqual(
+            WatchSourceFacts(defaults: defaults.defaults).snapshot,
+            Self.snapshot(
+                watchAppCheckedIn: false,
+                segmentFileReceived: false,
+                firstSegmentCelebrationShown: true
+            )
         )
     }
 
@@ -65,7 +109,7 @@ final class WatchSourceFactsTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
 
         XCTAssertEqual(link.watchStatus?.seq, 1)
-        XCTAssertEqual(facts.snapshot, WatchSourceFacts.Snapshot(watchAppCheckedIn: true, segmentFileReceived: false))
+        XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: false))
     }
 
     func testWatchRelayReceiverWritesBothFactsForValidSegmentOnly() throws {
@@ -86,14 +130,14 @@ final class WatchSourceFactsTests: XCTestCase {
         let invalidScratch = self.tempDirectory.appendingPathComponent("invalid.bundle", isDirectory: false)
         try Data("invalid".utf8).write(to: invalidScratch)
         receiver.receiveFile(invalidScratch, metadata: [:])
-        XCTAssertEqual(facts.snapshot, WatchSourceFacts.Snapshot(watchAppCheckedIn: false, segmentFileReceived: false))
+        XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: false, segmentFileReceived: false))
 
         let id = UUID()
         let validScratch = self.tempDirectory.appendingPathComponent("valid.bundle", isDirectory: false)
         try Self.writeBundle(id: id, to: validScratch)
         receiver.receiveFile(validScratch, metadata: ["id": id.uuidString])
 
-        XCTAssertEqual(facts.snapshot, WatchSourceFacts.Snapshot(watchAppCheckedIn: true, segmentFileReceived: true))
+        XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: true))
         XCTAssertEqual(ledger.nonTerminalCount, 1)
     }
 }
@@ -109,6 +153,20 @@ private extension WatchSourceFactsTests {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defaults.removePersistentDomain(forName: name)
         return DefaultsBox(name: name, defaults: defaults)
+    }
+
+    static func snapshot(
+        watchAppCheckedIn: Bool,
+        segmentFileReceived: Bool,
+        installTapped: Bool = false,
+        firstSegmentCelebrationShown: Bool = false
+    ) -> WatchSourceFacts.Snapshot {
+        WatchSourceFacts.Snapshot(
+            watchAppCheckedIn: watchAppCheckedIn,
+            segmentFileReceived: segmentFileReceived,
+            installTapped: installTapped,
+            firstSegmentCelebrationShown: firstSegmentCelebrationShown
+        )
     }
 
     static func status(seq: Int) -> WatchStatusContext {
