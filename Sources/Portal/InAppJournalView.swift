@@ -94,42 +94,33 @@ struct JournalWebView: UIViewRepresentable {
         }
 
         nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.existingSession?.didStart(navigationKey: navigationKey)
+                self.existingSession?.didStart(navigation: navigation)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.existingSession?.didCommit(navigationKey: navigationKey)
+                self.existingSession?.didCommit(navigation: navigation)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.existingSession?.didFinish(navigationKey: navigationKey)
+                self.existingSession?.didFinish(navigation: navigation)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-            let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.existingSession?.didFail(navigationKey: navigationKey, error: error)
+                self.existingSession?.didFail(navigation: navigation, error: error)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-            let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.existingSession?.didFail(navigationKey: navigationKey, error: error)
+                self.existingSession?.didFail(navigation: navigation, error: error)
             }
-        }
-
-        private nonisolated static func navigationKey(for navigation: WKNavigation?) -> ObjectIdentifier? {
-            navigation.map { ObjectIdentifier($0) }
         }
     }
 }
