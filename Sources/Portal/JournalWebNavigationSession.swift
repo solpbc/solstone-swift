@@ -25,8 +25,11 @@ final class JournalWebNavigationSession {
     private var boundTask: Task<Void, Never>?
     private var generation = 0
     private var currentNavigationKey: ObjectIdentifier?
+    private var retiredNavigationKeys: Set<ObjectIdentifier> = []
+    private var unkeyedCallbacksSealed = false
     private var liveAuthority: JournalWebNavigationPolicy.Authority?
     private var lastRequest: LastRequest?
+    private var isTornDown = false
 
     init(
         timeout: Duration = .seconds(20),
@@ -41,9 +44,14 @@ final class JournalWebNavigationSession {
     }
 
     func requestLoad(url: URL, reloadToken: Int) {
+        guard !self.isTornDown else { return }
         let request = LastRequest(url: url, reloadToken: reloadToken)
         guard self.lastRequest != request else { return }
 
+        self.unkeyedCallbacksSealed = true
+        if let currentNavigationKey = self.currentNavigationKey {
+            self.retiredNavigationKeys.insert(currentNavigationKey)
+        }
         let previousRequest = self.lastRequest
         self.lastRequest = request
         self.liveAuthority = JournalWebNavigationPolicy.authority(for: url)
@@ -61,6 +69,7 @@ final class JournalWebNavigationSession {
 
     @discardableResult
     func decidePolicy(for request: URLRequest, isMainFrame: Bool) -> JournalWebNavigationPolicy.Decision {
+        guard !self.isTornDown else { return .allow }
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: request.url,
             httpMethod: request.httpMethod,
@@ -85,15 +94,19 @@ final class JournalWebNavigationSession {
     }
 
     func didStart(navigationKey: ObjectIdentifier?) {
+        guard !self.isTornDown else { return }
         let previousGeneration = self.generation
         self.generation += 1
         self.currentNavigationKey = navigationKey
+        self.retiredNavigationKeys.removeAll()
+        self.unkeyedCallbacksSealed = false
         journalWebLog.info("event=start generation=\(self.generation, privacy: .public) previousGeneration=\(previousGeneration, privacy: .public)")
         self.setState(JournalWebPresentation.loadState(for: .started))
         self.armBound(generation: self.generation)
     }
 
     func didCommit(navigationKey: ObjectIdentifier?) {
+        guard !self.isTornDown else { return }
         let navigationGeneration = self.generation(for: navigationKey)
         journalWebLog.info("event=commit navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
         guard self.acceptsTerminalSuccess(navigationKey: navigationKey) else { return }
@@ -102,6 +115,7 @@ final class JournalWebNavigationSession {
     }
 
     func didFinish(navigationKey: ObjectIdentifier?) {
+        guard !self.isTornDown else { return }
         let navigationGeneration = self.generation(for: navigationKey)
         journalWebLog.info("event=finish navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
         guard self.acceptsTerminalSuccess(navigationKey: navigationKey) else { return }
@@ -110,6 +124,7 @@ final class JournalWebNavigationSession {
     }
 
     func didFail(navigationKey: ObjectIdentifier?, error: any Error) {
+        guard !self.isTornDown else { return }
         let nsError = error as NSError
         let navigationGeneration = self.generation(for: navigationKey)
 
@@ -125,8 +140,11 @@ final class JournalWebNavigationSession {
     }
 
     func teardown() {
+        self.isTornDown = true
         self.cancelBound()
         self.currentNavigationKey = nil
+        self.retiredNavigationKeys.removeAll()
+        self.unkeyedCallbacksSealed = true
         self.liveAuthority = nil
         self.lastRequest = nil
     }
@@ -137,6 +155,10 @@ final class JournalWebNavigationSession {
             await self.sleep(self.timeout)
             guard !Task.isCancelled else { return }
             guard self.generation == generation else { return }
+            self.unkeyedCallbacksSealed = true
+            if let currentNavigationKey = self.currentNavigationKey {
+                self.retiredNavigationKeys.insert(currentNavigationKey)
+            }
             journalWebLog.error("event=timeout generation=\(generation, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
             self.boundTask = nil
             self.setState(JournalWebPresentation.loadState(for: .failed(urlErrorCode: NSURLErrorTimedOut)))
@@ -149,25 +171,37 @@ final class JournalWebNavigationSession {
     }
 
     private func acceptsTerminalSuccess(navigationKey: ObjectIdentifier?) -> Bool {
-        guard let currentNavigationKey = self.currentNavigationKey,
-              let navigationKey
-        else {
-            return true
+        guard let navigationKey else {
+            return self.currentNavigationKey == nil && self.acceptsUnkeyedCallback()
         }
+        if self.retiredNavigationKeys.contains(navigationKey) {
+            return false
+        }
+        guard let currentNavigationKey = self.currentNavigationKey else { return false }
         return currentNavigationKey == navigationKey
     }
 
     private func acceptsExplicitFailure(navigationKey: ObjectIdentifier?) -> Bool {
-        guard let currentNavigationKey = self.currentNavigationKey else {
-            return true
-        }
         guard let navigationKey else {
+            return self.currentNavigationKey == nil && self.acceptsUnkeyedCallback()
+        }
+        if self.retiredNavigationKeys.contains(navigationKey) {
             return false
         }
+        guard let currentNavigationKey = self.currentNavigationKey else { return false }
         return currentNavigationKey == navigationKey
     }
 
+    private func acceptsUnkeyedCallback() -> Bool {
+        // Unknown-key callbacks fail closed after requestLoad or timeout. The
+        // requestLoad-bound timeout is the backstop, so the veil cannot stick forever.
+        !self.unkeyedCallbacksSealed
+    }
+
     private func generation(for navigationKey: ObjectIdentifier?) -> Int {
+        if let navigationKey, self.retiredNavigationKeys.contains(navigationKey) {
+            return Self.unknownGeneration
+        }
         guard let navigationKey,
               let currentNavigationKey = self.currentNavigationKey,
               navigationKey == currentNavigationKey

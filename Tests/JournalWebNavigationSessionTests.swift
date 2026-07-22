@@ -4,6 +4,7 @@
 @testable import solstone_swift
 import Foundation
 import os
+import WebKit
 import XCTest
 
 @MainActor
@@ -75,6 +76,40 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         gate.fireAll()
     }
 
+    func testRetiredNavigationCallbacksCannotClobberRequestLoadBeforeDidStart() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let firstURL = try self.url("http://127.0.0.1:8080/")
+        let secondURL = try self.url("http://127.0.0.1:9090/")
+        let navigation = NavigationToken()
+        let navigationKey = ObjectIdentifier(navigation)
+
+        session.requestLoad(url: firstURL, reloadToken: 0)
+        session.didStart(navigationKey: navigationKey)
+        try await self.waitFor("pending first navigation bound") {
+            gate.pendingCount == 2
+        }
+        session.requestLoad(url: secondURL, reloadToken: 0)
+        try await self.waitFor("pending second request-load bound") {
+            gate.pendingCount == 3
+        }
+
+        session.didFinish(navigationKey: navigationKey)
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didFail(
+            navigationKey: navigationKey,
+            error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        gate.fireAll()
+        try await self.waitFor("second request-load timeout error") {
+            recorder.states.containsLoadFailure
+        }
+    }
+
     func testReloadTokenRetryLoadsSameURLOnceAndReturnsToLoading() async throws {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()
@@ -85,12 +120,16 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         try await self.waitFor("pending first retry-path bound") {
             gate.pendingCount == 1
         }
+        session.didStart(navigationKey: nil)
+        try await self.waitFor("pending first retry-path navigation bound") {
+            gate.pendingCount == 2
+        }
         session.didFail(navigationKey: nil, error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
         XCTAssertTrue(recorder.states.containsLoadFailure)
 
         session.requestLoad(url: url, reloadToken: 1)
         try await self.waitFor("pending second retry-path bound") {
-            gate.pendingCount == 2
+            gate.pendingCount == 3
         }
         XCTAssertEqual(recorder.loads.map(\.url), [url, url])
         XCTAssertEqual(recorder.states.last, .loading)
@@ -113,6 +152,74 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         try await self.waitFor("request-load timeout error") {
             recorder.states.containsLoadFailure
         }
+    }
+
+    func testUnkeyedTimeoutLateTerminalSuccessCannotOverwriteTimeoutError() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending unkeyed request-load timeout") {
+            gate.pendingCount == 1
+        }
+        gate.fireNext()
+        try await self.waitFor("unkeyed timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+        let timeoutState = recorder.states.last
+
+        session.didCommit(navigationKey: nil)
+        XCTAssertEqual(recorder.states.last, timeoutState)
+
+        session.didFinish(navigationKey: nil)
+        XCTAssertEqual(recorder.states.last, timeoutState)
+    }
+
+    func testUnkeyedPriorCallbackCannotClobberRetryBeforeDidStart() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+
+        session.requestLoad(url: url, reloadToken: 0)
+        session.didStart(navigationKey: nil)
+        try await self.waitFor("pending first unkeyed navigation bound") {
+            gate.pendingCount == 2
+        }
+
+        session.requestLoad(url: url, reloadToken: 1)
+        try await self.waitFor("pending retry request-load bound") {
+            gate.pendingCount == 3
+        }
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didFinish(navigationKey: nil)
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        gate.fireAll()
+        try await self.waitFor("retry request-load timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+    }
+
+    func testUnkeyedTerminalSuccessAfterDidStartCanLoad() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+
+        session.requestLoad(url: url, reloadToken: 0)
+        session.didStart(navigationKey: nil)
+        try await self.waitFor("pending unkeyed navigation bound") {
+            gate.pendingCount == 2
+        }
+
+        session.didFinish(navigationKey: nil)
+
+        XCTAssertEqual(recorder.states.last, .loaded)
+        gate.fireAll()
     }
 
     func testDidStartSupersedesRequestLoadBound() async throws {
@@ -211,6 +318,71 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         }
     }
 
+    func testTimedOutNavigationLateCallbacksCannotOverwriteTimeoutError() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let navigation = NavigationToken()
+        let navigationKey = ObjectIdentifier(navigation)
+
+        session.didStart(navigationKey: navigationKey)
+        try await self.waitFor("pending timeout") {
+            gate.pendingCount == 1
+        }
+        gate.fireNext()
+        try await self.waitFor("timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+        let timeoutState = recorder.states.last
+
+        session.didCommit(navigationKey: navigationKey)
+        XCTAssertEqual(recorder.states.last, timeoutState)
+
+        session.didFinish(navigationKey: navigationKey)
+        XCTAssertEqual(recorder.states.last, timeoutState)
+
+        session.didFail(
+            navigationKey: navigationKey,
+            error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )
+        XCTAssertEqual(recorder.states.last, timeoutState)
+    }
+
+    func testTimedOutNavigationCannotCancelNewNavigationBound() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let firstNavigation = NavigationToken()
+        let secondNavigation = NavigationToken()
+        let firstKey = ObjectIdentifier(firstNavigation)
+        let secondKey = ObjectIdentifier(secondNavigation)
+        let secondURL = try self.url("http://127.0.0.1:9090/")
+
+        session.didStart(navigationKey: firstKey)
+        try await self.waitFor("pending first timeout") {
+            gate.pendingCount == 1
+        }
+        gate.fireNext()
+        try await self.waitFor("first timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+
+        session.requestLoad(url: secondURL, reloadToken: 0)
+        session.didStart(navigationKey: secondKey)
+        try await self.waitFor("pending second navigation bound") {
+            gate.pendingCount == 2
+        }
+
+        session.didFinish(navigationKey: firstKey)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        gate.fireAll()
+        try await self.waitFor("second timeout error") {
+            recorder.states.loadFailureCount == 2
+        }
+    }
+
     func testSupersedingGenerationCancelsPriorBound() async throws {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()
@@ -259,17 +431,34 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         XCTAssertEqual(recorder.states.last, .loaded)
     }
 
-    func testTerminalSuccessFailsOpenWhenNavigationKeyIsNil() {
+    func testTerminalSuccessFailsOpenWhenNoNavigationKeyIsCurrent() {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+
+        session.didCommit(navigationKey: nil)
+
+        XCTAssertEqual(recorder.states.last, .loaded)
+        session.teardown()
+    }
+
+    func testNilTerminalSuccessDoesNotClobberKeyedNavigation() async throws {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()
         let session = recorder.makeSession(gate: gate)
         let navigation = NavigationToken()
 
         session.didStart(navigationKey: ObjectIdentifier(navigation))
+        try await self.waitFor("pending keyed navigation bound") {
+            gate.pendingCount == 1
+        }
         session.didCommit(navigationKey: nil)
 
-        XCTAssertEqual(recorder.states.last, .loaded)
-        session.teardown()
+        XCTAssertEqual(recorder.states.last, .loading)
+        gate.fireNext()
+        try await self.waitFor("keyed navigation timeout error") {
+            recorder.states.containsLoadFailure
+        }
     }
 
     func testTeardownCancelsPendingBound() async throws {
@@ -287,6 +476,54 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         await Task.yield()
 
         XCTAssertFalse(recorder.states.containsLoadFailure)
+    }
+
+    func testSessionIgnoresCallbacksAfterTeardown() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let navigation = NavigationToken()
+        let navigationKey = ObjectIdentifier(navigation)
+
+        session.teardown()
+        session.didStart(navigationKey: navigationKey)
+        session.didCommit(navigationKey: navigationKey)
+        session.didFinish(navigationKey: navigationKey)
+        session.didFail(navigationKey: navigationKey, error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
+
+        XCTAssertEqual(recorder.states, [])
+        XCTAssertEqual(gate.pendingCount, 0)
+    }
+
+    func testCoordinatorCallbacksDoNotRecreateSessionAfterTeardown() async throws {
+        var states: [JournalWebPresentation.LoadState] = []
+        let coordinator = JournalWebView.Coordinator { state in
+            states.append(state)
+        }
+        let webView = WKWebView(frame: .zero)
+        let url = try self.url("http://127.0.0.1:8080/")
+
+        coordinator.requestLoad(url: url, reloadToken: 0, webView: webView)
+        XCTAssertEqual(states, [.loading])
+        coordinator.teardown()
+        states.removeAll()
+
+        coordinator.webView(webView, didStartProvisionalNavigation: nil)
+        coordinator.webView(webView, didCommit: nil)
+        coordinator.webView(webView, didFinish: nil)
+        coordinator.webView(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )
+        coordinator.webView(
+            webView,
+            didFail: nil,
+            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )
+        await Task.yield()
+
+        XCTAssertEqual(states, [])
     }
 
     private func url(_ value: String) throws -> URL {
@@ -311,17 +548,6 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 private final class SessionRecorder {
     var loads: [URLRequest] = []
     var states: [JournalWebPresentation.LoadState] = []
-
-    func makeSession() -> JournalWebNavigationSession {
-        JournalWebNavigationSession(
-            load: { request in
-                self.loads.append(request)
-            },
-            setState: { state in
-                self.states.append(state)
-            }
-        )
-    }
 
     func makeSession(gate: CoalescerSleepGate) -> JournalWebNavigationSession {
         JournalWebNavigationSession(
@@ -381,5 +607,14 @@ private extension [JournalWebPresentation.LoadState] {
             }
             return false
         }
+    }
+
+    var loadFailureCount: Int {
+        self.filter { state in
+            if case .error(let message) = state {
+                return message == JournalWebPresentation.loadFailureMessage
+            }
+            return false
+        }.count
     }
 }

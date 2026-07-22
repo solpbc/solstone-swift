@@ -44,6 +44,7 @@ nonisolated enum JournalWebNavigationPolicy {
               liveAuthority.scheme == "http",
               let requestURL,
               self.schemeClass(for: requestURL) == .https,
+              !self.hasEmbeddedAuthorityPrefix(in: requestURL),
               self.isRewritableMethod(httpMethod),
               self.hostPortMatches(requestURL: requestURL, liveAuthority: liveAuthority),
               var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)
@@ -93,6 +94,18 @@ nonisolated enum JournalWebNavigationPolicy {
         }
 
         return host == liveAuthority.host && port == liveAuthority.port
+    }
+
+    private static func hasEmbeddedAuthorityPrefix(in url: URL) -> Bool {
+        let specifier = (url as NSURL).resourceSpecifier ?? ""
+        guard specifier.hasPrefix("//") else { return false }
+
+        let authorityStart = specifier.index(specifier.startIndex, offsetBy: 2)
+        let authorityEnd = specifier[authorityStart...].firstIndex { character in
+            character == "/" || character == "?" || character == "#"
+        } ?? specifier.endIndex
+
+        return specifier[authorityStart..<authorityEnd].contains("@")
     }
 
     private static func isRewritableMethod(_ method: String?) -> Bool {

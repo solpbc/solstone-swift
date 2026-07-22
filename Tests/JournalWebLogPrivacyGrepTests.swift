@@ -15,6 +15,7 @@ nonisolated final class JournalWebLogPrivacyGrepTests: XCTestCase {
             "query",
             "fragment",
             "absolutestring",
+            "host",
         ]
         var inspectedCallCount = 0
 
@@ -27,8 +28,12 @@ nonisolated final class JournalWebLogPrivacyGrepTests: XCTestCase {
 
                 _ = try StringLiteralGrepSupport.stringLiterals(in: lineText)
                 for expression in self.interpolationExpressions(in: lineText) {
-                    let normalized = expression.lowercased()
-                    for fragment in forbiddenExpressionFragments where normalized.contains(fragment) {
+                    XCTAssertTrue(
+                        expression.contains("privacy: .public"),
+                        "journalWebLog interpolation lacks privacy: .public at \(file.path):\(index + 1): \(lineText)"
+                    )
+                    let valueExpression = self.valueExpression(in: expression)
+                    for fragment in forbiddenExpressionFragments where self.containsForbiddenFragment(fragment, in: valueExpression) {
                         XCTFail("journalWebLog interpolation contains \(fragment) at \(file.path):\(index + 1): \(lineText)")
                     }
                 }
@@ -43,13 +48,46 @@ nonisolated final class JournalWebLogPrivacyGrepTests: XCTestCase {
         var searchStart = line.startIndex
 
         while let interpolationStart = line[searchStart...].range(of: #"\("#)?.upperBound {
-            guard let privacyStart = line[interpolationStart...].range(of: ", privacy:")?.lowerBound else {
+            var cursor = interpolationStart
+            var depth = 1
+            var interpolationEnd: String.Index?
+
+            while cursor < line.endIndex {
+                let character = line[cursor]
+                if character == "(" {
+                    depth += 1
+                } else if character == ")" {
+                    depth -= 1
+                    if depth == 0 {
+                        interpolationEnd = cursor
+                        break
+                    }
+                }
+                cursor = line.index(after: cursor)
+            }
+
+            guard let interpolationEnd else {
                 break
             }
-            expressions.append(String(line[interpolationStart..<privacyStart]))
-            searchStart = privacyStart
+            expressions.append(String(line[interpolationStart..<interpolationEnd]))
+            searchStart = line.index(after: interpolationEnd)
         }
 
         return expressions
+    }
+
+    private func valueExpression(in interpolation: String) -> String {
+        let expression = interpolation.lowercased()
+        guard let privacyRange = expression.range(of: ", privacy:") else {
+            return expression
+        }
+        return String(expression[..<privacyRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func containsForbiddenFragment(_ fragment: String, in expression: String) -> Bool {
+        if fragment == "host", expression == "hostportmatch" {
+            return false
+        }
+        return expression.contains(fragment)
     }
 }

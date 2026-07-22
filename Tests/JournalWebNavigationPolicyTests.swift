@@ -160,6 +160,17 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         XCTAssertEqual(decision, .allow)
     }
 
+    func testAllowsUserinfoAtLiveAuthority() throws {
+        let decision = JournalWebNavigationPolicy.decision(
+            requestURL: try XCTUnwrap(URL(string: "https://user:secret@127.0.0.1:8080/")),
+            httpMethod: "GET",
+            isMainFrame: true,
+            liveAuthority: try self.liveAuthority()
+        )
+
+        XCTAssertEqual(decision, .allow)
+    }
+
     func testAllowsSubframeNavigation() throws {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: try XCTUnwrap(URL(string: "https://127.0.0.1:8080/")),

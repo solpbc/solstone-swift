@@ -42,7 +42,7 @@ struct JournalWebView: UIViewRepresentable {
 
         @MainActor
         func requestLoad(url: URL, reloadToken: Int, webView: WKWebView) {
-            self.session(for: webView).requestLoad(url: url, reloadToken: reloadToken)
+            self.creatingSession(for: webView).requestLoad(url: url, reloadToken: reloadToken)
         }
 
         @MainActor
@@ -52,7 +52,7 @@ struct JournalWebView: UIViewRepresentable {
         }
 
         @MainActor
-        private func session(for webView: WKWebView) -> JournalWebNavigationSession {
+        private func creatingSession(for webView: WKWebView) -> JournalWebNavigationSession {
             if let session = self.session {
                 return session
             }
@@ -66,6 +66,11 @@ struct JournalWebView: UIViewRepresentable {
             return session
         }
 
+        @MainActor
+        private var existingSession: JournalWebNavigationSession? {
+            self.session
+        }
+
         nonisolated func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
@@ -74,7 +79,11 @@ struct JournalWebView: UIViewRepresentable {
             let request = navigationAction.request
             let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
             Task { @MainActor in
-                let decision = self.session(for: webView).decidePolicy(for: request, isMainFrame: isMainFrame)
+                guard let session = self.existingSession else {
+                    decisionHandler(.allow)
+                    return
+                }
+                let decision = session.decidePolicy(for: request, isMainFrame: isMainFrame)
                 switch decision {
                 case .allow:
                     decisionHandler(.allow)
@@ -87,35 +96,35 @@ struct JournalWebView: UIViewRepresentable {
         nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.session(for: webView).didStart(navigationKey: navigationKey)
+                self.existingSession?.didStart(navigationKey: navigationKey)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.session(for: webView).didCommit(navigationKey: navigationKey)
+                self.existingSession?.didCommit(navigationKey: navigationKey)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.session(for: webView).didFinish(navigationKey: navigationKey)
+                self.existingSession?.didFinish(navigationKey: navigationKey)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
             let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.session(for: webView).didFail(navigationKey: navigationKey, error: error)
+                self.existingSession?.didFail(navigationKey: navigationKey, error: error)
             }
         }
 
         nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
             let navigationKey = Self.navigationKey(for: navigation)
             Task { @MainActor in
-                self.session(for: webView).didFail(navigationKey: navigationKey, error: error)
+                self.existingSession?.didFail(navigationKey: navigationKey, error: error)
             }
         }
 
