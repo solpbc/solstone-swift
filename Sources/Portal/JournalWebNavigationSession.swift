@@ -13,6 +13,12 @@ final class JournalWebNavigationSession {
         let reloadToken: Int
     }
 
+    private enum AttemptPhase {
+        case loading
+        case loaded
+        case terminalError
+    }
+
     private static let interruptedDomain = "WebKitErrorDomain"
     private static let interruptedCode = 102
     private static let unknownGeneration = -1
@@ -31,7 +37,7 @@ final class JournalWebNavigationSession {
     // lifetime and is released wholesale on teardown.
     private var retiredNavigations: [ObjectIdentifier: AnyObject] = [:]
     private var unkeyedCallbacksSealed = false
-    private var currentLoadTimedOut = false
+    private var attemptPhase: AttemptPhase = .loading
     private var liveAuthority: JournalWebNavigationPolicy.Authority?
     private var lastRequest: LastRequest?
     private var isTornDown = false
@@ -53,7 +59,6 @@ final class JournalWebNavigationSession {
         let request = LastRequest(url: url, reloadToken: reloadToken)
         guard self.lastRequest != request else { return }
 
-        self.currentLoadTimedOut = false
         self.retire(self.currentNavigation)
         self.retire(self.expectedNavigation)
         let previousRequest = self.lastRequest
@@ -88,8 +93,8 @@ final class JournalWebNavigationSession {
         case .allow:
             journalWebLog.info("event=policy_allow schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
         case .rewrite(let rewrittenURL):
-            if self.currentLoadTimedOut {
-                journalWebLog.info("event=policy_rewrite_suppressed_after_timeout schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
+            if self.attemptPhase == .terminalError {
+                journalWebLog.info("event=policy_rewrite_suppressed_terminal_error schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
                 return decision
             }
             journalWebLog.info("event=policy_rewrite schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
@@ -103,8 +108,8 @@ final class JournalWebNavigationSession {
 
     func didStart(navigation: AnyObject?) {
         guard !self.isTornDown else { return }
-        if self.currentLoadTimedOut {
-            journalWebLog.info("event=start_ignored_after_timeout generation=\(self.generation, privacy: .public)")
+        if self.attemptPhase == .terminalError {
+            journalWebLog.info("event=start_ignored_terminal_error generation=\(self.generation, privacy: .public)")
             return
         }
         if let navigation, self.isRetired(navigation) {
@@ -125,6 +130,7 @@ final class JournalWebNavigationSession {
         self.currentNavigation = navigation
         self.unkeyedCallbacksSealed = false
         journalWebLog.info("event=start generation=\(self.generation, privacy: .public) previousGeneration=\(previousGeneration, privacy: .public)")
+        self.attemptPhase = .loading
         self.setState(JournalWebPresentation.loadState(for: .started))
         self.armBound(generation: self.generation)
     }
@@ -135,6 +141,7 @@ final class JournalWebNavigationSession {
         journalWebLog.info("event=commit navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
         guard self.acceptsTerminalSuccess(navigation: navigation) else { return }
         self.cancelBound()
+        self.attemptPhase = .loaded
         self.setState(JournalWebPresentation.loadState(for: .committed))
     }
 
@@ -144,6 +151,7 @@ final class JournalWebNavigationSession {
         journalWebLog.info("event=finish navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
         guard self.acceptsTerminalSuccess(navigation: navigation) else { return }
         self.cancelBound()
+        self.attemptPhase = .loaded
         self.setState(JournalWebPresentation.loadState(for: .finished))
     }
 
@@ -165,6 +173,7 @@ final class JournalWebNavigationSession {
         } else {
             self.unkeyedCallbacksSealed = true
         }
+        self.attemptPhase = .terminalError
         self.setState(JournalWebPresentation.loadState(for: .failed(urlErrorCode: nsError.code)))
     }
 
@@ -175,7 +184,7 @@ final class JournalWebNavigationSession {
         self.expectedNavigation = nil
         self.retiredNavigations.removeAll()
         self.unkeyedCallbacksSealed = true
-        self.currentLoadTimedOut = false
+        self.attemptPhase = .loading
         self.liveAuthority = nil
         self.lastRequest = nil
     }
@@ -186,7 +195,7 @@ final class JournalWebNavigationSession {
             await self.sleep(self.timeout)
             guard !Task.isCancelled else { return }
             guard self.generation == generation else { return }
-            self.currentLoadTimedOut = true
+            self.attemptPhase = .terminalError
             self.retire(self.expectedNavigation)
             self.expectedNavigation = nil
             self.unkeyedCallbacksSealed = true
@@ -205,6 +214,7 @@ final class JournalWebNavigationSession {
     }
 
     private func issueProgrammaticLoad(_ request: URLRequest) {
+        self.attemptPhase = .loading
         self.unkeyedCallbacksSealed = true
         self.setState(JournalWebPresentation.loadState(for: .started))
         self.armBound(generation: self.generation)
@@ -234,8 +244,9 @@ final class JournalWebNavigationSession {
     }
 
     private func acceptsUnkeyedCallback() -> Bool {
-        // Unknown-key callbacks fail closed after requestLoad or timeout. The
-        // requestLoad-bound timeout is the backstop, so the veil cannot stick forever.
+        // Unknown-key callbacks fail closed while a programmatic load is pending
+        // and after terminal errors. The bound remains the backstop, so the veil
+        // cannot stick forever.
         !self.unkeyedCallbacksSealed
     }
 

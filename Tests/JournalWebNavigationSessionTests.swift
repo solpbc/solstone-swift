@@ -626,6 +626,150 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         gate.fireAll()
     }
 
+    func testAcceptedExplicitFailureUnkeyedLateDidStartCannotReviveState() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: nil)
+        try await self.waitFor("pending unkeyed navigation bound") {
+            gate.pendingCount == 2
+        }
+        session.didFail(navigation: nil, error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
+        try await self.waitFor("explicit failure error") {
+            recorder.states.loadFailureCount == 1
+        }
+        let failureState = recorder.states.last
+        let pendingAfterFailure = gate.pendingCount
+
+        session.didStart(navigation: nil)
+
+        XCTAssertEqual(recorder.states.last, failureState)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+        XCTAssertEqual(gate.pendingCount, pendingAfterFailure)
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, failureState)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+    }
+
+    func testAcceptedExplicitFailureKeyedLateDidStartCannotReviveState() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let failedNavigation = NavigationToken()
+        let lateNavigation = NavigationToken()
+
+        session.didStart(navigation: failedNavigation)
+        try await self.waitFor("pending failed navigation bound") {
+            gate.pendingCount == 1
+        }
+        session.didFail(
+            navigation: failedNavigation,
+            error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )
+        try await self.waitFor("explicit failure error") {
+            recorder.states.loadFailureCount == 1
+        }
+        let failureState = recorder.states.last
+        let pendingAfterFailure = gate.pendingCount
+
+        session.didStart(navigation: lateNavigation)
+
+        XCTAssertEqual(recorder.states.last, failureState)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+        XCTAssertEqual(gate.pendingCount, pendingAfterFailure)
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, failureState)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+    }
+
+    func testAcceptedExplicitFailureLatePolicyRewriteIsSuppressed() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: nil)
+        try await self.waitFor("pending unkeyed navigation bound") {
+            gate.pendingCount == 2
+        }
+        session.didFail(navigation: nil, error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
+        try await self.waitFor("explicit failure error") {
+            recorder.states.loadFailureCount == 1
+        }
+        let failureState = recorder.states.last
+        let loadCountAfterFailure = recorder.loads.count
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, failureState)
+
+        let decision = session.decidePolicy(
+            for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
+            isMainFrame: true
+        )
+
+        guard case .rewrite = decision else {
+            XCTFail("expected rewrite so the https navigation is cancelled")
+            return
+        }
+        XCTAssertEqual(recorder.loads.count, loadCountAfterFailure)
+        XCTAssertEqual(recorder.states.last, failureState)
+        XCTAssertEqual(gate.pendingCount, 0)
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, failureState)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+    }
+
+    func testAcceptedExplicitFailureRetryRecoversToLoaded() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+        let retryNavigation = NavigationToken()
+
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: nil)
+        try await self.waitFor("pending unkeyed navigation bound") {
+            gate.pendingCount == 2
+        }
+        session.didFail(navigation: nil, error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
+        try await self.waitFor("explicit failure error") {
+            recorder.states.loadFailureCount == 1
+        }
+
+        recorder.enqueueLoadNavigation(retryNavigation)
+        session.requestLoad(url: url, reloadToken: 1)
+        XCTAssertEqual(recorder.states.last, .loading)
+        try await self.waitFor("pending retry request-load bound") {
+            gate.pendingCount == 3
+        }
+
+        session.didStart(navigation: retryNavigation)
+        try await self.waitFor("pending retry navigation bound") {
+            gate.pendingCount == 4
+        }
+        session.didFinish(navigation: retryNavigation)
+
+        XCTAssertEqual(recorder.states.last, .loaded)
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+        gate.fireAll()
+    }
+
     func testStaleFailureCannotOverwriteCurrentGeneration() async throws {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()
