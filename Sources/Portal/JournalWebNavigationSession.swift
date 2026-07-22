@@ -53,6 +53,7 @@ final class JournalWebNavigationSession {
         let request = LastRequest(url: url, reloadToken: reloadToken)
         guard self.lastRequest != request else { return }
 
+        self.currentLoadTimedOut = false
         self.retire(self.currentNavigation)
         self.retire(self.expectedNavigation)
         let previousRequest = self.lastRequest
@@ -87,6 +88,10 @@ final class JournalWebNavigationSession {
         case .allow:
             journalWebLog.info("event=policy_allow schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
         case .rewrite(let rewrittenURL):
+            if self.currentLoadTimedOut {
+                journalWebLog.info("event=policy_rewrite_suppressed_after_timeout schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
+                return decision
+            }
             journalWebLog.info("event=policy_rewrite schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
             self.retire(self.currentNavigation)
             self.retire(self.expectedNavigation)
@@ -200,7 +205,6 @@ final class JournalWebNavigationSession {
     }
 
     private func issueProgrammaticLoad(_ request: URLRequest) {
-        self.currentLoadTimedOut = false
         self.unkeyedCallbacksSealed = true
         self.setState(JournalWebPresentation.loadState(for: .started))
         self.armBound(generation: self.generation)

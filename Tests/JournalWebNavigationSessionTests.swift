@@ -55,6 +55,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         XCTAssertEqual(recorder.states.last, .loaded)
 
         recorder.enqueueLoadNavigation(replacementNavigation)
+        let loadCountBeforeRewrite = recorder.loads.count
         let decision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
             isMainFrame: true
@@ -64,6 +65,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
             XCTFail("expected rewrite")
             return
         }
+        XCTAssertEqual(recorder.loads.count, loadCountBeforeRewrite + 1)
         XCTAssertEqual(recorder.states.last, .loading)
         try await self.waitFor("pending rewrite replacement bound") {
             gate.pendingCount == 3
@@ -74,6 +76,57 @@ final class JournalWebNavigationSessionTests: XCTestCase {
             recorder.states.loadFailureCount == 1
         }
         XCTAssertEqual(recorder.states.loadFailureCount, 1)
+    }
+
+    func testPolicyRewriteAfterTimeoutIsSuppressedButRetryRecovers() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+        let retryNavigation = NavigationToken()
+
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending request-load timeout") {
+            gate.pendingCount == 1
+        }
+        gate.fireNext()
+        try await self.waitFor("request-load timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+        let timeoutState = recorder.states.last
+        let loadCountAfterTimeout = recorder.loads.count
+
+        let decision = session.decidePolicy(
+            for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
+            isMainFrame: true
+        )
+
+        guard case .rewrite = decision else {
+            XCTFail("expected rewrite so the https navigation is cancelled")
+            return
+        }
+        XCTAssertEqual(recorder.loads.count, loadCountAfterTimeout)
+        XCTAssertEqual(recorder.states.last, timeoutState)
+        XCTAssertEqual(gate.pendingCount, 0)
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, timeoutState)
+
+        recorder.enqueueLoadNavigation(retryNavigation)
+        session.requestLoad(url: url, reloadToken: 1)
+        try await self.waitFor("pending retry request-load timeout") {
+            gate.pendingCount == 1
+        }
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didStart(navigation: retryNavigation)
+        try await self.waitFor("pending retry navigation timeout") {
+            gate.pendingCount == 2
+        }
+        session.didFinish(navigation: retryNavigation)
+
+        XCTAssertEqual(recorder.states.last, .loaded)
+        gate.fireAll()
     }
 
     func testPolicyRewriteAndReplacementStartLeaveOnlyCurrentBoundLive() async throws {
