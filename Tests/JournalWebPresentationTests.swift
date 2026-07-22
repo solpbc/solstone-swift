@@ -22,6 +22,10 @@ nonisolated final class JournalWebPresentationTests: XCTestCase {
         XCTAssertEqual(JournalWebPresentation.loadState(for: .finished), .loaded)
     }
 
+    func testLoadStateMapsCommittedToLoaded() {
+        XCTAssertEqual(JournalWebPresentation.loadState(for: .committed), .loaded)
+    }
+
     func testLoadStateMapsFailureToNonEmptyErrorMessage() {
         let state = JournalWebPresentation.loadState(for: .failed(urlErrorCode: NSURLErrorCannotConnectToHost))
 

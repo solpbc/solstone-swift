@@ -12,6 +12,7 @@ nonisolated enum JournalWebPresentation {
 
     enum NavigationOutcome: Equatable {
         case started
+        case committed
         case finished
         case failed(urlErrorCode: Int)
     }
@@ -26,6 +27,8 @@ nonisolated enum JournalWebPresentation {
         switch outcome {
         case .started:
             return .loading
+        case .committed:
+            return .loaded
         case .finished:
             return .loaded
         case .failed:
