@@ -26,7 +26,9 @@ final class JournalWebNavigationSession {
     private var generation = 0
     private var currentNavigation: AnyObject?
     private var expectedNavigation: AnyObject?
-    // Strong retired references prevent object-identity address reuse while stale callbacks can still arrive.
+    // Strong retired references prevent object-identity address reuse while stale
+    // callbacks can still arrive. This grows with superseded loads in one sheet
+    // lifetime and is released wholesale on teardown.
     private var retiredNavigations: [ObjectIdentifier: AnyObject] = [:]
     private var unkeyedCallbacksSealed = false
     private var currentLoadTimedOut = false
@@ -51,16 +53,11 @@ final class JournalWebNavigationSession {
         let request = LastRequest(url: url, reloadToken: reloadToken)
         guard self.lastRequest != request else { return }
 
-        self.currentLoadTimedOut = false
-        self.unkeyedCallbacksSealed = true
-        if let currentNavigation = self.currentNavigation {
-            self.retire(currentNavigation)
-        }
+        self.retire(self.currentNavigation)
+        self.retire(self.expectedNavigation)
         let previousRequest = self.lastRequest
         self.lastRequest = request
         self.liveAuthority = JournalWebNavigationPolicy.authority(for: url)
-        self.setState(JournalWebPresentation.loadState(for: .started))
-        self.armBound(generation: self.generation)
 
         if let previousRequest, previousRequest.url != url {
             journalWebLog.info("event=reload_rotation generation=\(self.generation, privacy: .public)")
@@ -68,7 +65,7 @@ final class JournalWebNavigationSession {
             journalWebLog.info("event=retry generation=\(self.generation, privacy: .public)")
         }
 
-        self.expectedNavigation = self.load(URLRequest(url: url))
+        self.issueProgrammaticLoad(URLRequest(url: url))
     }
 
     @discardableResult
@@ -91,7 +88,9 @@ final class JournalWebNavigationSession {
             journalWebLog.info("event=policy_allow schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
         case .rewrite(let rewrittenURL):
             journalWebLog.info("event=policy_rewrite schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
-            self.expectedNavigation = self.load(JournalWebNavigationPolicy.replacementRequest(from: request, rewrittenURL: rewrittenURL))
+            self.retire(self.currentNavigation)
+            self.retire(self.expectedNavigation)
+            self.issueProgrammaticLoad(JournalWebNavigationPolicy.replacementRequest(from: request, rewrittenURL: rewrittenURL))
         }
 
         return decision
@@ -101,6 +100,10 @@ final class JournalWebNavigationSession {
         guard !self.isTornDown else { return }
         if self.currentLoadTimedOut {
             journalWebLog.info("event=start_ignored_after_timeout generation=\(self.generation, privacy: .public)")
+            return
+        }
+        if let navigation, self.isRetired(navigation) {
+            journalWebLog.info("event=start_ignored_retired_navigation generation=\(self.generation, privacy: .public)")
             return
         }
         // WKWebView.load can return nil; without a token, the first start remains
@@ -115,7 +118,6 @@ final class JournalWebNavigationSession {
         let previousGeneration = self.generation
         self.generation += 1
         self.currentNavigation = navigation
-        self.retiredNavigations.removeAll()
         self.unkeyedCallbacksSealed = false
         journalWebLog.info("event=start generation=\(self.generation, privacy: .public) previousGeneration=\(previousGeneration, privacy: .public)")
         self.setState(JournalWebPresentation.loadState(for: .started))
@@ -180,6 +182,7 @@ final class JournalWebNavigationSession {
             guard !Task.isCancelled else { return }
             guard self.generation == generation else { return }
             self.currentLoadTimedOut = true
+            self.retire(self.expectedNavigation)
             self.expectedNavigation = nil
             self.unkeyedCallbacksSealed = true
             if let currentNavigation = self.currentNavigation {
@@ -194,6 +197,14 @@ final class JournalWebNavigationSession {
     private func cancelBound() {
         self.boundTask?.cancel()
         self.boundTask = nil
+    }
+
+    private func issueProgrammaticLoad(_ request: URLRequest) {
+        self.currentLoadTimedOut = false
+        self.unkeyedCallbacksSealed = true
+        self.setState(JournalWebPresentation.loadState(for: .started))
+        self.armBound(generation: self.generation)
+        self.expectedNavigation = self.load(request)
     }
 
     private func acceptsTerminalSuccess(navigation: AnyObject?) -> Bool {
@@ -237,7 +248,8 @@ final class JournalWebNavigationSession {
         return self.generation
     }
 
-    private func retire(_ navigation: AnyObject) {
+    private func retire(_ navigation: AnyObject?) {
+        guard let navigation else { return }
         self.retiredNavigations[ObjectIdentifier(navigation)] = navigation
     }
 

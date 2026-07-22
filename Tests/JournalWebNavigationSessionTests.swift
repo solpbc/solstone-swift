@@ -35,6 +35,89 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         gate.fireAll()
     }
 
+    func testPolicyRewriteFromLoadedPageArmsBoundAndTimesOutWithoutDidStart() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let initialNavigation = NavigationToken()
+        let replacementNavigation = NavigationToken()
+
+        recorder.enqueueLoadNavigation(initialNavigation)
+        session.requestLoad(url: try self.url("http://127.0.0.1:8080/"), reloadToken: 0)
+        try await self.waitFor("pending initial request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: initialNavigation)
+        try await self.waitFor("pending initial navigation bound") {
+            gate.pendingCount == 2
+        }
+        session.didFinish(navigation: initialNavigation)
+        XCTAssertEqual(recorder.states.last, .loaded)
+
+        recorder.enqueueLoadNavigation(replacementNavigation)
+        let decision = session.decidePolicy(
+            for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
+            isMainFrame: true
+        )
+
+        guard case .rewrite = decision else {
+            XCTFail("expected rewrite")
+            return
+        }
+        XCTAssertEqual(recorder.states.last, .loading)
+        try await self.waitFor("pending rewrite replacement bound") {
+            gate.pendingCount == 3
+        }
+
+        gate.fireAll()
+        try await self.waitFor("rewrite replacement timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+    }
+
+    func testPolicyRewriteAndReplacementStartLeaveOnlyCurrentBoundLive() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let initialNavigation = NavigationToken()
+        let replacementNavigation = NavigationToken()
+
+        recorder.enqueueLoadNavigation(initialNavigation)
+        session.requestLoad(url: try self.url("http://127.0.0.1:8080/"), reloadToken: 0)
+        try await self.waitFor("pending initial request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: initialNavigation)
+        try await self.waitFor("pending initial navigation bound") {
+            gate.pendingCount == 2
+        }
+
+        recorder.enqueueLoadNavigation(replacementNavigation)
+        let decision = session.decidePolicy(
+            for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
+            isMainFrame: true
+        )
+
+        guard case .rewrite = decision else {
+            XCTFail("expected rewrite")
+            return
+        }
+        try await self.waitFor("pending rewrite replacement bound") {
+            gate.pendingCount == 3
+        }
+        session.didStart(navigation: replacementNavigation)
+        try await self.waitFor("pending replacement navigation bound") {
+            gate.pendingCount == 4
+        }
+
+        gate.fireAll()
+        try await self.waitFor("current replacement timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+        XCTAssertEqual(recorder.states.loadFailureCount, 1)
+    }
+
     func testRequestLoadDedupesInitialUpdateAndReloadsOnRotation() async throws {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()
@@ -259,6 +342,88 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         session.didFinish(navigation: secondNavigation)
         XCTAssertEqual(recorder.states.last, .loaded)
         gate.fireAll()
+    }
+
+    func testRetiredExpectedNavigationLateStartAfterTokenConsumedCannotClobberCurrentLoad() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+        let firstNavigation = NavigationToken()
+        let secondNavigation = NavigationToken()
+
+        recorder.enqueueLoadNavigation(firstNavigation)
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending first request-load timeout") {
+            gate.pendingCount == 1
+        }
+
+        recorder.enqueueLoadNavigation(secondNavigation)
+        session.requestLoad(url: url, reloadToken: 1)
+        try await self.waitFor("pending second request-load timeout") {
+            gate.pendingCount == 2
+        }
+        session.didStart(navigation: secondNavigation)
+        try await self.waitFor("pending second navigation timeout") {
+            gate.pendingCount == 3
+        }
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didStart(navigation: firstNavigation)
+        XCTAssertEqual(recorder.states.last, .loading)
+        XCTAssertEqual(gate.pendingCount, 3)
+
+        session.didFinish(navigation: firstNavigation)
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didFinish(navigation: secondNavigation)
+        XCTAssertEqual(recorder.states.last, .loaded)
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, .loaded)
+    }
+
+    func testTimedOutExpectedNavigationLateStartAfterRetryTokenConsumedCannotClobberCurrentLoad() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let url = try self.url("http://127.0.0.1:8080/")
+        let firstNavigation = NavigationToken()
+        let secondNavigation = NavigationToken()
+
+        recorder.enqueueLoadNavigation(firstNavigation)
+        session.requestLoad(url: url, reloadToken: 0)
+        try await self.waitFor("pending first request-load timeout") {
+            gate.pendingCount == 1
+        }
+        gate.fireNext()
+        try await self.waitFor("first request-load timeout error") {
+            recorder.states.loadFailureCount == 1
+        }
+
+        recorder.enqueueLoadNavigation(secondNavigation)
+        session.requestLoad(url: url, reloadToken: 1)
+        try await self.waitFor("pending second request-load timeout") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: secondNavigation)
+        try await self.waitFor("pending second navigation timeout") {
+            gate.pendingCount == 2
+        }
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didStart(navigation: firstNavigation)
+        XCTAssertEqual(recorder.states.last, .loading)
+        XCTAssertEqual(gate.pendingCount, 2)
+
+        session.didFinish(navigation: firstNavigation)
+        XCTAssertEqual(recorder.states.last, .loading)
+
+        session.didFinish(navigation: secondNavigation)
+        XCTAssertEqual(recorder.states.last, .loaded)
+        gate.fireAll()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, .loaded)
     }
 
     func testInPageNavigationStartIsAcceptedAfterExpectedStartIsConsumed() async throws {
@@ -675,7 +840,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         gate.fireAll()
     }
 
-    func testRetiredNavigationReferencesAreReleasedWhenNewNavigationStarts() throws {
+    func testRetiredNavigationReferencesSurviveNewStartsUntilTeardown() throws {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()
         let session = recorder.makeSession(gate: gate)
@@ -692,8 +857,9 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 
         XCTAssertNotNil(weakRetiredNavigation)
         session.didStart(navigation: currentNavigation)
-        XCTAssertNil(weakRetiredNavigation)
+        XCTAssertNotNil(weakRetiredNavigation)
         session.teardown()
+        XCTAssertNil(weakRetiredNavigation)
         gate.fireAll()
     }
 
