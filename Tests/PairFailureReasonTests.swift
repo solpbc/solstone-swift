@@ -319,7 +319,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         )
         XCTAssertEqual(
             PairFailureReason.directAddressNotLocal.message,
-            "that pairing link points to an address outside your local network. join the same wi-fi as your journal, then try again with a new pairing code. you can also switch your journal to private network to pair from anywhere."
+            "that pairing link points to an address sol won’t open directly. connect this phone and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
         )
         XCTAssertEqual(
             PairFailureReason.wrongSolstone.message,
@@ -352,6 +352,32 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
                 phoneAddress: "192.168.1.20",
                 targetAddress: "10.0.2.42"
             ).message)
+        )
+    }
+
+    @MainActor
+    func testCoordinatorRendersDirectAddressNotLocalCopy() async throws {
+        let coordinator = PairFlowCoordinator(
+            networkReader: StubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in
+                throw PairError.directAddressNotLocal
+            }
+        )
+
+        do {
+            try await coordinator.handlePairURL(try PairURL.parse(Self.differentNetworkDirectURL()))
+            XCTFail("expected direct address admission to fail")
+        } catch let error as PairError {
+            XCTAssertEqual(error, .directAddressNotLocal)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(
+            coordinator.state,
+            .failed(
+                error: "that pairing link points to an address sol won’t open directly. connect this phone and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+            )
         )
     }
 

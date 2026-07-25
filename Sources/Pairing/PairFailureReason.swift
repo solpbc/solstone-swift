@@ -98,7 +98,7 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         case .journalUnreachableOffLAN:
             "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect."
         case .directAddressNotLocal:
-            "that pairing link points to an address outside your local network. join the same wi-fi as your journal, then try again with a new pairing code. you can also switch your journal to private network to pair from anywhere."
+            "that pairing link points to an address sol won’t open directly. connect this phone and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
         case .connectionDropped:
             "lost the connection to your journal before it answered. try again."
         case .codeExpired:
