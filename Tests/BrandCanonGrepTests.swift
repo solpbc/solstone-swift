@@ -30,13 +30,6 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
         }
     }
 
-    func testAllowlistEntryStillExists() throws {
-        let root = Self.worktreeRoot()
-        let contentView = root.appendingPathComponent("Sources/ContentView.swift")
-        let text = try String(contentsOf: contentView, encoding: .utf8)
-        XCTAssertTrue(text.contains("your WiFi network may require " + "sign" + "-in"))
-    }
-
     func testRetiredSourceCopyDoesNotReappear() throws {
         let root = Self.worktreeRoot()
         let scanRoots = [
@@ -117,10 +110,6 @@ nonisolated final class BrandCanonGrepTests: XCTestCase {
     }
 
     private static func isAllowlisted(file: URL, line: String) -> Bool {
-        if file.lastPathComponent == "ContentView.swift",
-           line.contains("your WiFi network may require " + "sign" + "-in") {
-            return true
-        }
         // Required support contact in mismatch escape; not account identity copy.
         if file.lastPathComponent == "SourceVocabulary.swift",
            line.contains("journalMarkMismatchEmailSupport"),

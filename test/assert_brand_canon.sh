@@ -10,8 +10,8 @@ FORBIDDEN_REGEX='\b(sign in|signed in|signing in|sign-in|signin|log in|logged in
 SCAN_CMD=(rg -n -i --pcre2 "$FORBIDDEN_REGEX" Sources Tests UITests SolstoneLiveActivityWidget SolstoneNotificationContent)
 RAW_MATCHES="$("${SCAN_CMD[@]}" || true)"
 
-# Existing network captive-portal copy and required mismatch support contact, not app-owned account surfaces.
-WHITELIST_REGEX='(Sources/ContentView\.swift:.*your WiFi network may require sign-in|Sources/SourceVocabulary\.swift:.*journalMarkMismatchEmailSupport.*email support@solstone\.app)'
+# Required mismatch support contact, not an app-owned account surface.
+WHITELIST_REGEX='(Sources/SourceVocabulary\.swift:.*journalMarkMismatchEmailSupport.*email support@solstone\.app)'
 
 FILTERED="$(printf '%s\n' "$RAW_MATCHES" | grep -Evi "$WHITELIST_REGEX" || true)"
 
