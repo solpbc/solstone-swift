@@ -946,6 +946,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     @MainActor
     func testRealTransportUnionAuthFailureIsNonDestructiveAtManagerLevel() async {
+        let newToken = Self.validFutureDeviceToken + "x"
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let pairing = Self.fixturePairing()
         let aggregate = RaceCoordinator<ConnectedVia>.aggregateFailure(
@@ -953,6 +954,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             sawNotEntitled: false,
             sawAuthRefreshRequired: true
         )
+        // why: the union's real auth failure reaches the manager through CFTunnelTransport; repeat auth must stay non-destructive.
         let fakeSession = FakeTunnelSession(thrownDuringConnect: aggregate)
         let transport = CFTunnelTransport(
             loadPairing: { pairing },
@@ -963,7 +965,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await cache.bootstrap(from: pairing)
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let refresher = DeviceTokenRefresher(
-            session: Self.tokenRefreshSession(statusCode: 403),
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)),
             clientInfo: SPLRuntime.clientInfo
         )
         let manager = makeManager(
@@ -979,6 +981,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .error(.unreachable))
         XCTAssertFalse(didDeletePairing.withLock { $0 })
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 1)
+        let fakeConnectCallCount = await fakeSession.connectCallCount
+        XCTAssertEqual(fakeConnectCallCount, 2)
         await manager.disconnect()
     }
 
