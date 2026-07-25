@@ -55,6 +55,6 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         self.headerLabel.text = content.title
         self.heroLabel.text = hero
         self.heroLabel.isHidden = hero?.isEmpty ?? true
-        self.bodyLabel.text = sensitive || bodyText.isEmpty ? "Tap to view" : content.body
+        self.bodyLabel.text = sensitive || bodyText.isEmpty ? "tap to view" : content.body
     }
 }

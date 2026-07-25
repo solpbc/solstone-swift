@@ -1,6 +1,6 @@
-# Format: <path-suffix>|<literal substring>
-# Use * for globals. `|` is the delimiter because allowed substrings may contain `:`.
-# Keep this list limited to approved copy exceptions and internal-only identifiers.
+# Format: <path-pattern>|<literal substring>
+# <path-pattern> is * for globals, an exact relative path, or a complete terminal component.
+# `|` is the delimiter because allowed substrings may contain `:`; keep entries to approved copy exceptions and internal-only identifiers.
 
 MoreView.swift|Cancel
 MoreView.swift|Reset
@@ -71,6 +71,10 @@ WatchHomeView.swift|SolRingAlert
 
 # Spec-mandated directional relay-queue label (Apple Watch → iPhone proper nouns)
 SourceVocabulary.swift|Watch → iPhone
+
+# Extension internal identifiers
+ScreencastBroadcastWriter.swift|ScreencastBroadcastWriter
+ShareViewController.swift|SolstoneShareExtension
 
 # Internal logger/type names
 *|OnboardingRootView
