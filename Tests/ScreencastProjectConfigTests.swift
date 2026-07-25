@@ -84,7 +84,6 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "CFBundleShortVersionString: $(MARKETING_VERSION)",
             "CFBundleVersion: $(CURRENT_PROJECT_VERSION)",
             "DEVELOPMENT_TEAM: 7QCG8V4M6H",
-            #"MARKETING_VERSION: "0.1.0""#,
             "SWIFT_STRICT_CONCURRENCY: complete",
             #"SWIFT_VERSION: "6.0""#,
         ] {
@@ -100,6 +99,17 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             appVersion,
             broadcastVersion,
             "app and broadcast must share the same build number"
+        )
+
+        let appMarketing = Self.parseMarketingVersion(in: try Self.baseSettingsBlock())
+        let broadcastMarketing = Self.parseMarketingVersion(in: block)
+
+        XCTAssertNotNil(appMarketing, "app MARKETING_VERSION present")
+        XCTAssertNotNil(broadcastMarketing, "broadcast MARKETING_VERSION present")
+        XCTAssertEqual(
+            appMarketing,
+            broadcastMarketing,
+            "app and broadcast must share the same marketing version"
         )
     }
 }
@@ -134,6 +144,20 @@ private extension ScreencastProjectConfigTests {
             throw XCTSkip("base settings block missing")
         }
         return String(projectYML[start.lowerBound..<end.lowerBound])
+    }
+
+    static func parseMarketingVersion(in region: String) -> String? {
+        let pattern = #"(?m)^\s*MARKETING_VERSION:\s*"([^"]+)"\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(region.startIndex..<region.endIndex, in: region)
+        guard let match = regex.firstMatch(in: region, range: range),
+              let versionRange = Range(match.range(at: 1), in: region)
+        else {
+            return nil
+        }
+        return String(region[versionRange])
     }
 
     static func parseCurrentProjectVersion(in region: String) -> Int? {
