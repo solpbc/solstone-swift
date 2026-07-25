@@ -51,6 +51,24 @@ nonisolated final class PairFlowViewTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testConnectionDroppedMessageIsDistinctFromPairingWindowClosedMessage() {
+        let message = PairFlowCoordinator.message(
+            for: PairError.lanClosedBeforeResponse,
+            targetAddress: nil,
+            interfaces: []
+        )
+
+        XCTAssertEqual(
+            message,
+            "lost the connection to your journal before it answered. try again."
+        )
+        XCTAssertNotEqual(
+            message,
+            "the pairing window closed. show a new pairing code on your journal, then try again."
+        )
+    }
+
     nonisolated func testClassifyPastedLinkRejectsLoopbackBeforeRouting() {
         for raw in [
             "http://localhost:5015/app/network/",

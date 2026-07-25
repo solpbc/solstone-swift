@@ -34,7 +34,7 @@ Embedded journal web: `Sources/Portal/InAppJournalView.swift` is a plain `WKWebV
 
 Chat: `Sources/Chat/` is a native SwiftUI surface over the journal chat API with an SSE stream. The parser is `Sources/Chat/ServerSentEventParser.swift`; the transport is `Sources/Chat/ConveyChatTransport.swift`.
 
-Transport / tunnel: SPLTunnel is consumed from the `spl-swift` Swift package pinned at `v0.2.0` in `project.yml`, product `SPLTunnel`. It provides pairing crypto, relay dial over WebSocket, inner mTLS TLS 1.3 with a client cert + CA pinning, a framed multiplexer, and a loopback proxy. `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over single-shot sessions — connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH — the tunnel is mTLS with a framed multiplexer.
+Transport / tunnel: SPLTunnel is consumed from the `spl-swift` Swift package pinned at `v0.3.0` in `project.yml`, product `SPLTunnel`. It provides pairing crypto, relay dial over WebSocket, inner mTLS TLS 1.3 with a client cert + CA pinning, a framed multiplexer, and a loopback proxy. `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over single-shot sessions — connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH — the tunnel is mTLS with a framed multiplexer.
 
 ## Build
 
@@ -64,7 +64,7 @@ make clean         # remove build artifacts
 
 ## Dependencies
 
-- `solpbc/spl-swift` (product `SPLTunnel`) — SPL tunnel package pinned at `exactVersion: 0.2.0`; provides pairing, relay, inner mTLS, mux, and loopback transport.
+- `solpbc/spl-swift` (product `SPLTunnel`) — SPL tunnel package pinned at `exactVersion: 0.3.0`; provides pairing, relay, inner mTLS, mux, and loopback transport.
 - `apple/swift-crypto` (product `Crypto`) — used directly by `Sources/MobileSegment/MobileSegmentUploader.swift` and declared explicitly on the app and test targets.
 - `alta/swift-opus` (product `Opus`) — Opus decode for the BLE pendant audio; used in `Sources/Omi/` and `Sources/BLEDiagnostic/BLEOpusAudioDecoder.swift`.
 

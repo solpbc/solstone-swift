@@ -75,6 +75,10 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(self.classify(PairError.relayRequestFailed(underlying: URLError(.timedOut))), .generic)
     }
 
+    func testLanClosedBeforeResponseMapsToConnectionDropped() {
+        XCTAssertEqual(self.classify(PairError.lanClosedBeforeResponse), .connectionDropped)
+    }
+
     func testOnlyConnectionNeverEstablishedUsesCrossNetworkDecision() {
         let target = "10.0.0.5"
         let interfaces = [IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0")]
