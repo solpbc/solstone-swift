@@ -30,7 +30,15 @@ run_scan() {
 path_pattern_matches() {
   local file="$1" path_pattern="$2"
 
-  [[ "$path_pattern" == "*" || "$file" == "$path_pattern" || "$file" == */"$path_pattern" ]]
+  if [[ "$path_pattern" == "*" ]]; then
+    return 0
+  fi
+
+  if [[ "$path_pattern" == */* ]]; then
+    [[ "$file" == "$path_pattern" ]]
+  else
+    [[ "$file" == "$path_pattern" || "$file" == */"$path_pattern" ]]
+  fi
 }
 
 classify_casing_match() {
@@ -126,6 +134,7 @@ run_self_checks() {
   expect_path_match "matched" "Sources/MoreView.swift" "Sources/MoreView.swift"
   expect_path_match "matched" "Sources/MoreView.swift" "MoreView.swift"
   expect_path_match "not-matched" "Sources/WatchMoreView.swift" "MoreView.swift"
+  expect_path_match "not-matched" "Other/Sources/MoreView.swift" "Sources/MoreView.swift"
   expect_path_match "not-matched" "OtherSources/MoreView.swift" "Sources/MoreView.swift"
   expect_path_match "matched" "Anywhere/File.swift" "*"
 
