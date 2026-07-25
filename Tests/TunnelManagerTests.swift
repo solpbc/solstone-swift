@@ -1620,8 +1620,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await manager.connect()
         await Self.settle()
 
+        let expectedCountDetail = TunnelManager.candidateCountDetail(transport.capturedCandidates.count)
+        let prepareDonePattern = #"^stage: prepareCandidates done \([0-9]+\.[0-9]s\) \("# + expectedCountDetail + #"\)$"#
         let prepareDoneEvents = diagnosticLog.events.filter {
-            $0.category == .tunnel && $0.message.hasPrefix("stage: prepareCandidates done")
+            $0.category == .tunnel && $0.message.range(of: prepareDonePattern, options: .regularExpression) != nil
         }
         let raceStartedEvents = diagnosticLog.events.filter {
             $0.category == .tunnel && $0.message == "stage: raceCandidates started"
@@ -1632,6 +1634,52 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(prepareDoneEvents.count, 1)
         XCTAssertFalse(raceStartedEvents.isEmpty)
         XCTAssertFalse(raceDoneEvents.isEmpty)
+    }
+
+    @MainActor
+    func testLoopbackStageStartLogsPortAndDropsLegacyReadyLine() async {
+        let expectedPort = 54321
+        let transport = MockCFTunnelTransport()
+        transport.nextResult = .success(expectedPort)
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        await Self.settle()
+
+        let loopbackStartedEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel && $0.message == "stage: loopback started (port \(expectedPort))"
+        }
+        XCTAssertEqual(loopbackStartedEvents.count, 1)
+        XCTAssertFalse(diagnosticLog.events.contains { $0.message.contains("loopback ready on port") })
+    }
+
+    @MainActor
+    func testCandidateCountDetailPluralizesAtBoundaries() {
+        // 0 is unreachable in production because candidateList throws .unreachable on an empty merge.
+        XCTAssertEqual(TunnelManager.candidateCountDetail(0), "0 candidates")
+        XCTAssertEqual(TunnelManager.candidateCountDetail(1), "1 candidate")
+        XCTAssertEqual(TunnelManager.candidateCountDetail(2), "2 candidates")
+    }
+
+    @MainActor
+    func testFailedCandidatePreparationLogsWarningStage() async {
+        let transport = MockCFTunnelTransport()
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, pairing: nil, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        await Self.settle()
+
+        let failedPrepareEvents = diagnosticLog.events.filter {
+            $0.category == .tunnel &&
+            $0.severity == .warning &&
+            $0.message == "stage: prepareCandidates failed"
+        }
+        XCTAssertEqual(failedPrepareEvents.count, 1)
+        XCTAssertFalse(diagnosticLog.events.contains {
+            $0.message.hasPrefix("stage: prepareCandidates done")
+        })
     }
 
     @MainActor

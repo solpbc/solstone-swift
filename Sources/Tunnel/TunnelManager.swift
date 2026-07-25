@@ -212,16 +212,21 @@ final class TunnelManager {
         self.diagnosticLog?.append(category: .tunnel, message: "stage: \(kind.rawValue) started\(detail.map { " (\($0))" } ?? "")")
     }
 
-    private func completeStage(_ kind: ConnectionStageKind) {
+    private func completeStage(_ kind: ConnectionStageKind, detail: String? = nil) {
         guard let index = self.connectionStages.firstIndex(where: { $0.kind == kind }) else { return }
         self.connectionStages[index].status = .done
         if let start = self.connectionStages[index].startTime {
             self.connectionStages[index].duration = Double((ContinuousClock.now - start) / .seconds(1))
         }
+        let durationSegment = self.connectionStages[index].duration.map { String(format: " (%.1fs)", $0) } ?? ""
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "stage: \(kind.rawValue) done\(self.connectionStages[index].duration.map { String(format: " (%.1fs)", $0) } ?? "")"
+            message: "stage: \(kind.rawValue) done\(durationSegment)\(detail.map { " (\($0))" } ?? "")"
         )
+    }
+
+    nonisolated static func candidateCountDetail(_ count: Int) -> String {
+        "\(count) candidate\(count == 1 ? "" : "s")"
     }
 
     private func failActiveStage() {
@@ -378,7 +383,7 @@ final class TunnelManager {
     private func connectTransportOnce(pairingOverride: StoredPairing? = nil) async throws -> Int {
         self.appendStage(.prepareCandidates)
         let candidates = try await self.candidateList(pairingOverride: pairingOverride)
-        self.completeStage(.prepareCandidates)
+        self.completeStage(.prepareCandidates, detail: Self.candidateCountDetail(candidates.count))
 
         return try await self.transport.connect(
             candidates: candidates,
@@ -904,8 +909,7 @@ final class TunnelManager {
             self.appendStage(.muxReady)
             self.completeStage(.muxReady)
         case .loopbackReady(let port):
-            self.appendStage(.loopback)
-            self.diagnosticLog?.append(category: .tunnel, message: "loopback ready on port \(port)")
+            self.appendStage(.loopback, detail: "port \(port)")
         case .failed(let message):
             self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "couldn't reach your journal", detail: message)
         }
