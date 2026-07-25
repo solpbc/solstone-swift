@@ -3,7 +3,8 @@
 
 @testable import solstone_swift
 import Foundation
-import SPLTunnel
+// Reaches SPLTunnel package internals; relies on Xcode compiling SPM products with testability in Debug.
+@testable import SPLTunnel
 import XCTest
 import os
 
@@ -102,13 +103,13 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
     func testCoordinatorFailureResetsAutoPairLatchAndAllowsRetry() async throws {
         let transport = CountingThrowingLANPairTransport()
         let coordinator = PairFlowCoordinator(
-            pairClient: PairClient(lanTransport: transport),
+            pairClient: PairClient(session: .shared, lanTransport: transport, clientInfo: SPLRuntime.clientInfo),
             networkReader: CoordinatorStubNetworkReader(value: [
                 IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0")
             ])
         )
         coordinator.hasAutoPaired = true
-        let pairURL = try PairURL.parse(Self.canonicalDirectURL())
+        let pairURL = try PairURL.parse(Self.localDirectURL())
 
         do {
             try await coordinator.handlePairURL(pairURL)
@@ -132,15 +133,16 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
     @MainActor
     func testCoordinatorCompletesAndBootstrapsEndpointWhenRelayEnrollmentUnavailable() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
 
         let endpointCache = EndpointCache(fileURL: Self.tempFileURL())
         let client = PairClient(
             session: Self.relaySession(error: URLError(.cannotConnectToHost)),
             lanTransport: StubLANPairTransport { _, _, _, _ in
                 (status: 200, body: try Self.lanSuccessData())
-            }
+            },
+            clientInfo: SPLRuntime.clientInfo
         )
         let coordinator = PairFlowCoordinator(
             pairClient: client,
@@ -148,22 +150,22 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             networkReader: CoordinatorStubNetworkReader(value: [])
         )
 
-        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+        try await coordinator.handlePairURL(try PairURL.parse(Self.localDirectURL()))
 
         XCTAssertEqual(coordinator.state, .connected)
         let endpoints = await endpointCache.endpoints()
         XCTAssertEqual(endpoints, [
-            .lan(host: "192.0.2.42", port: 7070, scope: ""),
+            .lan(host: "192.168.1.42", port: 7070, scope: ""),
             .lan(host: "10.0.0.2", port: 9443, scope: "wifi")
         ])
     }
 
     @MainActor
     func testRelayAlreadyConnectedRunsPairingAndPreservesSameFingerprintPairing() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
         let prior = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "prior")
-        try SPLKeychain.save(prior)
+        try SPLRuntime.keychainStore.save(prior)
         let returned = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "returned")
         let pairCalls = OSAllocatedUnfairLock(initialState: 0)
         let coordinator = PairFlowCoordinator(
@@ -179,13 +181,13 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.state, .alreadyConnected)
         XCTAssertEqual(pairCalls.withLock { $0 }, 1)
-        XCTAssertEqual(try SPLKeychain.load(), prior)
+        XCTAssertEqual(try SPLRuntime.keychainStore.load(), prior)
     }
 
     @MainActor
     func testDirectSameInstanceNewFingerprintSavesAndReconnects() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
         let oldFingerprint = "sha256:\(String(repeating: "1", count: 64))"
         let newFingerprint = "sha256:\(String(repeating: "2", count: 64))"
         let prior = Self.pairing(
@@ -193,7 +195,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             homeLabel: "prior",
             fingerprint: oldFingerprint
         )
-        try SPLKeychain.save(prior)
+        try SPLRuntime.keychainStore.save(prior)
         let returned = Self.pairing(
             instanceID: "instance-123",
             homeLabel: "returned",
@@ -212,14 +214,14 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
 
         XCTAssertEqual(coordinator.state, .reconnected)
-        XCTAssertEqual(try SPLKeychain.load(), returned)
+        XCTAssertEqual(try SPLRuntime.keychainStore.load(), returned)
         XCTAssertEqual(pairCalls.withLock { $0 }, 1)
     }
 
     @MainActor
     func testRelaySameInstanceNewFingerprintSavesAndReconnects() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
         let instanceID = "12345678-1234-5678-1234-567812345678"
         let oldFingerprint = "sha256:\(String(repeating: "1", count: 64))"
         let newFingerprint = "sha256:\(String(repeating: "2", count: 64))"
@@ -228,7 +230,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             homeLabel: "prior",
             fingerprint: oldFingerprint
         )
-        try SPLKeychain.save(prior)
+        try SPLRuntime.keychainStore.save(prior)
         let returned = Self.pairing(
             instanceID: instanceID,
             homeLabel: "returned",
@@ -247,14 +249,14 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
 
         XCTAssertEqual(coordinator.state, .reconnected)
-        XCTAssertEqual(try SPLKeychain.load(), returned)
+        XCTAssertEqual(try SPLRuntime.keychainStore.load(), returned)
         XCTAssertEqual(pairCalls.withLock { $0 }, 1)
     }
 
     @MainActor
     func testRePairBootstrapRemovesStaleEndpoints() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
         let oldFingerprint = "sha256:\(String(repeating: "1", count: 64))"
         let newFingerprint = "sha256:\(String(repeating: "2", count: 64))"
         let staleEndpoint = LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
@@ -265,7 +267,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             fingerprint: oldFingerprint,
             localEndpoints: [staleEndpoint]
         )
-        try SPLKeychain.save(prior)
+        try SPLRuntime.keychainStore.save(prior)
         let endpointCache = EndpointCache(fileURL: Self.tempFileURL())
         await endpointCache.bootstrap(from: prior)
         let returned = Self.pairing(
@@ -289,9 +291,9 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
     @MainActor
     func testRelayReconnectSavesAndPublishesReconnected() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
-        try SPLKeychain.save(Self.pairing(instanceID: "old-instance", homeLabel: "old"))
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
+        try SPLRuntime.keychainStore.save(Self.pairing(instanceID: "old-instance", homeLabel: "old"))
         let replacement = Self.pairing(instanceID: "12345678-1234-5678-1234-567812345678", homeLabel: "new")
         let coordinator = PairFlowCoordinator(
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
@@ -302,14 +304,14 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
 
         XCTAssertEqual(coordinator.state, .reconnected)
-        XCTAssertEqual(try SPLKeychain.load(), replacement)
+        XCTAssertEqual(try SPLRuntime.keychainStore.load(), replacement)
     }
 
     @MainActor
     func testDirectReconnectSavesDifferentReturnedInstance() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
-        try SPLKeychain.save(Self.pairing(instanceID: "old-instance", homeLabel: "old"))
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
+        try SPLRuntime.keychainStore.save(Self.pairing(instanceID: "old-instance", homeLabel: "old"))
         let replacement = Self.pairing(instanceID: "new-instance", homeLabel: "new")
         let coordinator = PairFlowCoordinator(
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
@@ -320,15 +322,15 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
 
         XCTAssertEqual(coordinator.state, .reconnected)
-        XCTAssertEqual(try SPLKeychain.load(), replacement)
+        XCTAssertEqual(try SPLRuntime.keychainStore.load(), replacement)
     }
 
     @MainActor
     func testDirectAlreadyConnectedDoesNotOverwriteExistingPairing() async throws {
-        try SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
         let prior = Self.pairing(instanceID: "instance-123", homeLabel: "prior")
-        try SPLKeychain.save(prior)
+        try SPLRuntime.keychainStore.save(prior)
         let returned = Self.pairing(instanceID: "instance-123", homeLabel: "returned")
         let coordinator = PairFlowCoordinator(
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
@@ -339,7 +341,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
 
         XCTAssertEqual(coordinator.state, .alreadyConnected)
-        XCTAssertEqual(try SPLKeychain.load(), prior)
+        XCTAssertEqual(try SPLRuntime.keychainStore.load(), prior)
     }
 
     private static func relaySession(
@@ -355,6 +357,10 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
     private static func canonicalDirectURL() -> URL {
         URL(string: "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
+    }
+
+    private static func localDirectURL() -> URL {
+        URL(string: "https://go.solstone.app/p#0G0W1A0158DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
     }
 
     private static func canonicalRelayURL() -> URL {

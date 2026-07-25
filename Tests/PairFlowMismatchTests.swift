@@ -31,8 +31,8 @@ private final class PairFlowMismatchPairingStore: @unchecked Sendable {
 nonisolated final class PairFlowMismatchTests: XCTestCase {
     @MainActor
     func testMismatchTeardownClearsAppPairingAndDisconnectsTunnel() async throws {
-        try? SPLKeychain.delete()
-        defer { try? SPLKeychain.delete() }
+        try? SPLRuntime.keychainStore.delete()
+        defer { try? SPLRuntime.keychainStore.delete() }
 
         let store = PairFlowMismatchPairingStore()
         let pairing = Self.fixturePairing()

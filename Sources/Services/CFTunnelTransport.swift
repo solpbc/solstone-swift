@@ -95,10 +95,10 @@ final class CFTunnelTransport: Transporting {
     @ObservationIgnored
     private let loadPairing: @Sendable () throws -> StoredPairing?
     @ObservationIgnored
-    private let makeSession: @Sendable (StoredPairing) -> any TunnelSessioning
+    private let makeSession: @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening
 
     @ObservationIgnored
-    private var session: (any TunnelSessioning)?
+    private var session: (any TunnelSessioning & MuxStreamOpening)?
     @ObservationIgnored
     private var proxy: LoopbackProxy?
     @ObservationIgnored
@@ -108,8 +108,21 @@ final class CFTunnelTransport: Transporting {
 
     init(
         appConfig: AppConfig? = nil,
-        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
-        makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning = { TunnelSession(pairing: $0) }
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
+        makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening = {
+            TunnelSession(
+                pairing: $0,
+                clientInfo: SPLRuntime.clientInfo,
+                policy: SessionPolicy(
+                    keepalive: KeepalivePolicy(
+                        interval: .milliseconds(500),
+                        idleThreshold: .seconds(2),
+                        missedLimit: 3,
+                        runsOnRelayPath: false
+                    )
+                )
+            )
+        }
     ) {
         self.appConfig = appConfig
         self.loadPairing = loadPairing
@@ -154,7 +167,7 @@ final class CFTunnelTransport: Transporting {
     }
 
     private func raceStartupAgainstConnectWindow(
-        session: any TunnelSessioning,
+        session: any TunnelSessioning & MuxStreamOpening,
         candidates: [TransportEndpoint],
         onStageChange: @Sendable @escaping (TransportStage) -> Void,
         connectWindow: ConnectWindowTerminalSignal
@@ -206,7 +219,7 @@ final class CFTunnelTransport: Transporting {
     }
 
     private func startSessionAndProxy(
-        session: any TunnelSessioning,
+        session: any TunnelSessioning & MuxStreamOpening,
         candidates: [TransportEndpoint],
         onStageChange: @Sendable @escaping (TransportStage) -> Void
     ) async throws -> Int {
@@ -216,7 +229,7 @@ final class CFTunnelTransport: Transporting {
         onStageChange(.tlsHandshaking)
         onStageChange(.muxReady)
 
-        let proxy = LoopbackProxy(tunnel: session)
+        let proxy = LoopbackProxy(opener: session)
         self.proxy = proxy
         let port = Int(try await proxy.start())
         onStageChange(.loopbackReady(port: port))

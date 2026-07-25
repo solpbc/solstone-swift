@@ -19,34 +19,19 @@ packages:
   SwiftCrypto:
     url: https://github.com/apple/swift-crypto.git
     from: "3.0.0"
+  spl-swift:
+    url: https://github.com/solpbc/spl-swift.git
+    exactVersion: "0.2.0"
   Opus:
     url: https://github.com/alta/swift-opus.git
     from: "0.0.2"
 
 targets:
-  SPLTunnel:
-    type: framework.static
-    platform: iOS
-    deploymentTarget: "26.0"
-    sources:
-      - Sources/SPLTunnel
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.spltunnel
-        GENERATE_INFOPLIST_FILE: YES
-        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
-        SWIFT_STRICT_CONCURRENCY: complete
-        SWIFT_VERSION: "6.0"
-    dependencies:
-      - package: SwiftCrypto
-        product: Crypto
   solstone-swift:
     type: application
     platform: iOS
     sources:
       - path: Sources
-        excludes:
-          - SPLTunnel
     entitlements:
       path: Sources/solstone-swift.entitlements
       properties:
@@ -94,7 +79,10 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - app.solstone.swift.finish-syncing.*
     dependencies:
-      - target: SPLTunnel
+      - package: spl-swift
+        product: SPLTunnel
+      - package: SwiftCrypto
+        product: Crypto
       - target: SolstoneNotificationContent
         embed: true
       - target: SolstoneShareExtension
@@ -324,6 +312,8 @@ targets:
       - Tests/Fixtures/ShareImportBodies
     dependencies:
       - target: solstone-swift
+      - package: SwiftCrypto
+        product: Crypto
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

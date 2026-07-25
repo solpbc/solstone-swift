@@ -2,7 +2,8 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
-import SPLTunnel
+// Reaches SPLTunnel package internals; relies on Xcode compiling SPM products with testability in Debug.
+@testable import SPLTunnel
 import XCTest
 import os
 
@@ -35,7 +36,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         loadPairing: (@Sendable () throws -> StoredPairing?)? = nil,
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { _ in },
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
-        deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(),
+        deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
         initialRetryDelay: TimeInterval = 10,
         connectDeadline: Duration = .seconds(15),
         waitingDeadline: Duration = .seconds(600),
@@ -243,7 +244,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let original = Self.fixturePairing(localEndpoints: [], deviceToken: oldToken)
         let saved = OSAllocatedUnfairLock<StoredPairing?>(initialState: nil)
         let transport = MockCFTunnelTransport()
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             pairing: original,
@@ -263,10 +267,13 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let pairingBox = OSAllocatedUnfairLock(initialState: Self.fixturePairing(localEndpoints: [], deviceToken: Self.validFutureDeviceToken))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.tokenExpired),
+            .failure(SessionError.authRefreshRequired),
             .success(8181),
         ]
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             loadPairing: { pairingBox.withLock { $0 } },
@@ -288,10 +295,13 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let pairingBox = OSAllocatedUnfairLock(initialState: Self.fixturePairing(localEndpoints: [], deviceToken: Self.validFutureDeviceToken))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.tokenExpired),
-            .failure(SessionError.tokenExpired),
+            .failure(SessionError.authRefreshRequired),
+            .failure(SessionError.authRefreshRequired),
         ]
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData()))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData()),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             loadPairing: { pairingBox.withLock { $0 } },
@@ -327,9 +337,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         )
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.tokenExpired),
+            .failure(SessionError.authRefreshRequired),
         ]
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession())
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             loadPairing: {
@@ -364,7 +377,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             .failure(SessionError.revoked),
             .failure(SessionError.revoked),
         ]
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
@@ -396,7 +412,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(
             responseData: Data(#"{"error":"instance revoked"}"#.utf8),
             statusCode: 403
-        ))
+        ), clientInfo: SPLRuntime.clientInfo)
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
@@ -426,7 +442,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(
             responseData: Data(#"{"error":"invalid device_token","reason":"expired"}"#.utf8),
             statusCode: 401
-        ))
+        ), clientInfo: SPLRuntime.clientInfo)
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
@@ -449,7 +465,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await cache.bootstrap(from: Self.fixturePairing())
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(statusCode: 403))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(statusCode: 403),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
@@ -481,7 +500,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.queuedResults = [
             .failure(SessionError.revoked),
         ]
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(statusCode: 404))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(statusCode: 404),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
@@ -521,7 +543,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.queuedResults = [
             .failure(SessionError.revoked),
         ]
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession())
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
@@ -548,7 +573,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     @MainActor
     func testMissingPairingAtConnectTerminatesRevoked() async {
         let transport = MockCFTunnelTransport()
-        let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession())
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let manager = makeManager(
             transport: transport,
             loadPairing: { nil },

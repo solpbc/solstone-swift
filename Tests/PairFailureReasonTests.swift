@@ -3,7 +3,8 @@
 
 @testable import solstone_swift
 import Foundation
-import SPLTunnel
+// Reaches SPLTunnel package internals; relies on Xcode compiling SPM products with testability in Debug.
+@testable import SPLTunnel
 import XCTest
 
 private struct StubNetworkReader: OwnNetworkReading {
@@ -319,7 +320,11 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
 
     @MainActor
     func testCoordinatorPassesPairURLAddressToClassifier() async throws {
-        let client = PairClient(lanTransport: ThrowingLANPairTransport(error: DummyError()))
+        let client = PairClient(
+            session: .shared,
+            lanTransport: ThrowingLANPairTransport(error: DummyError()),
+            clientInfo: SPLRuntime.clientInfo
+        )
         let coordinator = PairFlowCoordinator(
             pairClient: client,
             networkReader: StubNetworkReader(value: [
@@ -328,7 +333,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         )
 
         do {
-            try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+            try await coordinator.handlePairURL(try PairURL.parse(Self.differentNetworkDirectURL()))
             XCTFail("expected direct pairing to fail")
         } catch {}
 
@@ -336,7 +341,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             coordinator.state,
             .failed(error: PairFailureReason.differentNetwork(
                 phoneAddress: "192.168.1.20",
-                targetAddress: "192.0.2.42"
+                targetAddress: "10.0.2.42"
             ).message)
         )
     }
@@ -356,7 +361,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         self.classify(PairError.lanRequestFailed(underlying: DummyError()), targetAddress: targetAddress, interfaces: interfaces)
     }
 
-    private static func canonicalDirectURL() -> URL {
-        URL(string: "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
+    private static func differentNetworkDirectURL() -> URL {
+        URL(string: "https://go.solstone.app/p#0G0GM00258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
     }
 }

@@ -453,13 +453,13 @@ struct PairFlowView: View {
     private func handle(_ pairURL: PairURL) async {
         self.errorMessage = nil
         self.fallbackTimer.cancel()
-        if isLoopbackHost(pairURL.addressString) {
+        if pairURL.candidates.first.map({ isLoopbackHost($0.address) }) ?? false {
             self.errorMessage = PairFailureReason.loopbackAddress.message
             return
         }
         do {
             try await self.coordinator.handlePairURL(pairURL)
-            if let pairing = try SPLKeychain.load() {
+            if let pairing = try SPLRuntime.keychainStore.load() {
                 try self.appConfig.applyPairing(pairing)
             }
             guard !Task.isCancelled else { return }

@@ -30,9 +30,9 @@ final class AppConfig {
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
 
     init(
-        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
-        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLKeychain.save($0) },
-        deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
+        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
+        deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         endpointCache: EndpointCache = EndpointCache(),
         appGroupMirror: AppGroupMirror = AppGroupMirror()
     ) {

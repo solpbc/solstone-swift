@@ -14,12 +14,13 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
             return XCTFail("expected successful pair URL parse, got \(result)")
         }
 
-        XCTAssertEqual(pairURL.version, Self.canonicalBytes[0])
-        XCTAssertEqual(pairURL.addressBytes, Array(Self.canonicalBytes[2..<6]))
-        XCTAssertEqual(pairURL.addressString, "192.0.2.42")
-        XCTAssertEqual(pairURL.port, UInt16(Self.canonicalBytes[6]) << 8 | UInt16(Self.canonicalBytes[7]))
+        XCTAssertEqual(pairURL.kind, .direct)
+        XCTAssertEqual(pairURL.candidates, [
+            PairCandidate(address: "192.0.2.42", port: UInt16(Self.canonicalBytes[6]) << 8 | UInt16(Self.canonicalBytes[7]))
+        ])
         XCTAssertEqual(pairURL.nonceBytes, Array(Self.canonicalBytes[8..<24]))
         XCTAssertEqual(pairURL.caFingerprintBytes, Array(Self.canonicalBytes[24..<40]))
+        XCTAssertEqual(pairURL.caPin.kind, .certificateSHA256)
     }
 
     @MainActor
@@ -30,13 +31,13 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
         }
 
         XCTAssertEqual(pairURL.kind, .relay)
-        XCTAssertEqual(pairURL.s, Data([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]))
+        XCTAssertEqual(Data(pairURL.sBytes), Data([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]))
         XCTAssertEqual(pairURL.caFingerprintBytes, [
             0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
         ])
-        XCTAssertEqual(pairURL.caFingerprintKind, .spkiSHA256)
-        XCTAssertEqual(pairURL.relayOrigin?.absoluteString, "https://link.solstone.app")
+        XCTAssertEqual(pairURL.caPin.kind, .spkiSHA256)
+        XCTAssertEqual(pairURL.relayOrigin?.resolved().absoluteString, "https://link.solstone.app")
     }
 
     @MainActor

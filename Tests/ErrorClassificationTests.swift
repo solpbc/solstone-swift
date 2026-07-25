@@ -35,7 +35,7 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         let manager = TunnelManager(transport: MockCFTunnelTransport())
 
         XCTAssertEqual(manager.mapTransportError(SessionError.revoked), .revoked)
-        XCTAssertEqual(manager.mapTransportError(SessionError.tokenExpired), .revoked)
+        XCTAssertEqual(manager.mapTransportError(SessionError.authRefreshRequired), .revoked)
         XCTAssertEqual(
             manager.mapTransportError(SessionError.revoked).userMessage,
             "your journal asked this phone to reconnect."

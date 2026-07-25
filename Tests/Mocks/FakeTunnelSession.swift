@@ -3,7 +3,7 @@
 
 import SPLTunnel
 
-actor FakeTunnelSession: TunnelSessioning {
+actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
     nonisolated let stateUpdates: AsyncStream<TunnelState>
     nonisolated let connectionModeUpdates: AsyncStream<ConnectionMode?>
 
@@ -39,7 +39,7 @@ actor FakeTunnelSession: TunnelSessioning {
     @discardableResult
     func connect(endpoints: [TransportEndpoint]) async throws -> ConnectedVia {
         connectCallCount += 1
-        stateContinuation.yield(.connecting(attempt: connectCallCount, candidates: endpoints))
+        stateContinuation.yield(.connecting(candidates: endpoints.map(\.connectedVia)))
         if let failureDuringConnect {
             stateContinuation.yield(.failed(failureDuringConnect))
             try await Task.sleep(for: .milliseconds(200))

@@ -138,6 +138,7 @@ struct SolstoneSwiftApp: App {
     }
 
     init() {
+        SPLLogging.configure(subsystem: "app.solstone.swift")
         Self.purgeLegacyKeychainEntries()
         Self.migrateLegacyIngestPrefixes()
         InnerTLS.purgeOrphanedIdentities()

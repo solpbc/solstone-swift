@@ -1855,7 +1855,8 @@ nonisolated final class TransferTests: XCTestCase {
             .appendingPathComponent("project.yml")
         let project = try String(contentsOf: projectURL)
 
-        XCTAssertTrue(project.contains("- path: Sources\n        excludes:\n          - SPLTunnel"))
+        XCTAssertTrue(project.contains("solstone-swift:\n    type: application\n    platform: iOS\n    sources:\n      - path: Sources"))
+        XCTAssertFalse(project.contains("excludes:\n          - SPLTunnel"))
         XCTAssertTrue(project.contains("solstone-swiftTests:\n    type: bundle.unit-test\n    platform: iOS\n    sources:\n      - Tests"))
         XCTAssertFalse(project.contains("Sources/Transfer/"))
     }

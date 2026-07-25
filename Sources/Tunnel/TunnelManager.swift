@@ -162,10 +162,10 @@ final class TunnelManager {
         transport: (any Transporting)? = nil,
         endpointCache: EndpointCache = EndpointCache(),
         pathMonitor: PathMonitor = PathMonitor(),
-        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLKeychain.load() },
-        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLKeychain.save($0) },
-        deletePairing: @escaping @Sendable () throws -> Void = { try SPLKeychain.delete() },
-        deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(),
+        loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
+        savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
+        deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
+        deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
         initialRetryDelay: TimeInterval = 2.0,
         connectDeadline: Duration = .seconds(15),
         waitingDeadline: Duration = .seconds(600),
@@ -355,7 +355,7 @@ final class TunnelManager {
         while true {
             do {
                 return try await self.connectTransportOnce(pairingOverride: retryPairing)
-            } catch SessionError.tokenExpired {
+            } catch SessionError.authRefreshRequired {
                 guard !didReactiveRefresh else {
                     throw SessionError.revoked
                 }
@@ -402,7 +402,8 @@ final class TunnelManager {
                     if case .inboundClosed(let fault) = (error as? SessionError) {
                         self.inboundClosedFaultCounts[fault ?? "<unspecified>", default: 0] += 1
                     }
-                    if let sessionError = error as? SessionError, sessionError == .directKeepaliveMissed {
+                    if let sessionError = error as? SessionError,
+                       sessionError == .directKeepaliveMissed || sessionError == .relayKeepaliveMissed {
                         await self.forceReconnect(reason: .keepaliveMissed)
                     } else {
                         await self.forceReconnect(
@@ -877,7 +878,7 @@ final class TunnelManager {
             }
         }
 
-        let bootstrapCandidates = try TransportEndpoint.candidates(for: refreshedPairing)
+        let bootstrapCandidates = TransportEndpoint.candidates(for: refreshedPairing)
         let cachedCandidates = await self.endpointCache.endpoints()
         var seenDirects = Set<String>()
         var directCandidates: [TransportEndpoint] = []
@@ -912,7 +913,7 @@ final class TunnelManager {
     }
 
     private func directCandidateKey(for endpoint: TransportEndpoint) -> String? {
-        guard case .lan(let host, let port, let scope) = endpoint else {
+        guard case .lan(let host, let port, let scope, _) = endpoint else {
             return nil
         }
         return "\(host)|\(port)|\(scope)"
@@ -963,13 +964,13 @@ final class TunnelManager {
         }
         if let sessionError = error as? SessionError {
             switch sessionError {
-            case .unreachable, .invalidRelayURL, .transportFailed, .inboundClosed:
+            case .unreachable, .transportFailed, .inboundClosed, .notEntitled:
                 return .unreachable
-            case .revoked, .tokenExpired:
+            case .revoked, .authRefreshRequired:
                 return .revoked
             case .tlsFailed:
                 return .tlsHandshakeFailed
-            case .directKeepaliveMissed, .notConnected:
+            case .directKeepaliveMissed, .relayKeepaliveMissed, .notConnected:
                 return .muxTeardown
             }
         }
