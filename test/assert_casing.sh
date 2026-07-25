@@ -30,7 +30,7 @@ while IFS= read -r match; do
     path_pattern="${entry%%|*}"
     substring="${entry#*|}"
     if [[ "$path_pattern" == "*" || "$file" == *"$path_pattern" ]]; then
-      if [[ "$formatted" == *"$substring"* ]]; then
+      if [[ "$remainder" == *"$substring"* ]]; then
         skipped=1
         break
       fi

@@ -46,12 +46,10 @@ enum ConnectionStageStatus: Sendable, Equatable {
     case failed
 }
 
-struct ConnectionStage: Identifiable, Sendable {
+struct ConnectionStage: Sendable {
     let id: ConnectionStageKind
     var kind: ConnectionStageKind { id }
     var status: ConnectionStageStatus
     var duration: TimeInterval?
-    var detail: String?
-    var attemptCount: Int?
     var startTime: ContinuousClock.Instant?
 }

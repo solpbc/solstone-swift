@@ -141,7 +141,6 @@ final class TunnelManager {
     @ObservationIgnored private var consecutiveNotEntitled = 0
     @ObservationIgnored private(set) var lastScheduledReconnectDelay: Duration?
     var reconnectCountdown: Int?
-    var consecutiveWiFiFailures: Int = 0
     var currentPathStatus: NetworkPathStatus?
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
@@ -152,7 +151,7 @@ final class TunnelManager {
     var reconnectCount: Int = 0
     var reconnectReasonCounts: [ReconnectReasonBucket: Int] = [:]
     var inboundClosedFaultCounts: [String: Int] = [:]
-    var connectionStages: [ConnectionStage] = []
+    @ObservationIgnored private var connectionStages: [ConnectionStage] = []
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
     @ObservationIgnored private var pendingReconnectReason: ReconnectReasonBucket?
@@ -208,19 +207,16 @@ final class TunnelManager {
     }
 
     private func appendStage(_ kind: ConnectionStageKind, detail: String? = nil) {
-        let stage = ConnectionStage(id: kind, status: .active, detail: detail, startTime: .now)
+        let stage = ConnectionStage(id: kind, status: .active, startTime: .now)
         self.connectionStages.append(stage)
         self.diagnosticLog?.append(category: .tunnel, message: "stage: \(kind.rawValue) started\(detail.map { " (\($0))" } ?? "")")
     }
 
-    private func completeStage(_ kind: ConnectionStageKind, detail: String? = nil) {
+    private func completeStage(_ kind: ConnectionStageKind) {
         guard let index = self.connectionStages.firstIndex(where: { $0.kind == kind }) else { return }
         self.connectionStages[index].status = .done
         if let start = self.connectionStages[index].startTime {
             self.connectionStages[index].duration = Double((ContinuousClock.now - start) / .seconds(1))
-        }
-        if let detail {
-            self.connectionStages[index].detail = detail
         }
         self.diagnosticLog?.append(
             category: .tunnel,
@@ -283,10 +279,9 @@ final class TunnelManager {
                 self.connectionEpoch += 1
                 let epoch = self.connectionEpoch
                 self.state = .connected(localPort: localPort, via: endpoint)
-                self.completeStage(.loopback, detail: "port \(localPort)")
+                self.completeStage(.loopback)
                 self.appendStage(.connected)
                 self.completeStage(.connected)
-                self.consecutiveWiFiFailures = 0
                 self.lastProbeAlive = nil
                 self.consecutiveKeepaliveFailures = 0
                 self.consecutiveNotEntitled = 0
@@ -383,7 +378,7 @@ final class TunnelManager {
     private func connectTransportOnce(pairingOverride: StoredPairing? = nil) async throws -> Int {
         self.appendStage(.prepareCandidates)
         let candidates = try await self.candidateList(pairingOverride: pairingOverride)
-        self.completeStage(.prepareCandidates, detail: "\(candidates.count) candidate\(candidates.count == 1 ? "" : "s")")
+        self.completeStage(.prepareCandidates)
 
         return try await self.transport.connect(
             candidates: candidates,
@@ -445,7 +440,6 @@ final class TunnelManager {
         self.cancelWaitingTimeout()
         self.stopLivenessProbe()
         self.state = .disconnected
-        self.consecutiveWiFiFailures = 0
         self.lastProbeAlive = nil
         self.consecutiveKeepaliveFailures = 0
         self.consecutiveNotEntitled = 0
