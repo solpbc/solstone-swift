@@ -21,7 +21,7 @@ nonisolated final class SPLRuntimeTests: XCTestCase {
         let store = SPLKeychainStore(
             policy: KeychainPolicy(
                 service: "app.solstone.swift.tests.spl.\(UUID().uuidString)",
-                account: "spl-pairing-bundle-tests",
+                account: "roundtrip-account",
                 accessGroup: nil,
                 useDataProtectionKeychain: false,
                 accessibility: .afterFirstUnlock

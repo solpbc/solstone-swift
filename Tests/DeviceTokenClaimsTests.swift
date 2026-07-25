@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+// Reaches SPLTunnel package internals; relies on Xcode compiling SPM products with testability in Debug.
 @testable import SPLTunnel
 import XCTest
 
