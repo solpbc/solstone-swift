@@ -198,21 +198,26 @@ final class CFTunnelTransport: Transporting {
                 return .terminal(error)
             }
 
-            while let result = try await group.next() {
-                switch result {
-                case .port(let port):
-                    await connectWindow.close()
-                    terminalTask.cancel()
-                    group.cancelAll()
-                    return port
-                case .terminal(let error):
-                    startupTask.cancel()
-                    await connectWindow.close()
-                    group.cancelAll()
-                    throw error
-                case .windowClosed:
-                    continue
+            do {
+                while let result = try await group.next() {
+                    switch result {
+                    case .port(let port):
+                        await connectWindow.close()
+                        terminalTask.cancel()
+                        group.cancelAll()
+                        return port
+                    case .terminal(let error):
+                        startupTask.cancel()
+                        await connectWindow.close()
+                        group.cancelAll()
+                        throw error
+                    case .windowClosed:
+                        continue
+                    }
                 }
+            } catch {
+                await connectWindow.close()
+                throw error
             }
             throw CancellationError()
         }

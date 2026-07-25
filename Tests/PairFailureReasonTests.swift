@@ -40,6 +40,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(self.classify(PairError.pairingWindowClosed), .codeExpired)
         XCTAssertEqual(self.classify(PairError.lanCAFingerprintMismatch), .wrongSolstone)
         XCTAssertEqual(self.classify(PairError.relayInstanceMismatch), .relayInstanceMismatch)
+        XCTAssertEqual(self.classify(PairError.directAddressNotLocal), .directAddressNotLocal)
         XCTAssertEqual(self.classify(PairError.lanResponseInvalid(status: 400)), .generic)
         XCTAssertEqual(self.classify(PairError.lanResponseInvalid(status: nil)), .generic)
         XCTAssertEqual(self.classify(PairError.lanRequestFailed(underlying: nil)), .generic)
@@ -311,6 +312,10 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(
             PairFailureReason.journalUnreachableOffLAN.message,
             "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect."
+        )
+        XCTAssertEqual(
+            PairFailureReason.directAddressNotLocal.message,
+            "that pairing link points to an address outside your local network. join the same wi-fi as your journal, then try again with a new pairing code. you can also switch your journal to private network to pair from anywhere."
         )
         XCTAssertEqual(
             PairFailureReason.wrongSolstone.message,

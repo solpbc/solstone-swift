@@ -118,7 +118,7 @@ final class AppConfig {
         let pairing = StoredPairing(
             instanceID: "ui-test-instance",
             homeLabel: "ui-test-solstone",
-            relayEndpoint: "ws://127.0.0.1:\(endpointPort)",
+            relayEndpoint: "wss://127.0.0.1:\(endpointPort)",
             fingerprint: Self.syntheticFingerprint,
             clientCertPEM: Self.syntheticCertificatePEM,
             clientKeyPEM: Self.syntheticPrivateKeyPEM,

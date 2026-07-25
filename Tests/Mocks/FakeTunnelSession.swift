@@ -13,6 +13,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
     private let connectedMode: ConnectionMode
     private let yieldAwaitingBrokerDuringConnect: Bool
     private var failureDuringConnect: SessionError?
+    private var thrownDuringConnect: (any Error & Sendable)?
     private var inboundActivitySnapshotValue: UInt64 = 0
     private(set) var connectionMode: ConnectionMode?
     private(set) var connectCallCount = 0
@@ -22,6 +23,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         connectedVia: ConnectedVia = .lanDirect(host: "127.0.0.1", port: 8676),
         connectedMode: ConnectionMode = .plDirect,
         failureDuringConnect: SessionError? = nil,
+        thrownDuringConnect: (any Error & Sendable)? = nil,
         yieldAwaitingBrokerDuringConnect: Bool = false
     ) {
         let state = AsyncStream<TunnelState>.makeStream()
@@ -34,6 +36,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         self.connectedMode = connectedMode
         self.yieldAwaitingBrokerDuringConnect = yieldAwaitingBrokerDuringConnect
         self.failureDuringConnect = failureDuringConnect
+        self.thrownDuringConnect = thrownDuringConnect
     }
 
     @discardableResult
@@ -43,6 +46,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         if let failureDuringConnect {
             stateContinuation.yield(.failed(failureDuringConnect))
             try await Task.sleep(for: .milliseconds(200))
+        }
+        if let thrownDuringConnect {
+            throw thrownDuringConnect
         }
         if yieldAwaitingBrokerDuringConnect {
             stateContinuation.yield(.awaitingBroker(via: connectedVia))
@@ -76,6 +82,10 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
 
     func failWithinConnect(_ error: SessionError) {
         failureDuringConnect = error
+    }
+
+    func throwWithinConnect(_ error: any Error & Sendable) {
+        thrownDuringConnect = error
     }
 
     func pushFailed(_ error: SessionError) {

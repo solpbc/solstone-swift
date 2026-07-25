@@ -101,6 +101,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertTrue(config.isPaired)
         XCTAssertEqual(config.loopbackPort, 8676)
         XCTAssertEqual(self.pairingState.load()?.homeLabel, "ui-test-solstone")
+        XCTAssertEqual(self.pairingState.load()?.relayEndpoint, "wss://127.0.0.1:8676")
         XCTAssertNil(config.currentSessionKey())
         XCTAssertEqual(
             AppGroupMirror(defaults: self.defaults).pairingSnapshot(),

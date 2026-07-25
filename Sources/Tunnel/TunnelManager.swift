@@ -8,6 +8,7 @@ import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
 private let waitingRedialDelaySeconds = 60
+private let notEntitledAutoReconnectLimit = 3
 
 private enum PathInterfaceBucket: String, Sendable {
     case wifi
@@ -132,20 +133,19 @@ final class TunnelManager {
     @ObservationIgnored private var connectWatchdogTask: Task<Void, Never>?
     @ObservationIgnored private var waitingTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var livenessProbeTask: Task<Void, Never>?
-    @ObservationIgnored private var retryDelay: TimeInterval
-    @ObservationIgnored private let initialRetryDelay: TimeInterval
     @ObservationIgnored private let connectDeadline: Duration
     @ObservationIgnored private let waitingDeadline: Duration
-    @ObservationIgnored private let jitterRange: ClosedRange<Double>
-    @ObservationIgnored private let probeInterval: Duration
-    @ObservationIgnored private let probeFailureThreshold: Int
+    @ObservationIgnored private var probeWatchdog: ProbeWatchdog
+    @ObservationIgnored private var reconnectBackoff: ReconnectBackoff
+    @ObservationIgnored private var nextProbeInterval: Duration
+    @ObservationIgnored private var consecutiveNotEntitled = 0
+    @ObservationIgnored private(set) var lastScheduledReconnectDelay: Duration?
     var reconnectCountdown: Int?
     var consecutiveWiFiFailures: Int = 0
     var currentPathStatus: NetworkPathStatus?
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
     var lastProbeAlive: Bool?
-    @ObservationIgnored private var consecutiveProbeFailures: Int = 0
     @ObservationIgnored private var lastEmittedPathSignature: PathMeaningfulSignature?
     @ObservationIgnored private var redriveBaselineSignature: PathMeaningfulSignature?
     var consecutiveKeepaliveFailures: Int = 0
@@ -166,16 +166,20 @@ final class TunnelManager {
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
-        initialRetryDelay: TimeInterval = 2.0,
         connectDeadline: Duration = .seconds(15),
         waitingDeadline: Duration = .seconds(600),
-        jitterRange: ClosedRange<Double> = 0.75...1.25,
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
         },
-        probeInterval: Duration = .seconds(15),
-        probeFailureThreshold: Int = 2,
+        probeWatchdogPolicy: ProbeWatchdogPolicy = ProbeWatchdogPolicy(
+            healthyInterval: .seconds(15),
+            // why: inbound bytes prove tunnel liveness; a failed probe more likely indicts the probe path than the tunnel.
+            // iOS runs silent=2 / activeInbound=6 deliberately because stronger liveness evidence warrants the higher bar.
+            silentFailureLimit: 2,
+            activeInboundFailureLimit: 6
+        ),
+        random: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil
     ) {
@@ -189,13 +193,12 @@ final class TunnelManager {
         self.probeSession = probeSession
         self.probeURLBuilder = probeURLBuilder
         self.activeLocalTransferCountProvider = activeLocalTransferCountProvider
-        self.initialRetryDelay = initialRetryDelay
         self.connectDeadline = connectDeadline
         self.waitingDeadline = waitingDeadline
-        self.retryDelay = initialRetryDelay
-        self.jitterRange = jitterRange
-        self.probeInterval = probeInterval
-        self.probeFailureThreshold = probeFailureThreshold
+        self.nextProbeInterval = probeWatchdogPolicy.healthyInterval
+        self.probeWatchdog = ProbeWatchdog(policy: probeWatchdogPolicy, random: random)
+        // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
+        self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
         self.diagnosticLog = diagnosticLog
     }
 
@@ -285,8 +288,9 @@ final class TunnelManager {
                 self.completeStage(.connected)
                 self.consecutiveWiFiFailures = 0
                 self.lastProbeAlive = nil
-                self.consecutiveProbeFailures = 0
                 self.consecutiveKeepaliveFailures = 0
+                self.consecutiveNotEntitled = 0
+                self.probeWatchdog.noteConnectionEstablished()
                 self.startLivenessProbe()
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
@@ -298,7 +302,7 @@ final class TunnelManager {
                     self.ownerConnectSuccessBannerArmed = false
                     self.diagnosticLog?.append(category: .tunnel, message: "journal connected")
                 }
-                self.retryDelay = self.initialRetryDelay
+                self.reconnectBackoff.reset()
                 self.cancelReconnect()
                 Task {
                     try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
@@ -326,8 +330,10 @@ final class TunnelManager {
                     try? self.deletePairing()
                     await self.endpointCache.wipe()
                 }
-                self.pendingReconnectReason = .connectFailed
-                self.scheduleReconnect(for: tunnelError)
+                if self.shouldScheduleReconnect(after: error) {
+                    self.pendingReconnectReason = .connectFailed
+                    self.scheduleReconnect(for: tunnelError)
+                }
             }
         }
         self.connectTask = task
@@ -349,34 +355,19 @@ final class TunnelManager {
     }
 
     private func connectWithReactiveTokenRefresh() async throws -> Int {
-        var didReactiveRefresh = false
-        var didHandshakeRefresh = false
+        var didAuthRefresh = false
         var retryPairing: StoredPairing?
         while true {
             do {
                 return try await self.connectTransportOnce(pairingOverride: retryPairing)
-            } catch SessionError.authRefreshRequired {
-                guard !didReactiveRefresh else {
-                    throw SessionError.revoked
-                }
-                didReactiveRefresh = true
-                await self.transport.disconnect()
-                switch await self.refreshAfterTokenExpired() {
-                case .retry(let updated):
-                    retryPairing = updated
-                    continue
-                case .revoked:
-                    throw SessionError.revoked
-                case .unreachable:
+            } catch let error as SessionError where error == .authRefreshRequired || error == .revoked {
+                guard !didAuthRefresh else {
+                    // why: a repeat auth challenge after one refresh is retryable unless the refresher confirms revocation.
                     throw SessionError.unreachable
                 }
-            } catch SessionError.revoked {
-                guard !didHandshakeRefresh else {
-                    throw SessionError.unreachable
-                }
-                didHandshakeRefresh = true
+                didAuthRefresh = true
                 await self.transport.disconnect()
-                switch await self.refreshAfterHandshakeRevoked() {
+                switch await self.refreshAfterAuthChallenge() {
                 case .retry(let updated):
                     retryPairing = updated
                     continue
@@ -420,7 +411,7 @@ final class TunnelManager {
         )
     }
 
-    private func refreshAfterTokenExpired() async -> ReactiveTokenRefreshDecision {
+    private func refreshAfterAuthChallenge() async -> ReactiveTokenRefreshDecision {
         let pairing: StoredPairing
         do {
             guard let loaded = try self.loadPairing() else {
@@ -428,7 +419,7 @@ final class TunnelManager {
             }
             pairing = loaded
         } catch {
-            log.error("[solstone-swift] token refresh load pairing failed: \(String(describing: error), privacy: .public)")
+            log.error("[solstone-swift] auth refresh load pairing failed: \(String(describing: error), privacy: .public)")
             return .unreachable
         }
 
@@ -447,31 +438,6 @@ final class TunnelManager {
         }
     }
 
-    private func refreshAfterHandshakeRevoked() async -> ReactiveTokenRefreshDecision {
-        let pairing: StoredPairing
-        do {
-            guard let loaded = try self.loadPairing() else {
-                return .revoked
-            }
-            pairing = loaded
-        } catch {
-            log.error("[solstone-swift] handshake-revoked refresh load pairing failed: \(String(describing: error), privacy: .public)")
-            return .unreachable
-        }
-
-        switch await self.deviceTokenRefresher.refreshNow(pairing: pairing) {
-        case .refreshed(let updated):
-            self.persistRefreshedPairing(updated)
-            return .retry(updated)
-        case .notNeeded:
-            return .unreachable
-        case .transientFailure:
-            return .unreachable
-        case .definitiveAuthFailure:
-            return .revoked
-        }
-    }
-
     func disconnect() async {
         let active = self.activeConnection
         self.cancelReconnect()
@@ -481,8 +447,8 @@ final class TunnelManager {
         self.state = .disconnected
         self.consecutiveWiFiFailures = 0
         self.lastProbeAlive = nil
-        self.consecutiveProbeFailures = 0
         self.consecutiveKeepaliveFailures = 0
+        self.consecutiveNotEntitled = 0
         self.reconnectCount = 0
         self.reconnectReasonCounts = [:]
         self.pendingReconnectReason = nil
@@ -513,7 +479,8 @@ final class TunnelManager {
 
     func retryNow() async {
         self.cancelReconnect()
-        self.retryDelay = self.initialRetryDelay
+        self.reconnectBackoff.reset()
+        self.consecutiveNotEntitled = 0
         await self.connect()
     }
 
@@ -535,6 +502,7 @@ final class TunnelManager {
             message: "re-dialing",
             detail: reason.label
         )
+        self.consecutiveNotEntitled = 0
 
         await self.connect()
     }
@@ -607,14 +575,12 @@ final class TunnelManager {
         self.stopLivenessProbe()
         self.livenessProbeTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                guard let interval = self?.jitteredProbeInterval() else {
+                guard let self else {
                     return
                 }
+                let interval = self.nextProbeInterval
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else {
-                    return
-                }
-                guard let self else {
                     return
                 }
                 guard case .connected = self.state else {
@@ -622,28 +588,31 @@ final class TunnelManager {
                 }
                 let inboundBeforeProbe = await self.transport.inboundActivitySnapshot()
                 let result = await self.probeConnection()
-                if result?.alive == false {
-                    let inboundAfterProbe = await self.transport.inboundActivitySnapshot()
-                    if inboundAfterProbe > inboundBeforeProbe {
-                        self.consecutiveProbeFailures = 0
-                        continue
-                    }
-                    let activeCount = self.activeLocalTransferCountProvider()
-                    if activeCount > 0 {
+                guard let result else {
+                    return
+                }
+                let inboundAfterProbe = await self.transport.inboundActivitySnapshot()
+                let inboundAdvanced = inboundAfterProbe > inboundBeforeProbe
+                let activeLocalTransfers = self.activeLocalTransferCountProvider()
+                let verdict = self.probeWatchdog.evaluate(
+                    probeSucceeded: result.alive,
+                    inboundAdvanced: inboundAdvanced,
+                    activeLocalTransfers: activeLocalTransfers
+                )
+                self.nextProbeInterval = verdict.nextInterval
+
+                if verdict.action == .reconnect {
+                    if !result.alive, !inboundAdvanced, activeLocalTransfers > 0 {
                         let active = self.activeConnection
                         self.diagnosticLog?.append(
                             category: .tunnel,
                             severity: .warning,
                             message: "probe not reachable during active uploads",
-                            detail: "activeUploads=\(activeCount) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
+                            detail: "activeUploads=\(activeLocalTransfers) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
                         )
-                        await self.forceReconnect(reason: .probeFailed)
-                        return
                     }
-                    if self.consecutiveProbeFailures >= self.probeFailureThreshold {
-                        await self.forceReconnect(reason: .probeFailed)
-                        return
-                    }
+                    await self.forceReconnect(reason: .probeFailed)
+                    return
                 }
             }
         }
@@ -652,13 +621,6 @@ final class TunnelManager {
     private func stopLivenessProbe() {
         self.livenessProbeTask?.cancel()
         self.livenessProbeTask = nil
-    }
-
-    private func jitteredProbeInterval() -> Duration {
-        let components = self.probeInterval.components
-        let seconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
-        let milliseconds = max(Int(seconds * 1_000 * Double.random(in: self.jitterRange)), 1)
-        return .milliseconds(milliseconds)
     }
 
     private func forceReconnect(reason: ReconnectReason) async {
@@ -709,6 +671,7 @@ final class TunnelManager {
                     }
                 case .error(let error) where error.isRetryable:
                     if status.isSatisfied {
+                        self.consecutiveNotEntitled = 0
                         self.pendingReconnectReason = .pathRestore
                         self.scheduleReconnect(for: error)
                     }
@@ -768,11 +731,6 @@ final class TunnelManager {
         }
         let elapsed = clock.now - start
         self.lastProbeAlive = alive
-        if alive {
-            self.consecutiveProbeFailures = 0
-        } else {
-            self.consecutiveProbeFailures += 1
-        }
         self.diagnosticLog?.append(
             category: .tunnel,
             message: alive ? "probe available" : "probe not reachable",
@@ -788,12 +746,20 @@ final class TunnelManager {
     private func scheduleReconnect(for error: TunnelError) {
         guard error.isRetryable, self.isNetworkSatisfied != false else { return }
         self.cancelReconnect()
-        let jittered = self.retryDelay * Double.random(in: self.jitterRange)
-        let delay = max(Int(jittered), 1)
-        log.info("[solstone-swift] scheduling reconnect in \(delay)s for \(String(describing: error), privacy: .public)")
-        self.reconnectCountdown = delay
+        let step = self.reconnectBackoff.nextDelay()
+        self.lastScheduledReconnectDelay = step.delay
+        let displaySeconds = Self.displaySeconds(for: step.delay)
+        let components = step.delay.components
+        let wholeSeconds = max(Int(components.seconds), 0)
+        let fractional = step.delay - .seconds(components.seconds)
+        log.info("[solstone-swift] scheduling reconnect in \(String(describing: step.delay), privacy: .public) for \(String(describing: error), privacy: .public)")
+        self.reconnectCountdown = displaySeconds
         self.retryTask = Task { [weak self] in
-            for remaining in stride(from: delay, through: 1, by: -1) {
+            if fractional > .zero {
+                try? await Task.sleep(for: fractional)
+                if Task.isCancelled { return }
+            }
+            for remaining in stride(from: wholeSeconds, through: 1, by: -1) {
                 guard let self else { return }
                 self.reconnectCountdown = remaining
                 try? await Task.sleep(for: .seconds(1))
@@ -801,9 +767,14 @@ final class TunnelManager {
             }
             guard let self else { return }
             self.reconnectCountdown = nil
-            self.retryDelay = min(self.retryDelay * 2, 60)
             await self.connect()
         }
+    }
+
+    private static func displaySeconds(for duration: Duration) -> Int {
+        let components = duration.components
+        let seconds = Int(components.seconds) + (components.attoseconds > 0 ? 1 : 0)
+        return max(seconds, 1)
     }
 
     private func scheduleWaitingRedial() {
@@ -913,10 +884,10 @@ final class TunnelManager {
     }
 
     private func directCandidateKey(for endpoint: TransportEndpoint) -> String? {
-        guard case .lan(let host, let port, let scope, _) = endpoint else {
+        guard case .lan(let host, let port, let scope, let unpinnedInterface) = endpoint else {
             return nil
         }
-        return "\(host)|\(port)|\(scope)"
+        return "\(host)|\(port)|\(scope)|unpinned=\(unpinnedInterface)"
     }
 
     private func handleStageChange(_ event: TransportStage) {
@@ -966,7 +937,10 @@ final class TunnelManager {
             switch sessionError {
             case .unreachable, .transportFailed, .inboundClosed, .notEntitled:
                 return .unreachable
-            case .revoked, .authRefreshRequired:
+            case .authRefreshRequired:
+                // why: relay/WAF auth challenges are retryable unless token refresh proves revocation.
+                return .unreachable
+            case .revoked:
                 return .revoked
             case .tlsFailed:
                 return .tlsHandshakeFailed
@@ -975,5 +949,19 @@ final class TunnelManager {
             }
         }
         return .unknown(String(describing: error))
+    }
+
+    private func shouldScheduleReconnect(after error: Error) -> Bool {
+        guard let sessionError = error as? SessionError, sessionError == .notEntitled else {
+            self.consecutiveNotEntitled = 0
+            return true
+        }
+
+        self.consecutiveNotEntitled += 1
+        guard self.consecutiveNotEntitled < notEntitledAutoReconnectLimit else {
+            log.info("[solstone-swift] relay not entitled repeated; stopping automatic reconnect")
+            return false
+        }
+        return true
     }
 }

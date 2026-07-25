@@ -14,6 +14,7 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
     case hostUnreachable(targetAddress: String?)
     case loopbackAddress
     case journalUnreachableOffLAN
+    case directAddressNotLocal
     case codeExpired
     case wrongSolstone
     case relayInstanceMismatch
@@ -28,6 +29,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             return .wrongSolstone
         case PairError.relayInstanceMismatch:
             return .relayInstanceMismatch
+        case PairError.directAddressNotLocal:
+            return .directAddressNotLocal
         case PairError.lanResponseInvalid:
             return .generic
         case PairError.lanRequestFailed(underlying: nil):
@@ -91,6 +94,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             "that address points back at this phone. paste the pairing link shown on your journal instead."
         case .journalUnreachableOffLAN:
             "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect."
+        case .directAddressNotLocal:
+            "that pairing link points to an address outside your local network. join the same wi-fi as your journal, then try again with a new pairing code. you can also switch your journal to private network to pair from anywhere."
         case .codeExpired:
             "the pairing window closed. show a new pairing code on your journal, then try again."
         case .wrongSolstone:

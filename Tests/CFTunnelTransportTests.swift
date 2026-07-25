@@ -2,7 +2,8 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
-import SPLTunnel
+// Reaches SPLTunnel package internals; relies on Xcode compiling SPM products with testability in Debug.
+@testable import SPLTunnel
 import XCTest
 import os
 
@@ -83,6 +84,35 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
                 return false
             }
         })
+        await transport.disconnect()
+    }
+
+    @MainActor
+    func testAuthRefreshAggregateFailureThrownDuringConnectRethrowsSessionError() async throws {
+        let aggregate = RaceCoordinator<ConnectedVia>.aggregateFailure(
+            sawRevocation: false,
+            sawNotEntitled: false,
+            sawAuthRefreshRequired: true
+        )
+        let fakeSession = FakeTunnelSession(thrownDuringConnect: aggregate)
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession }
+        )
+
+        do {
+            _ = try await transport.connect(
+                candidates: [.relay(endpoint: URL(string: "wss://relay.example.com")!, instanceID: "instance-123", deviceToken: "device-token")],
+                onDisconnect: { _ in },
+                onStageChange: { _ in }
+            )
+            XCTFail("expected auth-refresh aggregate failure")
+        } catch let error as SessionError {
+            XCTAssertEqual(error, .authRefreshRequired)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
         await transport.disconnect()
     }
 

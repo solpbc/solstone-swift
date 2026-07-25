@@ -37,7 +37,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { _ in },
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
-        initialRetryDelay: TimeInterval = 10,
         connectDeadline: Duration = .seconds(15),
         waitingDeadline: Duration = .seconds(600),
         probeSession: URLSession = .shared,
@@ -46,10 +45,21 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         },
         probeInterval: Duration = .seconds(15),
         probeFailureThreshold: Int = 2,
+        degradedInterval: Duration? = nil,
+        activeInboundFailureLimit: Int? = nil,
+        forcedReconnectDegradedIntervalCap: Duration? = nil,
+        jitterRandom: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil
     ) -> TunnelManager {
-        TunnelManager(
+        let probeWatchdogPolicy = ProbeWatchdogPolicy(
+            healthyInterval: probeInterval,
+            degradedInterval: degradedInterval ?? .seconds(5),
+            silentFailureLimit: probeFailureThreshold,
+            activeInboundFailureLimit: activeInboundFailureLimit ?? 6,
+            forcedReconnectDegradedIntervalCap: forcedReconnectDegradedIntervalCap ?? .seconds(120)
+        )
+        return TunnelManager(
             transport: transport,
             endpointCache: endpointCache ?? EndpointCache(fileURL: Self.tempFileURL()),
             pathMonitor: pathMonitor,
@@ -57,13 +67,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             savePairing: savePairing,
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
             deviceTokenRefresher: deviceTokenRefresher,
-            initialRetryDelay: initialRetryDelay,
             connectDeadline: connectDeadline,
             waitingDeadline: waitingDeadline,
             probeSession: probeSession,
             probeURLBuilder: probeURLBuilder,
-            probeInterval: probeInterval,
-            probeFailureThreshold: probeFailureThreshold,
+            probeWatchdogPolicy: probeWatchdogPolicy,
+            random: jitterRandom,
             activeLocalTransferCountProvider: activeLocalTransferCountProvider,
             diagnosticLog: diagnosticLog
         )
@@ -162,6 +171,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(Self.lanCandidates(from: transport.capturedCandidates), [
             .lan(host: "10.0.0.10", port: 7657, scope: "local"),
+            .lan(host: "10.0.0.10", port: 7657, scope: "local", unpinnedInterface: true),
             .lan(host: "fd12::1", port: 7657, scope: "ula"),
         ])
         XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 1)
@@ -185,6 +195,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(Self.lanCandidates(from: transport.capturedCandidates), [
             .lan(host: "10.0.0.10", port: 7657, scope: "local"),
+            .lan(host: "10.0.0.10", port: 7657, scope: "local", unpinnedInterface: true),
             .lan(host: "fd12::1", port: 7657, scope: "ula"),
         ])
         XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 1)
@@ -290,7 +301,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testReactiveTokenExpiredSecondFailureIsTerminalRevoked() async {
+    func testRepeatedAuthRefreshRequiredWithinOneConnectAttemptDoesNotDestroyPairing() async {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let pairingBox = OSAllocatedUnfairLock(initialState: Self.fixturePairing(localEndpoints: [], deviceToken: Self.validFutureDeviceToken))
         let transport = MockCFTunnelTransport()
@@ -312,10 +323,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         await manager.connect()
 
-        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertEqual(manager.state, .error(.unreachable))
         XCTAssertEqual(transport.connectCallCount, 2)
         XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 1)
-        XCTAssertTrue(didDeletePairing.withLock { $0 })
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
     }
 
     @MainActor
@@ -365,7 +376,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testHandshakeRevokedRefreshesThenRetriesStaysRetryable() async {
+    func testAuthRefreshRequiredRefreshesThenRetriesStaysRetryable() async {
         let newToken = Self.validFutureDeviceToken + "x"
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let fileURL = Self.tempFileURL()
@@ -374,8 +385,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.revoked),
-            .failure(SessionError.revoked),
+            .failure(SessionError.authRefreshRequired),
+            .failure(SessionError.authRefreshRequired),
         ]
         let refresher = DeviceTokenRefresher(
             session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: newToken)),
@@ -390,7 +401,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         await manager.connect()
 
-        // Handshake 401 and 403 both surface as SessionError.revoked here, so this covers both.
         XCTAssertEqual(manager.state, .error(.unreachable))
         XCTAssertEqual(transport.connectCallCount, 2)
         XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 1)
@@ -399,7 +409,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testHandshakeRevokedBodyConfirmedRevocationDestroys() async {
+    func testAuthRefreshRequiredBodyConfirmedRevocationDestroys() async {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
@@ -407,7 +417,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.revoked),
+            .failure(SessionError.authRefreshRequired),
         ]
         let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(
             responseData: Data(#"{"error":"instance revoked"}"#.utf8),
@@ -429,7 +439,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testHandshakeRevokedExpiredReasonRevocationDestroys() async {
+    func testAuthRefreshRequiredExpiredReasonRevocationDestroys() async {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
@@ -437,7 +447,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.revoked),
+            .failure(SessionError.authRefreshRequired),
         ]
         let refresher = DeviceTokenRefresher(session: Self.tokenRefreshSession(
             responseData: Data(#"{"error":"invalid device_token","reason":"expired"}"#.utf8),
@@ -458,7 +468,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testHandshakeRevokedWafCoincidenceStaysRetryable() async {
+    func testAuthRefreshRequiredWafCoincidenceStaysRetryable() async {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
@@ -478,7 +488,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         for _ in 0..<3 {
             transport.queuedResults = [
-                .failure(SessionError.revoked),
+                .failure(SessionError.authRefreshRequired),
             ]
             await manager.connect()
             XCTAssertEqual(manager.state, .error(.unreachable))
@@ -490,7 +500,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testHandshakeRevoked404StaysRetryable() async {
+    func testAuthRefreshRequired404StaysRetryable() async {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
@@ -498,7 +508,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.revoked),
+            .failure(SessionError.authRefreshRequired),
         ]
         let refresher = DeviceTokenRefresher(
             session: Self.tokenRefreshSession(statusCode: 404),
@@ -519,7 +529,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testHandshakeRevokedNotNeededStaysRetryable() async {
+    func testAuthRefreshRequiredNotNeededStaysRetryable() async {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let enrolledPairing = Self.fixturePairing()
@@ -541,7 +551,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
-            .failure(SessionError.revoked),
+            .failure(SessionError.authRefreshRequired),
         ]
         let refresher = DeviceTokenRefresher(
             session: Self.tokenRefreshSession(),
@@ -600,6 +610,39 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.state, .error(.unreachable))
         XCTAssertEqual(transport.disconnectCallCount, 1)
+    }
+
+    @MainActor
+    func testNotEntitledStopsAutomaticReconnectAfterCapAndRetryNowRecovers() async {
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.notEntitled),
+            .failure(SessionError.notEntitled),
+            .failure(SessionError.notEntitled),
+            .success(9090),
+        ]
+        let manager = makeManager(transport: transport, jitterRandom: { _ in 1.0 })
+
+        await manager.connect()
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        manager.cancelReconnect()
+
+        await manager.connect()
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        manager.cancelReconnect()
+
+        await manager.connect()
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertEqual(transport.connectCallCount, 3)
+        XCTAssertNil(manager.reconnectCountdown)
+
+        await manager.retryNow()
+
+        XCTAssertEqual(manager.state, .connected(localPort: 9090, via: .remote))
+        XCTAssertEqual(transport.connectCallCount, 4)
+        await manager.disconnect()
     }
 
     @MainActor
@@ -736,7 +779,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             probeSession: session,
             probeInterval: .milliseconds(20),
-            probeFailureThreshold: 1
+            probeFailureThreshold: 1,
+            degradedInterval: .milliseconds(20),
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
@@ -896,6 +941,44 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }
         XCTAssertEqual(manager.state, .error(.unreachable))
         XCTAssertNotNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testRealTransportUnionAuthFailureIsNonDestructiveAtManagerLevel() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let pairing = Self.fixturePairing()
+        let aggregate = RaceCoordinator<ConnectedVia>.aggregateFailure(
+            sawRevocation: false,
+            sawNotEntitled: false,
+            sawAuthRefreshRequired: true
+        )
+        let fakeSession = FakeTunnelSession(thrownDuringConnect: aggregate)
+        let transport = CFTunnelTransport(
+            loadPairing: { pairing },
+            makeSession: { _ in fakeSession }
+        )
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: pairing)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(statusCode: 403),
+            clientInfo: SPLRuntime.clientInfo
+        )
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: pairing,
+            didDeletePairing: didDeletePairing,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         await manager.disconnect()
     }
 
@@ -1077,7 +1160,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
-            initialRetryDelay: 10,
             connectDeadline: .seconds(1),
             waitingDeadline: .milliseconds(100)
         )
@@ -1109,9 +1191,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
-            initialRetryDelay: 1,
             connectDeadline: .seconds(1),
-            waitingDeadline: .seconds(1)
+            waitingDeadline: .seconds(1),
+            jitterRandom: { _ in 1.0 }
         )
 
         let connectTask = Task { @MainActor in
@@ -1129,6 +1211,59 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertNotNil(manager.reconnectCountdown)
         XCTAssertNotEqual(manager.reconnectCountdown, 60)
         await manager.disconnect()
+    }
+
+    @MainActor
+    func testReconnectBackoffUsesPackageTableAndDisplayRounding() async {
+        let scaledTransport = MockCFTunnelTransport()
+        scaledTransport.queuedResults = Array(repeating: .failure(TunnelError.unreachable), count: 5)
+        let scaledManager = makeManager(
+            transport: scaledTransport,
+            jitterRandom: { range in range.lowerBound }
+        )
+        var scaledDelays: [Duration] = []
+        var scaledCountdowns: [Int] = []
+
+        for _ in 0..<5 {
+            await scaledManager.connect()
+            scaledDelays.append(scaledManager.lastScheduledReconnectDelay ?? .zero)
+            scaledCountdowns.append(scaledManager.reconnectCountdown ?? 0)
+            scaledManager.cancelReconnect()
+        }
+
+        XCTAssertEqual(scaledDelays, [
+            .milliseconds(750),
+            .milliseconds(3_750),
+            .milliseconds(7_500),
+            .milliseconds(22_500),
+            .milliseconds(22_500),
+        ])
+        XCTAssertEqual(scaledCountdowns, [1, 4, 8, 23, 23])
+
+        let unscaledTransport = MockCFTunnelTransport()
+        unscaledTransport.queuedResults = Array(repeating: .failure(TunnelError.unreachable), count: 5)
+        let unscaledManager = makeManager(
+            transport: unscaledTransport,
+            jitterRandom: { _ in 1.0 }
+        )
+        var unscaledDelays: [Duration] = []
+        var unscaledCountdowns: [Int] = []
+
+        for _ in 0..<5 {
+            await unscaledManager.connect()
+            unscaledDelays.append(unscaledManager.lastScheduledReconnectDelay ?? .zero)
+            unscaledCountdowns.append(unscaledManager.reconnectCountdown ?? 0)
+            unscaledManager.cancelReconnect()
+        }
+
+        XCTAssertEqual(unscaledDelays, [
+            .seconds(1),
+            .seconds(5),
+            .seconds(10),
+            .seconds(30),
+            .seconds(30),
+        ])
+        XCTAssertEqual(unscaledCountdowns, [1, 5, 10, 30, 30])
     }
 
     @MainActor
@@ -1352,7 +1487,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
-            initialRetryDelay: 1
+            jitterRandom: { _ in 1.0 }
         )
         var connectCountsAtDisconnect: [Int] = []
         transport.onDisconnectInvoked = {
@@ -1789,7 +1924,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             probeSession: session,
             probeInterval: .milliseconds(20),
-            probeFailureThreshold: 2
+            probeFailureThreshold: 2,
+            degradedInterval: .milliseconds(20),
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
@@ -1826,18 +1963,30 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             probeSession: session,
             probeInterval: .milliseconds(20),
-            probeFailureThreshold: 2
+            probeFailureThreshold: 2,
+            degradedInterval: .milliseconds(20),
+            activeInboundFailureLimit: 4,
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
-        let didRunRepeatedFailedProbes = await Self.waitUntil({
+        let didStayConnectedAtRaisedLimitMinusOne = await Self.waitUntil({
             TunnelProbeURLProtocol.capturedRequests.count >= 3
         }, timeout: .seconds(2))
 
-        XCTAssertTrue(didRunRepeatedFailedProbes)
+        XCTAssertTrue(didStayConnectedAtRaisedLimitMinusOne)
         XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
         XCTAssertNil(manager.reconnectCountdown)
         XCTAssertEqual(transport.disconnectCallCount, 0)
+        // why: inbound progress raises the probe-failure limit; it does not suppress escalation indefinitely.
+        let didEscalateAtRaisedLimit = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(2))
+        XCTAssertTrue(didEscalateAtRaisedLimit)
+        XCTAssertGreaterThanOrEqual(TunnelProbeURLProtocol.capturedRequests.count, 4)
         await manager.disconnect()
     }
 
@@ -1860,6 +2009,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             probeSession: session,
             probeInterval: .milliseconds(20),
             probeFailureThreshold: 99,
+            degradedInterval: .milliseconds(20),
+            jitterRandom: { _ in 1.0 },
             activeLocalTransferCountProvider: { 1 },
             diagnosticLog: diagnosticLog
         )
@@ -1906,6 +2057,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             probeSession: session,
             probeInterval: .milliseconds(20),
             probeFailureThreshold: 1,
+            degradedInterval: .milliseconds(20),
+            activeInboundFailureLimit: 4,
+            jitterRandom: { _ in 1.0 },
             activeLocalTransferCountProvider: { 1 }
         )
 
@@ -1938,7 +2092,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             probeSession: session,
             probeInterval: .milliseconds(20),
-            probeFailureThreshold: 2
+            probeFailureThreshold: 2,
+            degradedInterval: .milliseconds(20),
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
@@ -1969,7 +2125,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             probeSession: session,
             probeInterval: .milliseconds(20),
-            probeFailureThreshold: 1
+            probeFailureThreshold: 1,
+            degradedInterval: .milliseconds(20),
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
@@ -1981,6 +2139,57 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }, timeout: .seconds(2))
 
         XCTAssertTrue(didForceReconnect)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testLivenessProbeForcedReconnectCadenceSurvivesConnectionEstablished() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { _ in
+            throw URLError(.timedOut)
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            probeSession: session,
+            probeInterval: .milliseconds(10),
+            probeFailureThreshold: 2,
+            degradedInterval: .milliseconds(40),
+            forcedReconnectDegradedIntervalCap: .milliseconds(80),
+            jitterRandom: { _ in 1.0 }
+        )
+
+        await manager.connect()
+        let didFirstForceReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil && TunnelProbeURLProtocol.capturedRequests.count >= 2
+            }
+            return false
+        }, timeout: .seconds(2), interval: .milliseconds(5))
+        XCTAssertTrue(didFirstForceReconnect)
+
+        await manager.retryNow()
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
+        let requestsAfterReconnect = TunnelProbeURLProtocol.capturedRequests.count
+        let didFirstPostReconnectFailure = await Self.waitUntil({
+            TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterReconnect + 1
+        }, timeout: .seconds(1), interval: .milliseconds(5))
+        XCTAssertTrue(didFirstPostReconnectFailure)
+
+        try? await Task.sleep(for: .milliseconds(45))
+        await Self.settle()
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, requestsAfterReconnect + 1)
+
+        let didSecondPostReconnectFailure = await Self.waitUntil({
+            TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterReconnect + 2
+        }, timeout: .seconds(1), interval: .milliseconds(5))
+        XCTAssertTrue(didSecondPostReconnectFailure)
+        XCTAssertEqual(manager.state, .error(.muxTeardown))
         await manager.disconnect()
     }
 
@@ -2003,7 +2212,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             pathMonitor: pathMonitor,
             probeSession: session,
             probeInterval: .milliseconds(40),
-            probeFailureThreshold: 1
+            probeFailureThreshold: 1,
+            degradedInterval: .milliseconds(40),
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
@@ -2065,7 +2276,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             pathMonitor: pathMonitor,
             probeSession: session,
             probeInterval: .milliseconds(40),
-            probeFailureThreshold: 1
+            probeFailureThreshold: 1,
+            degradedInterval: .milliseconds(40),
+            jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
