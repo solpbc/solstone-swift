@@ -1,0 +1,15 @@
+{
+  "images" : [
+    {
+      "filename" : "sol-ring.svg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "version" : 1,
+    "author" : "xcode"
+  },
+  "properties" : {
+    "preserves-vector-representation" : true
+  }
+}

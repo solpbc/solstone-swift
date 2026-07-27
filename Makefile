@@ -68,6 +68,10 @@ brand-sync:
 	cp "$(BRAND_DIR)/app-icon/png-cream/sol-app-icon-cream-1024.png" Watch/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
 	cp "$(BRAND_DIR)/sol-wordmark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
 	cp "$(BRAND_DIR)/sol-wordmark-white.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark-white.svg
+	cp "$(BRAND_DIR)/sol-ring.svg" SolstoneWatchComplication/Assets.xcassets/SolRingSun.imageset/sol-ring.svg
+	cp "$(BRAND_DIR)/sol-ring-bang.svg" SolstoneWatchComplication/Assets.xcassets/SolRingBang.imageset/sol-ring-bang.svg
+	cp "$(BRAND_DIR)/sol-ring-question.svg" SolstoneWatchComplication/Assets.xcassets/SolRingQuestion.imageset/sol-ring-question.svg
+	# SolRingCloud is not synced: it uses the repo's watch-tuned filled-cloud variant because the brand paused icon's knockout cloud flattens to an ambiguous hole under accented rendering.
 	@echo "brand: synced from $(BRAND_DIR)"
 
 # --- Keychain (required for device builds over SSH) ---

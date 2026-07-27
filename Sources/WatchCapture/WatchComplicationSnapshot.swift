@@ -3,12 +3,19 @@
 
 import Foundation
 
+nonisolated enum WatchComplicationMark: String, Codable, Equatable, Sendable {
+    case sun
+    case cloud
+    case bang
+}
+
 nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
     static let widgetKind = "SolstoneWatchStatus"
     static let fileName = "watch-complication-snapshot.json"
 
     let stateWord: String
     let role: WatchFaceColorRole
+    let mark: WatchComplicationMark
     let showsElapsed: Bool
     let sessionStartedAt: Date?
     let handoffLine: String?
@@ -19,6 +26,7 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
     init(
         stateWord: String,
         role: WatchFaceColorRole,
+        mark: WatchComplicationMark,
         showsElapsed: Bool,
         sessionStartedAt: Date?,
         handoffLine: String?,
@@ -28,6 +36,7 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
     ) {
         self.stateWord = stateWord
         self.role = role
+        self.mark = mark
         self.showsElapsed = showsElapsed
         self.sessionStartedAt = sessionStartedAt
         self.handoffLine = handoffLine
@@ -41,6 +50,7 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
         self.init(
             stateWord: model.stateWord,
             role: model.stateColorRole,
+            mark: Self.mark(for: presentation.status),
             showsElapsed: model.showsElapsed,
             sessionStartedAt: presentation.sessionStartedAt,
             handoffLine: model.compactHandoff?.line,
@@ -48,5 +58,60 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
             handoffRole: model.compactHandoff?.role,
             trustLine: model.trustLine
         )
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let role = try container.decode(WatchFaceColorRole.self, forKey: .role)
+
+        self.stateWord = try container.decode(String.self, forKey: .stateWord)
+        self.role = role
+        self.mark = try container.decodeIfPresent(WatchComplicationMark.self, forKey: .mark)
+            ?? Self.mark(forLegacyRole: role)
+        self.showsElapsed = try container.decode(Bool.self, forKey: .showsElapsed)
+        self.sessionStartedAt = try container.decodeIfPresent(Date.self, forKey: .sessionStartedAt)
+        self.handoffLine = try container.decodeIfPresent(String.self, forKey: .handoffLine)
+        self.handoffSubtext = try container.decodeIfPresent(String.self, forKey: .handoffSubtext)
+        self.handoffRole = try container.decodeIfPresent(WatchFaceColorRole.self, forKey: .handoffRole)
+        self.trustLine = try container.decodeIfPresent(String.self, forKey: .trustLine)
+    }
+}
+
+private extension WatchComplicationSnapshot {
+    nonisolated static func mark(for status: WatchCaptureRuntimeStatus) -> WatchComplicationMark {
+        switch status {
+        case .active:
+            .sun
+        case .off, .paused, .enrolling:
+            .cloud
+        case .needsAttention:
+            .bang
+        }
+    }
+
+    nonisolated static func mark(forLegacyRole role: WatchFaceColorRole) -> WatchComplicationMark {
+        switch role {
+        case .live:
+            .sun
+        case .calm, .flight:
+            .cloud
+        case .alert:
+            .bang
+        }
+    }
+}
+
+nonisolated func watchComplicationMarkAssetName(for snapshot: WatchComplicationSnapshot?) -> String {
+    guard let snapshot else {
+        return "SolRingQuestion"
+    }
+
+    switch snapshot.mark {
+    case .sun:
+        return "SolRingSun"
+    case .cloud:
+        return "SolRingCloud"
+    case .bang:
+        return "SolRingBang"
     }
 }

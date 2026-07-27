@@ -27,19 +27,27 @@ struct SolstoneWatchComplication: Widget {
 
 struct SolstoneWatchComplicationEntry: TimelineEntry {
     let date: Date
-    let snapshot: WatchComplicationSnapshot
+    let snapshot: WatchComplicationSnapshot?
 }
 
 struct SolstoneWatchComplicationProvider: TimelineProvider {
     func placeholder(in context: Context) -> SolstoneWatchComplicationEntry {
-        SolstoneWatchComplicationEntry(date: Date(), snapshot: Self.fallbackSnapshot)
+        SolstoneWatchComplicationEntry(
+            date: Date(),
+            snapshot: context.isPreview ? Self.previewSnapshot : nil
+        )
     }
 
     func getSnapshot(
         in context: Context,
         completion: @escaping (SolstoneWatchComplicationEntry) -> Void
     ) {
-        completion(SolstoneWatchComplicationEntry(date: Date(), snapshot: Self.loadSnapshot()))
+        completion(
+            SolstoneWatchComplicationEntry(
+                date: Date(),
+                snapshot: context.isPreview ? Self.previewSnapshot : Self.loadSnapshot()
+            )
+        )
     }
 
     func getTimeline(
@@ -52,28 +60,26 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
 }
 
 private extension SolstoneWatchComplicationProvider {
-    static var fallbackSnapshot: WatchComplicationSnapshot {
+    static var previewSnapshot: WatchComplicationSnapshot {
         WatchComplicationSnapshot(
             presentation: WatchCaptureOwnerPresentation(
-                status: .off,
+                status: .active,
                 queuedCount: 0,
-                transferringCount: 0,
-                handedOffCount: 0,
-                isSessionRunning: false,
-                sessionStartedAt: nil
+                isSessionRunning: true,
+                sessionStartedAt: Date(timeIntervalSinceNow: -180)
             ),
-            isReachable: false
+            isReachable: true
         )
     }
 
-    static func loadSnapshot() -> WatchComplicationSnapshot {
+    static func loadSnapshot() -> WatchComplicationSnapshot? {
         do {
             let url = try AppGroupContainer.rootURL()
                 .appendingPathComponent(WatchComplicationSnapshot.fileName, isDirectory: false)
             let data = try Data(contentsOf: url)
             return try JSONDecoder().decode(WatchComplicationSnapshot.self, from: data)
         } catch {
-            return Self.fallbackSnapshot
+            return nil
         }
     }
 }
@@ -98,21 +104,42 @@ struct SolstoneWatchComplicationView: View {
 }
 
 private extension SolstoneWatchComplicationView {
-    var snapshot: WatchComplicationSnapshot {
+    var snapshot: WatchComplicationSnapshot? {
         self.entry.snapshot
+    }
+
+    var markAssetName: String {
+        watchComplicationMarkAssetName(for: self.snapshot)
     }
 
     var rectangularView: some View {
         HStack(alignment: .center, spacing: 6) {
-            SolstoneComplicationMark(role: self.snapshot.role)
-                .frame(width: 10, height: 10)
+            Image(self.markAssetName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
+                .widgetAccentable()
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(self.snapshot.stateWord)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if let snapshot = self.snapshot {
+                    Text(snapshot.stateWord)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
 
-                self.rectangularDetail
+                    self.rectangularDetail(for: snapshot)
+                } else {
+                    Text(SourceVocabulary.watchComplicationUnknownHeadline)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+
+                    Text(SourceVocabulary.watchComplicationUnknownDetail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                }
             }
         }
         .containerBackground(.clear, for: .widget)
@@ -121,25 +148,25 @@ private extension SolstoneWatchComplicationView {
     }
 
     @ViewBuilder
-    var rectangularDetail: some View {
-        if self.snapshot.showsElapsed, let start = self.snapshot.sessionStartedAt {
+    func rectangularDetail(for snapshot: WatchComplicationSnapshot) -> some View {
+        if snapshot.showsElapsed, let start = snapshot.sessionStartedAt {
             Text(start, style: .timer)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
-        } else if let handoffLine = self.snapshot.handoffLine {
+        } else if let handoffLine = snapshot.handoffLine {
             Text(handoffLine)
                 .font(.caption2)
-                .foregroundStyle(self.handoffColor)
+                .foregroundStyle(self.handoffColor(for: snapshot.handoffRole))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
-            if let handoffSubtext = self.snapshot.handoffSubtext {
+            if let handoffSubtext = snapshot.handoffSubtext {
                 Text(handoffSubtext)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-        } else if let trustLine = self.snapshot.trustLine {
+        } else if let trustLine = snapshot.trustLine {
             Text(trustLine)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -149,41 +176,49 @@ private extension SolstoneWatchComplicationView {
     }
 
     var circularView: some View {
-        SolstoneComplicationMark(role: self.snapshot.role)
-            .containerBackground(.clear, for: .widget)
-            .accessibilityLabel(self.accessibilityText)
+        ZStack {
+            AccessoryWidgetBackground()
+            Image(self.markAssetName)
+                .resizable()
+                .scaledToFit()
+                .padding(1)
+        }
+        .widgetAccentable()
+        .containerBackground(.clear, for: .widget)
+        .accessibilityLabel(self.accessibilityText)
     }
 
+    @ViewBuilder
     var inlineView: some View {
-        Text("sol · \(self.snapshot.handoffLine ?? self.snapshot.stateWord)")
-            .accessibilityLabel(self.accessibilityText)
+        if let snapshot = self.snapshot {
+            Text("sol · \(snapshot.handoffLine ?? snapshot.stateWord)")
+                .accessibilityLabel(self.accessibilityText)
+        } else {
+            Text("sol · \(SourceVocabulary.watchComplicationUnknownHeadline)")
+                .accessibilityLabel(self.accessibilityText)
+        }
     }
 
-    var handoffColor: Color {
-        guard let role = self.snapshot.handoffRole else {
+    func handoffColor(for role: WatchFaceColorRole?) -> Color {
+        guard let role else {
             return .primary
         }
         return WatchComplicationPalette.color(for: role)
     }
 
     var accessibilityText: String {
-        var parts = ["sol", self.snapshot.stateWord]
-        if let handoffLine = self.snapshot.handoffLine {
+        guard let snapshot = self.snapshot else {
+            return "\(SourceVocabulary.watchComplicationUnknownHeadline), \(SourceVocabulary.watchComplicationUnknownDetail)"
+        }
+
+        var parts = ["sol", snapshot.stateWord]
+        if let handoffLine = snapshot.handoffLine {
             parts.append(handoffLine)
         }
-        if let handoffSubtext = self.snapshot.handoffSubtext {
+        if let handoffSubtext = snapshot.handoffSubtext {
             parts.append(handoffSubtext)
         }
         return parts.joined(separator: ", ")
-    }
-}
-
-struct SolstoneComplicationMark: View {
-    let role: WatchFaceColorRole
-
-    var body: some View {
-        Circle()
-            .fill(WatchComplicationPalette.color(for: self.role))
     }
 }
 
@@ -225,5 +260,14 @@ struct SolstoneComplicationMark: View {
             presentation: WatchCaptureOwnerPresentation(status: .off, queuedCount: 3),
             isReachable: false
         )
+    )
+}
+
+#Preview("unknown", as: .accessoryCircular) {
+    SolstoneWatchComplication()
+} timeline: {
+    SolstoneWatchComplicationEntry(
+        date: Date(),
+        snapshot: nil
     )
 }

@@ -69,6 +69,12 @@ WatchHomeView.swift|SolRingActive
 WatchHomeView.swift|SolRingPaused
 WatchHomeView.swift|SolRingAlert
 
+# Watch complication sol-mark asset catalog names (routed through watchComplicationMarkAssetName(for:), not inline Image("…"))
+Sources/WatchCapture/WatchComplicationSnapshot.swift|SolRingSun
+Sources/WatchCapture/WatchComplicationSnapshot.swift|SolRingCloud
+Sources/WatchCapture/WatchComplicationSnapshot.swift|SolRingBang
+Sources/WatchCapture/WatchComplicationSnapshot.swift|SolRingQuestion
+
 # Spec-mandated directional relay-queue label (Apple Watch → iPhone proper nouns)
 SourceVocabulary.swift|Watch → iPhone
 

@@ -169,6 +169,8 @@ nonisolated enum SourceVocabulary {
     static let watchLinkConnected = "phone link: in range"
     static let watchLinkNotConnected = "phone link: out of range"
     static let watchSourceDisplayName = "watch"
+    static let watchComplicationUnknownHeadline = "sol hasn't checked in"
+    static let watchComplicationUnknownDetail = "open sol on your watch"
     static let watchActivationFailedSubtext = "can't check your watch right now."
     static let watchNoWatchPairedSubtext = "no watch paired with this iphone."
     static let watchReadyToSetUpSubtext = "sol can be on your watch. tap to set it up."
