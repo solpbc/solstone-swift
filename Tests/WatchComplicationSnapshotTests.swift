@@ -68,6 +68,41 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         XCTAssertNotEqual(offName, nilName)
     }
 
+    func testComplicationInlineTextForNilUsesInlineUnknownCopyOnce() {
+        let text = watchComplicationInlineText(for: nil)
+
+        XCTAssertEqual(text, "sol · hasn't checked in")
+        XCTAssertEqual(text.components(separatedBy: "sol").count - 1, 1)
+    }
+
+    func testComplicationInlineTextUsesHandoffLineThenStateWord() {
+        let handoffSnapshot = WatchComplicationSnapshot(
+            stateWord: "off",
+            role: .calm,
+            mark: .cloud,
+            showsElapsed: false,
+            sessionStartedAt: nil,
+            handoffLine: "saved on your watch",
+            handoffSubtext: nil,
+            handoffRole: .calm,
+            trustLine: nil
+        )
+        let stateSnapshot = WatchComplicationSnapshot(
+            stateWord: "on",
+            role: .live,
+            mark: .sun,
+            showsElapsed: false,
+            sessionStartedAt: nil,
+            handoffLine: nil,
+            handoffSubtext: nil,
+            handoffRole: nil,
+            trustLine: nil
+        )
+
+        XCTAssertEqual(watchComplicationInlineText(for: handoffSnapshot), "sol · saved on your watch")
+        XCTAssertEqual(watchComplicationInlineText(for: stateSnapshot), "sol · on")
+    }
+
     func testSunMarkIsUnreachableFromNonActiveStatuses() {
         let nonActiveStatuses: [WatchCaptureRuntimeStatus] = [
             .off,

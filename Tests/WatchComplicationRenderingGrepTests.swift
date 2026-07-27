@@ -7,9 +7,31 @@ import XCTest
 nonisolated final class WatchComplicationRenderingGrepTests: XCTestCase {
     func testComplicationUsesAccessoryBackgroundAndAccentableImages() throws {
         let text = try Self.complicationSourceText()
+        let lines = text.components(separatedBy: .newlines)
+        let startIndex = try XCTUnwrap(lines.firstIndex { line in
+            line.trimmingCharacters(in: .whitespaces) == "var circularView: some View {"
+        })
+        let propertyIndent = Self.leadingSpaceCount(in: lines[startIndex])
+        let endIndex = try XCTUnwrap(lines[(startIndex + 1)...].firstIndex { line in
+            Self.leadingSpaceCount(in: line) == propertyIndent
+                && line.trimmingCharacters(in: .whitespaces) == "}"
+        })
+        let circularLines = lines[startIndex...endIndex]
+        let backgroundLine = try XCTUnwrap(circularLines.first { line in
+            line.contains("AccessoryWidgetBackground()")
+        })
+        let backgroundIndent = Self.leadingSpaceCount(in: backgroundLine)
+        let accentableLines = circularLines.filter { line in
+            line.contains(".widgetAccentable()")
+        }
 
         XCTAssertTrue(text.contains("AccessoryWidgetBackground"))
-        XCTAssertTrue(text.contains("widgetAccentable"))
+        XCTAssertFalse(accentableLines.isEmpty)
+        // The accent belongs on the image chain. A shallower or equal indent wraps an
+        // enclosing scope that includes the accessory background.
+        XCTAssertTrue(accentableLines.allSatisfy { line in
+            Self.leadingSpaceCount(in: line) > backgroundIndent
+        })
     }
 
     func testComplicationDoesNotUseLegacyCircleFallbacks() throws {
@@ -32,5 +54,11 @@ nonisolated final class WatchComplicationRenderingGrepTests: XCTestCase {
         let path = StringLiteralGrepSupport.worktreeRoot()
             .appendingPathComponent("SolstoneWatchComplication/SolstoneWatchComplication.swift")
         return try String(contentsOf: path, encoding: .utf8)
+    }
+
+    private static func leadingSpaceCount(in line: String) -> Int {
+        line.prefix { character in
+            character == " "
+        }.count
     }
 }
