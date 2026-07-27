@@ -182,21 +182,15 @@ private extension SolstoneWatchComplicationView {
                 .resizable()
                 .scaledToFit()
                 .padding(1)
+                .widgetAccentable()
         }
-        .widgetAccentable()
         .containerBackground(.clear, for: .widget)
         .accessibilityLabel(self.accessibilityText)
     }
 
-    @ViewBuilder
     var inlineView: some View {
-        if let snapshot = self.snapshot {
-            Text("sol · \(snapshot.handoffLine ?? snapshot.stateWord)")
-                .accessibilityLabel(self.accessibilityText)
-        } else {
-            Text("sol · \(SourceVocabulary.watchComplicationUnknownHeadline)")
-                .accessibilityLabel(self.accessibilityText)
-        }
+        Text(watchComplicationInlineText(for: self.snapshot))
+            .accessibilityLabel(self.accessibilityText)
     }
 
     func handoffColor(for role: WatchFaceColorRole?) -> Color {

@@ -3,7 +3,7 @@
 
 import Foundation
 
-nonisolated enum WatchComplicationMark: String, Codable, Equatable, Sendable {
+nonisolated enum WatchComplicationMark: String, CaseIterable, Codable, Equatable, Sendable {
     case sun
     case cloud
     case bang
@@ -114,4 +114,11 @@ nonisolated func watchComplicationMarkAssetName(for snapshot: WatchComplicationS
     case .bang:
         return "SolRingBang"
     }
+}
+
+nonisolated func watchComplicationInlineText(for snapshot: WatchComplicationSnapshot?) -> String {
+    guard let snapshot else {
+        return "sol · \(SourceVocabulary.watchComplicationUnknownInline)"
+    }
+    return "sol · \(snapshot.handoffLine ?? snapshot.stateWord)"
 }
