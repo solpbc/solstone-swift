@@ -50,13 +50,14 @@ make cycle         # build + deploy + launch with console (blocks)
 make test          # all tests
 make test-build    # build tests only (produces .xctestrun)
 make test-fast     # run tests without rebuilding
-make ci            # canonical pre-ship gate: brand/a11y/casing assertions + full build + test
+make ci            # canonical pre-ship gate: assertions + iOS lane + watchOS lane
+make ci-watch      # watchOS test lane on an ephemeral watchOS simulator
 make clean         # remove build artifacts
 ```
 
 `make test-fast` is an inner-loop target. Run `make test-build` immediately before it, or use `make test` for a full clean validation pass.
 
-**`make ci` is the canonical gate — run it before merging any branch to main.** It runs the brand/accessibility/tap-target/casing assertions (cheap, fail-fast) and then a full build + test pass. A green `make ci` is the bar for landing code; `make sim-json` is only the faster inner-loop build check, not a substitute for the gate.
+**`make ci` is the canonical gate; run it before merging any branch to main.** It runs the brand/accessibility/tap-target/casing assertions (cheap, fail-fast), then the full iOS test lane followed by the watchOS test lane. A green `make ci` means both lanes passed; `make sim-json` is only the faster inner-loop build check, not a substitute for the gate.
 
 **Local DerivedData** (`./DerivedData/`, gitignored) — NEVER delete, breaks SPM cache.
 
