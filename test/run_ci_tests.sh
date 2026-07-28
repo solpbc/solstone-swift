@@ -55,6 +55,8 @@ PROJECT="${PROJECT:-solstone-swift.xcodeproj}"
 SCHEME="${SCHEME:-solstone-swift}"
 DERIVED="${DERIVED:-DerivedData}"
 
+CI_TEST_LANE="${CI_TEST_LANE:-ios}"
+CI_SIM_PLATFORM="${CI_SIM_PLATFORM:-iOS Simulator}"
 CI_SIM_NAME="${CI_SIM_NAME:-solstone-swift-ci}"
 CI_SIM_DEVICETYPE="${CI_SIM_DEVICETYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro}"
 CI_SIM_RUNTIME="${CI_SIM_RUNTIME:-com.apple.CoreSimulator.SimRuntime.iOS-26-5}"
@@ -62,19 +64,36 @@ CI_ATTEMPT_TIMEOUT="${CI_ATTEMPT_TIMEOUT:-1200}"   # seconds; a healthy run is ~
 CI_MAX_ATTEMPTS="${CI_MAX_ATTEMPTS:-2}"            # 1 retry
 
 BUILD_DIR="build"
-TIMED_OUT_MARK="$BUILD_DIR/.ci-test-timed-out"
 
 log() { printf '[ci-test] %s\n' "$*" >&2; }
 
+destination_string() {
+    printf 'platform=%s,id=%s' "$1" "$2"
+}
+
+attempt_bundle_path() {
+    printf '%s/ci-%s-test-attempt-%s.xcresult' "$1" "$2" "$3"
+}
+
+attempt_log_path() {
+    printf '%s/ci-%s-test-attempt-%s.log' "$1" "$2" "$3"
+}
+
+timed_out_mark_path() {
+    printf '%s/.ci-%s-test-timed-out' "$1" "$2"
+}
+
+TIMED_OUT_MARK="$(timed_out_mark_path "$BUILD_DIR" "$CI_TEST_LANE")"
+
 # --- result-bundle classification ------------------------------------------------
 #
-# classify_summary <exit_code> <failed_count> <result_str> <bundle_readable:0|1>
+# classify_summary <exit_code> <failed_count> <executed_count> <result_str> <bundle_readable:0|1>
 #   echoes exactly one of: pass | real-failure | flake
 #
 # This is the trust-critical function. It is pure (no side effects, no sim, no I/O)
 # so it can be exercised directly by --selftest.
 classify_summary() {
-    local rc="$1" failed="$2" result="$3" readable="$4"
+    local rc="$1" failed="$2" executed="$3" result="$4" readable="$5"
 
     # A real recorded test failure is authoritative and final — never a flake,
     # never retried, never masked, regardless of exit code.
@@ -82,9 +101,13 @@ classify_summary() {
         echo "real-failure"; return
     fi
 
+    if [ "$readable" = "1" ] && [ "$executed" -le 0 ] 2>/dev/null; then
+        echo "real-failure"; return
+    fi
+
     # Clean pass: process succeeded AND the bundle recorded a Passed run with no
     # failures. Both must hold — we never call it green without a recorded pass.
-    if [ "$rc" = "0" ] && [ "$readable" = "1" ] && [ "$failed" = "0" ] && [ "$result" = "Passed" ]; then
+    if [ "$rc" = "0" ] && [ "$readable" = "1" ] && [ "$failed" = "0" ] && [ "$executed" -gt 0 ] 2>/dev/null && [ "$result" = "Passed" ]; then
         echo "pass"; return
     fi
 
@@ -94,26 +117,27 @@ classify_summary() {
     echo "flake"
 }
 
-# Read failedTests + result out of an .xcresult via xcresulttool (Xcode 16+ schema).
-# Sets globals: SUMMARY_FAILED, SUMMARY_RESULT, SUMMARY_READABLE.
+# Read failedTests + totalTestCount + result out of an .xcresult via xcresulttool.
+# Sets globals: SUMMARY_FAILED, SUMMARY_EXECUTED, SUMMARY_RESULT, SUMMARY_READABLE.
 read_summary() {
     local bundle="$1" json
-    SUMMARY_FAILED="-1"; SUMMARY_RESULT="unknown"; SUMMARY_READABLE="0"
+    SUMMARY_FAILED="-1"; SUMMARY_EXECUTED="-1"; SUMMARY_RESULT="unknown"; SUMMARY_READABLE="0"
     [ -d "$bundle" ] || return 0
     json="$(xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null)" || return 0
     [ -n "$json" ] || return 0
     # Parse the TOP-LEVEL keys (python3 is already a build/test dependency here).
     local parsed
-    parsed="$(printf '%s' "$json" | python3 -c '
+parsed="$(printf '%s' "$json" | python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)
-    print(int(d.get("failedTests", -1)), d.get("result", "unknown"))
+    print(int(d.get("failedTests", -1)), int(d.get("totalTestCount", -1)), d.get("result", "unknown"))
 except Exception:
-    print(-1, "unknown")
-' 2>/dev/null)" || parsed="-1 unknown"
-    SUMMARY_FAILED="${parsed%% *}"
-    SUMMARY_RESULT="${parsed##* }"
+    print(-1, -1, "unknown")
+' 2>/dev/null)" || parsed="-1 -1 unknown"
+    read -r SUMMARY_FAILED SUMMARY_EXECUTED SUMMARY_RESULT <<EOF
+$parsed
+EOF
     SUMMARY_READABLE="1"
 }
 
@@ -132,7 +156,11 @@ create_ci_sim() {
     if [ -z "${CI_UDID:-}" ]; then
         log "host-side flake: could not create ephemeral CI simulator"
         log "       devicetype=$CI_SIM_DEVICETYPE runtime=$CI_SIM_RUNTIME"
-        log "       check: xcrun simctl list devicetypes | grep '17 Pro' ; xcrun simctl list runtimes"
+        if [ "$CI_SIM_PLATFORM" = "watchOS Simulator" ]; then
+            log "       check: xcrun simctl list devicetypes | grep -i 'Apple Watch' ; xcrun simctl list runtimes | grep -i watchOS"
+        else
+            log "       check: xcrun simctl list devicetypes | grep '17 Pro' ; xcrun simctl list runtimes"
+        fi
         return 1
     fi
 
@@ -155,8 +183,10 @@ prepare_sim() {
 
 run_attempt() {
     local attempt="$1"
-    local bundle="$BUILD_DIR/ci-test-attempt-$attempt.xcresult"
-    local logf="$BUILD_DIR/ci-test-attempt-$attempt.log"
+    local bundle
+    local logf
+    bundle="$(attempt_bundle_path "$BUILD_DIR" "$CI_TEST_LANE" "$attempt")"
+    logf="$(attempt_log_path "$BUILD_DIR" "$CI_TEST_LANE" "$attempt")"
     rm -rf "$bundle" "$TIMED_OUT_MARK"
     mkdir -p "$BUILD_DIR"
 
@@ -165,7 +195,7 @@ run_attempt() {
     xcodebuild test \
         -project "$PROJECT" -scheme "$SCHEME" \
         -skipMacroValidation \
-        -destination "platform=iOS Simulator,id=$CI_UDID" \
+        -destination "$(destination_string "$CI_SIM_PLATFORM" "$CI_UDID")" \
         -derivedDataPath "$DERIVED" \
         -resultBundlePath "$bundle" \
         >"$logf" 2>&1 &
@@ -220,15 +250,22 @@ selftest() {
             printf 'FAIL - %s (expected %s, got %s)\n' "$1" "$2" "$3"; fails=$((fails + 1))
         fi
     }
-    # rc, failed, result, readable
-    check "clean pass"                         pass         "$(classify_summary 0 0 Passed 1)"
-    check "real failure, nonzero exit"         real-failure "$(classify_summary 65 2 Failed 1)"
-    check "real failure even if exit 0"        real-failure "$(classify_summary 0 1 Failed 1)"
-    check "real failure is never masked"       real-failure "$(classify_summary 65 7 Failed 1)"
-    check "flake: exit 65, zero failures"      flake        "$(classify_summary 65 0 unknown 1)"
-    check "flake: timeout, no bundle"          flake        "$(classify_summary 143 -1 unknown 0)"
-    check "flake: nonzero exit, passed-ish"    flake        "$(classify_summary 1 0 Passed 0)"
-    check "not green w/o recorded pass"        flake        "$(classify_summary 0 0 unknown 0)"
+    # rc, failed, executed, result, readable
+    check "clean pass"                         pass         "$(classify_summary 0 0 8 Passed 1)"
+    check "real failure, nonzero exit"         real-failure "$(classify_summary 65 2 8 Failed 1)"
+    check "real failure even if exit 0"        real-failure "$(classify_summary 0 1 8 Failed 1)"
+    check "real failure is never masked"       real-failure "$(classify_summary 65 7 8 Failed 1)"
+    check "real failure: zero executed"        real-failure "$(classify_summary 0 0 0 Passed 1)"
+    check "real failure: missing count"        real-failure "$(classify_summary 0 0 -1 Passed 1)"
+    check "flake: exit 65, zero failures"      flake        "$(classify_summary 65 0 8 unknown 1)"
+    check "flake: timeout, no bundle"          flake        "$(classify_summary 143 -1 -1 unknown 0)"
+    check "flake: nonzero exit, passed-ish"    flake        "$(classify_summary 1 0 -1 Passed 0)"
+    check "not green w/o recorded pass"        flake        "$(classify_summary 0 0 -1 unknown 0)"
+    check "ios destination string"             "platform=iOS Simulator,id=ABC" "$(destination_string "iOS Simulator" "ABC")"
+    check "watch destination string"           "platform=watchOS Simulator,id=WATCH" "$(destination_string "watchOS Simulator" "WATCH")"
+    check "lane bundle path"                   "build/ci-watch-test-attempt-2.xcresult" "$(attempt_bundle_path "build" "watch" 2)"
+    check "lane log path"                      "build/ci-watch-test-attempt-2.log" "$(attempt_log_path "build" "watch" 2)"
+    check "lane timeout marker"                "build/.ci-watch-test-timed-out" "$(timed_out_mark_path "build" "watch")"
     echo
     if [ "$fails" -eq 0 ]; then
         echo "[ci-test] selftest: all checks passed"; return 0
@@ -277,7 +314,7 @@ while [ "$attempt" -le "$CI_MAX_ATTEMPTS" ]; do
     if [ "$LAST_TIMED_OUT" = "1" ]; then
         verdict="flake"
     else
-        verdict="$(classify_summary "$LAST_RC" "$SUMMARY_FAILED" "$SUMMARY_RESULT" "$SUMMARY_READABLE")"
+        verdict="$(classify_summary "$LAST_RC" "$SUMMARY_FAILED" "$SUMMARY_EXECUTED" "$SUMMARY_RESULT" "$SUMMARY_READABLE")"
     fi
 
     case "$verdict" in

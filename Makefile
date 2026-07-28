@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-selftest brand-sync \
+.PHONY: generate build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -43,6 +43,9 @@ TESTFLIGHT_NOTIFY    ?= false
 CI_SIM_NAME        ?= solstone-swift-ci
 CI_SIM_DEVICETYPE  ?= com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro
 CI_SIM_RUNTIME     ?= com.apple.CoreSimulator.SimRuntime.iOS-26-5
+CI_WATCH_SIM_NAME        ?= solstone-watch-ci
+CI_WATCH_SIM_DEVICETYPE  ?= com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm
+CI_WATCH_SIM_RUNTIME     ?= com.apple.CoreSimulator.SimRuntime.watchOS-26-5
 CI_ATTEMPT_TIMEOUT ?= 1200
 CI_MAX_ATTEMPTS    ?= 2
 
@@ -515,6 +518,14 @@ ci: generate
 	PROJECT='$(PROJECT)' SCHEME='$(SCHEME)' DERIVED='$(DERIVED)' \
 		CI_SIM_NAME='$(CI_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_SIM_DEVICETYPE)' \
 		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
+		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
+	$(MAKE) ci-watch
+
+ci-watch: generate
+	PROJECT='$(PROJECT)' SCHEME='SolstoneWatch' DERIVED='$(DERIVED)' \
+		CI_TEST_LANE='watch' CI_SIM_PLATFORM='watchOS Simulator' \
+		CI_SIM_NAME='$(CI_WATCH_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_WATCH_SIM_DEVICETYPE)' \
+		CI_SIM_RUNTIME='$(CI_WATCH_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
 		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
 
 # Validate the CI runner's trust-critical classification logic (no simulator needed).

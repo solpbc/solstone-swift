@@ -5,6 +5,16 @@ options:
     iOS: "26.0"
   createIntermediateGroups: true
 
+schemes:
+  SolstoneWatch:
+    build:
+      targets:
+        SolstoneWatch: all
+        SolstoneWatchTests: [test]
+    test:
+      targets:
+        - SolstoneWatchTests
+
 settings:
   base:
     CODE_SIGN_STYLE: Automatic
@@ -282,6 +292,7 @@ targets:
       - Sources/WatchCapture/WatchFacePresentation.swift
       - Sources/WatchCapture/WatchCaptureModels.swift
       - Sources/WatchCapture/WatchComplicationSnapshot.swift
+      - Sources/WatchCapture/WatchComplicationSnapshotLoader.swift
       - Sources/Services/AppGroupContainer.swift
       - Sources/Observer/ObserverError.swift
     entitlements:
@@ -303,6 +314,29 @@ targets:
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  SolstoneWatchTests:
+    type: bundle.unit-test
+    platform: watchOS
+    deploymentTarget: "26.0"
+    sources:
+      - WatchTests
+      - SolstoneWatchComplication/ComplicationViews.swift
+      - SolstoneWatchComplication/WatchComplicationPalette.swift
+      - Sources/SourceVocabulary.swift
+      - Sources/WatchCapture/WatchFacePresentation.swift
+      - Sources/WatchCapture/WatchCaptureModels.swift
+      - Sources/WatchCapture/WatchComplicationSnapshot.swift
+      - Sources/WatchCapture/WatchComplicationSnapshotLoader.swift
+      - Sources/Observer/ObserverError.swift
+      - path: SolstoneWatchComplication/Assets.xcassets
+        buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch.tests
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
   solstone-swiftTests:
     type: bundle.unit-test
     platform: iOS
