@@ -137,7 +137,7 @@ final class TunnelManager {
     @ObservationIgnored private let waitingDeadline: Duration
     @ObservationIgnored private var probeWatchdog: ProbeWatchdog
     @ObservationIgnored private var reconnectBackoff: ReconnectBackoff
-    @ObservationIgnored private var nextProbeInterval: Duration
+    @ObservationIgnored private let healthyProbeInterval: Duration
     @ObservationIgnored private var consecutiveNotEntitled = 0
     @ObservationIgnored private(set) var lastScheduledReconnectDelay: Duration?
     var reconnectCountdown: Int?
@@ -194,7 +194,7 @@ final class TunnelManager {
         self.activeLocalTransferCountProvider = activeLocalTransferCountProvider
         self.connectDeadline = connectDeadline
         self.waitingDeadline = waitingDeadline
-        self.nextProbeInterval = probeWatchdogPolicy.healthyInterval
+        self.healthyProbeInterval = probeWatchdogPolicy.healthyInterval
         self.probeWatchdog = ProbeWatchdog(policy: probeWatchdogPolicy, random: random)
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
         self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
@@ -204,6 +204,17 @@ final class TunnelManager {
     var activeConnection: (port: Int, epoch: UInt64)? {
         guard case .connected(let port, _) = self.state else { return nil }
         return (port, self.connectionEpoch)
+    }
+
+    func revalidateConnectedTunnelForForeground() async -> Bool {
+        guard let entry = self.activeConnection else { return false }
+        guard let result = await self.probeConnection() else { return false }
+        guard self.activeConnection?.epoch == entry.epoch else { return false }
+        guard result.alive else {
+            await self.forceReconnect(reason: .probeFailed)
+            return false
+        }
+        return true
     }
 
     private func appendStage(_ kind: ConnectionStageKind, detail: String? = nil) {
@@ -572,12 +583,14 @@ final class TunnelManager {
 
     private func startLivenessProbe() {
         self.stopLivenessProbe()
+        let healthyProbeInterval = self.healthyProbeInterval
         self.livenessProbeTask = Task { @MainActor [weak self] in
+            var nextProbeInterval = healthyProbeInterval
             while !Task.isCancelled {
                 guard let self else {
                     return
                 }
-                let interval = self.nextProbeInterval
+                let interval = nextProbeInterval
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else {
                     return
@@ -598,7 +611,7 @@ final class TunnelManager {
                     inboundAdvanced: inboundAdvanced,
                     activeLocalTransfers: activeLocalTransfers
                 )
-                self.nextProbeInterval = verdict.nextInterval
+                nextProbeInterval = verdict.nextInterval
 
                 if verdict.action == .reconnect {
                     if !result.alive, !inboundAdvanced, activeLocalTransfers > 0 {

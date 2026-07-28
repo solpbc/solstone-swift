@@ -2196,7 +2196,26 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testLivenessProbeForcedReconnectCadenceSurvivesConnectionEstablished() async throws {
+    func testProbeWatchdogReconnectVerdictReturnsHealthyInterval() {
+        let policy = ProbeWatchdogPolicy(
+            healthyInterval: .milliseconds(30),
+            degradedInterval: .milliseconds(10),
+            silentFailureLimit: 1
+        )
+        var watchdog = ProbeWatchdog(policy: policy, random: { _ in 1.0 })
+
+        let verdict = watchdog.evaluate(
+            probeSucceeded: false,
+            inboundAdvanced: false,
+            activeLocalTransfers: 0
+        )
+
+        XCTAssertEqual(verdict.action, .reconnect)
+        XCTAssertEqual(verdict.nextInterval, .milliseconds(30))
+    }
+
+    @MainActor
+    func testLivenessProbeResetsOnlyOnNewArmAndStillEscalatesWithinConnection() async throws {
         TunnelProbeURLProtocol.reset()
         TunnelProbeURLProtocol.handler = { _ in
             throw URLError(.timedOut)
@@ -2210,38 +2229,73 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let manager = makeManager(
             transport: transport,
             probeSession: session,
-            probeInterval: .milliseconds(10),
-            probeFailureThreshold: 2,
-            degradedInterval: .milliseconds(40),
-            forcedReconnectDegradedIntervalCap: .milliseconds(80),
+            probeInterval: .milliseconds(300),
+            probeFailureThreshold: 1,
+            degradedInterval: .milliseconds(200),
+            activeInboundFailureLimit: 6,
+            forcedReconnectDegradedIntervalCap: .milliseconds(2_000),
             jitterRandom: { _ in 1.0 }
         )
 
         await manager.connect()
         let didFirstForceReconnect = await Self.waitUntil({
             if case .error(.muxTeardown) = manager.state {
-                return manager.reconnectCountdown != nil && TunnelProbeURLProtocol.capturedRequests.count >= 2
+                return manager.reconnectCountdown != nil && TunnelProbeURLProtocol.capturedRequests.count >= 1
             }
             return false
-        }, timeout: .seconds(2), interval: .milliseconds(5))
+        }, timeout: .seconds(2), interval: .milliseconds(20))
         XCTAssertTrue(didFirstForceReconnect)
 
         await manager.retryNow()
         XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
-        let requestsAfterReconnect = TunnelProbeURLProtocol.capturedRequests.count
-        let didFirstPostReconnectFailure = await Self.waitUntil({
-            TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterReconnect + 1
-        }, timeout: .seconds(1), interval: .milliseconds(5))
-        XCTAssertTrue(didFirstPostReconnectFailure)
+        let requestsAfterFirstReconnect = TunnelProbeURLProtocol.capturedRequests.count
+        let didSecondForceReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+                    && TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterFirstReconnect + 1
+            }
+            return false
+        }, timeout: .seconds(2), interval: .milliseconds(20))
+        XCTAssertTrue(didSecondForceReconnect)
 
-        try? await Task.sleep(for: .milliseconds(45))
+        await manager.retryNow()
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
+        let requestsAfterSecondReconnect = TunnelProbeURLProtocol.capturedRequests.count
+        transport.inboundActivitySnapshots = [0, 1]
+        let didStoreEscalatedInterval = await Self.waitUntil({
+            manager.state == .connected(localPort: 54321, via: .remote)
+                && TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterSecondReconnect + 1
+        }, timeout: .seconds(2), interval: .milliseconds(20))
+        XCTAssertTrue(didStoreEscalatedInterval)
+        XCTAssertEqual(transport.disconnectCallCount, 2)
+
+        transport.simulateDisconnect(error: TunnelError.muxTeardown)
+        let didScheduleExternalReconnect = await Self.waitUntil({
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }, timeout: .seconds(1), interval: .milliseconds(20))
+        XCTAssertTrue(didScheduleExternalReconnect)
+
+        await manager.retryNow()
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
+        let requestsAfterExternalReconnect = TunnelProbeURLProtocol.capturedRequests.count
+        transport.inboundActivitySnapshots = [1, 2]
+        let didUseHealthyIntervalOnNewArm = await Self.waitUntil({
+            TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterExternalReconnect + 1
+        }, timeout: .milliseconds(450), interval: .milliseconds(20))
+        XCTAssertTrue(didUseHealthyIntervalOnNewArm)
+
+        let requestsAfterFirstNewArmFailure = TunnelProbeURLProtocol.capturedRequests.count
+        try? await Task.sleep(for: .milliseconds(450))
         await Self.settle()
-        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, requestsAfterReconnect + 1)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, requestsAfterFirstNewArmFailure)
 
-        let didSecondPostReconnectFailure = await Self.waitUntil({
-            TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterReconnect + 2
-        }, timeout: .seconds(1), interval: .milliseconds(5))
-        XCTAssertTrue(didSecondPostReconnectFailure)
+        let didSecondFailureOnSameConnection = await Self.waitUntil({
+            TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterFirstNewArmFailure + 1
+        }, timeout: .seconds(1), interval: .milliseconds(20))
+        XCTAssertTrue(didSecondFailureOnSameConnection)
         XCTAssertEqual(manager.state, .error(.muxTeardown))
         await manager.disconnect()
     }
@@ -2630,55 +2684,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             return nil
         }
     }
-}
-
-private final class TunnelProbeURLProtocol: URLProtocol, @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
-
-    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
-    private static let capturedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
-
-    static var handler: Handler? {
-        get { self.handlerBox.withLock { $0 } }
-        set { self.handlerBox.withLock { $0 = newValue } }
-    }
-
-    static var capturedRequests: [URLRequest] {
-        get { self.capturedRequestsBox.withLock { $0 } }
-        set { self.capturedRequestsBox.withLock { $0 = newValue } }
-    }
-
-    static func reset() {
-        self.handler = nil
-        self.capturedRequests = []
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.host == "127.0.0.1"
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        Self.capturedRequestsBox.withLock { $0.append(self.request) }
-        guard let handler = Self.handler else {
-            self.client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
-            return
-        }
-
-        do {
-            let (response, data) = try handler(self.request)
-            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            self.client?.urlProtocol(self, didLoad: data)
-            self.client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            self.client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
 }
 
 private final class TunnelTokenRefreshURLProtocol: URLProtocol, @unchecked Sendable {

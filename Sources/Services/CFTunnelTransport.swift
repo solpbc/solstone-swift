@@ -118,6 +118,9 @@ final class CFTunnelTransport: Transporting {
                         interval: .milliseconds(500),
                         idleThreshold: .seconds(2),
                         missedLimit: 3,
+                        // why: false is KeepalivePolicy's default; macOS is the deviator. iOS runs no mux work while
+                        // suspended, so relay keepalive would not have caught the reported case. Foreground validation
+                        // is the fix, and its 3s probe timeout bounds a dead-mux hang on resume.
                         runsOnRelayPath: false
                     )
                 )

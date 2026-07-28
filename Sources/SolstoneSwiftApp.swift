@@ -101,6 +101,15 @@ struct SolstoneSwiftApp: App {
         return !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest
     }
 
+    @MainActor
+    static func revalidateThenRequestDrain(
+        tunnelManager: TunnelManager,
+        requestDrain: () async -> Void
+    ) async {
+        guard await tunnelManager.revalidateConnectedTunnelForForeground() else { return }
+        await requestDrain()
+    }
+
     private static var shouldUseUITestObserverRecorder: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("--ui-test-observer-recorder")
@@ -687,13 +696,15 @@ struct SolstoneSwiftApp: App {
                     await self.omiSourceManager.resumeIfEnabled()
                 }
                 .task {
-                    // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value,
-                    // so an already-connected tunnel at launch is driven by neither the connected-edge
-                    // nor the scene-active handler. This is the only trigger covering that case.
+                    // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value.
+                    // Revalidate the existing epoch before foreground drain; failed validation drives
+                    // reconnect, and the connected-edge handler drains after recovery.
                     if Self.isIntegrationMode || Self.isUITest { return }
                     guard self.appConfig.isPaired else { return }
                     guard case .connected = self.tunnelManager.state else { return }
-                    await self.foregroundDrainGate.requestDrain()
+                    await Self.revalidateThenRequestDrain(tunnelManager: self.tunnelManager) {
+                        await self.foregroundDrainGate.requestDrain()
+                    }
                 }
         }
         .onChange(of: self.scenePhase) { _, newPhase in
@@ -719,10 +730,14 @@ struct SolstoneSwiftApp: App {
 
                 switch self.tunnelManager.state {
                 case .connected:
-                    // Connected tunnels need a foreground drain kick; waitingForHome is re-driven
-                    // below because suspended timers may not have fired while backgrounded.
+                    // Connected tunnels are probed before foreground drain starts; waitingForHome is
+                    // re-driven below because suspended timers may not have fired while backgrounded.
                     // Disconnected and retryable-error states use retryNow().
-                    Task { await self.foregroundDrainGate.requestDrain() }
+                    Task {
+                        await Self.revalidateThenRequestDrain(tunnelManager: self.tunnelManager) {
+                            await self.foregroundDrainGate.requestDrain()
+                        }
+                    }
                 case .connecting:
                     break
                 case .waitingForHome:
