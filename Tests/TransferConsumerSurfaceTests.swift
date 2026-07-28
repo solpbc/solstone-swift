@@ -409,6 +409,97 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         }
         XCTAssertEqual(syncModel.status, .connectedTransferring)
     }
+
+    func testBodyBuildFailuresPersistOwnerSafeDetailsToConsumerSurfaces() async throws {
+        let clock = FakeTransferClock(wall: Date(timeIntervalSince1970: 1_780_480_800))
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("body-build-transfer", isDirectory: true),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            clock: clock,
+            maxConcurrent: 1
+        )
+        try await harness.engine.start()
+        await harness.engine.pause()
+        let mobileUploader = MobileSegmentUploader(
+            transferEngine: harness.engine,
+            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("body-build-mobile-store", isDirectory: true)),
+            clock: MockObserverClock()
+        )
+        let shareHolder = ShareTransferHolder(
+            transferEngine: harness.engine,
+            mirror: harness.mirror,
+            store: ShareImportStore(cacheRootURL: self.tempDirectory.appendingPathComponent("body-build-import-zero", isDirectory: true))
+        )
+
+        let missingMetadataID = Self.uuid(200)
+        var missingMetadataManifest = Self.mobileManifest(
+            itemID: missingMetadataID,
+            segmentID: Self.uuid(201),
+            startedAt: clock.wallNow()
+        )
+        missingMetadataManifest.observerIngest = nil
+        _ = try await harness.engine.enqueue(
+            manifest: missingMetadataManifest,
+            payloads: ["audio": Data("missing-metadata".utf8)]
+        )
+
+        let missingArtifactID = Self.uuid(202)
+        var missingArtifactManifest = Self.mobileManifest(
+            itemID: missingArtifactID,
+            segmentID: Self.uuid(203),
+            startedAt: clock.wallNow().addingTimeInterval(1)
+        )
+        missingArtifactManifest.payloadParts[0].requiredForDispatch = false
+        _ = try await harness.engine.enqueue(
+            manifest: missingArtifactManifest,
+            payloads: ["audio": Data("missing-artifact".utf8)]
+        )
+        let optionalPayloadURLCandidate = await harness.engine.payloadFileURL(itemID: missingArtifactID, partID: "audio")
+        let optionalPayloadURL = try XCTUnwrap(optionalPayloadURLCandidate)
+        try FileManager.default.removeItem(at: optionalPayloadURL)
+
+        await harness.engine.resume()
+        try await transferTestWaitFor("body build failures reach attention") {
+            await harness.engine.snapshot().sources[ObserverAudioTransferSource.mobileSegment]?.attentionCount == 2
+        }
+
+        let transferSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let metadataSnapshot = try XCTUnwrap(transferSnapshots.first { $0.itemID == missingMetadataID })
+        let artifactSnapshot = try XCTUnwrap(transferSnapshots.first { $0.itemID == missingArtifactID })
+        XCTAssertEqual(metadataSnapshot.manifest.attention?.reason, "malformed_manifest")
+        XCTAssertEqual(metadataSnapshot.manifest.attention?.shortDetail, "missing source details")
+        XCTAssertEqual(artifactSnapshot.manifest.attention?.reason, "missing_payload")
+        XCTAssertEqual(artifactSnapshot.manifest.attention?.shortDetail, "source file")
+
+        let persistedValues = [
+            metadataSnapshot.manifest.attention?.reason,
+            metadataSnapshot.manifest.attention?.shortDetail,
+            artifactSnapshot.manifest.attention?.reason,
+            artifactSnapshot.manifest.attention?.shortDetail,
+        ].compactMap { $0 }
+        XCTAssertFalse(persistedValues.contains { $0.contains("missing observer metadata") })
+        XCTAssertFalse(persistedValues.contains { $0.contains("observer artifact") })
+
+        let aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
+            share: shareHolder,
+            mobileSegmentUploader: mobileUploader,
+            transferEngine: harness.engine
+        )
+        let metadataItem = try XCTUnwrap(aggregate.items.first {
+            $0.id == OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: missingMetadataID, facet: .audio)
+        })
+        let artifactItem = try XCTUnwrap(aggregate.items.first {
+            $0.id == OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: missingArtifactID, facet: .audio)
+        })
+        XCTAssertEqual(metadataItem.failureReason, "malformed_manifest: missing source details")
+        XCTAssertEqual(artifactItem.failureReason, "missing_payload: source file")
+        let visibleValues = [
+            metadataItem.failureReason,
+            artifactItem.failureReason,
+        ].compactMap { $0 }
+        XCTAssertFalse(visibleValues.contains { $0.contains("missing observer metadata") })
+        XCTAssertFalse(visibleValues.contains { $0.contains("observer artifact") })
+    }
 }
 
 private enum RoutedTransferResponse: Sendable {

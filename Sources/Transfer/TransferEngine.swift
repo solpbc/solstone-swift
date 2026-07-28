@@ -1283,7 +1283,7 @@ private extension TransferEngine {
         if let bodyError = error as? TransferBodyBuildError {
             switch bodyError {
             case .missingObserverMetadata:
-                return .malformedManifest("missing observer metadata")
+                return .malformedManifest("missing source details")
             case .missingPayload(let detail):
                 return .missingPayload(detail)
             case .malformedManifest(let detail):
@@ -1293,7 +1293,7 @@ private extension TransferEngine {
             }
         }
         if error is ObserverIngestMultipartBodyError {
-            return .missingPayload("observer artifact")
+            return .missingPayload("source file")
         }
         return .missingPayload(String(describing: error))
     }

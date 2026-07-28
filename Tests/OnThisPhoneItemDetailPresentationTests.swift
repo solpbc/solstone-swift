@@ -323,6 +323,8 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
         XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "cannot-find-host"), .network)
         XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "offline -1009"), .network)
         XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "upload failed after 3 attempts"), .unknown)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "missing source details"), .unknown)
+        XCTAssertEqual(OnThisPhoneItemDetailPresentation.failureBucket(for: "source file"), .unknown)
     }
 
     func testFailureLegibilityFormatsLastTriedWithInjectedDateContext() throws {
