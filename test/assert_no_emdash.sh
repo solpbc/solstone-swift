@@ -3,10 +3,11 @@
 # Copyright (c) 2026 sol pbc
 set -euo pipefail
 
-# Guards single-line ordinary non-raw double-quoted Swift literal segments in
-# *.swift under SCAN_ROOTS. Multiline triple-quoted literals and raw Swift string
-# literals such as #"..."# are outside this guard's claim. Unclassifiable matched
-# lines fail loudly rather than being silently split.
+# Guards single-line double-quoted segments in *.swift under SCAN_ROOTS.
+# It does not parse Swift or distinguish raw literal delimiters, so an em dash
+# inside #"..."# is reported and needs an allowlist entry like any other.
+# Multiline """ literals are not matched because both quotes must be on one line.
+# Lines whose " count is not exactly 2 fail loudly as unclassifiable.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -419,8 +420,6 @@ run_behavior_self_checks() {
 }
 
 run_self_checks() {
-  local fixture_root
-
   echo "em-dash self-checks running"
   SELF_CHECK_FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/assert-no-emdash.XXXXXX")"
   case "$SELF_CHECK_FIXTURE_ROOT/" in
