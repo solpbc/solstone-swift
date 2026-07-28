@@ -1,6 +1,6 @@
 # Foreground Revalidation Design
 
-Current source anchors are against HEAD `f49382092727ebb7b9407dcc771136287da9d444`.
+Source anchors are against the commit that introduced this change.
 
 ## Summary
 
