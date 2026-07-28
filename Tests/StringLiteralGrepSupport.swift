@@ -5,9 +5,19 @@ import Foundation
 
 nonisolated enum StringLiteralGrepSupport {
     static func worktreeRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
+        let derived = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+        // FileManager directory enumerators hand back fully resolved paths, while
+        // #filePath and Foundation both leave /var unresolved (Foundation treats
+        // /var, /tmp and /etc as special cases). realpath(3) is the only one that
+        // resolves them. Anchor on it, or every relative-path computation built on
+        // this root silently breaks for a checkout under a symlinked path.
+        guard let resolved = realpath(derived.path, nil) else {
+            return derived
+        }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved))
     }
 
     static func swiftFiles(under root: URL) throws -> [URL] {
