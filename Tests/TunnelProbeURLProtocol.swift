@@ -4,6 +4,25 @@
 import Foundation
 import os
 
+// why: `Task` takes a `sending` closure, which cannot capture the protocol
+// instance directly — it stays reachable from the calling task. This box carries
+// it across as an explicitly-Sendable value. Safe because the instance is only
+// touched after the async handler returns, from that one task.
+private struct ProbeDelivery: @unchecked Sendable {
+    let protocolInstance: TunnelProbeURLProtocol
+
+    func finish(response: HTTPURLResponse, data: Data) {
+        let client = self.protocolInstance.client
+        client?.urlProtocol(self.protocolInstance, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self.protocolInstance, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self.protocolInstance)
+    }
+
+    func fail(error: any Error) {
+        self.protocolInstance.client?.urlProtocol(self.protocolInstance, didFailWithError: error)
+    }
+}
+
 final class TunnelProbeURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
     typealias AsyncHandler = @Sendable (URLRequest) async throws -> (HTTPURLResponse, Data)
@@ -44,14 +63,13 @@ final class TunnelProbeURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         Self.capturedRequestsBox.withLock { $0.append(self.request) }
         if let asyncHandler = Self.asyncHandler {
+            let delivery = ProbeDelivery(protocolInstance: self)
             Task { [request = self.request] in
                 do {
                     let (response, data) = try await asyncHandler(request)
-                    self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                    self.client?.urlProtocol(self, didLoad: data)
-                    self.client?.urlProtocolDidFinishLoading(self)
+                    delivery.finish(response: response, data: data)
                 } catch {
-                    self.client?.urlProtocol(self, didFailWithError: error)
+                    delivery.fail(error: error)
                 }
             }
             return
