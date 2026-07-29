@@ -18,6 +18,8 @@ private struct CoordinatorStubNetworkReader: OwnNetworkReading {
 
 private struct CoordinatorDummyError: Error, Sendable {}
 
+// Counts dials and fails before any request bytes are committed, so the count
+// tracks one transport dial per pairing attempt.
 private final class CountingThrowingLANPairTransport: LANPairTransport, @unchecked Sendable {
     private let countLock = OSAllocatedUnfairLock(initialState: 0)
 
@@ -25,12 +27,11 @@ private final class CountingThrowingLANPairTransport: LANPairTransport, @uncheck
         countLock.withLock { $0 }
     }
 
-    func send(
+    func prepare(
         host _: String,
         port _: Int,
-        caFingerprintBytes _: [UInt8],
-        requestBytes _: Data
-    ) async throws -> (status: Int, body: Data) {
+        caFingerprintBytes _: [UInt8]
+    ) async throws -> any LANPairAttempt {
         countLock.withLock { $0 += 1 }
         throw CoordinatorDummyError()
     }
@@ -50,13 +51,51 @@ private final class StubLANPairTransport: LANPairTransport, @unchecked Sendable 
         self.handler = handler
     }
 
-    func send(
+    func prepare(
+        host: String,
+        port: Int,
+        caFingerprintBytes: [UInt8]
+    ) async throws -> any LANPairAttempt {
+        StubLANPairAttempt(
+            host: host,
+            port: port,
+            caFingerprintBytes: caFingerprintBytes,
+            handler: handler
+        )
+    }
+}
+
+// The dial-time inputs are captured at prepare and replayed to the handler at
+// send, so the existing four-argument handler contract is unchanged.
+private final class StubLANPairAttempt: LANPairAttempt, @unchecked Sendable {
+    private let host: String
+    private let port: Int
+    private let caFingerprintBytes: [UInt8]
+    private let handler: StubLANPairTransport.Handler
+    private let closedLock = OSAllocatedUnfairLock(initialState: false)
+
+    var isClosed: Bool {
+        closedLock.withLock { $0 }
+    }
+
+    init(
         host: String,
         port: Int,
         caFingerprintBytes: [UInt8],
-        requestBytes: Data
-    ) async throws -> (status: Int, body: Data) {
+        handler: @escaping StubLANPairTransport.Handler
+    ) {
+        self.host = host
+        self.port = port
+        self.caFingerprintBytes = caFingerprintBytes
+        self.handler = handler
+    }
+
+    func send(requestBytes: Data) async throws -> (status: Int, body: Data) {
         try await handler(host, port, caFingerprintBytes, requestBytes)
+    }
+
+    func close() async {
+        closedLock.withLock { $0 = true }
     }
 }
 

@@ -116,7 +116,6 @@ final class CFTunnelTransport: Transporting {
                 policy: SessionPolicy(
                     keepalive: KeepalivePolicy(
                         interval: .milliseconds(500),
-                        idleThreshold: .seconds(2),
                         missedLimit: 3,
                         // why: false is KeepalivePolicy's default; macOS is the deviator. iOS runs no mux work while
                         // suspended, so relay keepalive would not have caught the reported case. Foreground validation

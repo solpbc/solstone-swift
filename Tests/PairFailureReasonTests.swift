@@ -17,6 +17,8 @@ private struct StubNetworkReader: OwnNetworkReading {
 
 private struct DummyError: Error, Sendable {}
 
+// Fails at dial, before any request bytes are committed, so the candidate loop
+// stays free to advance — the behavior the pre-prepare/send transport had.
 private final class ThrowingLANPairTransport: LANPairTransport, @unchecked Sendable {
     private let error: any Error & Sendable
 
@@ -24,12 +26,11 @@ private final class ThrowingLANPairTransport: LANPairTransport, @unchecked Senda
         self.error = error
     }
 
-    func send(
+    func prepare(
         host _: String,
         port _: Int,
-        caFingerprintBytes _: [UInt8],
-        requestBytes _: Data
-    ) async throws -> (status: Int, body: Data) {
+        caFingerprintBytes _: [UInt8]
+    ) async throws -> any LANPairAttempt {
         throw error
     }
 }
