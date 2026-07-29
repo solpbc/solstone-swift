@@ -11,4 +11,25 @@ nonisolated enum AppVersion {
     static var build: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
     }
+
+    static var sourceCommit: String {
+        Bundle.main.infoDictionary?["solstoneSourceCommit"] as? String ?? "unknown"
+    }
+
+    static var buildConfiguration: String {
+        // make-driven builds refresh this generated metadata before compile; direct xcode app builds can be stale.
+        Bundle.main.infoDictionary?["solstoneBuildConfiguration"] as? String ?? "unknown"
+    }
+
+    static var splSwiftIdentity: String {
+        Bundle.main.infoDictionary?["solstoneSPLSwiftIdentity"] as? String ?? "unknown"
+    }
+
+    static var splSwiftVersion: String {
+        Bundle.main.infoDictionary?["solstoneSPLSwiftVersion"] as? String ?? "unknown"
+    }
+
+    static var splSwiftRevision: String {
+        Bundle.main.infoDictionary?["solstoneSPLSwiftRevision"] as? String ?? "unknown"
+    }
 }

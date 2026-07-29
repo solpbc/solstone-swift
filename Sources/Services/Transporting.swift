@@ -7,6 +7,7 @@ import SPLTunnel
 @MainActor
 public protocol Transporting: Sendable {
     var connectionMode: ConnectionMode? { get }
+    var generationSnapshot: TransportGenerationSnapshot { get }
 
     func connect(
         candidates: [TransportEndpoint],
@@ -16,6 +17,18 @@ public protocol Transporting: Sendable {
 
     func disconnect() async
     func inboundActivitySnapshot() async -> UInt64
+}
+
+public struct TransportGenerationSnapshot: Sendable, Equatable {
+    public let currentGeneration: UInt64
+    public let activeGeneration: UInt64?
+    public let lastClosedGeneration: UInt64?
+
+    public init(currentGeneration: UInt64, activeGeneration: UInt64?, lastClosedGeneration: UInt64?) {
+        self.currentGeneration = currentGeneration
+        self.activeGeneration = activeGeneration
+        self.lastClosedGeneration = lastClosedGeneration
+    }
 }
 
 public enum TransportStage: Sendable, Equatable {

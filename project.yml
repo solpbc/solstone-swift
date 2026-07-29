@@ -42,6 +42,9 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    configFiles:
+      Debug: config/BuildMetadata.generated.xcconfig
+      Release: config/BuildMetadata.generated.xcconfig
     entitlements:
       path: Sources/solstone-swift.entitlements
       properties:
@@ -88,6 +91,11 @@ targets:
           - bluetooth-central
         BGTaskSchedulerPermittedIdentifiers:
           - app.solstone.swift.finish-syncing.*
+        solstoneSourceCommit: "$(SOLSTONE_SOURCE_COMMIT)"
+        solstoneBuildConfiguration: "$(SOLSTONE_BUILD_CONFIGURATION)"
+        solstoneSPLSwiftIdentity: "$(SOLSTONE_SPL_SWIFT_IDENTITY)"
+        solstoneSPLSwiftVersion: "$(SOLSTONE_SPL_SWIFT_VERSION)"
+        solstoneSPLSwiftRevision: "$(SOLSTONE_SPL_SWIFT_REVISION)"
     dependencies:
       - package: spl-swift
         product: SPLTunnel
@@ -344,8 +352,11 @@ targets:
       - Tests
     resources:
       - Tests/Fixtures/ShareImportBodies
+      - Tests/Fixtures/IntegrationGate
     dependencies:
       - target: solstone-swift
+      - package: spl-swift
+        product: SPLTunnel
       - package: SwiftCrypto
         product: Crypto
     settings:

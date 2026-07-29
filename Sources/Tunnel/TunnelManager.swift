@@ -21,6 +21,54 @@ private struct PathMeaningfulSignature: Equatable, Sendable {
     let isSatisfied: Bool
 }
 
+#if DEBUG && targetEnvironment(simulator)
+struct IntegrationGateCandidateBuildSummary: Sendable, Equatable {
+    let originalLocalEndpointCount: Int
+    let cachedDirectCandidateCount: Int
+    let bootstrapDirectCandidateCount: Int
+    let returnedDirectCandidateCount: Int
+    let returnedRelayCandidateCount: Int
+    let postConnectCachedDirectCandidateCount: Int?
+
+    func withPostConnectCachedDirectCandidateCount(_ count: Int) -> IntegrationGateCandidateBuildSummary {
+        IntegrationGateCandidateBuildSummary(
+            originalLocalEndpointCount: originalLocalEndpointCount,
+            cachedDirectCandidateCount: cachedDirectCandidateCount,
+            bootstrapDirectCandidateCount: bootstrapDirectCandidateCount,
+            returnedDirectCandidateCount: returnedDirectCandidateCount,
+            returnedRelayCandidateCount: returnedRelayCandidateCount,
+            postConnectCachedDirectCandidateCount: count
+        )
+    }
+}
+
+private struct IntegrationGateRelayOnlyCandidatePolicy: Sendable {
+    func bootstrapPairing(from pairing: StoredPairing) -> StoredPairing {
+        StoredPairing(
+            instanceID: pairing.instanceID,
+            homeLabel: pairing.homeLabel,
+            relayEndpoint: pairing.relayEndpoint,
+            fingerprint: pairing.fingerprint,
+            clientCertPEM: pairing.clientCertPEM,
+            clientKeyPEM: pairing.clientKeyPEM,
+            caChainPEM: pairing.caChainPEM,
+            relayEnrollment: pairing.relayEnrollment,
+            localEndpoints: [],
+            pairedAt: pairing.pairedAt
+        )
+    }
+
+    func filterCachedCandidates(_ candidates: [TransportEndpoint]) -> [TransportEndpoint] {
+        candidates.filter { endpoint in
+            if case .lan = endpoint {
+                return false
+            }
+            return true
+        }
+    }
+}
+#endif
+
 enum RedriveTrigger: Sendable, Equatable {
     case networkChanged
     case foreground
@@ -156,6 +204,12 @@ final class TunnelManager {
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
     @ObservationIgnored private var pendingReconnectReason: ReconnectReasonBucket?
     @ObservationIgnored private(set) var connectionEpoch: UInt64 = 0
+#if DEBUG && targetEnvironment(simulator)
+    @ObservationIgnored private var integrationGateRelayOnlyCandidatePolicy: IntegrationGateRelayOnlyCandidatePolicy?
+    @ObservationIgnored private(set) var integrationGateCandidateBuildSummary: IntegrationGateCandidateBuildSummary?
+    @ObservationIgnored private(set) var integrationGateLastTransportStage: TransportStage?
+    @ObservationIgnored private(set) var integrationGateLastReconnectReasonBucket: ReconnectReasonBucket?
+#endif
 
     init(
         transport: (any Transporting)? = nil,
@@ -205,6 +259,26 @@ final class TunnelManager {
         guard case .connected(let port, _) = self.state else { return nil }
         return (port, self.connectionEpoch)
     }
+
+    var transportGenerationSnapshot: TransportGenerationSnapshot {
+        self.transport.generationSnapshot
+    }
+
+#if DEBUG && targetEnvironment(simulator)
+    func installIntegrationGateRelayOnlyCandidatePolicy() {
+        self.integrationGateRelayOnlyCandidatePolicy = IntegrationGateRelayOnlyCandidatePolicy()
+        self.integrationGateCandidateBuildSummary = nil
+    }
+
+    func clearIntegrationGateRelayOnlyCandidatePolicy() {
+        self.integrationGateRelayOnlyCandidatePolicy = nil
+        self.integrationGateCandidateBuildSummary = nil
+    }
+
+    var integrationGateActiveProductionUploadCount: Int {
+        self.activeLocalTransferCountProvider()
+    }
+#endif
 
     func revalidateConnectedTunnelForForeground() async -> Bool {
         guard let entry = self.activeConnection else { return false }
@@ -271,6 +345,9 @@ final class TunnelManager {
             self.reconnectCount += 1
             let bucket = self.pendingReconnectReason ?? .other
             self.reconnectReasonCounts[bucket, default: 0] += 1
+#if DEBUG && targetEnvironment(simulator)
+            self.integrationGateLastReconnectReasonBucket = bucket
+#endif
             self.pendingReconnectReason = nil
         }
         self.state = .connecting
@@ -317,6 +394,16 @@ final class TunnelManager {
                 self.cancelReconnect()
                 Task {
                     try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
+#if DEBUG && targetEnvironment(simulator)
+                    if self.integrationGateRelayOnlyCandidatePolicy != nil {
+                        let refreshedCandidates = await self.endpointCache.endpoints()
+                        let refreshedDirectCount = refreshedCandidates.filter {
+                            self.directCandidateKey(for: $0) != nil
+                        }.count
+                        self.integrationGateCandidateBuildSummary = self.integrationGateCandidateBuildSummary?
+                            .withPostConnectCachedDirectCandidateCount(refreshedDirectCount)
+                    }
+#endif
                 }
             } catch is CancellationError {
                 self.cancelConnectWatchdog()
@@ -343,6 +430,9 @@ final class TunnelManager {
                 }
                 if self.shouldScheduleReconnect(after: error) {
                     self.pendingReconnectReason = .connectFailed
+#if DEBUG && targetEnvironment(simulator)
+                    self.integrationGateLastReconnectReasonBucket = .connectFailed
+#endif
                     self.scheduleReconnect(for: tunnelError)
                 }
             }
@@ -462,6 +552,10 @@ final class TunnelManager {
         self.reconnectCount = 0
         self.reconnectReasonCounts = [:]
         self.pendingReconnectReason = nil
+#if DEBUG && targetEnvironment(simulator)
+        self.integrationGateLastReconnectReasonBucket = nil
+        self.integrationGateLastTransportStage = nil
+#endif
         self.connectionStages = []
         self.connectTask?.cancel()
         self.connectTask = nil
@@ -639,6 +733,9 @@ final class TunnelManager {
         guard case .connected = self.state else { return }
         let active = self.activeConnection
         self.pendingReconnectReason = reason.bucket
+#if DEBUG && targetEnvironment(simulator)
+        self.integrationGateLastReconnectReasonBucket = reason.bucket
+#endif
         let tunnelError = reason.tunnelError
         log.error("[solstone-swift] forcing reconnect: \(reason.logLabel, privacy: .public)")
         self.diagnosticLog?.append(
@@ -685,6 +782,9 @@ final class TunnelManager {
                     if status.isSatisfied {
                         self.consecutiveNotEntitled = 0
                         self.pendingReconnectReason = .pathRestore
+#if DEBUG && targetEnvironment(simulator)
+                        self.integrationGateLastReconnectReasonBucket = .pathRestore
+#endif
                         self.scheduleReconnect(for: error)
                     }
                 case .disconnected:
@@ -861,11 +961,31 @@ final class TunnelManager {
             }
         }
 
-        let bootstrapCandidates = TransportEndpoint.candidates(for: refreshedPairing)
+        let bootstrapPairing: StoredPairing
+#if DEBUG && targetEnvironment(simulator)
+        if let integrationGateRelayOnlyCandidatePolicy {
+            bootstrapPairing = integrationGateRelayOnlyCandidatePolicy.bootstrapPairing(from: refreshedPairing)
+        } else {
+            bootstrapPairing = refreshedPairing
+        }
+#else
+        bootstrapPairing = refreshedPairing
+#endif
+        let bootstrapCandidates = TransportEndpoint.candidates(for: bootstrapPairing)
         let cachedCandidates = await self.endpointCache.endpoints()
+#if DEBUG && targetEnvironment(simulator)
+        let effectiveCachedCandidates: [TransportEndpoint]
+        if let integrationGateRelayOnlyCandidatePolicy {
+            effectiveCachedCandidates = integrationGateRelayOnlyCandidatePolicy.filterCachedCandidates(cachedCandidates)
+        } else {
+            effectiveCachedCandidates = cachedCandidates
+        }
+#else
+        let effectiveCachedCandidates = cachedCandidates
+#endif
         var seenDirects = Set<String>()
         var directCandidates: [TransportEndpoint] = []
-        for endpoint in cachedCandidates + bootstrapCandidates {
+        for endpoint in effectiveCachedCandidates + bootstrapCandidates {
             guard let key = self.directCandidateKey(for: endpoint),
                   seenDirects.insert(key).inserted
             else {
@@ -881,6 +1001,18 @@ final class TunnelManager {
         }
 
         let candidates = directCandidates + relayCandidates
+#if DEBUG && targetEnvironment(simulator)
+        if integrationGateRelayOnlyCandidatePolicy != nil {
+            self.integrationGateCandidateBuildSummary = IntegrationGateCandidateBuildSummary(
+                originalLocalEndpointCount: refreshedPairing.localEndpoints.count,
+                cachedDirectCandidateCount: cachedCandidates.filter { self.directCandidateKey(for: $0) != nil }.count,
+                bootstrapDirectCandidateCount: bootstrapCandidates.filter { self.directCandidateKey(for: $0) != nil }.count,
+                returnedDirectCandidateCount: candidates.filter { self.directCandidateKey(for: $0) != nil }.count,
+                returnedRelayCandidateCount: relayCandidates.count,
+                postConnectCachedDirectCandidateCount: nil
+            )
+        }
+#endif
         if candidates.isEmpty {
             throw TunnelError.unreachable
         }
@@ -903,6 +1035,9 @@ final class TunnelManager {
     }
 
     private func handleStageChange(_ event: TransportStage) {
+#if DEBUG && targetEnvironment(simulator)
+        self.integrationGateLastTransportStage = event
+#endif
         switch event {
         case .preparingCandidates:
             break

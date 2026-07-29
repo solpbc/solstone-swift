@@ -12,6 +12,7 @@ final class MockCFTunnelTransport: Transporting {
     }
 
     var connectionMode: ConnectionMode? = nil
+    var generationSnapshot = TransportGenerationSnapshot(currentGeneration: 0, activeGeneration: nil, lastClosedGeneration: nil)
     var nextResult: Result<Int, TunnelError> = .success(54321)
     var queuedResults: [QueuedResult] = []
     var capturedCandidates: [TransportEndpoint] = []

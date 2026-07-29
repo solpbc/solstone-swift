@@ -62,4 +62,10 @@ final class ConnectionSyncModel {
         self.status = raw
         connectionSyncLog.debug("connection sync status refreshed \(previous.statusLine, privacy: .public) -> \(raw.statusLine, privacy: .public)")
     }
+
+#if DEBUG && targetEnvironment(simulator)
+    func integrationGateCurrentInputs() -> ConnectionSyncInputs {
+        self.sample()
+    }
+#endif
 }

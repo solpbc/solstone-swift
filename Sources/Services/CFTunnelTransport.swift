@@ -90,6 +90,11 @@ private actor ConnectWindowTerminalSignal {
 @Observable
 final class CFTunnelTransport: Transporting {
     public private(set) var connectionMode: ConnectionMode?
+    public private(set) var generationSnapshot = TransportGenerationSnapshot(
+        currentGeneration: 0,
+        activeGeneration: nil,
+        lastClosedGeneration: nil
+    )
     @ObservationIgnored
     private let appConfig: AppConfig?
     @ObservationIgnored
@@ -239,11 +244,18 @@ final class CFTunnelTransport: Transporting {
         let proxy = LoopbackProxy(opener: session)
         self.proxy = proxy
         let port = Int(try await proxy.start())
+        let nextGeneration = self.generationSnapshot.currentGeneration + 1
+        self.generationSnapshot = TransportGenerationSnapshot(
+            currentGeneration: nextGeneration,
+            activeGeneration: nextGeneration,
+            lastClosedGeneration: self.generationSnapshot.lastClosedGeneration
+        )
         onStageChange(.loopbackReady(port: port))
         return port
     }
 
     public func disconnect() async {
+        let closingGeneration = self.generationSnapshot.activeGeneration
         stateTask?.cancel()
         stateTask = nil
         connectionModeTask?.cancel()
@@ -253,6 +265,13 @@ final class CFTunnelTransport: Transporting {
         await session?.disconnect()
         session = nil
         connectionMode = nil
+        if let closingGeneration {
+            self.generationSnapshot = TransportGenerationSnapshot(
+                currentGeneration: self.generationSnapshot.currentGeneration,
+                activeGeneration: nil,
+                lastClosedGeneration: closingGeneration
+            )
+        }
     }
 
     private func observe(

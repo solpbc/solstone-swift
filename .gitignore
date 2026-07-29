@@ -37,6 +37,7 @@ Sources/Info.plist
 
 # App Store Connect / TestFlight operator config (account-specific; never committed)
 config/testflight.env
+config/BuildMetadata.generated.xcconfig
 
 # CocoaPods
 #

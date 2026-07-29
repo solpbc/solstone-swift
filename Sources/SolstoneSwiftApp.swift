@@ -56,6 +56,9 @@ struct SolstoneSwiftApp: App {
     @State private var integrationObserverStopTask: Task<Void, Never>?
     @State private var didAutoStartIntegrationObserver = false
     @State private var didAutoStopIntegrationObserver = false
+#if DEBUG && targetEnvironment(simulator)
+    @State private var integrationGateDriver: IntegrationGateDriver?
+#endif
     @Environment(\.scenePhase) private var scenePhase
 
     private static var isIntegrationTest: Bool {
@@ -561,6 +564,21 @@ struct SolstoneSwiftApp: App {
         if !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest {
             finishSyncing.registerLaunchHandler()
         }
+#if DEBUG && targetEnvironment(simulator)
+        let integrationGateDriver: IntegrationGateDriver?
+        if IntegrationGateDriver.shouldRun() {
+            integrationGateDriver = IntegrationGateDriver(
+                dependencies: IntegrationGateDependencies(
+                    keychainStore: SPLRuntime.keychainStore,
+                    tunnelManager: tunnel,
+                    transport: transport,
+                    connectionSyncModel: connectionSyncModel
+                )
+            )
+        } else {
+            integrationGateDriver = nil
+        }
+#endif
         self._appConfig = State(initialValue: appConfig)
         self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
@@ -598,6 +616,9 @@ struct SolstoneSwiftApp: App {
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
+#if DEBUG && targetEnvironment(simulator)
+        self._integrationGateDriver = State(initialValue: integrationGateDriver)
+#endif
     }
 
     @MainActor
@@ -676,6 +697,11 @@ struct SolstoneSwiftApp: App {
                 .task {
                     await self.connectionSyncModel.run()
                 }
+#if DEBUG && targetEnvironment(simulator)
+                .task {
+                    await self.integrationGateDriver?.run()
+                }
+#endif
                 .task {
                     await self.bootstrapTransfer()
                 }

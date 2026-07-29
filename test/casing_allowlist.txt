@@ -28,6 +28,8 @@ PairFlowCoordinator.swift|Try again.
 *|HTTP
 *|Authorization
 *|Content-Type
+Sources/IntegrationGate/IntegrationGateHTTPClient.swift|Range
+Sources/IntegrationGate/IntegrationGateHTTPClient.swift|Content-Range
 # Observer server wire protocol header
 ObserverServerURL.swift|X-Solstone-Protocol-Version
 CertlessPairExchange.swift|Host:
