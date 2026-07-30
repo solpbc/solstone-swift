@@ -111,6 +111,22 @@ classify_summary() {
         echo "pass"; return
     fi
 
+    # An UNREADABLE bundle is not evidence of zero failures. The primary oracle
+    # is deliberately the .xcresult and never stdout (see header) — but when that
+    # oracle has no answer at all, declining to look anywhere else is how a named
+    # failure gets absorbed as a flake and masked by the retry, which breaks this
+    # script's own "retry vs fail, never pass vs fail" contract.
+    # Observed 2026-07-30: exit=65, failedTests=-1 (the sentinel for "could not
+    # read"), classified flake, while the attempt log it had just written said
+    # "Failing tests: IntegrationGateBuildMetadataTests…".
+    # Scoped narrowly: only when the bundle is unreadable, and only on xcodebuild's
+    # explicit named-failure block. A watchdog timeout never reaches this function
+    # (it forces the flake verdict upstream), so a partial log cannot trip this.
+    if [ "$readable" != "1" ] && [ -n "${LAST_LOG:-}" ] && [ -f "$LAST_LOG" ] \
+        && grep -qE '^Failing tests:' "$LAST_LOG"; then
+        echo "real-failure"; return
+    fi
+
     # Everything else with zero recorded failures is a host-side runner flake:
     #   - timeout / wedge (no readable bundle, or rc set by our killer)
     #   - exit 65 with 0 failures and a non-"Passed" summary
