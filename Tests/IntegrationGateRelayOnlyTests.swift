@@ -31,6 +31,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
+        try await Self.waitForPostConnectDirectCount(manager, expected: 0)
         XCTAssertEqual(Self.lanCount(transport.capturedCandidates), 0)
         XCTAssertEqual(Self.relayCount(transport.capturedCandidates), 1)
         let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
@@ -39,7 +40,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertEqual(summary.bootstrapDirectCandidateCount, 0)
         XCTAssertEqual(summary.returnedDirectCandidateCount, 0)
         XCTAssertEqual(summary.returnedRelayCandidateCount, 1)
-        XCTAssertNil(summary.postConnectCachedDirectCandidateCount)
+        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 0)
     }
 
     func testRelayOnlyPolicyPreservesPairingDuringInjectedRevocation() async {
@@ -69,10 +70,12 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
-    func testRuntimeLanRepopulationIsRecordedAfterRefresh() async throws {
+    func testRelayOnlyPolicySuppressesPostConnectLanRefresh() async throws {
         IntegrationGateRelayOnlyURLProtocol.reset()
         defer { IntegrationGateRelayOnlyURLProtocol.reset() }
+        let requestCount = OSAllocatedUnfairLock(initialState: 0)
         IntegrationGateRelayOnlyURLProtocol.handler = { request in
+            requestCount.withLock { $0 += 1 }
             XCTAssertEqual(request.url?.path, "/app/network/local-endpoints")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
@@ -105,14 +108,18 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
-        try await Self.waitForPostConnectDirectCount(manager, expected: 1)
+        try await Self.waitForPostConnectDirectCount(manager, expected: 0)
         let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
         XCTAssertEqual(summary.returnedDirectCandidateCount, 0)
-        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 1)
-
-        let result = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
-        XCTAssertEqual(result.verdict, .fail)
-        XCTAssertEqual(result.reasonCode, .runtimeLanRepopulation)
+        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 0)
+        XCTAssertEqual(requestCount.withLock { $0 }, 0)
+        let cachedDirectCount = await cache.endpoints().filter {
+            if case .lan = $0 {
+                return true
+            }
+            return false
+        }.count
+        XCTAssertEqual(cachedDirectCount, 0)
         await manager.disconnect()
     }
 

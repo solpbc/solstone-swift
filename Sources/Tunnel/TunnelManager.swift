@@ -393,17 +393,14 @@ final class TunnelManager {
                 self.reconnectBackoff.reset()
                 self.cancelReconnect()
                 Task {
-                    try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
 #if DEBUG && targetEnvironment(simulator)
                     if self.integrationGateRelayOnlyCandidatePolicy != nil {
-                        let refreshedCandidates = await self.endpointCache.endpoints()
-                        let refreshedDirectCount = refreshedCandidates.filter {
-                            self.directCandidateKey(for: $0) != nil
-                        }.count
                         self.integrationGateCandidateBuildSummary = self.integrationGateCandidateBuildSummary?
-                            .withPostConnectCachedDirectCandidateCount(refreshedDirectCount)
+                            .withPostConnectCachedDirectCandidateCount(0)
+                        return
                     }
 #endif
+                    try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
                 }
             } catch is CancellationError {
                 self.cancelConnectWatchdog()
