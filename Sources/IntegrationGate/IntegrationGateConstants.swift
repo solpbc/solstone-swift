@@ -25,19 +25,18 @@ enum IntegrationGateConstants {
     static let observationWindowMilliseconds: UInt64 = 20_000
     static let networkStatusPath = "/app/network/api/status"
     static let homePulsePath = "/app/home/api/pulse"
-    // The single fixed, code-owned media route for both media actions. G2
-    // (`rangeHash`) and G3 (`generationRetry`) resolve to this exact relative
-    // path and to nothing else — the manifest carries no path, URL, host, or
-    // port field, so a coordinator cannot aim the gate at a route of its
-    // choosing; it can only decide which action runs.
+    // The fixed real journal transcripts serve_file route for both media
+    // actions. G2 (`rangeHash`) and G3 (`generationRetry`) resolve to this
+    // exact relative path and to nothing else because the manifest carries no
+    // path, URL, host, or port field. A coordinator can choose which action
+    // runs, not where it points.
     //
-    // This is deliberately NOT an existing journal product route, and landing
-    // it adds none. It is a coordinator fixture contract: the extro-tools
-    // coordinator provisions one deterministic range-capable body here on the
-    // home under test — over 1 MiB so a ranged read crosses the mux initial
-    // credit window, with a stable content length and SHA-256 across runs —
-    // and live G2/G3 stay dormant until it does.
-    static let coordinatorMediaFixturePath = "/app/integration-gate/media"
+    // The extro-tools coordinator provisions the bytes at
+    // chronicle/20260729/integration-gate/122500_300/ios-spl-gate-260729.m4a
+    // on the home under test. The body is deterministic and over 1 MiB so a
+    // ranged read crosses `gateMuxInitialCreditBytes`, with a stable content
+    // length and SHA-256 across runs. Live G2/G3 stay dormant until it exists.
+    static let transcriptsServeFilePath = "/app/transcripts/api/serve_file/20260729/integration-gate/122500_300/ios-spl-gate-260729.m4a"
 
     // Mirrors spl-swift Sources/SPLTunnel/Mux/MuxStream.swift:6 MuxConstants.initialCredit.
     // MuxConstants is internal, so the app cannot read that value directly.
@@ -69,7 +68,7 @@ enum IntegrationGateRouteLabel: String, Codable, CaseIterable, Sendable, Equatab
         case .homePulse:
             return IntegrationGateConstants.homePulsePath
         case .gateRange, .gateRetry:
-            return IntegrationGateConstants.coordinatorMediaFixturePath
+            return IntegrationGateConstants.transcriptsServeFilePath
         }
     }
 }

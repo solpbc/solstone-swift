@@ -2,11 +2,23 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Foundation
+import os
 import XCTest
 
 // criterion 6: G2 range hash classification.
 @MainActor
 final class IntegrationGateG2RangeHashTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        IntegrationGateRangeHeaderURLProtocol.reset()
+    }
+
+    override func tearDown() async throws {
+        IntegrationGateRangeHeaderURLProtocol.reset()
+        try await super.tearDown()
+    }
+
     func testMuxInitialCreditConstantMatchesApprovedMirrorValue() {
         XCTAssertEqual(IntegrationGateConstants.gateMuxInitialCreditBytes, 1 << 20)
     }
@@ -108,6 +120,67 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
         XCTAssertEqual(classified.1, .invalidRange)
     }
 
+    func testContentRangeAllowsZeroStartMuxCrossingRangeAndRejectsMismatch() throws {
+        let parsed = try IntegrationGateContentRange.parse(
+            "bytes 0-2097168/2097169",
+            expectedStart: 0,
+            expectedLength: 2_097_169,
+            expectedTotal: 2_097_169,
+            contentLengthHeader: "2097169"
+        )
+
+        XCTAssertEqual(parsed.start, 0)
+        XCTAssertEqual(parsed.end, 2_097_168)
+        XCTAssertEqual(parsed.total, 2_097_169)
+        XCTAssertThrowsError(
+            try IntegrationGateContentRange.parse(
+                "bytes 1-2097169/2097169",
+                expectedStart: 0,
+                expectedLength: 2_097_169,
+                expectedTotal: 2_097_169,
+                contentLengthHeader: "2097169"
+            )
+        ) { error in
+            XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .contentRangeMismatch)
+        }
+    }
+
+    func testRangedStreamingRequestSendsZeroStartRangeHeaderAndFailsClosedOnNonPartialResponse() async throws {
+        let rangeLength = UInt64(2 * 1024 * 1024 + 17)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 416,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data())
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
+        tunnelManager.forceConnected(port: 5151, via: .remote)
+        let client = IntegrationGateHTTPClient(tunnelManager: tunnelManager, session: session)
+
+        let response = try await client.rangedStreamingRequest(
+            routeLabel: .gateRange,
+            rangeStart: 0,
+            rangeLength: rangeLength,
+            expectedTotal: rangeLength
+        )
+
+        let request = try XCTUnwrap(IntegrationGateRangeHeaderURLProtocol.capturedRequests.first)
+        XCTAssertEqual(request.url?.path, IntegrationGateConstants.transcriptsServeFilePath)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Range"), "bytes=0-2097168")
+        XCTAssertEqual(response.outcome.statusCode, 416)
+        XCTAssertEqual(response.outcome.errorBucket, IntegrationGateReasonCode.rangeStatusMismatch.rawValue)
+        XCTAssertEqual(response.outcome.byteCount, 0)
+        XCTAssertNil(response.contentRange)
+        XCTAssertEqual(response.sha256Hex, "")
+    }
+
     func testContentRangeRejectsWildcardMultipleRangesOverflowAndMismatches() {
         XCTAssertThrowsError(
             try IntegrationGateContentRange.parse(
@@ -191,4 +264,54 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
     private static func digest(_ character: Character) -> String {
         String(repeating: String(character), count: 64)
     }
+}
+
+private final class IntegrationGateRangeHeaderURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    private static let capturedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
+
+    static var handler: Handler? {
+        get { self.handlerBox.withLock { $0 } }
+        set { self.handlerBox.withLock { $0 = newValue } }
+    }
+
+    static var capturedRequests: [URLRequest] {
+        get { self.capturedRequestsBox.withLock { $0 } }
+        set { self.capturedRequestsBox.withLock { $0 = newValue } }
+    }
+
+    static func reset() {
+        self.handler = nil
+        self.capturedRequests = []
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "127.0.0.1"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.capturedRequestsBox.withLock { $0.append(self.request) }
+
+        guard let handler = Self.handler else {
+            XCTFail("IntegrationGateRangeHeaderURLProtocol handler not set")
+            return
+        }
+
+        do {
+            let (response, data) = try handler(self.request)
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: data)
+            self.client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            self.client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

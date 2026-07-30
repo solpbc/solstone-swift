@@ -34,8 +34,45 @@ final class IntegrationGateManifestCorrelationTests: XCTestCase {
             manifest["expectedContentLength"] = 64
             manifest["expectedSHA256Hex"] = Self.digest("b")
             manifest["rangeStart"] = 0
-            manifest["rangeLength"] = 8
+            manifest["rangeLength"] = 0
         }), failsWith: .invalidRange)
+        try Self.assertManifest(Self.baseManifest(mutating: { manifest in
+            manifest["action"] = "rangeHash"
+            manifest["expectedContentLength"] = 64
+            manifest["expectedSHA256Hex"] = Self.digest("b")
+            manifest["rangeStart"] = 0
+        }), failsWith: .invalidRange)
+        try Self.assertManifest(Self.baseManifest(mutating: { manifest in
+            manifest["action"] = "rangeHash"
+            manifest["expectedContentLength"] = 64
+            manifest["expectedSHA256Hex"] = Self.digest("b")
+            manifest["rangeStart"] = -1
+            manifest["rangeLength"] = 8
+        }), failsWith: .missingField)
+        try Self.assertManifest(Self.baseManifest(mutating: { manifest in
+            manifest["action"] = "rangeHash"
+            manifest["expectedContentLength"] = 64
+            manifest["expectedSHA256Hex"] = Self.digest("b")
+            manifest["rangeStart"] = UInt64.max
+            manifest["rangeLength"] = UInt64(1)
+        }), failsWith: .invalidRange)
+    }
+
+    func testRangeHashManifestAllowsZeroStartMuxCrossingRange() throws {
+        let rangeLength = UInt64(2 * 1024 * 1024 + 17)
+        let decoded = try IntegrationGateManifest.decodeAndValidate(
+            Self.data(Self.baseManifest { manifest in
+                manifest["action"] = "rangeHash"
+                manifest["expectedContentLength"] = rangeLength
+                manifest["expectedSHA256Hex"] = Self.digest("b")
+                manifest["rangeStart"] = UInt64(0)
+                manifest["rangeLength"] = rangeLength
+            })
+        )
+
+        XCTAssertEqual(decoded.action, .rangeHash)
+        XCTAssertEqual(decoded.rangeStart, 0)
+        XCTAssertEqual(decoded.rangeLength, rangeLength)
     }
 
     func testGenerationRetryRequiresContentExpectationsButNotRange() throws {
@@ -111,23 +148,39 @@ final class IntegrationGateManifestCorrelationTests: XCTestCase {
         XCTAssertFalse(text.contains("SPLRuntime"))
     }
 
-    // G2 and G3 both read the one fixed, code-owned media route, so the coordinator
-    // provisions a single deterministic fixture at exactly this path.
-    func testMediaActionsResolveToTheOneFixedCoordinatorRoute() {
+    // G2 and G3 both read the fixed journal transcripts serve_file route, so the
+    // coordinator provisions one deterministic body at the decomposed chronicle path.
+    func testMediaActionsResolveToTheFixedTranscriptsServeFileRoute() throws {
+        let rangePath = IntegrationGateAction.rangeHash.routeLabel.path
+        let retryPath = IntegrationGateAction.generationRetry.routeLabel.path
+        let serveFilePrefix = "/app/transcripts/api/serve_file/"
+        let expectedRelativePath = "integration-gate/122500_300/ios-spl-gate-260729.m4a"
+
         XCTAssertEqual(IntegrationGateAction.rangeHash.routeLabel, .gateRange)
         XCTAssertEqual(IntegrationGateAction.generationRetry.routeLabel, .gateRetry)
-        XCTAssertEqual(
-            IntegrationGateAction.rangeHash.routeLabel.path,
-            IntegrationGateConstants.coordinatorMediaFixturePath
-        )
-        XCTAssertEqual(
-            IntegrationGateAction.generationRetry.routeLabel.path,
-            IntegrationGateConstants.coordinatorMediaFixturePath
-        )
-        XCTAssertEqual(
-            IntegrationGateAction.rangeHash.routeLabel.path,
-            IntegrationGateAction.generationRetry.routeLabel.path
-        )
+        XCTAssertEqual(rangePath, IntegrationGateConstants.transcriptsServeFilePath)
+        XCTAssertEqual(retryPath, IntegrationGateConstants.transcriptsServeFilePath)
+        XCTAssertEqual(rangePath, retryPath)
+        for path in [rangePath, retryPath] {
+            XCTAssertTrue(path.hasPrefix("/"))
+            XCTAssertTrue(path.contains("20260729"))
+            XCTAssertTrue(path.contains("ios-spl-gate-260729.m4a"))
+            XCTAssertFalse(path.contains("://"))
+            XCTAssertFalse(path.contains("?"))
+            XCTAssertFalse(path.contains(".."))
+            XCTAssertTrue(path.hasPrefix(serveFilePrefix))
+        }
+
+        guard rangePath.hasPrefix(serveFilePrefix) else {
+            XCTFail("media route does not use transcripts serve_file prefix")
+            return
+        }
+        let remainder = String(rangePath.dropFirst(serveFilePrefix.count))
+        let daySeparator = try XCTUnwrap(remainder.firstIndex(of: "/"))
+        let day = String(remainder[..<daySeparator])
+        let relativePath = String(remainder[remainder.index(after: daySeparator)...])
+        XCTAssertEqual(day, "20260729")
+        XCTAssertEqual(relativePath, expectedRelativePath)
     }
 
     // retained evidence names route labels, never raw routes, so the label set stays allowlisted

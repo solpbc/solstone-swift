@@ -126,7 +126,7 @@ private struct StrictPayload: Decodable {
 
         switch decodedAction {
         case .rangeHash:
-            guard let rangeStart, let rangeLength, rangeStart > 0, rangeLength > 0 else {
+            guard let rangeStart, let rangeLength, rangeLength > 0 else {
                 throw IntegrationGateValidationError(.invalidRange)
             }
             guard rangeStart <= UInt64.max - rangeLength else {
