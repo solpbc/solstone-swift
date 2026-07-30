@@ -3,6 +3,15 @@
 
 import Foundation
 
+nonisolated enum WatchCaptureTiming {
+    static let segmentDurationSeconds: TimeInterval = 300
+}
+
+nonisolated enum WatchNoticeIdentifiers {
+    static let lease = "app.solstone.swift.watch.audio-lease"
+    static let notice = "app.solstone.swift.watch.audio-notice"
+}
+
 nonisolated enum WatchSegmentState: String, Codable, Equatable, Sendable, CaseIterable {
     case captured
     case persisted
@@ -89,6 +98,62 @@ nonisolated enum WatchMicrophonePermission: Equatable, Sendable {
     case notDetermined
 }
 
+nonisolated enum WatchNotificationAuthorizationStatus: Equatable, Sendable {
+    case notDetermined
+    case authorized
+    case denied
+    case provisional
+    case ephemeral
+}
+
+nonisolated enum WatchNotificationAlertSetting: Equatable, Sendable {
+    case enabled
+    case disabled
+    case notSupported
+}
+
+nonisolated enum WatchNotificationPresentationOption: Hashable, Sendable {
+    case banner
+    case list
+}
+
+nonisolated func watchNoticePresentationOptions() -> Set<WatchNotificationPresentationOption> {
+    [.banner, .list]
+}
+
+nonisolated enum WatchWristAlertAssurance: Equatable, Sendable {
+    case willTap
+    case alertsOff
+
+    var line: String {
+        switch self {
+        case .willTap:
+            SourceVocabulary.watchWristAlertWillTap
+        case .alertsOff:
+            SourceVocabulary.watchWristAlertsOff
+        }
+    }
+}
+
+nonisolated func watchWristAlertAssurance(
+    authorization: WatchNotificationAuthorizationStatus,
+    alertSetting: WatchNotificationAlertSetting
+) -> WatchWristAlertAssurance? {
+    switch authorization {
+    case .notDetermined:
+        return nil
+    case .denied:
+        return .alertsOff
+    case .authorized, .provisional, .ephemeral:
+        switch alertSetting {
+        case .enabled:
+            return .willTap
+        case .disabled, .notSupported:
+            return .alertsOff
+        }
+    }
+}
+
 nonisolated enum WatchCaptureStartRefusalReason: String, Codable, Equatable, Sendable {
     case microphonePermissionDenied = "microphone-permission-denied"
     case microphonePermissionNotDetermined = "microphone-permission-not-determined"
@@ -97,6 +162,7 @@ nonisolated enum WatchCaptureStartRefusalReason: String, Codable, Equatable, Sen
 
 nonisolated enum WatchCaptureTerminalReason: String, Codable, Equatable, Sendable {
     case ownerStopped = "owner-stopped"
+    case microphonePermissionRevoked = "microphone-permission-revoked"
     case audioStartFailed = "audio-start-failed"
     case audioFinishUnsuccessful = "audio-finish-unsuccessful"
     case audioEncodeError = "audio-encode-error"
@@ -113,7 +179,7 @@ nonisolated enum WatchCaptureTerminalReason: String, Codable, Equatable, Sendabl
         switch self {
         case .ownerStopped:
             .unavailable(reason: SourceVocabulary.watchHeadlineOff)
-        case .audioRouteUnavailable, .audioStartFailed:
+        case .microphonePermissionRevoked, .audioRouteUnavailable, .audioStartFailed:
             .unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable)
         case .audioUndecodable:
             .unavailable(reason: SourceVocabulary.watchAudioCouldNotBeSaved)
@@ -166,6 +232,117 @@ nonisolated enum WatchCaptureLocationAdvisory: String, Codable, Equatable, Senda
 
 nonisolated enum WatchCaptureSettingsRoute: Equatable, Sendable {
     case microphone
+    case notificationGrant
+    case notificationSettings
+}
+
+nonisolated enum WatchNoticeCopy: Equatable, Sendable, CaseIterable {
+    case microphoneAccessNeeded
+    case audioCouldNotStart
+    case audioStoppedItself
+    case audioCouldNotBeSaved
+    case audioCouldNotBeConfirmed
+
+    init?(reason: WatchCaptureTerminalReason, disposition: WatchCaptureTerminalDisposition) {
+        if disposition == .ownerStopped {
+            return nil
+        }
+        if disposition == .inferredStoppedItself {
+            self = .audioCouldNotBeConfirmed
+            return
+        }
+
+        switch reason {
+        case .ownerStopped:
+            return nil
+        case .microphonePermissionRevoked:
+            self = .microphoneAccessNeeded
+        case .audioStartFailed, .audioRouteUnavailable:
+            self = .audioCouldNotStart
+        case .audioFinishUnsuccessful,
+             .audioEncodeError,
+             .audioInterrupted,
+             .audioMediaServicesLost,
+             .audioMediaServicesReset,
+             .audioRecorderStopped,
+             .audioClockStalled:
+            self = .audioStoppedItself
+        case .audioUndecodable:
+            self = .audioCouldNotBeSaved
+        case .processExitedWhileActive:
+            self = .audioCouldNotBeConfirmed
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .microphoneAccessNeeded:
+            SourceVocabulary.watchNoticeMicrophoneAccessTitle
+        case .audioCouldNotStart:
+            SourceVocabulary.watchNoticeAudioCouldNotStartTitle
+        case .audioStoppedItself:
+            SourceVocabulary.watchNoticeAudioStoppedTitle
+        case .audioCouldNotBeSaved:
+            SourceVocabulary.watchNoticeAudioCouldNotBeSavedTitle
+        case .audioCouldNotBeConfirmed:
+            SourceVocabulary.watchNoticeAudioCouldNotBeConfirmedTitle
+        }
+    }
+
+    var body: String {
+        switch self {
+        case .microphoneAccessNeeded:
+            SourceVocabulary.watchNoticeMicrophoneAccessBody
+        case .audioCouldNotStart:
+            SourceVocabulary.watchNoticeAudioCouldNotStartBody
+        case .audioStoppedItself:
+            SourceVocabulary.watchNoticeAudioStoppedBody
+        case .audioCouldNotBeSaved:
+            SourceVocabulary.watchNoticeAudioCouldNotBeSavedBody
+        case .audioCouldNotBeConfirmed:
+            SourceVocabulary.watchNoticeAudioCouldNotBeConfirmedBody
+        }
+    }
+
+    var isDetectedCopy: Bool {
+        switch self {
+        case .microphoneAccessNeeded,
+             .audioCouldNotStart,
+             .audioStoppedItself,
+             .audioCouldNotBeSaved:
+            true
+        case .audioCouldNotBeConfirmed:
+            false
+        }
+    }
+}
+
+nonisolated enum WatchNoticeDecision: Equatable, Sendable {
+    case none
+    case cancelLease
+    case schedule(copy: WatchNoticeCopy)
+    case cannotSchedule(settingsRoute: WatchCaptureSettingsRoute)
+}
+
+nonisolated func watchNoticeDecision(
+    authorizationStatus: WatchNotificationAuthorizationStatus,
+    alertSetting: WatchNotificationAlertSetting,
+    disposition: WatchCaptureTerminalDisposition,
+    reason: WatchCaptureTerminalReason,
+    leaseArmed: Bool
+) -> WatchNoticeDecision {
+    guard let copy = WatchNoticeCopy(reason: reason, disposition: disposition) else {
+        return leaseArmed ? .cancelLease : .none
+    }
+
+    switch watchWristAlertAssurance(authorization: authorizationStatus, alertSetting: alertSetting) {
+    case .willTap:
+        return .schedule(copy: copy)
+    case .alertsOff:
+        return .cannotSchedule(settingsRoute: .notificationSettings)
+    case nil:
+        return .cannotSchedule(settingsRoute: .notificationGrant)
+    }
 }
 
 nonisolated enum WatchCaptureSessionRecordState: String, Codable, Equatable, Sendable {
@@ -214,6 +391,8 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let terminalDisposition: WatchCaptureTerminalDisposition?
     let locationAdvisory: WatchCaptureLocationAdvisory?
     let persistenceAdvisory: WatchCapturePersistenceAdvisory?
+    let wristAlertAssurance: WatchWristAlertAssurance?
+    let lastVerifiedAudioAt: Date?
 
     init(
         status: WatchCaptureRuntimeStatus,
@@ -228,7 +407,9 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         terminalReason: WatchCaptureTerminalReason? = nil,
         terminalDisposition: WatchCaptureTerminalDisposition? = nil,
         locationAdvisory: WatchCaptureLocationAdvisory? = nil,
-        persistenceAdvisory: WatchCapturePersistenceAdvisory? = nil
+        persistenceAdvisory: WatchCapturePersistenceAdvisory? = nil,
+        wristAlertAssurance: WatchWristAlertAssurance? = nil,
+        lastVerifiedAudioAt: Date? = nil
     ) {
         self.status = status
         self.queuedCount = queuedCount
@@ -243,6 +424,8 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         self.terminalDisposition = terminalDisposition
         self.locationAdvisory = locationAdvisory
         self.persistenceAdvisory = persistenceAdvisory
+        self.wristAlertAssurance = wristAlertAssurance
+        self.lastVerifiedAudioAt = lastVerifiedAudioAt
     }
 
     var headline: String {

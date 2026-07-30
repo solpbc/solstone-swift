@@ -13,6 +13,7 @@ struct WatchHomeView: View {
             for: self.captureModel.presentation,
             isReachable: self.model.isReachable
         )
+        // Wrist alert assurance is presentation-only here; this UI does not render it yet.
 
         ScrollView {
             VStack(alignment: .center, spacing: 14) {

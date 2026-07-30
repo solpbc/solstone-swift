@@ -49,8 +49,11 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
         in context: Context,
         completion: @escaping (Timeline<SolstoneWatchComplicationEntry>) -> Void
     ) {
-        let entry = SolstoneWatchComplicationEntry(date: Date(), snapshot: Self.loadSnapshot())
-        completion(Timeline(entries: [entry], policy: .never))
+        let now = Date()
+        let entries = watchComplicationTimelinePoints(snapshot: Self.loadSnapshot(), now: now).map { point in
+            SolstoneWatchComplicationEntry(date: point.date, snapshot: point.snapshot)
+        }
+        completion(Timeline(entries: entries, policy: .never))
     }
 }
 

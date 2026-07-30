@@ -95,6 +95,70 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
         )
     }
 
+    func testUnknownTerminalReasonRawValueDecodesNilAndPreservesContext() throws {
+        let payload = Data(
+            """
+            {
+              "phase": "idle",
+              "sessionID": "session-1",
+              "startedAt": "2026-07-30T12:00:00Z",
+              "asOf": "2026-07-30T12:01:00Z",
+              "seq": 9,
+              "queuedCount": 2,
+              "transferringCount": 1,
+              "audioTerminalReason": "future-terminal-reason",
+              "audioTerminalDisposition": "detected-stopped-itself"
+            }
+            """.utf8
+        )
+
+        let decoded = try XCTUnwrap(WatchStatusContext(applicationContext: [
+            WatchStatusContext.applicationContextKey: payload,
+        ]))
+
+        XCTAssertEqual(decoded.phase, .idle)
+        XCTAssertEqual(decoded.sessionID, "session-1")
+        XCTAssertEqual(decoded.startedAt, Date(timeIntervalSince1970: 1_785_412_800))
+        XCTAssertEqual(decoded.asOf, Date(timeIntervalSince1970: 1_785_412_860))
+        XCTAssertEqual(decoded.seq, 9)
+        XCTAssertEqual(decoded.queuedCount, 2)
+        XCTAssertEqual(decoded.transferringCount, 1)
+        XCTAssertNil(decoded.audioTerminalReason)
+        XCTAssertEqual(decoded.audioTerminalDisposition, .detectedStoppedItself)
+    }
+
+    func testUnknownTerminalDispositionRawValueDecodesNilAndPreservesContext() throws {
+        let payload = Data(
+            """
+            {
+              "phase": "observing",
+              "sessionID": "session-2",
+              "startedAt": "2026-07-30T13:00:00Z",
+              "asOf": "2026-07-30T13:00:15Z",
+              "seq": 10,
+              "queuedCount": 3,
+              "transferringCount": 2,
+              "audioTerminalReason": "audio-interrupted",
+              "audioTerminalDisposition": "future-disposition"
+            }
+            """.utf8
+        )
+
+        let decoded = try XCTUnwrap(WatchStatusContext(applicationContext: [
+            WatchStatusContext.applicationContextKey: payload,
+        ]))
+
+        XCTAssertEqual(decoded.phase, .observing)
+        XCTAssertEqual(decoded.sessionID, "session-2")
+        XCTAssertEqual(decoded.startedAt, Date(timeIntervalSince1970: 1_785_416_400))
+        XCTAssertEqual(decoded.asOf, Date(timeIntervalSince1970: 1_785_416_415))
+        XCTAssertEqual(decoded.seq, 10)
+        XCTAssertEqual(decoded.queuedCount, 3)
+        XCTAssertEqual(decoded.transferringCount, 2)
+        XCTAssertEqual(decoded.audioTerminalReason, .audioInterrupted)
+        XCTAssertNil(decoded.audioTerminalDisposition)
+    }
+
     func testMissingContextReturnsNil() {
         XCTAssertNil(WatchStatusContext(applicationContext: [:]))
     }

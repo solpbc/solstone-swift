@@ -22,6 +22,7 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
     let handoffSubtext: String?
     let handoffRole: WatchFaceColorRole?
     let trustLine: String?
+    let lastVerifiedAudioAt: Date?
 
     init(
         stateWord: String,
@@ -32,7 +33,8 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
         handoffLine: String?,
         handoffSubtext: String?,
         handoffRole: WatchFaceColorRole?,
-        trustLine: String?
+        trustLine: String?,
+        lastVerifiedAudioAt: Date? = nil
     ) {
         self.stateWord = stateWord
         self.role = role
@@ -43,6 +45,7 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
         self.handoffSubtext = handoffSubtext
         self.handoffRole = handoffRole
         self.trustLine = trustLine
+        self.lastVerifiedAudioAt = lastVerifiedAudioAt
     }
 
     init(presentation: WatchCaptureOwnerPresentation, isReachable: Bool) {
@@ -56,7 +59,8 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
             handoffLine: model.compactHandoff?.line,
             handoffSubtext: model.compactHandoff?.subtext,
             handoffRole: model.compactHandoff?.role,
-            trustLine: model.trustLine
+            trustLine: model.trustLine,
+            lastVerifiedAudioAt: presentation.lastVerifiedAudioAt
         )
     }
 
@@ -74,7 +78,38 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
         self.handoffSubtext = try container.decodeIfPresent(String.self, forKey: .handoffSubtext)
         self.handoffRole = try container.decodeIfPresent(WatchFaceColorRole.self, forKey: .handoffRole)
         self.trustLine = try container.decodeIfPresent(String.self, forKey: .trustLine)
+        self.lastVerifiedAudioAt = try container.decodeIfPresent(Date.self, forKey: .lastVerifiedAudioAt)
     }
+}
+
+nonisolated struct WatchComplicationTimelinePoint: Equatable, Sendable {
+    let date: Date
+    let snapshot: WatchComplicationSnapshot?
+}
+
+nonisolated func watchComplicationTimelinePoints(
+    snapshot: WatchComplicationSnapshot?,
+    now: Date,
+    segmentDurationSeconds: TimeInterval = WatchCaptureTiming.segmentDurationSeconds
+) -> [WatchComplicationTimelinePoint] {
+    guard let snapshot else {
+        return [WatchComplicationTimelinePoint(date: now, snapshot: nil)]
+    }
+    guard snapshot.showsElapsed else {
+        return [WatchComplicationTimelinePoint(date: now, snapshot: snapshot)]
+    }
+    guard let lastVerifiedAudioAt = snapshot.lastVerifiedAudioAt else {
+        return [WatchComplicationTimelinePoint(date: now, snapshot: nil)]
+    }
+
+    let unconfirmedAt = lastVerifiedAudioAt.addingTimeInterval(segmentDurationSeconds * 2)
+    guard now < unconfirmedAt else {
+        return [WatchComplicationTimelinePoint(date: now, snapshot: nil)]
+    }
+    return [
+        WatchComplicationTimelinePoint(date: now, snapshot: snapshot),
+        WatchComplicationTimelinePoint(date: unconfirmedAt, snapshot: nil),
+    ]
 }
 
 private extension WatchComplicationSnapshot {

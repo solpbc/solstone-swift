@@ -69,8 +69,10 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = try container.decode(Int.self, forKey: .seq)
         self.queuedCount = max(0, try container.decodeIfPresent(Int.self, forKey: .queuedCount) ?? 0)
         self.transferringCount = max(0, try container.decodeIfPresent(Int.self, forKey: .transferringCount) ?? 0)
-        self.audioTerminalReason = try container.decodeIfPresent(WatchCaptureTerminalReason.self, forKey: .audioTerminalReason)
-        self.audioTerminalDisposition = try container.decodeIfPresent(WatchCaptureTerminalDisposition.self, forKey: .audioTerminalDisposition)
+        self.audioTerminalReason = try container.decodeIfPresent(String.self, forKey: .audioTerminalReason)
+            .flatMap { WatchCaptureTerminalReason(rawValue: $0) }
+        self.audioTerminalDisposition = try container.decodeIfPresent(String.self, forKey: .audioTerminalDisposition)
+            .flatMap { WatchCaptureTerminalDisposition(rawValue: $0) }
         if container.contains(.diagnosticsEnvelope) {
             do {
                 self.diagnosticsEnvelope = try container.decodeIfPresent(Data.self, forKey: .diagnosticsEnvelope)

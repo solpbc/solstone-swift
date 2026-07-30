@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct SolstoneWatchApp: App {
@@ -12,6 +13,8 @@ struct SolstoneWatchApp: App {
 
     init() {
         let session = LiveWatchConnectivitySession()
+        let notificationScheduler = LiveWatchNotificationScheduler()
+        UNUserNotificationCenter.current().delegate = notificationScheduler
         let diagnosticsStore: WatchRelayDiagnosticsStore?
         do {
             let storage = try WatchCaptureStorage()
@@ -28,7 +31,8 @@ struct SolstoneWatchApp: App {
                 storage: storage,
                 relaySender: relaySender,
                 session: session,
-                diagnosticsCollector: diagnosticsCollector
+                diagnosticsCollector: diagnosticsCollector,
+                notificationScheduler: notificationScheduler
             )
             sessionModel.onReachableRepublish = { [weak captureModel] in captureModel?.republishStatusOnReconnect() }
             self._sessionModel = State(initialValue: sessionModel)

@@ -187,6 +187,92 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.handoffSubtext, SourceVocabulary.watchWaitingForPhone)
     }
 
+    func testSnapshotCarriesLastVerifiedAudioFromPresentation() {
+        let verifiedAt = Date(timeIntervalSince1970: 1_713_624_123)
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(
+                status: .active,
+                queuedCount: 0,
+                isSessionRunning: true,
+                sessionStartedAt: Date(timeIntervalSince1970: 1_713_624_000),
+                lastVerifiedAudioAt: verifiedAt
+            ),
+            isReachable: true
+        )
+
+        XCTAssertEqual(snapshot.lastVerifiedAudioAt, verifiedAt)
+    }
+
+    func testTimelinePointsIncludePresentAndUnconfirmedHorizonFromVerifiedAudio() {
+        let verifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        let now = verifiedAt.addingTimeInterval(60)
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(
+                status: .active,
+                queuedCount: 0,
+                isSessionRunning: true,
+                sessionStartedAt: verifiedAt,
+                lastVerifiedAudioAt: verifiedAt
+            ),
+            isReachable: true
+        )
+
+        let points = watchComplicationTimelinePoints(snapshot: snapshot, now: now)
+
+        XCTAssertEqual(points.count, 2)
+        XCTAssertEqual(points[0], WatchComplicationTimelinePoint(date: now, snapshot: snapshot))
+        XCTAssertEqual(
+            points[1],
+            WatchComplicationTimelinePoint(
+                date: verifiedAt.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2),
+                snapshot: nil
+            )
+        )
+    }
+
+    func testTimelinePointsResolveLiveSnapshotToUnknownAfterVerifiedAudioHorizon() {
+        let verifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(
+                status: .active,
+                queuedCount: 0,
+                isSessionRunning: true,
+                sessionStartedAt: verifiedAt,
+                lastVerifiedAudioAt: verifiedAt
+            ),
+            isReachable: true
+        )
+
+        let points = watchComplicationTimelinePoints(
+            snapshot: snapshot,
+            now: verifiedAt.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2)
+        )
+
+        XCTAssertEqual(points, [
+            WatchComplicationTimelinePoint(
+                date: verifiedAt.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2),
+                snapshot: nil
+            ),
+        ])
+    }
+
+    func testTimelinePointsResolveMissingVerifiedAudioToUnknown() {
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(
+                status: .active,
+                queuedCount: 0,
+                isSessionRunning: true,
+                sessionStartedAt: Date(timeIntervalSince1970: 1_713_624_000)
+            ),
+            isReachable: true
+        )
+        let now = Date(timeIntervalSince1970: 1_713_624_050)
+
+        XCTAssertEqual(watchComplicationTimelinePoints(snapshot: snapshot, now: now), [
+            WatchComplicationTimelinePoint(date: now, snapshot: nil),
+        ])
+    }
+
     func testFurthestClaimStaysAtPhone() {
         XCTAssertEqual(SourceVocabulary.watchPipelineHandedOff, "handed to your iphone")
 

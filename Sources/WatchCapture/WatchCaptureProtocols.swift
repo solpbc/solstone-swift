@@ -32,6 +32,15 @@ protocol WatchAudioSessionControlling: AnyObject {
 }
 
 @MainActor
+protocol WatchNotificationScheduling: AnyObject {
+    func authorizationStatus() async -> WatchNotificationAuthorizationStatus
+    func alertSetting() async -> WatchNotificationAlertSetting
+    func requestAuthorization() async throws -> WatchNotificationAuthorizationStatus
+    func add(identifier: String, title: String, body: String, triggerDate: Date?) async throws
+    func removePending(identifier: String)
+}
+
+@MainActor
 protocol WatchLocationProviding: AnyObject {
     var onFix: (@MainActor @Sendable (WatchLocationFix) -> Void)? { get set }
     var onAuthorizationChanged: (@MainActor @Sendable (WatchLocationAuthorization) -> Void)? { get set }
