@@ -16,6 +16,46 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
         XCTAssertEqual(ConnectionSyncStatus.connectedTransferring.statusLine, "connected · syncing")
     }
 
+    func testNetworkBlipPredicateRequiresConnectedTunnelUnsatisfiedNetworkAndNonReachableDerivation() {
+        let blipInputs = Self.inputs(
+            tunnelState: .connected(localPort: 42, via: .lan),
+            isNetworkSatisfied: false
+        )
+        XCTAssertTrue(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: blipInputs,
+            derived: .offline
+        ))
+
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: blipInputs,
+            derived: .connectedIdle
+        ))
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: Self.inputs(tunnelState: .disconnected, isNetworkSatisfied: false),
+            derived: .offline
+        ))
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: Self.inputs(tunnelState: .error(.muxTeardown), isNetworkSatisfied: false),
+            derived: .offline
+        ))
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: Self.inputs(tunnelState: .connecting, isNetworkSatisfied: false),
+            derived: .connecting
+        ))
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: Self.inputs(tunnelState: .waitingForHome, isNetworkSatisfied: false),
+            derived: .waitingForHome
+        ))
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: Self.inputs(tunnelState: .connected(localPort: 42, via: .lan), isNetworkSatisfied: true),
+            derived: .connectedIdle
+        ))
+        XCTAssertFalse(ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+            inputs: Self.inputs(tunnelState: .connected(localPort: 42, via: .lan), isNetworkSatisfied: nil),
+            derived: .connectedIdle
+        ))
+    }
+
     func testOfflineDerivesFromDisconnectedOrUnsatisfiedNetwork() {
         XCTAssertEqual(Self.derive(tunnelState: .disconnected), .offline)
         XCTAssertEqual(Self.derive(tunnelState: .connected(localPort: 42, via: .lan), isNetworkSatisfied: false), .offline)
@@ -151,6 +191,26 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
                 backlogPending: backlogPending,
                 backlogFailed: backlogFailed
             )
+        )
+    }
+
+    private static func inputs(
+        tunnelState: TunnelState,
+        reconnectCountdown: Int? = nil,
+        isNetworkSatisfied: Bool? = true,
+        confirmedTransferCount: Int = 0,
+        recentBytesPerSecond: Double = 0,
+        backlogPending: Int = 0,
+        backlogFailed: Int = 0
+    ) -> ConnectionSyncInputs {
+        ConnectionSyncInputs(
+            tunnelState: tunnelState,
+            reconnectCountdown: reconnectCountdown,
+            isNetworkSatisfied: isNetworkSatisfied,
+            confirmedTransferCount: confirmedTransferCount,
+            recentBytesPerSecond: recentBytesPerSecond,
+            backlogPending: backlogPending,
+            backlogFailed: backlogFailed
         )
     }
 }

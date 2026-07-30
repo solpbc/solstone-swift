@@ -752,6 +752,7 @@ struct SolstoneSwiftApp: App {
                 guard self.appConfig.isPaired else {
                     return
                 }
+                self.connectionSyncModel.refreshFromInputChange()
                 self.tunnelManager.startNetworkMonitoring()
 
                 switch self.tunnelManager.state {

@@ -17,6 +17,7 @@ final class ConnectionSyncModel {
     @ObservationIgnored private let pollCadence: Duration
     @ObservationIgnored private let sample: @MainActor () -> ConnectionSyncInputs
     @ObservationIgnored private var isRunning = false
+    @ObservationIgnored private var publishGeneration: UInt64 = 0
 
     init(
         clock: any ObserverClock,
@@ -36,31 +37,101 @@ final class ConnectionSyncModel {
         self.isRunning = true
         defer { self.isRunning = false }
 
-        while !Task.isCancelled {
-            try? await self.clock.sleep(for: self.pollCadence)
-            guard !Task.isCancelled else { return }
-
-            let raw = ConnectionSyncStatus.derive(self.sample())
-            guard raw != self.status else { continue }
-
-            try? await self.clock.sleep(for: self.debounceInterval)
-            guard !Task.isCancelled else { return }
-
-            let confirmed = ConnectionSyncStatus.derive(self.sample())
-            guard confirmed == raw, confirmed != self.status else { continue }
-
-            let previous = self.status
-            self.status = confirmed
-            connectionSyncLog.debug("connection sync status changed \(previous.statusLine, privacy: .public) -> \(confirmed.statusLine, privacy: .public)")
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                await self?.pollInputChanges()
+            }
+            group.addTask { [weak self] in
+                await self?.observeInputChanges()
+            }
+            await group.waitForAll()
         }
     }
 
     func refreshNow() {
         let raw = ConnectionSyncStatus.derive(self.sample())
-        guard raw != self.status else { return }
+        self.publish(raw, verb: "refreshed")
+    }
+
+    func refreshFromInputChange() {
+        let inputs = self.sample()
+        let derived = ConnectionSyncStatus.derive(inputs)
+        guard derived != self.status else { return }
+        guard self.shouldPublishImmediately(inputs: inputs, derived: derived) else { return }
+        self.publish(derived, verb: "changed")
+    }
+
+    private func pollInputChanges() async {
+        while !Task.isCancelled {
+            try? await self.clock.sleep(for: self.pollCadence)
+            guard !Task.isCancelled else { return }
+
+            let inputs = self.sample()
+            let raw = ConnectionSyncStatus.derive(inputs)
+            guard raw != self.status else { continue }
+
+            if self.shouldPublishImmediately(inputs: inputs, derived: raw) {
+                self.publish(raw, verb: "changed")
+                continue
+            }
+
+            let generation = self.publishGeneration
+            try? await self.clock.sleep(for: self.debounceInterval)
+            guard !Task.isCancelled else { return }
+            guard generation == self.publishGeneration else { continue }
+
+            let confirmed = ConnectionSyncStatus.derive(self.sample())
+            guard confirmed == raw, confirmed != self.status else { continue }
+
+            self.publish(confirmed, verb: "changed")
+        }
+    }
+
+    private func observeInputChanges() async {
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        self.installInputTracking(yielding: continuation)
+
+        for await _ in stream {
+            self.installInputTracking(yielding: continuation)
+            self.refreshFromInputChange()
+        }
+    }
+
+    private func installInputTracking(yielding continuation: AsyncStream<Void>.Continuation) {
+        withObservationTracking {
+            _ = self.sample()
+        } onChange: {
+            continuation.yield()
+        }
+    }
+
+    private func shouldPublishImmediately(
+        inputs: ConnectionSyncInputs,
+        derived: ConnectionSyncStatus
+    ) -> Bool {
+        let publishedReachable = isJournalReachable(self.status)
+        let derivedReachable = isJournalReachable(derived)
+
+        if publishedReachable, !derivedReachable {
+            return !ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
+                inputs: inputs,
+                derived: derived
+            )
+        }
+
+        if publishedReachable, derivedReachable {
+            return true
+        }
+
+        return false
+    }
+
+    private func publish(_ next: ConnectionSyncStatus, verb: String) {
+        guard next != self.status else { return }
         let previous = self.status
-        self.status = raw
-        connectionSyncLog.debug("connection sync status refreshed \(previous.statusLine, privacy: .public) -> \(raw.statusLine, privacy: .public)")
+        self.status = next
+        self.publishGeneration &+= 1
+        connectionSyncLog.debug("connection sync status \(verb, privacy: .public) \(previous.statusLine, privacy: .public) -> \(next.statusLine, privacy: .public)")
     }
 
 #if DEBUG && targetEnvironment(simulator)

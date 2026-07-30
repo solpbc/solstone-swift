@@ -64,6 +64,19 @@ nonisolated enum ConnectionSyncStatus: Equatable, Sendable {
             return transferActive ? .connectedTransferring : .connectedWaiting
         }
     }
+
+    nonisolated static func isNetworkBlipWhileTunnelConnected(
+        inputs: ConnectionSyncInputs,
+        derived: ConnectionSyncStatus
+    ) -> Bool {
+        guard !isJournalReachable(derived), inputs.isNetworkSatisfied == false else {
+            return false
+        }
+        if case .connected = inputs.tunnelState {
+            return true
+        }
+        return false
+    }
 }
 
 nonisolated struct ConnectionSyncInputs: Sendable {
