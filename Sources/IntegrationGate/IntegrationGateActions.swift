@@ -158,6 +158,9 @@ enum IntegrationGateActionClassifiers {
 
     static func classifyG4(_ facts: IntegrationGateWindowFacts) -> (IntegrationGateVerdict, IntegrationGateReasonCode) {
         let samples = facts.observations
+        if samples.contains(where: { $0.sample.endpointKind == "lan" }) {
+            return (.fail, .selectedLanEndpoint)
+        }
         if let failure = Self.firstCoBoundFailure(in: samples) {
             return (.fail, failure)
         }
@@ -178,6 +181,9 @@ enum IntegrationGateActionClassifiers {
 
     static func classifyG5(_ facts: IntegrationGateWindowFacts) -> (IntegrationGateVerdict, IntegrationGateReasonCode) {
         let samples = facts.observations
+        if samples.contains(where: { $0.sample.endpointKind == "lan" }) {
+            return (.fail, .selectedLanEndpoint)
+        }
         if let failure = Self.firstCoBoundFailure(in: samples) {
             return (.fail, failure)
         }
@@ -245,10 +251,10 @@ final class IntegrationGateActions {
             return self.result(verdict: .fail, reason: candidateFailure, accountingBaseline: baseline)
         }
         let generation = tunnelManager.transportGenerationSnapshot.activeGeneration
-        let (canaryRecord, outcome) = await sampler.canaryRecord()
+        let outcome = await httpClient.canary(routeLabel: .homePulse)
         let final = httpClient.activeGateIssuedRequestCount
         let accounting = self.accounting(baseline: baseline, final: final)
-        let sample = await sampler.captureSample(sampleIndex: 0, httpOutcome: outcome, boundCanary: canaryRecord)
+        let sample = await sampler.captureSample(sampleIndex: 0, httpOutcome: outcome)
         let facts = IntegrationGateG1Facts(
             endpointKind: tunnelManager.state.integrationGateEndpointKind,
             managerConnectionEpoch: tunnelManager.connectionEpoch,
@@ -325,14 +331,21 @@ final class IntegrationGateActions {
         var firstProgressBytes: UInt64 = 0
         var runningPublished = false
         var firstCompleted = false
+        var firstFailureReason: IntegrationGateReasonCode?
+        let progressStartedAt = clock.now()
         do {
             _ = try await httpClient.rangedStreamingRequest(
                 routeLabel: manifest.action.routeLabel,
                 rangeStart: 0,
                 rangeLength: expectedLength,
                 expectedTotal: expectedLength,
+                ceilingMilliseconds: IntegrationGateConstants.streamCeilingMilliseconds,
                 progress: { [weak self] byteCount in
                     guard let self, !runningPublished else { return }
+                    try IntegrationGateOperationCeiling(
+                        startedAt: progressStartedAt,
+                        ceilingMilliseconds: IntegrationGateConstants.progressCeilingMilliseconds
+                    ).check(at: self.clock.now())
                     guard byteCount > UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes),
                           byteCount < expectedLength
                     else {
@@ -340,38 +353,76 @@ final class IntegrationGateActions {
                     }
                     firstProgressBytes = byteCount
                     runningPublished = true
-                    try? self.writeRunning(
-                        self.result(
-                            verdict: .error,
-                            reason: .none,
-                            httpOutcome: IntegrationGateHTTPOutcome(
-                                statusCode: nil,
-                                errorBucket: nil,
-                                byteCount: byteCount,
-                                durationMillis: 0
-                            ),
-                            accounting: self.accounting(baseline: baseline, final: self.httpClient.activeGateIssuedRequestCount)
+                    do {
+                        try self.writeRunning(
+                            self.result(
+                                verdict: .error,
+                                reason: .none,
+                                httpOutcome: IntegrationGateHTTPOutcome(
+                                    statusCode: nil,
+                                    errorBucket: nil,
+                                    byteCount: byteCount,
+                                    durationMillis: 0
+                                ),
+                                accounting: self.accounting(baseline: baseline, final: self.httpClient.activeGateIssuedRequestCount)
+                            )
                         )
-                    )
+                    } catch {
+                        throw IntegrationGateValidationError(.runningRecordWriteFailed)
+                    }
                 }
             )
             firstCompleted = true
+        } catch let error as IntegrationGateValidationError {
+            firstFailureReason = error.reasonCode
         } catch {
             if firstProgressBytes == 0, runningPublished {
                 firstProgressBytes = UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 1
             }
+            firstFailureReason = .requestFailed
         }
-        let afterFirstCount = httpClient.activeGateIssuedRequestCount
-        let oldClosed = tunnelManager.transportGenerationSnapshot.lastClosedGeneration
-        let retryGeneration = await self.waitForNewGeneration(after: oldGeneration)
+        if firstFailureReason == .runningRecordWriteFailed {
+            return self.result(verdict: .error, reason: .runningRecordWriteFailed, accountingBaseline: baseline)
+        }
+        if firstCompleted {
+            return self.result(verdict: .fail, reason: .completedFirstAttempt, accountingBaseline: baseline)
+        }
+        guard firstProgressBytes > UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes),
+              firstProgressBytes < expectedLength
+        else {
+            return self.result(verdict: .fail, reason: .earlyFault, accountingBaseline: baseline)
+        }
+        if firstFailureReason == .requestTimedOut {
+            return self.result(verdict: .fail, reason: .hungInterruption, accountingBaseline: baseline)
+        }
+        let afterFirstCount = await self.waitForGateIssuedRequestBaseline(baseline)
+        guard afterFirstCount == baseline else {
+            return self.result(verdict: .fail, reason: .releaseProofMissing, accountingBaseline: baseline)
+        }
+        let postWaitSnapshot = await self.waitForNewGeneration(after: oldGeneration)
+        let oldClosed = postWaitSnapshot.lastClosedGeneration
+        let retryGeneration = postWaitSnapshot.activeGeneration
+        guard oldClosed == oldGeneration else {
+            return self.result(verdict: .fail, reason: .oldGenerationNotClosed, accountingBaseline: baseline)
+        }
+        guard let oldGeneration,
+              let retryGeneration,
+              retryGeneration > oldGeneration
+        else {
+            return self.result(verdict: .fail, reason: .sameGenerationRetry, accountingBaseline: baseline)
+        }
         let retryStartedCount = httpClient.activeGateIssuedRequestCount
+        guard retryStartedCount == baseline else {
+            return self.result(verdict: .fail, reason: .overlappingRetry, accountingBaseline: baseline)
+        }
         let retryResponse: IntegrationGateRangeResponse?
         do {
             retryResponse = try await httpClient.rangedStreamingRequest(
                 routeLabel: manifest.action.routeLabel,
                 rangeStart: 0,
                 rangeLength: expectedLength,
-                expectedTotal: expectedLength
+                expectedTotal: expectedLength,
+                ceilingMilliseconds: IntegrationGateConstants.streamCeilingMilliseconds
             )
         } catch {
             retryResponse = nil
@@ -402,6 +453,11 @@ final class IntegrationGateActions {
     }
 
     private func runG4() async -> IntegrationGateActionRunResult {
+        let baseline = httpClient.activeGateIssuedRequestCount
+        await self.ensureConnected()
+        if let candidateFailure = self.relayOnlyIntegrityFailure() {
+            return self.result(verdict: .fail, reason: candidateFailure, accountingBaseline: baseline)
+        }
         let observations = await sampler.collectObservationWindow(
             sampleCount: Int(IntegrationGateConstants.observationWindowMilliseconds / 1_000)
         )
@@ -409,11 +465,17 @@ final class IntegrationGateActions {
         return self.result(
             verdict: classified.0,
             reason: classified.1,
+            accounting: self.accounting(baseline: baseline, final: httpClient.activeGateIssuedRequestCount),
             samples: observations.map(\.sample)
         )
     }
 
     private func runG5() async -> IntegrationGateActionRunResult {
+        let baseline = httpClient.activeGateIssuedRequestCount
+        await self.ensureConnected()
+        if let candidateFailure = self.relayOnlyIntegrityFailure() {
+            return self.result(verdict: .fail, reason: candidateFailure, accountingBaseline: baseline)
+        }
         let observations = await sampler.collectObservationWindow(
             sampleCount: Int(IntegrationGateConstants.observationWindowMilliseconds / 1_000)
         )
@@ -421,6 +483,7 @@ final class IntegrationGateActions {
         return self.result(
             verdict: classified.0,
             reason: classified.1,
+            accounting: self.accounting(baseline: baseline, final: httpClient.activeGateIssuedRequestCount),
             samples: observations.map(\.sample)
         )
     }
@@ -437,16 +500,33 @@ final class IntegrationGateActions {
         }
     }
 
-    private func waitForNewGeneration(after oldGeneration: UInt64?) async -> UInt64? {
+    private func waitForNewGeneration(after oldGeneration: UInt64?) async -> TransportGenerationSnapshot {
         let maxPolls = Int(IntegrationGateConstants.reconnectCeilingMilliseconds / 1_000)
         for _ in 0..<maxPolls {
-            let activeGeneration = tunnelManager.transportGenerationSnapshot.activeGeneration
-            if let oldGeneration, let activeGeneration, activeGeneration > oldGeneration {
-                return activeGeneration
+            let snapshot = tunnelManager.transportGenerationSnapshot
+            if let oldGeneration, let activeGeneration = snapshot.activeGeneration, activeGeneration > oldGeneration {
+                return snapshot
             }
             try? await clock.sleep(for: .seconds(1))
         }
-        return tunnelManager.transportGenerationSnapshot.activeGeneration
+        return tunnelManager.transportGenerationSnapshot
+    }
+
+    private func waitForGateIssuedRequestBaseline(_ baseline: Int) async -> Int {
+        let startedAt = clock.now()
+        while true {
+            let current = httpClient.activeGateIssuedRequestCount
+            if current == baseline {
+                return current
+            }
+            if IntegrationGateOperationCeiling(
+                startedAt: startedAt,
+                ceilingMilliseconds: IntegrationGateConstants.cleanupCeilingMilliseconds
+            ).elapsedMillis(at: clock.now()) > IntegrationGateConstants.cleanupCeilingMilliseconds {
+                return current
+            }
+            try? await clock.sleep(for: .milliseconds(50))
+        }
     }
 
     private func relayOnlyIntegrityFailure() -> IntegrationGateReasonCode? {

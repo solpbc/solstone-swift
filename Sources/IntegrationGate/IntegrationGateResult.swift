@@ -20,7 +20,6 @@ enum IntegrationGateRecordState: String, Codable, Sendable, Equatable {
 
 enum IntegrationGateReasonCode: String, Codable, Sendable, Equatable, CaseIterable {
     case none
-    case notInvoked
     case manifestMissing
     case manifestUnreadable
     case manifestMalformed
@@ -48,8 +47,8 @@ enum IntegrationGateReasonCode: String, Codable, Sendable, Equatable, CaseIterab
     case wrongRelayEndpoint
     case runtimeLanRepopulation
     case selectedLanEndpoint
-    case actionNotImplemented
     case fileWriteFailed
+    case runningRecordWriteFailed
     case noActiveConnection
     case noActiveGeneration
     case canaryFailed

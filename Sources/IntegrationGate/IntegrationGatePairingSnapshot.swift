@@ -48,6 +48,14 @@ struct IntegrationGatePairingSnapshotLoader: Sendable {
         guard let pairing = try keychainStore.load() else {
             throw IntegrationGateValidationError(.zeroPairing)
         }
+        return try self.validateUnchanged(original: original, pairing: pairing, manifest: manifest)
+    }
+
+    func validateUnchanged(
+        original: IntegrationGatePairingSnapshot,
+        pairing: StoredPairing,
+        manifest: IntegrationGateManifest
+    ) throws -> StoredPairing {
         let snapshot = try self.snapshot(pairing: pairing)
         guard snapshot == original else {
             throw IntegrationGateValidationError(.changedPairing)

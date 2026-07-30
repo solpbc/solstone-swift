@@ -66,8 +66,9 @@ build-metadata-bootstrap:
 	} > "$(BUILD_METADATA)"
 
 build-metadata: build-metadata-bootstrap
-	@commit=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
-	metadata=$$(/usr/bin/python3 -c 'import json, sys; data=json.load(open(sys.argv[1])); pin=next((p for p in data.get("pins", []) if p.get("identity") == "spl-swift"), {}); state=pin.get("state", {}); print(state.get("version") or "unknown"); print(state.get("revision") or "unknown")' "$(PACKAGE_RESOLVED)" 2>/dev/null || printf 'unknown\nunknown\n'); \
+	@set -eu; \
+	commit=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
+	metadata=$$(/usr/bin/python3 -c 'import json, sys; data=json.load(open(sys.argv[1])); pin=next((p for p in data.get("pins", []) if p.get("identity") == "spl-swift"), None); state=(pin or {}).get("state", {}); version=state.get("version"); revision=state.get("revision"); assert version and revision, "missing spl-swift package metadata"; print(version); print(revision)' "$(PACKAGE_RESOLVED)"); \
 	version=$$(printf '%s\n' "$$metadata" | sed -n '1p'); \
 	revision=$$(printf '%s\n' "$$metadata" | sed -n '2p'); \
 	{ \
@@ -132,7 +133,7 @@ sim-json: deps
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build 2>&1 | xcsift
 
-sim-ipad: generate
+sim-ipad: deps
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-destination 'platform=iOS Simulator,name=$(SIM_IPAD)' \
@@ -140,7 +141,7 @@ sim-ipad: generate
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build
 
-sim-ipad-json: generate
+sim-ipad-json: deps
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-destination 'platform=iOS Simulator,name=$(SIM_IPAD)' \
@@ -148,7 +149,7 @@ sim-ipad-json: generate
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build 2>&1 | xcsift
 
-watch-sim: generate
+watch-sim: deps
 	xcodebuild -project $(PROJECT) -scheme SolstoneWatch \
 		-skipMacroValidation \
 		-destination 'platform=watchOS Simulator,name=$(SIM_WATCH)' \
@@ -156,7 +157,7 @@ watch-sim: generate
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build
 
-watch-sim-json: generate
+watch-sim-json: deps
 	xcodebuild -project $(PROJECT) -scheme SolstoneWatch \
 		-skipMacroValidation \
 		-destination 'platform=watchOS Simulator,name=$(SIM_WATCH)' \
@@ -169,7 +170,7 @@ sim-launch: sim
 	xcrun simctl install booted $(SIM_APP)
 	xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID)
 
-test: generate
+test: deps
 	@rm -rf build/test-results.xcresult
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
@@ -177,7 +178,7 @@ test: generate
 		-derivedDataPath $(DERIVED) \
 		-resultBundlePath build/test-results.xcresult
 
-ui-test: generate
+ui-test: deps
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
 		-only-testing:solstone-swiftUITests \
 		-skipMacroValidation \
@@ -550,7 +551,7 @@ ci: deps
 		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
 	$(MAKE) ci-watch
 
-ci-watch: generate
+ci-watch: deps
 	PROJECT='$(PROJECT)' SCHEME='SolstoneWatch' DERIVED='$(DERIVED)' \
 		CI_TEST_LANE='watch' CI_SIM_PLATFORM='watchOS Simulator' \
 		CI_SIM_NAME='$(CI_WATCH_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_WATCH_SIM_DEVICETYPE)' \
@@ -583,7 +584,7 @@ test-fast:
 
 # --- Device (requires iPhone connected to Mac) ---
 
-build: generate unlock
+build: deps unlock
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-allowProvisioningUpdates \
@@ -593,7 +594,7 @@ build: generate unlock
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build
 
-release: generate unlock
+release: deps unlock
 	xcodebuild archive -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-configuration Release \
@@ -613,7 +614,7 @@ check-asc-config:
 	@test -f "$(ASC_KEY_PATH)" || { echo "error: ASC API key not found at: $(ASC_KEY_PATH)"; exit 1; }
 
 # Distribution-signed archive (generic iOS; App Store provisioning via the ASC key).
-release-distribution: generate unlock check-asc-config
+release-distribution: deps unlock check-asc-config
 	xcodebuild archive -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-configuration Release \

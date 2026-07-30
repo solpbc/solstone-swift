@@ -54,6 +54,31 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
         XCTAssertEqual(classified.1, .unknownConnectionSyncStatus)
     }
 
+    func testReconnectWindowFailsClosedWhenLanEndpointIsSelected() {
+        let classified = IntegrationGateActionClassifiers.classifyG4(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("connectedIdle", endpointKind: "lan"),
+                Self.observation("reconnecting", endpointKind: "lan"),
+                Self.observation("connectedIdle", endpointKind: "lan"),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .selectedLanEndpoint)
+    }
+
+    func testTransferWindowFailsClosedWhenLanEndpointIsSelected() {
+        let classified = IntegrationGateActionClassifiers.classifyG5(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("connectedTransferring", endpointKind: "lan"),
+                Self.observation("connectedWaiting", endpointKind: "lan"),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .selectedLanEndpoint)
+    }
+
     func testPositiveSampleRequiresSameGenerationTwoHundredCanaryInsideSkew() {
         for reason in [IntegrationGateReasonCode.canaryMissing, .canaryGenerationMismatch, .canarySkewExceeded] {
             let classified = IntegrationGateActionClassifiers.classifyG4(
@@ -80,6 +105,7 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
     private static func observation(
         _ rawStatus: String,
         publishedStatus: String? = nil,
+        endpointKind: String = "remote",
         coBoundFailure: IntegrationGateReasonCode? = nil
     ) -> IntegrationGateSampleObservation {
         let published = publishedStatus ?? rawStatus
@@ -90,7 +116,7 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
                 monotonicMillis: 1,
                 managerConnectionEpoch: 1,
                 transportGeneration: 2,
-                endpointKind: "remote",
+                endpointKind: endpointKind,
                 rawConnectionSyncStatus: rawStatus,
                 publishedConnectionSyncStatus: published,
                 httpStatusCode: nil,

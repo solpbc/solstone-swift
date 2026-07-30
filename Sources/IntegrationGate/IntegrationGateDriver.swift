@@ -14,13 +14,6 @@ struct IntegrationGateDependencies {
     let tunnelManager: TunnelManager
     let transport: CFTunnelTransport
     let connectionSyncModel: ConnectionSyncModel
-
-    func probeLiveness() async -> Bool {
-        guard let result = await tunnelManager.probeConnection() else {
-            return false
-        }
-        return result.alive
-    }
 }
 
 @MainActor

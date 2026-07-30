@@ -82,12 +82,36 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
         XCTAssertEqual(summary.returnedDirectCandidateCount, 0)
         XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 1)
+
+        let result = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
+        XCTAssertEqual(result.verdict, .fail)
+        XCTAssertEqual(result.reasonCode, .runtimeLanRepopulation)
         await manager.disconnect()
     }
 
     func testPairingValidationFailClosedCases() throws {
         let loader = IntegrationGatePairingSnapshotLoader()
         let manifest = Self.manifest()
+
+        let store = SPLKeychainStore(
+            policy: KeychainPolicy(
+                service: "app.solstone.swift.tests.integration-gate.\(UUID().uuidString)",
+                account: "zero-pairing",
+                accessGroup: nil,
+                useDataProtectionKeychain: false,
+                accessibility: .afterFirstUnlock
+            )
+        )
+        defer { try? store.delete() }
+        try? store.delete()
+        XCTAssertThrowsError(try loader.loadValidatedPairing(for: manifest, keychainStore: store)) { error in
+            XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .zeroPairing)
+        }
+
+        let original = try loader.validatedSnapshot(pairing: Self.pairing(), manifest: manifest)
+        XCTAssertThrowsError(try loader.validateUnchanged(original: original, pairing: Self.pairing(relayEndpoint: "https://example.test"), manifest: manifest)) { error in
+            XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .changedPairing)
+        }
 
         XCTAssertThrowsError(try loader.validatedSnapshot(pairing: Self.pairing(instanceID: "foreign"), manifest: manifest)) { error in
             XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .foreignPairing)
@@ -106,12 +130,40 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         }
     }
 
-    private static func manifest() -> IntegrationGateManifest {
+    func testG4AndG5ActionVerdictsFailWhenLanEndpointIsSelected() async throws {
+        IntegrationGateRelayOnlyURLProtocol.reset()
+        defer { IntegrationGateRelayOnlyURLProtocol.reset() }
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: Self.emptyLocalEndpointsSession())
+        let pairing = Self.pairing()
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: cache,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+
+        manager.installIntegrationGateRelayOnlyCandidatePolicy()
+        await manager.connect()
+
+        let reconnect = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
+        XCTAssertEqual(reconnect.verdict, .fail)
+        XCTAssertEqual(reconnect.reasonCode, .selectedLanEndpoint)
+
+        let transfer = await Self.actionResult(manager: manager, action: .syncTransferWindow)
+        XCTAssertEqual(transfer.verdict, .fail)
+        XCTAssertEqual(transfer.reasonCode, .selectedLanEndpoint)
+        await manager.disconnect()
+    }
+
+    private static func manifest(action: IntegrationGateAction = .canary) -> IntegrationGateManifest {
         IntegrationGateManifest(
             schemaVersion: IntegrationGateConstants.schemaVersion,
             sequence: 1,
             nonce: "synthetic-gate-nonce",
-            action: .canary,
+            action: action,
             createdAtUnixMillis: 1,
             expiresAtUnixMillis: 2_000,
             expectedPairing: .init(
@@ -175,6 +227,58 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("json")
+    }
+
+    private static func emptyLocalEndpointsSession() -> URLSession {
+        IntegrationGateRelayOnlyURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"local_endpoints":[]}"#.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [IntegrationGateRelayOnlyURLProtocol.self]
+        return URLSession(configuration: configuration)
+    }
+
+    private static func actionResult(
+        manager: TunnelManager,
+        action: IntegrationGateAction
+    ) async -> IntegrationGateActionRunResult {
+        let clock = MockObserverClock()
+        let httpClient = IntegrationGateHTTPClient(
+            tunnelManager: manager,
+            session: Self.emptyLocalEndpointsSession(),
+            now: { clock.now() }
+        )
+        let sync = ConnectionSyncModel(clock: clock) {
+            ConnectionSyncInputs(
+                tunnelState: manager.state,
+                reconnectCountdown: manager.reconnectCountdown,
+                isNetworkSatisfied: manager.isNetworkSatisfied,
+                confirmedTransferCount: 0,
+                recentBytesPerSecond: 0,
+                backlogPending: 0,
+                backlogFailed: 0
+            )
+        }
+        let sampler = IntegrationGateSampler(
+            tunnelManager: manager,
+            connectionSyncModel: sync,
+            httpClient: httpClient,
+            clock: clock
+        )
+        let actions = IntegrationGateActions(
+            tunnelManager: manager,
+            httpClient: httpClient,
+            sampler: sampler,
+            clock: clock,
+            writeRunning: { _ in }
+        )
+        return await actions.run(manifest: Self.manifest(action: action))
     }
 
     private static func waitForPostConnectDirectCount(_ manager: TunnelManager, expected: Int) async throws {

@@ -15,6 +15,11 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         XCTAssertEqual(classified.1, .none)
     }
 
+    func testCanaryActionUsesRealHomePulseRoute() {
+        XCTAssertEqual(IntegrationGateAction.canary.routeLabel, .homePulse)
+        XCTAssertEqual(IntegrationGateAction.canary.routeLabel.path, IntegrationGateConstants.homePulsePath)
+    }
+
     func testLanEndpointFailsClosed() {
         let classified = IntegrationGateActionClassifiers.classifyG1(Self.facts(endpointKind: "lan"))
 

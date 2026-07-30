@@ -74,6 +74,22 @@ struct IntegrationGateRangeResponse: Sendable, Equatable {
     var sha256Hex: String
 }
 
+struct IntegrationGateOperationCeiling: Sendable, Equatable {
+    var startedAt: Date
+    var ceilingMilliseconds: UInt64
+
+    func check(at now: Date) throws {
+        let ceilingSeconds = TimeInterval(ceilingMilliseconds) / 1_000
+        guard now.timeIntervalSince(startedAt) <= ceilingSeconds else {
+            throw IntegrationGateValidationError(.requestTimedOut)
+        }
+    }
+
+    func elapsedMillis(at now: Date) -> UInt64 {
+        IntegrationGateHTTPClient.durationMillis(from: startedAt, to: now)
+    }
+}
+
 @MainActor
 final class IntegrationGateHTTPClient {
     private let tunnelManager: TunnelManager
@@ -91,15 +107,24 @@ final class IntegrationGateHTTPClient {
         self.now = now
     }
 
-    func canary() async -> IntegrationGateHTTPOutcome {
+    func canary(routeLabel: IntegrationGateRouteLabel) async -> IntegrationGateHTTPOutcome {
         let startedAt = self.now()
+        let ceiling = IntegrationGateOperationCeiling(
+            startedAt: startedAt,
+            ceilingMilliseconds: IntegrationGateConstants.canaryCeilingMilliseconds
+        )
         do {
-            let request = try self.request(for: .gateCanary)
+            let request = try self.request(
+                for: routeLabel,
+                timeoutMilliseconds: IntegrationGateConstants.canaryCeilingMilliseconds
+            )
             self.activeGateIssuedRequestCount += 1
             defer {
                 self.activeGateIssuedRequestCount -= 1
             }
+            try ceiling.check(at: self.now())
             let (_, response) = try await session.data(for: request)
+            try ceiling.check(at: self.now())
             let statusCode = (response as? HTTPURLResponse)?.statusCode
             return IntegrationGateHTTPOutcome(
                 statusCode: statusCode,
@@ -136,10 +161,15 @@ final class IntegrationGateHTTPClient {
         rangeStart: UInt64,
         rangeLength: UInt64,
         expectedTotal: UInt64,
-        progress: (@MainActor (UInt64) async -> Void)? = nil
+        ceilingMilliseconds: UInt64 = IntegrationGateConstants.streamCeilingMilliseconds,
+        progress: (@MainActor (UInt64) async throws -> Void)? = nil
     ) async throws -> IntegrationGateRangeResponse {
         let startedAt = self.now()
-        var request = try self.request(for: routeLabel)
+        let ceiling = IntegrationGateOperationCeiling(
+            startedAt: startedAt,
+            ceilingMilliseconds: ceilingMilliseconds
+        )
+        var request = try self.request(for: routeLabel, timeoutMilliseconds: ceilingMilliseconds)
         guard rangeLength > 0,
               rangeStart <= UInt64.max - (rangeLength - 1)
         else {
@@ -153,7 +183,9 @@ final class IntegrationGateHTTPClient {
             self.activeGateIssuedRequestCount -= 1
         }
 
+        try ceiling.check(at: self.now())
         let (bytes, response) = try await session.bytes(for: request)
+        try ceiling.check(at: self.now())
         guard let httpResponse = response as? HTTPURLResponse else {
             throw IntegrationGateValidationError(.requestFailed)
         }
@@ -185,6 +217,7 @@ final class IntegrationGateHTTPClient {
         var buffer: [UInt8] = []
         buffer.reserveCapacity(16 * 1024)
         for try await byte in bytes {
+            try ceiling.check(at: self.now())
             byteCount += 1
             buffer.append(byte)
             if buffer.count == 16 * 1024 {
@@ -192,9 +225,10 @@ final class IntegrationGateHTTPClient {
                 buffer.removeAll(keepingCapacity: true)
             }
             if let progress {
-                await progress(byteCount)
+                try await progress(byteCount)
             }
         }
+        try ceiling.check(at: self.now())
         if !buffer.isEmpty {
             hasher.update(data: Data(buffer))
         }
@@ -211,7 +245,7 @@ final class IntegrationGateHTTPClient {
         )
     }
 
-    private func request(for routeLabel: IntegrationGateRouteLabel) throws -> URLRequest {
+    private func request(for routeLabel: IntegrationGateRouteLabel, timeoutMilliseconds: UInt64) throws -> URLRequest {
         guard let activeConnection = tunnelManager.activeConnection else {
             throw IntegrationGateValidationError(.noActiveConnection)
         }
@@ -223,10 +257,14 @@ final class IntegrationGateHTTPClient {
         guard let url = components.url else {
             throw IntegrationGateValidationError(.malformedRouteInput)
         }
-        return URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30)
+        return URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: TimeInterval(timeoutMilliseconds) / 1_000
+        )
     }
 
-    private static func durationMillis(from start: Date, to end: Date) -> UInt64 {
+    nonisolated static func durationMillis(from start: Date, to end: Date) -> UInt64 {
         UInt64(max(0, Int64((end.timeIntervalSince1970 - start.timeIntervalSince1970) * 1_000)))
     }
 }

@@ -27,8 +27,15 @@ final class IntegrationGateCompositionTests: XCTestCase {
         XCTAssertTrue(appText.contains("transport: transport"))
         XCTAssertTrue(appText.contains("connectionSyncModel: connectionSyncModel"))
 
-        let driverText = try Self.sourceText("Sources/IntegrationGate/IntegrationGateDriver.swift")
-        XCTAssertTrue(driverText.contains("tunnelManager.probeConnection()"))
+        let httpText = try Self.sourceText("Sources/IntegrationGate/IntegrationGateHTTPClient.swift")
+        XCTAssertTrue(httpText.contains("tunnelManager.activeConnection"))
+        XCTAssertTrue(httpText.contains("components.path = routeLabel.path"))
+
+        let actionsText = try Self.sourceText("Sources/IntegrationGate/IntegrationGateActions.swift")
+        XCTAssertTrue(actionsText.contains("httpClient.canary(routeLabel: .homePulse)"))
+
+        let samplerText = try Self.sourceText("Sources/IntegrationGate/IntegrationGateSampler.swift")
+        XCTAssertTrue(samplerText.contains("httpClient.canary(routeLabel: .networkStatus)"))
     }
 
     private static func sourceText(_ relativePath: String) throws -> String {

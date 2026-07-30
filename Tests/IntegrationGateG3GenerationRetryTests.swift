@@ -23,6 +23,16 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
         XCTAssertEqual(classified.1, .earlyFault)
     }
 
+    func testProgressAtOrBeyondTotalFailsBeforeRetry() {
+        let total = UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 64
+        let classified = IntegrationGateActionClassifiers.classifyG3(
+            Self.facts(firstProgressBytes: total, expectedContentLength: total)
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .earlyFault)
+    }
+
     func testCompletedFirstAttemptFails() {
         let classified = IntegrationGateActionClassifiers.classifyG3(
             Self.facts(firstAttemptCompleted: true)
@@ -92,6 +102,22 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
         XCTAssertEqual(facts.activeGateIssuedRequestBaseline, 0)
         XCTAssertEqual(facts.activeGateIssuedRequestAfterFirstAttempt, 0)
         XCTAssertEqual(facts.activeGateIssuedRequestFinal, 0)
+    }
+
+    func testRunningRecordWriteFailureReasonIsTerminalErrorOnly() {
+        let result = IntegrationGateActionRunResult(
+            verdict: .error,
+            reasonCode: .runningRecordWriteFailed,
+            httpOutcome: nil,
+            accounting: .zero,
+            samples: [],
+            generation: IntegrationGateResultGeneration(currentGeneration: 1, activeGeneration: 1, lastClosedGeneration: nil),
+            transportStages: [],
+            reconnectReasonBuckets: []
+        )
+
+        XCTAssertEqual(result.verdict, .error)
+        XCTAssertEqual(result.reasonCode, .runningRecordWriteFailed)
     }
 
     private static func facts(

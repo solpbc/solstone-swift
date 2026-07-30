@@ -83,6 +83,22 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
         XCTAssertEqual(classified.1, .requestTimedOut)
     }
 
+    func testStreamExceedingDeclaredCeilingTerminatesUnsuccessfullyWithFakeClock() {
+        let clock = MockObserverClock()
+        let ceiling = IntegrationGateOperationCeiling(
+            startedAt: clock.now(),
+            ceilingMilliseconds: IntegrationGateConstants.streamCeilingMilliseconds
+        )
+
+        clock.advance(by: TimeInterval(IntegrationGateConstants.streamCeilingMilliseconds) / 1_000)
+        XCTAssertNoThrow(try ceiling.check(at: clock.now()))
+
+        clock.advance(by: 0.001)
+        XCTAssertThrowsError(try ceiling.check(at: clock.now())) { error in
+            XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .requestTimedOut)
+        }
+    }
+
     func testMalformedRangeFailsWithInvalidRangeReason() {
         let classified = IntegrationGateActionClassifiers.classifyG2(
             Self.facts(statusCode: nil, errorBucket: IntegrationGateReasonCode.invalidRange.rawValue)

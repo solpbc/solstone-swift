@@ -56,7 +56,7 @@ final class IntegrationGateSampler {
 
         var canary = boundCanary
         if needsCanary, canary == nil {
-            let outcome = await httpClient.canary()
+            let outcome = await httpClient.canary(routeLabel: .networkStatus)
             canary = IntegrationGateCanaryRecord(
                 generationBefore: generationBeforeCanary,
                 generationAfter: tunnelManager.transportGenerationSnapshot.activeGeneration,
@@ -107,19 +107,6 @@ final class IntegrationGateSampler {
             }
         }
         return observations
-    }
-
-    func canaryRecord() async -> (IntegrationGateCanaryRecord, IntegrationGateHTTPOutcome) {
-        let generationBefore = tunnelManager.transportGenerationSnapshot.activeGeneration
-        let outcome = await httpClient.canary()
-        let record = IntegrationGateCanaryRecord(
-            generationBefore: generationBefore,
-            generationAfter: tunnelManager.transportGenerationSnapshot.activeGeneration,
-            statusCode: outcome.statusCode,
-            completedAtMonotonicMillis: self.monotonicMillis(),
-            durationMillis: outcome.durationMillis
-        )
-        return (record, outcome)
     }
 
     private func monotonicMillis() -> UInt64 {

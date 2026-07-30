@@ -23,6 +23,14 @@ enum IntegrationGateConstants {
     static let progressCeilingMilliseconds: UInt64 = 30_000
     static let reconnectCeilingMilliseconds: UInt64 = 60_000
     static let observationWindowMilliseconds: UInt64 = 20_000
+    static let networkStatusPath = "/app/network/api/status"
+    static let homePulsePath = "/app/home/api/pulse"
+    // Extro-tools coordinator home fixture contract only. This is not an
+    // existing journal route; live G2 cannot run until that fixture serves it.
+    static let coordinatorRangeFixturePath = "/app/integration-gate/range"
+    // Extro-tools coordinator home fixture contract only. This is not an
+    // existing journal route; live G3 cannot run until that fixture serves it.
+    static let coordinatorRetryFixturePath = "/app/integration-gate/retry"
 
     // Mirrors spl-swift Sources/SPLTunnel/Mux/MuxStream.swift:6 MuxConstants.initialCredit.
     // MuxConstants is internal, so the app cannot read that value directly.
@@ -43,31 +51,21 @@ enum IntegrationGateConstants {
 
 enum IntegrationGateRouteLabel: String, Codable, CaseIterable, Sendable, Equatable {
     case networkStatus
-    case gateCanary
+    case homePulse
     case gateRange
     case gateRetry
 
     var path: String {
         switch self {
         case .networkStatus:
-            return "/app/network/api/status"
-        case .gateCanary:
-            return "/app/integration-gate/canary"
+            return IntegrationGateConstants.networkStatusPath
+        case .homePulse:
+            return IntegrationGateConstants.homePulsePath
         case .gateRange:
-            return "/app/integration-gate/range"
+            return IntegrationGateConstants.coordinatorRangeFixturePath
         case .gateRetry:
-            return "/app/integration-gate/retry"
+            return IntegrationGateConstants.coordinatorRetryFixturePath
         }
-    }
-
-    static func validateRouteInput(_ value: String) throws -> IntegrationGateRouteLabel {
-        if value.contains("://") || value.contains("/") || value.contains("..") {
-            throw IntegrationGateValidationError(.malformedRouteInput)
-        }
-        guard let label = IntegrationGateRouteLabel(rawValue: value) else {
-            throw IntegrationGateValidationError(.unknownAction)
-        }
-        return label
     }
 }
 
@@ -81,7 +79,7 @@ enum IntegrationGateAction: String, Codable, CaseIterable, Sendable, Equatable {
     var routeLabel: IntegrationGateRouteLabel {
         switch self {
         case .canary:
-            return .gateCanary
+            return .homePulse
         case .rangeHash:
             return .gateRange
         case .generationRetry:
