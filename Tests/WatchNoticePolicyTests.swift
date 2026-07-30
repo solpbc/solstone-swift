@@ -148,8 +148,12 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
             SourceVocabulary.watchStatusAudioOutcomeLabel,
             SourceVocabulary.watchStatusAudioOutcomeOwnerStopped,
         ] {
-            XCTAssertFalse(string.contains("capture"))
-            XCTAssertFalse(string.contains("server"))
+            for word in Self.ownerVisibleForbiddenWords {
+                XCTAssertFalse(
+                    string.localizedCaseInsensitiveContains(word),
+                    "\"\(string)\" contains forbidden word \"\(word)\""
+                )
+            }
         }
     }
 
@@ -218,6 +222,19 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
 }
 
 private extension WatchNoticePolicyTests {
+    static let ownerVisibleForbiddenWords = [
+        "capture",
+        "record",
+        "recording",
+        "monitor",
+        "track",
+        "collect",
+        "keeper",
+        "assistant",
+        "server",
+        "service",
+    ]
+
     static let terminalDispositions: [WatchCaptureTerminalDisposition] = [
         .ownerStopped,
         .detectedStoppedItself,
