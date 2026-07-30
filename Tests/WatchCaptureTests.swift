@@ -669,6 +669,7 @@ final class WatchCaptureTests: XCTestCase {
             .needsAttention(.unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable))
         )
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.locationProvider.stopCallCount, 1)
         let stateWord = watchFaceModel(for: harness.engine.ownerPresentation, isReachable: true).stateWord
         XCTAssertEqual(stateWord, SourceVocabulary.watchMicrophoneUnavailable)
         XCTAssertFalse(stateWord.contains("unavailable("))
@@ -736,6 +737,8 @@ final class WatchCaptureTests: XCTestCase {
 
         await harness.engine.start()
         harness.locationProvider.emitFailure(NSError(domain: "WatchCaptureTests.location", code: 1))
+        XCTAssertEqual(harness.engine.ownerPresentation.locationAdvisory, .providerFailed)
+        await harness.engine.stop()
         XCTAssertEqual(harness.engine.ownerPresentation.locationAdvisory, .providerFailed)
         await harness.engine.start()
         XCTAssertEqual(harness.engine.ownerPresentation.locationAdvisory, .providerFailed)
@@ -821,6 +824,57 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
         XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
         XCTAssertTrue(fileWriter.atomicReplaceURLs.contains(harness.storage.sessionRecordURL()))
+    }
+
+    func testReconcileActiveRecordWriteFailurePublishesPersistenceAdvisory() async throws {
+        let fileWriter = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(fileWriter: fileWriter)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: Date(timeIntervalSince1970: 1_713_624_000),
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try harness.storage.writeSessionRecord(record)
+        fileWriter.failAtomicReplace = true
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        await harness.engine.reconcileOnLaunch()
+
+        XCTAssertEqual(statuses.last?.audioTerminalReason, .processExitedWhileActive)
+        XCTAssertEqual(statuses.last?.audioTerminalDisposition, .inferredStoppedItself)
+        XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
+    }
+
+    func testTerminalStorageFailureStillPublishesAndPreservesTerminalFact() async throws {
+        let fileWriter = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: fileWriter)
+        var statuses: [WatchStatusContext] = []
+        var presentations: [WatchCaptureOwnerPresentation] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+        harness.engine.onPresentationChanged = { presentations.append($0) }
+
+        await harness.engine.start()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+        statuses.removeAll()
+        presentations.removeAll()
+        fileWriter.failWriteData = true
+        await harness.engine.stop()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .ownerStopped)
+        XCTAssertEqual(record.terminalDisposition, .ownerStopped)
+        XCTAssertNotNil(record.terminalAt)
+        XCTAssertFalse(record.noticeOwed)
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        XCTAssertEqual(statuses.last?.phase, .idle)
+        XCTAssertEqual(statuses.last?.audioTerminalReason, .ownerStopped)
+        XCTAssertTrue(presentations.contains { !$0.isSessionRunning && $0.status == .off })
+        XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
     }
 
     func testUndecodableSessionRecordResolvesUncleanWithNoticeOwed() async throws {
@@ -1313,15 +1367,22 @@ private final class FailingWatchFileWriter: WatchFileWriting {
     private let base = FoundationWatchFileWriter()
     private let failAppend: Bool
     private let failContents: Bool
-    private let failAtomicReplace: Bool
+    var failAtomicReplace: Bool
+    var failWriteData: Bool
     var writeDataURLs: [URL] = []
     var readDataURLs: [URL] = []
     var atomicReplaceURLs: [URL] = []
 
-    init(failAppend: Bool, failContents: Bool = false, failAtomicReplace: Bool = false) {
+    init(
+        failAppend: Bool,
+        failContents: Bool = false,
+        failAtomicReplace: Bool = false,
+        failWriteData: Bool = false
+    ) {
         self.failAppend = failAppend
         self.failContents = failContents
         self.failAtomicReplace = failAtomicReplace
+        self.failWriteData = failWriteData
     }
 
     func createDirectory(at url: URL) throws {
@@ -1343,6 +1404,9 @@ private final class FailingWatchFileWriter: WatchFileWriting {
 
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         self.writeDataURLs.append(url)
+        if self.failWriteData {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        }
         try self.base.writeData(data, to: url, options: options)
     }
 

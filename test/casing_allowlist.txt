@@ -68,7 +68,6 @@ BLEDiagnosticModels.swift|STORAGE_NOT_READY
 
 # Watch sol-mark asset catalog names (routed through imageName(for:) helper, not inline Image("…"))
 WatchHomeView.swift|SolRingActive
-WatchHomeView.swift|SolRingPaused
 WatchHomeView.swift|SolRingAlert
 
 # Watch complication sol-mark asset catalog names (routed through watchComplicationMarkAssetName(for:), not inline Image("…"))

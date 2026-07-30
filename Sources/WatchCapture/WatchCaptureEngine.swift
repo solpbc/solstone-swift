@@ -281,7 +281,6 @@ private extension WatchCaptureEngine {
         self.terminalReason = nil
         self.terminalDisposition = nil
         self.noticeRecordToClear = nil
-        self.locationAdvisory = nil
         self.persistenceAdvisory = nil
         self.lastAudioCurrentTime = nil
     }
@@ -323,6 +322,9 @@ private extension WatchCaptureEngine {
         self.currentSessionID = nil
         self.sessionStartedAt = nil
         self.audioArmed = false
+        if self.locationArmed {
+            self.locationProvider.stop()
+        }
         self.locationArmed = false
         if self.audioSessionIsActive {
             try? self.audioSession.setActive(false, options: [])
@@ -923,7 +925,12 @@ private extension WatchCaptureEngine {
                 record.terminalDisposition = .inferredStoppedItself
                 record.terminalAt = terminalAt
                 record.noticeOwed = true
-                try? self.storage.writeSessionRecord(record)
+                do {
+                    try self.storage.writeSessionRecord(record)
+                } catch {
+                    watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
+                    self.persistenceAdvisory = .sessionRecordWriteFailed
+                }
                 self.noticeRecordToClear = record
             case .terminal:
                 if record.terminalDisposition == .ownerStopped {
@@ -956,7 +963,12 @@ private extension WatchCaptureEngine {
                 terminalAt: now,
                 noticeOwed: true
             )
-            try? self.storage.writeSessionRecord(record)
+            do {
+                try self.storage.writeSessionRecord(record)
+            } catch {
+                watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
+                self.persistenceAdvisory = .sessionRecordWriteFailed
+            }
             self.noticeRecordToClear = record
         }
     }

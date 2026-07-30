@@ -54,6 +54,40 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
         XCTAssertTrue(body.contains("AVAudioApplication.requestRecordPermission"))
     }
 
+    func testCurrentTimeReadsLiveRecorderState() throws {
+        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let body = try self.section(
+            from: "var currentTime: TimeInterval",
+            to: "var isRecording: Bool",
+            in: path
+        )
+
+        XCTAssertTrue(body.contains("self.recorder?.currentTime"))
+    }
+
+    func testIsRecordingReadsLiveRecorderState() throws {
+        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let body = try self.section(
+            from: "var isRecording: Bool",
+            to: "var microphonePermission: WatchMicrophonePermission",
+            in: path
+        )
+
+        XCTAssertTrue(body.contains("self.recorder?.isRecording"))
+    }
+
+    func testRouteSuitabilityReadsLiveAudioSessionInputState() throws {
+        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let body = try self.section(
+            from: "var hasSuitableInput: Bool",
+            to: "func setCategory(",
+            in: path
+        )
+
+        XCTAssertTrue(body.contains("self.session.isInputAvailable"))
+        XCTAssertTrue(body.contains("self.session.currentRoute.inputs.isEmpty"))
+    }
+
     func testNoPauseResumeAudioSurface() throws {
         let files = [
             "Sources/WatchCapture/WatchCaptureProtocols.swift",

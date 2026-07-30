@@ -198,13 +198,6 @@ nonisolated enum WatchCaptureRuntimeStatus: Equatable, Sendable {
     case enrolling
     case active
     case needsAttention(ObserverError)
-
-    var needsAttention: Bool {
-        if case .needsAttention = self {
-            return true
-        }
-        return false
-    }
 }
 
 nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
