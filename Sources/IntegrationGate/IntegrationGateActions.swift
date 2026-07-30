@@ -458,9 +458,34 @@ final class IntegrationGateActions {
         if let candidateFailure = self.relayOnlyIntegrityFailure() {
             return self.result(verdict: .fail, reason: candidateFailure, accountingBaseline: baseline)
         }
-        let observations = await sampler.collectObservationWindow(
-            sampleCount: Int(IntegrationGateConstants.observationWindowMilliseconds / 1_000)
-        )
+        let sampleCount = Int(IntegrationGateConstants.observationWindowMilliseconds / 1_000)
+        var observations: [IntegrationGateSampleObservation] = []
+        observations.reserveCapacity(sampleCount)
+        for index in 0..<sampleCount {
+            observations.append(await sampler.captureSample(sampleIndex: UInt64(index)))
+            if index < sampleCount - 1 {
+                do {
+                    try self.writeRunning(
+                        self.result(
+                            verdict: .error,
+                            reason: .none,
+                            accounting: self.accounting(
+                                baseline: baseline,
+                                final: httpClient.activeGateIssuedRequestCount
+                            ),
+                            samples: observations.map(\.sample)
+                        )
+                    )
+                } catch {
+                    return self.result(
+                        verdict: .error,
+                        reason: .runningRecordWriteFailed,
+                        accountingBaseline: baseline
+                    )
+                }
+                try? await clock.sleep(for: .seconds(1))
+            }
+        }
         let classified = IntegrationGateActionClassifiers.classifyG4(IntegrationGateWindowFacts(observations: observations))
         return self.result(
             verdict: classified.0,
