@@ -23,6 +23,12 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
         XCTAssertTrue(IntegrationGateDriver.shouldRun(arguments: ["app", IntegrationGateConstants.launchArgument]))
     }
 
+    func testManifestPollingProcessesOnlyNewSequences() {
+        XCTAssertTrue(IntegrationGateDriver.shouldProcess(sequence: 1, after: nil))
+        XCTAssertFalse(IntegrationGateDriver.shouldProcess(sequence: 1, after: 1))
+        XCTAssertTrue(IntegrationGateDriver.shouldProcess(sequence: 2, after: 1))
+    }
+
     func testMalformedManifestWritesOneSanitizedCorrelatedError() async throws {
         let store = IntegrationGateFileStore()
         let directory = try IntegrationGateConstants.gateDirectoryURL()
@@ -32,7 +38,7 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
         let driver = IntegrationGateDriver(dependencies: Self.dependencies(), fileStore: store) {
             Date(timeIntervalSince1970: 1_000)
         }
-        await driver.run()
+        await driver.runOnce()
 
         let data = try XCTUnwrap(store.readPriorResultData())
         let result = try JSONDecoder().decode(IntegrationGateResult.self, from: data)

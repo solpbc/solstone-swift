@@ -18,6 +18,12 @@ struct IntegrationGateDependencies {
 
 @MainActor
 final class IntegrationGateDriver {
+    private enum PollResult {
+        case idle
+        case processed(UInt64)
+        case fatal
+    }
+
     private let dependencies: IntegrationGateDependencies
     private let fileStore: IntegrationGateFileStore
     private let pairingLoader: IntegrationGatePairingSnapshotLoader
@@ -40,11 +46,40 @@ final class IntegrationGateDriver {
     }
 
     func run() async {
+        var lastProcessedSequence: UInt64?
+        while !Task.isCancelled {
+            switch await self.processNextManifest(after: lastProcessedSequence) {
+            case .idle:
+                try? await Task.sleep(for: .milliseconds(100))
+            case let .processed(sequence):
+                lastProcessedSequence = sequence
+            case .fatal:
+                return
+            }
+        }
+    }
+
+    func runOnce() async {
+        _ = await self.processNextManifest(after: nil)
+    }
+
+    static func shouldProcess(sequence: UInt64, after lastProcessedSequence: UInt64?) -> Bool {
+        sequence != lastProcessedSequence
+    }
+
+    private func processNextManifest(after lastProcessedSequence: UInt64?) async -> PollResult {
         let startedAt = Self.unixMillis(now())
         do {
             let manifestData = try fileStore.readManifestData()
             let manifest = try IntegrationGateManifest.decodeAndValidate(manifestData)
+            guard Self.shouldProcess(
+                sequence: manifest.sequence,
+                after: lastProcessedSequence
+            ) else {
+                return .idle
+            }
             await self.run(manifest: manifest, startedAtUnixMillis: startedAt)
+            return .processed(manifest.sequence)
         } catch let error as IntegrationGateValidationError {
             let updatedAt = Self.unixMillis(now())
             self.writeBestEffortError(
@@ -56,6 +91,7 @@ final class IntegrationGateDriver {
                 startedAtUnixMillis: startedAt,
                 updatedAtUnixMillis: updatedAt
             )
+            return .fatal
         } catch {
             let updatedAt = Self.unixMillis(now())
             self.writeBestEffortError(
@@ -67,6 +103,7 @@ final class IntegrationGateDriver {
                 startedAtUnixMillis: startedAt,
                 updatedAtUnixMillis: updatedAt
             )
+            return .fatal
         }
     }
 

@@ -275,7 +275,7 @@ final class IntegrationGateManifestCorrelationTests: XCTestCase {
         let driver = IntegrationGateDriver(dependencies: Self.dependencies(), fileStore: store) {
             Date(timeIntervalSince1970: 1)
         }
-        await driver.run()
+        await driver.runOnce()
 
         let resultData = try XCTUnwrap(store.readPriorResultData())
         let result = try JSONDecoder().decode(IntegrationGateResult.self, from: resultData)
