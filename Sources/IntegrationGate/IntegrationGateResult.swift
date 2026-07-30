@@ -219,16 +219,44 @@ struct IntegrationGateResultPairingSnapshot: Codable, Sendable, Equatable {
 }
 
 struct IntegrationGateResultGeneration: Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case currentGeneration
+        case activeGeneration
+        case lastClosedGeneration
+    }
+
     var currentGeneration: UInt64
     var activeGeneration: UInt64?
     var lastClosedGeneration: UInt64?
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(currentGeneration, forKey: .currentGeneration)
+        try container.encode(activeGeneration, forKey: .activeGeneration)
+        try container.encode(lastClosedGeneration, forKey: .lastClosedGeneration)
+    }
 }
 
 struct IntegrationGateHTTPOutcome: Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case statusCode
+        case errorBucket
+        case byteCount
+        case durationMillis
+    }
+
     var statusCode: Int?
     var errorBucket: String?
     var byteCount: UInt64
     var durationMillis: UInt64
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(statusCode, forKey: .statusCode)
+        try container.encode(errorBucket, forKey: .errorBucket)
+        try container.encode(byteCount, forKey: .byteCount)
+        try container.encode(durationMillis, forKey: .durationMillis)
+    }
 }
 
 struct IntegrationGateAccounting: Codable, Sendable, Equatable {
@@ -244,6 +272,28 @@ struct IntegrationGateAccounting: Codable, Sendable, Equatable {
 }
 
 struct IntegrationGateSample: Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case sampleIndex
+        case wallClockUnixMillis
+        case monotonicMillis
+        case managerConnectionEpoch
+        case transportGeneration
+        case endpointKind
+        case rawConnectionSyncStatus
+        case publishedConnectionSyncStatus
+        case httpStatusCode
+        case httpErrorBucket
+        case requestDurationMillis
+        case reconnectCount
+        case activeGateIssuedRequestCount
+        case activeProductionUploadCount
+        case transportStage
+        case reconnectReasonBucket
+        case canaryGeneration
+        case canaryStatusCode
+        case canarySkewMillis
+    }
+
     var sampleIndex: UInt64
     var wallClockUnixMillis: Int64
     var monotonicMillis: UInt64
@@ -263,6 +313,29 @@ struct IntegrationGateSample: Codable, Sendable, Equatable {
     var canaryGeneration: UInt64?
     var canaryStatusCode: Int?
     var canarySkewMillis: UInt64?
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sampleIndex, forKey: .sampleIndex)
+        try container.encode(wallClockUnixMillis, forKey: .wallClockUnixMillis)
+        try container.encode(monotonicMillis, forKey: .monotonicMillis)
+        try container.encode(managerConnectionEpoch, forKey: .managerConnectionEpoch)
+        try container.encode(transportGeneration, forKey: .transportGeneration)
+        try container.encode(endpointKind, forKey: .endpointKind)
+        try container.encode(rawConnectionSyncStatus, forKey: .rawConnectionSyncStatus)
+        try container.encode(publishedConnectionSyncStatus, forKey: .publishedConnectionSyncStatus)
+        try container.encode(httpStatusCode, forKey: .httpStatusCode)
+        try container.encode(httpErrorBucket, forKey: .httpErrorBucket)
+        try container.encode(requestDurationMillis, forKey: .requestDurationMillis)
+        try container.encode(reconnectCount, forKey: .reconnectCount)
+        try container.encode(activeGateIssuedRequestCount, forKey: .activeGateIssuedRequestCount)
+        try container.encode(activeProductionUploadCount, forKey: .activeProductionUploadCount)
+        try container.encode(transportStage, forKey: .transportStage)
+        try container.encode(reconnectReasonBucket, forKey: .reconnectReasonBucket)
+        try container.encode(canaryGeneration, forKey: .canaryGeneration)
+        try container.encode(canaryStatusCode, forKey: .canaryStatusCode)
+        try container.encode(canarySkewMillis, forKey: .canarySkewMillis)
+    }
 }
 
 struct IntegrationGatePriorResult: Decodable, Sendable, Equatable {

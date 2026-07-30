@@ -102,6 +102,97 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
         XCTAssertTrue(object["httpOutcome"] is NSNull)
     }
 
+    func testNestedResultEncodingKeepsClosedSchemaKeysWhenOptionalsAreNil() throws {
+        let generation = try Self.encodedObject(
+            IntegrationGateResultGeneration(
+                currentGeneration: 1,
+                activeGeneration: nil,
+                lastClosedGeneration: nil
+            )
+        )
+        XCTAssertEqual(
+            Set(generation.keys),
+            ["currentGeneration", "activeGeneration", "lastClosedGeneration"]
+        )
+        XCTAssertTrue(generation["activeGeneration"] is NSNull)
+        XCTAssertTrue(generation["lastClosedGeneration"] is NSNull)
+
+        let outcome = try Self.encodedObject(
+            IntegrationGateHTTPOutcome(
+                statusCode: 200,
+                errorBucket: nil,
+                byteCount: 0,
+                durationMillis: 1
+            )
+        )
+        XCTAssertEqual(
+            Set(outcome.keys),
+            ["statusCode", "errorBucket", "byteCount", "durationMillis"]
+        )
+        XCTAssertTrue(outcome["errorBucket"] is NSNull)
+
+        let sample = try Self.encodedObject(
+            IntegrationGateSample(
+                sampleIndex: 0,
+                wallClockUnixMillis: 1,
+                monotonicMillis: 1,
+                managerConnectionEpoch: 1,
+                transportGeneration: nil,
+                endpointKind: "none",
+                rawConnectionSyncStatus: "offline",
+                publishedConnectionSyncStatus: "offline",
+                httpStatusCode: nil,
+                httpErrorBucket: nil,
+                requestDurationMillis: nil,
+                reconnectCount: 0,
+                activeGateIssuedRequestCount: 0,
+                activeProductionUploadCount: 0,
+                transportStage: nil,
+                reconnectReasonBucket: nil,
+                canaryGeneration: nil,
+                canaryStatusCode: nil,
+                canarySkewMillis: nil
+            )
+        )
+        XCTAssertEqual(
+            Set(sample.keys),
+            [
+                "sampleIndex",
+                "wallClockUnixMillis",
+                "monotonicMillis",
+                "managerConnectionEpoch",
+                "transportGeneration",
+                "endpointKind",
+                "rawConnectionSyncStatus",
+                "publishedConnectionSyncStatus",
+                "httpStatusCode",
+                "httpErrorBucket",
+                "requestDurationMillis",
+                "reconnectCount",
+                "activeGateIssuedRequestCount",
+                "activeProductionUploadCount",
+                "transportStage",
+                "reconnectReasonBucket",
+                "canaryGeneration",
+                "canaryStatusCode",
+                "canarySkewMillis",
+            ]
+        )
+        for key in [
+            "transportGeneration",
+            "httpStatusCode",
+            "httpErrorBucket",
+            "requestDurationMillis",
+            "transportStage",
+            "reconnectReasonBucket",
+            "canaryGeneration",
+            "canaryStatusCode",
+            "canarySkewMillis",
+        ] {
+            XCTAssertTrue(sample[key] is NSNull, "\(key) should encode as null")
+        }
+    }
+
     func testMalformedManifestWritesOneSanitizedCorrelatedError() async throws {
         let store = IntegrationGateFileStore()
         let directory = try IntegrationGateConstants.gateDirectoryURL()
@@ -146,6 +237,13 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
             tunnelManager: tunnel,
             transport: transport,
             connectionSyncModel: sync
+        )
+    }
+
+    private static func encodedObject<T: Encodable>(_ value: T) throws -> [String: Any] {
+        let encoded = try JSONEncoder().encode(value)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
     }
 
