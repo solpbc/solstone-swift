@@ -138,6 +138,18 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
         XCTAssertTrue(runG4.contains("reason: .runningRecordWriteFailed"))
     }
 
+    func testTransferWindowUsesOneBoundedFinalHealthProbe() throws {
+        let actions = try Self.sourceText("Sources/IntegrationGate/IntegrationGateActions.swift")
+        let start = try XCTUnwrap(actions.range(of: "private func runG5()"))
+        let end = try XCTUnwrap(
+            actions.range(of: "private func ensureConnected()", range: start.upperBound..<actions.endIndex)
+        )
+        let runG5 = actions[start.lowerBound..<end.lowerBound]
+
+        XCTAssertTrue(runG5.contains("collectObservationWindow(sampleCount: 1)"))
+        XCTAssertFalse(runG5.contains("observationWindowMilliseconds"))
+    }
+
     private static func observation(
         _ rawStatus: String,
         publishedStatus: String? = nil,

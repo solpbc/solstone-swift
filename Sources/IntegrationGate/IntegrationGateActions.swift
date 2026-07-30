@@ -500,9 +500,13 @@ final class IntegrationGateActions {
         if let candidateFailure = self.relayOnlyIntegrityFailure() {
             return self.result(verdict: .fail, reason: candidateFailure, accountingBaseline: baseline)
         }
-        let observations = await sampler.collectObservationWindow(
-            sampleCount: Int(IntegrationGateConstants.observationWindowMilliseconds / 1_000)
-        )
+        // G5 is the final truth-backed health probe. The coordinator's G5
+        // verdict also evaluates the positive samples captured by G1 and G4,
+        // repeating this canary does not add coverage. More importantly, a
+        // falsely healthy state can consume the full 10-second canary ceiling;
+        // twenty serial attempts would exceed the coordinator's bounded phase
+        // and turn product evidence into a harness protocol error.
+        let observations = await sampler.collectObservationWindow(sampleCount: 1)
         let classified = IntegrationGateActionClassifiers.classifyG5(IntegrationGateWindowFacts(observations: observations))
         return self.result(
             verdict: classified.0,
