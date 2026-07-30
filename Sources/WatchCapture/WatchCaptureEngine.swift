@@ -936,11 +936,14 @@ private extension WatchCaptureEngine {
                 triggerDate: deadline
             ) {
                 self.leaseIsArmed = true
+            } else {
+                self.removeAudioTruthLease()
             }
         case let .cannotSchedule(route):
+            self.removeAudioTruthLease()
             self.setSettingsRouteIfVacant(route)
         case .cancelLease, .none:
-            break
+            self.removeAudioTruthLease()
         }
     }
 
@@ -972,7 +975,9 @@ private extension WatchCaptureEngine {
             } else {
                 self.setSettingsRouteIfVacant(route)
             }
-        case .cancelLease, .none:
+        case .cancelLease:
+            self.removeAudioTruthLease()
+        case .none:
             break
         }
     }
@@ -1161,14 +1166,13 @@ private extension WatchCaptureEngine {
             self.zeroAudioCurrentTimeObservationCount = 0
             return true
         }
-        if currentTime == 0, lastAudioCurrentTime == 0 {
-            self.zeroAudioCurrentTimeObservationCount += 1
+        if currentTime == 0 {
+            if lastAudioCurrentTime == 0 {
+                self.zeroAudioCurrentTimeObservationCount += 1
+            }
             guard self.zeroAudioCurrentTimeObservationCount >= Self.zeroAudioCurrentTimeObservationLimit else {
                 return true
             }
-        }
-        guard currentTime > 0 || self.zeroAudioCurrentTimeObservationCount >= Self.zeroAudioCurrentTimeObservationLimit else {
-            return true
         }
         self.zeroAudioCurrentTimeObservationCount = 0
         await self.terminateCurrentSession(

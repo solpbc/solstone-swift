@@ -549,6 +549,27 @@ final class WatchCaptureTests: XCTestCase {
         )
     }
 
+    func testNewSessionRemovesPriorLeaseWhenAlertsAreDisabled() async throws {
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            notificationAlertSetting: .disabled
+        )
+        harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease] = .init(
+            identifier: WatchNoticeIdentifiers.lease,
+            title: WatchNoticeCopy.audioCouldNotBeConfirmed.title,
+            body: WatchNoticeCopy.audioCouldNotBeConfirmed.body,
+            triggerDate: Date(timeIntervalSince1970: 1_713_624_123)
+        )
+
+        await harness.engine.start()
+
+        XCTAssertNotNil(harness.notificationScheduler.calls.firstIndex(
+            of: .removePending(identifier: WatchNoticeIdentifiers.lease)
+        ))
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.lease).count, 0)
+        XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
+    }
+
     func testOwnerStopWithFailingTerminalWriteStillRemovesLease() async throws {
         let fileWriter = FailingWatchFileWriter(failAppend: false)
         let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: fileWriter)

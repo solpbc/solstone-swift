@@ -43,6 +43,13 @@ nonisolated final class WatchNotificationAdapterGrepTests: XCTestCase {
         XCTAssertFalse(body.contains(".sound"))
     }
 
+    func testLiveSchedulerFileNeverMentionsSound() throws {
+        let body = try self.contents("Watch/Sources/LiveWatchNotificationScheduler.swift")
+
+        XCTAssertFalse(body.contains(".sound"))
+        XCTAssertFalse(body.contains("content.sound"))
+    }
+
     func testLiveSchedulerRemovesPendingByIdentifier() throws {
         let body = try self.section(
             from: "func removePending(identifier: String)",
@@ -56,7 +63,7 @@ nonisolated final class WatchNotificationAdapterGrepTests: XCTestCase {
     func testLiveSchedulerWillPresentUsesPureOptionsWithoutSound() throws {
         let body = try self.section(
             from: "nonisolated func userNotificationCenter(",
-            to: "private extension LiveWatchNotificationScheduler",
+            to: "nonisolated static func authorizationStatus(",
             in: "Watch/Sources/LiveWatchNotificationScheduler.swift"
         )
 
@@ -64,14 +71,38 @@ nonisolated final class WatchNotificationAdapterGrepTests: XCTestCase {
         XCTAssertFalse(body.contains(".sound"))
     }
 
-    func testWatchAppInstallsNotificationDelegate() throws {
+    func testLiveSchedulerPresentationMapperExcludesSound() throws {
         let body = try self.section(
-            from: "let notificationScheduler = LiveWatchNotificationScheduler()",
+            from: "nonisolated static func presentationOptions(",
+            to: "return presentationOptions",
+            in: "Watch/Sources/LiveWatchNotificationScheduler.swift"
+        )
+
+        XCTAssertTrue(body.contains("presentationOptions.insert(.banner)"))
+        XCTAssertTrue(body.contains("presentationOptions.insert(.list)"))
+        XCTAssertFalse(body.contains(".sound"))
+    }
+
+    func testWatchAppRetainsNotificationSchedulerAsStoredProperty() throws {
+        let body = try self.section(
+            from: "struct SolstoneWatchApp: App {",
+            to: "init() {",
+            in: "Watch/Sources/SolstoneWatchApp.swift"
+        )
+
+        XCTAssertTrue(body.contains("private let notificationScheduler: LiveWatchNotificationScheduler"))
+    }
+
+    func testWatchAppInstallsStoredNotificationDelegate() throws {
+        let body = try self.section(
+            from: "init() {",
             to: "let diagnosticsStore: WatchRelayDiagnosticsStore?",
             in: "Watch/Sources/SolstoneWatchApp.swift"
         )
 
-        XCTAssertTrue(body.contains("UNUserNotificationCenter.current().delegate = notificationScheduler"))
+        XCTAssertTrue(body.contains("self.notificationScheduler = LiveWatchNotificationScheduler()"))
+        XCTAssertTrue(body.contains("UNUserNotificationCenter.current().delegate = self.notificationScheduler"))
+        XCTAssertFalse(body.contains("let notificationScheduler = LiveWatchNotificationScheduler()"))
     }
 
     func testComplicationProviderUsesTimelineDerivation() throws {
