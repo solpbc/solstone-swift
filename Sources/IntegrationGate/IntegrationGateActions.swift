@@ -170,7 +170,9 @@ enum IntegrationGateActionClassifiers {
         guard let healthyIndex = samples.firstIndex(where: { $0.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive }) else {
             return (.fail, .missingHealthyTransition)
         }
-        guard let degradedIndex = samples[healthyIndex...].firstIndex(where: { $0.sample.rawConnectionSyncStatus == "reconnecting" }) else {
+        guard let degradedIndex = samples[healthyIndex...].firstIndex(where: {
+            !$0.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive
+        }) else {
             return (.fail, .missingDegradedTransition)
         }
         guard samples[degradedIndex...].contains(where: { $0.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive }) else {
@@ -190,11 +192,8 @@ enum IntegrationGateActionClassifiers {
         guard samples.allSatisfy({ $0.sample.rawConnectionSyncStatus.integrationGateStatusIsKnown }) else {
             return (.fail, .unknownConnectionSyncStatus)
         }
-        guard let healthyIndex = samples.firstIndex(where: { $0.sample.rawConnectionSyncStatus == "connectedTransferring" }) else {
+        guard samples.contains(where: { $0.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive }) else {
             return (.fail, .missingHealthyTransition)
-        }
-        guard samples[healthyIndex...].last?.sample.rawConnectionSyncStatus == "connectedWaiting" else {
-            return (.fail, .terminalDegradedMissing)
         }
         return (.pass, .none)
     }

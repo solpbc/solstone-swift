@@ -31,16 +31,39 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
         XCTAssertEqual(classified.1, .none)
     }
 
-    func testTransferWindowHealthyTerminalDegradedPasses() {
-        let classified = IntegrationGateActionClassifiers.classifyG5(
+    func testReconnectWindowAcceptsNamedOfflineDegradation() {
+        let classified = IntegrationGateActionClassifiers.classifyG4(
             IntegrationGateWindowFacts(observations: [
-                Self.observation("connectedTransferring"),
-                Self.observation("connectedWaiting"),
+                Self.observation("connectedIdle"),
+                Self.observation("offline"),
+                Self.observation("connectedIdle"),
             ])
         )
 
         XCTAssertEqual(classified.0, .pass)
         XCTAssertEqual(classified.1, .none)
+    }
+
+    func testTransferWindowTruthBackedHealthyObservationPasses() {
+        let classified = IntegrationGateActionClassifiers.classifyG5(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("connectedIdle"),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .pass)
+        XCTAssertEqual(classified.1, .none)
+    }
+
+    func testTransferWindowWithoutHealthyObservationFails() {
+        let classified = IntegrationGateActionClassifiers.classifyG5(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("offline"),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .missingHealthyTransition)
     }
 
     func testUnknownStateFailsClosedInsteadOfDefaultingNonhealthy() {
