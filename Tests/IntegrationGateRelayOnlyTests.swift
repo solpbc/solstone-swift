@@ -42,6 +42,33 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertNil(summary.postConnectCachedDirectCandidateCount)
     }
 
+    func testRelayOnlyPolicyPreservesPairingDuringInjectedRevocation() async {
+        let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        let pairing = Self.pairing()
+        await cache.bootstrap(from: pairing)
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        transport.nextResult = .failure(.revoked)
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: cache,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {
+                didDeletePairing.withLock { $0 = true }
+            }
+        )
+
+        manager.installIntegrationGateRelayOnlyCandidatePolicy()
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertFalse(didDeletePairing.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     func testRuntimeLanRepopulationIsRecordedAfterRefresh() async throws {
         IntegrationGateRelayOnlyURLProtocol.reset()
         defer { IntegrationGateRelayOnlyURLProtocol.reset() }

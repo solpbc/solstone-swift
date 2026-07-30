@@ -425,8 +425,15 @@ final class TunnelManager {
                     detail: tunnelError.userMessage
                 )
                 if tunnelError == .revoked {
+#if DEBUG && targetEnvironment(simulator)
+                    if self.integrationGateRelayOnlyCandidatePolicy == nil {
+                        try? self.deletePairing()
+                        await self.endpointCache.wipe()
+                    }
+#else
                     try? self.deletePairing()
                     await self.endpointCache.wipe()
+#endif
                 }
                 if self.shouldScheduleReconnect(after: error) {
                     self.pendingReconnectReason = .connectFailed
