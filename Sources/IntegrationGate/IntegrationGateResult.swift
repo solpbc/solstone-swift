@@ -109,6 +109,29 @@ struct IntegrationGateBuildMetadata: Codable, Sendable, Equatable {
 }
 
 struct IntegrationGateResult: Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion
+        case sequence
+        case nonce
+        case correlationID
+        case recordState
+        case verdict
+        case reasonCode
+        case startedAtUnixMillis
+        case updatedAtUnixMillis
+        case finishedAtUnixMillis
+        case durationMillis
+        case buildMetadata
+        case pairingSnapshot
+        case routeLabel
+        case generation
+        case httpOutcome
+        case accounting
+        case samples
+        case transportStages
+        case reconnectReasonBuckets
+    }
+
     var schemaVersion: Int
     var sequence: UInt64?
     var nonce: String?
@@ -129,6 +152,30 @@ struct IntegrationGateResult: Codable, Sendable, Equatable {
     var samples: [IntegrationGateSample]
     var transportStages: [String]
     var reconnectReasonBuckets: [String]
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(sequence, forKey: .sequence)
+        try container.encode(nonce, forKey: .nonce)
+        try container.encode(correlationID, forKey: .correlationID)
+        try container.encode(recordState, forKey: .recordState)
+        try container.encode(verdict, forKey: .verdict)
+        try container.encode(reasonCode, forKey: .reasonCode)
+        try container.encode(startedAtUnixMillis, forKey: .startedAtUnixMillis)
+        try container.encode(updatedAtUnixMillis, forKey: .updatedAtUnixMillis)
+        try container.encode(finishedAtUnixMillis, forKey: .finishedAtUnixMillis)
+        try container.encode(durationMillis, forKey: .durationMillis)
+        try container.encode(buildMetadata, forKey: .buildMetadata)
+        try container.encode(pairingSnapshot, forKey: .pairingSnapshot)
+        try container.encode(routeLabel, forKey: .routeLabel)
+        try container.encode(generation, forKey: .generation)
+        try container.encode(httpOutcome, forKey: .httpOutcome)
+        try container.encode(accounting, forKey: .accounting)
+        try container.encode(samples, forKey: .samples)
+        try container.encode(transportStages, forKey: .transportStages)
+        try container.encode(reconnectReasonBuckets, forKey: .reconnectReasonBuckets)
+    }
 
     static func terminalError(
         sequence: UInt64?,

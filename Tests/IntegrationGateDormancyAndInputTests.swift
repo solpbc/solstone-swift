@@ -29,6 +29,54 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
         XCTAssertTrue(IntegrationGateDriver.shouldProcess(sequence: 2, after: 1))
     }
 
+    func testResultEncodingKeepsClosedSchemaKeysWhenOptionalsAreNil() throws {
+        let result = IntegrationGateResult.terminalError(
+            sequence: nil,
+            nonce: nil,
+            correlationID: "unavailable",
+            reasonCode: .manifestMissing,
+            startedAtUnixMillis: 1_000,
+            updatedAtUnixMillis: 1_001
+        )
+
+        let encoded = try JSONEncoder().encode(result)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        XCTAssertEqual(
+            Set(object.keys),
+            [
+                "schemaVersion",
+                "sequence",
+                "nonce",
+                "correlationID",
+                "recordState",
+                "verdict",
+                "reasonCode",
+                "startedAtUnixMillis",
+                "updatedAtUnixMillis",
+                "finishedAtUnixMillis",
+                "durationMillis",
+                "buildMetadata",
+                "pairingSnapshot",
+                "routeLabel",
+                "generation",
+                "httpOutcome",
+                "accounting",
+                "samples",
+                "transportStages",
+                "reconnectReasonBuckets",
+            ]
+        )
+        XCTAssertTrue(object["sequence"] is NSNull)
+        XCTAssertTrue(object["nonce"] is NSNull)
+        XCTAssertTrue(object["pairingSnapshot"] is NSNull)
+        XCTAssertTrue(object["routeLabel"] is NSNull)
+        XCTAssertTrue(object["generation"] is NSNull)
+        XCTAssertTrue(object["httpOutcome"] is NSNull)
+    }
+
     func testMalformedManifestWritesOneSanitizedCorrelatedError() async throws {
         let store = IntegrationGateFileStore()
         let directory = try IntegrationGateConstants.gateDirectoryURL()
