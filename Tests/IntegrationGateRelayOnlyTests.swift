@@ -148,6 +148,13 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
+        // connect() spawns a detached post-connect endpoint-cache refresh that issues the
+        // only request routed through IntegrationGateRelayOnlyURLProtocol here. The summary
+        // records postConnectCachedDirectCandidateCount strictly after that refresh returns,
+        // so waiting for it proves the request is done and cannot outlive the deferred
+        // handler reset and trip the unstubbed-request tripwire during a later test.
+        try await Self.waitForPostConnectDirectCount(manager, expected: 0)
+
         let reconnect = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
         XCTAssertEqual(reconnect.verdict, .fail)
         XCTAssertEqual(reconnect.reasonCode, .selectedLanEndpoint)

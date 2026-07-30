@@ -111,6 +111,51 @@ final class IntegrationGateManifestCorrelationTests: XCTestCase {
         XCTAssertFalse(text.contains("SPLRuntime"))
     }
 
+    // G2 and G3 both read the one fixed, code-owned media route, so the coordinator
+    // provisions a single deterministic fixture at exactly this path.
+    func testMediaActionsResolveToTheOneFixedCoordinatorRoute() {
+        XCTAssertEqual(IntegrationGateAction.rangeHash.routeLabel, .gateRange)
+        XCTAssertEqual(IntegrationGateAction.generationRetry.routeLabel, .gateRetry)
+        XCTAssertEqual(
+            IntegrationGateAction.rangeHash.routeLabel.path,
+            IntegrationGateConstants.coordinatorMediaFixturePath
+        )
+        XCTAssertEqual(
+            IntegrationGateAction.generationRetry.routeLabel.path,
+            IntegrationGateConstants.coordinatorMediaFixturePath
+        )
+        XCTAssertEqual(
+            IntegrationGateAction.rangeHash.routeLabel.path,
+            IntegrationGateAction.generationRetry.routeLabel.path
+        )
+    }
+
+    // retained evidence names route labels, never raw routes, so the label set stays allowlisted
+    // and every label resolves to a fixed relative path.
+    func testRouteLabelAllowlistResolvesToFixedRelativePaths() {
+        XCTAssertEqual(
+            Set(IntegrationGateRouteLabel.allCases.map(\.rawValue)),
+            ["networkStatus", "homePulse", "gateRange", "gateRetry"]
+        )
+        for label in IntegrationGateRouteLabel.allCases {
+            XCTAssertTrue(label.path.hasPrefix("/"), label.rawValue)
+            XCTAssertFalse(label.path.contains("://"), label.rawValue)
+            XCTAssertFalse(label.path.contains("?"), label.rawValue)
+            XCTAssertFalse(label.path.contains(".."), label.rawValue)
+        }
+    }
+
+    // the schema carries no path, url, host, or port field, so a coordinator can choose which
+    // action runs but never which route it reaches.
+    func testManifestCannotInfluenceTheRouteItReaches() throws {
+        for injected in ["path", "url", "host", "port", "route", "routeLabel"] {
+            try Self.assertManifest(
+                Self.baseManifest { $0[injected] = IntegrationGateConstants.homePulsePath },
+                failsWith: .unknownField
+            )
+        }
+    }
+
     private static func assertManifest(_ manifest: [String: Any], failsWith reason: IntegrationGateReasonCode) throws {
         XCTAssertThrowsError(try IntegrationGateManifest.decodeAndValidate(Self.data(manifest))) { error in
             XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, reason)
