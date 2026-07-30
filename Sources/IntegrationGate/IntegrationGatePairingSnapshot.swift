@@ -11,6 +11,7 @@ private let log = Logger(subsystem: "app.solstone.swift", category: "integration
 struct IntegrationGatePairingSnapshot: Sendable, Equatable {
     var instanceID: String
     var fingerprintSHA256Hex: String
+    var clientCertificateFingerprint: String
     var pairedAtUnixMillis: Int64
     var relayEnrollmentPresent: Bool
     var relayEndpoint: String
@@ -86,6 +87,11 @@ struct IntegrationGatePairingSnapshotLoader: Sendable {
     }
 
     private func snapshot(pairing: StoredPairing) throws -> IntegrationGatePairingSnapshot {
+        guard let homeCACertificate = try? CertChain.certificates(
+            fromPEM: pairing.caChainPEM
+        ).first else {
+            throw IntegrationGateValidationError(.foreignPairing)
+        }
         let relayEnrollmentPresent: Bool
         switch pairing.relayEnrollment {
         case .enrolled(let deviceToken, _):
@@ -95,7 +101,10 @@ struct IntegrationGatePairingSnapshotLoader: Sendable {
         }
         return IntegrationGatePairingSnapshot(
             instanceID: pairing.instanceID,
-            fingerprintSHA256Hex: pairing.fingerprint,
+            fingerprintSHA256Hex: CertChain.sha256Fingerprint(
+                of: homeCACertificate
+            ),
+            clientCertificateFingerprint: pairing.fingerprint,
             pairedAtUnixMillis: Int64(pairing.pairedAt.timeIntervalSince1970 * 1_000),
             relayEnrollmentPresent: relayEnrollmentPresent,
             relayEndpoint: pairing.relayEndpoint

@@ -143,8 +143,11 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertThrowsError(try loader.validatedSnapshot(pairing: Self.pairing(instanceID: "foreign"), manifest: manifest)) { error in
             XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .foreignPairing)
         }
-        XCTAssertThrowsError(try loader.validatedSnapshot(pairing: Self.pairing(fingerprint: Self.digest("b")), manifest: manifest)) { error in
+        XCTAssertThrowsError(try loader.validatedSnapshot(pairing: Self.pairing(caChainPEM: CertlessTrustFixtures.wrongCAPEM), manifest: manifest)) { error in
             XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .foreignPairing)
+        }
+        XCTAssertThrowsError(try loader.validateUnchanged(original: original, pairing: Self.pairing(fingerprint: Self.digest("b")), manifest: manifest)) { error in
+            XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .changedPairing)
         }
         XCTAssertThrowsError(try loader.validatedSnapshot(pairing: Self.pairing(pairedAt: Date(timeIntervalSince1970: 0)), manifest: manifest)) { error in
             XCTAssertEqual((error as? IntegrationGateValidationError)?.reasonCode, .stalePairing)
@@ -202,7 +205,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
             expiresAtUnixMillis: 2_000,
             expectedPairing: .init(
                 instanceID: "synthetic-gate-instance",
-                fingerprintSHA256Hex: Self.digest("a"),
+                fingerprintSHA256Hex: Self.caFingerprint,
                 pairedAtNotBeforeUnixMillis: 1_000
             ),
             expectedBuild: .init(sourceCommit: "synthetic-source", splSwiftRevision: "synthetic-spl"),
@@ -216,6 +219,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
     private static func pairing(
         instanceID: String = "synthetic-gate-instance",
         fingerprint: String = digest("a"),
+        caChainPEM: String = CertlessTrustFixtures.caPEM,
         relayEndpoint: String = IntegrationGateConstants.relayEndpoint,
         deviceToken: String = "synthetic-device-token",
         localEndpoints: [LocalEndpoint] = [],
@@ -228,7 +232,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
             fingerprint: fingerprint,
             clientCertPEM: "synthetic-cert",
             clientKeyPEM: "synthetic-key",
-            caChainPEM: "synthetic-ca",
+            caChainPEM: caChainPEM,
             relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: nil),
             localEndpoints: localEndpoints,
             pairedAt: pairedAt
@@ -255,6 +259,13 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
 
     private static func digest(_ character: Character) -> String {
         String(repeating: String(character), count: 64)
+    }
+
+    private static var caFingerprint: String {
+        let certificate = try! XCTUnwrap(
+            CertChain.certificates(fromPEM: CertlessTrustFixtures.caPEM).first
+        )
+        return CertChain.sha256Fingerprint(of: certificate)
     }
 
     private static func tempFileURL() -> URL {
