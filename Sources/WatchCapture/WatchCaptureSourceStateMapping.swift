@@ -13,8 +13,6 @@ nonisolated func watchSourceState(
         return (.enrolling, nil)
     case .active:
         return (.active, nil)
-    case .paused:
-        return (.paused, nil)
     case .needsAttention(let error):
         return (.needsAttention, SourceAttention(message: error.message))
     }

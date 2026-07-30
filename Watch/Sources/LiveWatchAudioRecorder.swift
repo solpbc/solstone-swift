@@ -7,6 +7,7 @@ import Foundation
 @MainActor
 final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
     private var recorder: AVAudioRecorder?
+    weak var eventSink: (any WatchAudioRecorderEventSink)?
 
     var url: URL? {
         self.recorder?.url
@@ -16,20 +17,33 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
         self.recorder?.currentTime ?? 0
     }
 
-    func requestPermission() async -> Bool {
+    var isRecording: Bool {
+        self.recorder?.isRecording ?? false
+    }
+
+    var microphonePermission: WatchMicrophonePermission {
         switch AVAudioApplication.shared.recordPermission {
         case .granted:
-            return true
+            return .granted
         case .denied:
-            return false
+            return .denied
         case .undetermined:
+            return .notDetermined
+        @unknown default:
+            return .denied
+        }
+    }
+
+    func requestPermission() async -> WatchMicrophonePermission {
+        switch self.microphonePermission {
+        case .granted, .denied:
+            return self.microphonePermission
+        case .notDetermined:
             return await withCheckedContinuation { continuation in
                 AVAudioApplication.requestRecordPermission { granted in
-                    continuation.resume(returning: granted)
+                    continuation.resume(returning: granted ? WatchMicrophonePermission.granted : .denied)
                 }
             }
-        @unknown default:
-            return false
         }
     }
 
@@ -42,21 +56,11 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
             AVEncoderBitRateKey: 32_000,
         ]
         let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.delegate = self
         guard recorder.record() else {
             throw ObserverError.unavailable(reason: "audio unavailable")
         }
         self.recorder = recorder
-    }
-
-    func pause() {
-        self.recorder?.pause()
-    }
-
-    func resume() throws {
-        guard let recorder = self.recorder else { return }
-        guard recorder.record() else {
-            throw ObserverError.unavailable(reason: "audio unavailable")
-        }
     }
 
     func stop() throws -> TimeInterval {
@@ -67,12 +71,30 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
     }
 }
 
+extension LiveWatchAudioRecorder: AVAudioRecorderDelegate {
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            self?.eventSink?.audioRecorderDidFinish(successfully: flag)
+        }
+    }
+
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: (any Error)?) {
+        Task { @MainActor [weak self] in
+            self?.eventSink?.audioRecorderEncodeError(error)
+        }
+    }
+}
+
 @MainActor
 final class LiveWatchAudioSessionController: WatchAudioSessionControlling {
     private let session: AVAudioSession
 
     init(session: AVAudioSession = .sharedInstance()) {
         self.session = session
+    }
+
+    var hasSuitableInput: Bool {
+        self.session.isInputAvailable || !self.session.currentRoute.inputs.isEmpty
     }
 
     func setCategory(

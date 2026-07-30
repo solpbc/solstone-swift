@@ -607,6 +607,7 @@ private extension WatchPipelineReducer {
         case let .available(summary):
             rows.append(contentsOf: [
                 WatchDiagnosticsExportRow(label: "manifest counts", value: self.manifestCountsText(summary.counts)),
+                WatchDiagnosticsExportRow(label: "original audio files", value: self.originalFileCountsText(summary.originalAudioFileCounts)),
                 WatchDiagnosticsExportRow(label: "retained source bytes", value: self.int64AvailabilityText(summary.retainedSourceBytes)),
                 WatchDiagnosticsExportRow(label: "oldest active enqueue", value: self.dateAvailabilityText(summary.oldestActiveEnqueuedAt, now: input.now)),
                 WatchDiagnosticsExportRow(label: "oldest active enqueue age", value: self.intervalAvailabilityText(summary.oldestActiveEnqueueAgeSeconds)),
@@ -806,6 +807,22 @@ private extension WatchPipelineReducer {
         case let .available(fact):
             let byteText = fact.byteCount.map { "\($0)" } ?? SourceVocabulary.watchDiagnosticsNotProvided
             return "\(fact.state.rawValue) bytes \(byteText)"
+        case let .unavailable(reason):
+            return self.unavailableText(reason)
+        }
+    }
+
+    nonisolated static func originalFileCountsText(
+        _ availability: DiagnosticAvailability<WatchRelayOriginalFileStateCounts>
+    ) -> String {
+        switch availability {
+        case let .available(counts):
+            return [
+                "\(WatchRelayOriginalFileState.missing.rawValue) \(counts.missing)",
+                "\(WatchRelayOriginalFileState.readableNonempty.rawValue) \(counts.readableNonempty)",
+                "\(WatchRelayOriginalFileState.zeroLength.rawValue) \(counts.zeroLength)",
+                "\(WatchRelayOriginalFileState.unreadable.rawValue) \(counts.unreadable)",
+            ].joined(separator: ", ")
         case let .unavailable(reason):
             return self.unavailableText(reason)
         }
@@ -1284,7 +1301,17 @@ private extension WatchPipelineReducer {
         guard let status else {
             return SourceVocabulary.watchDetailNone
         }
-        return "\(status.phase.rawValue) · \(self.relativeText(secondsAgo: self.age(of: status.asOf, now: now) ?? 0))"
+        var parts = [
+            status.phase.rawValue,
+            self.relativeText(secondsAgo: self.age(of: status.asOf, now: now) ?? 0),
+        ]
+        if let disposition = status.audioTerminalDisposition {
+            parts.append("audio disposition \(disposition.rawValue)")
+        }
+        if let reason = status.audioTerminalReason {
+            parts.append("audio reason \(reason.rawValue)")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

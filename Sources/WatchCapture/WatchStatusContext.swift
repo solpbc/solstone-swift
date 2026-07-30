@@ -19,6 +19,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
     let seq: Int
     let queuedCount: Int
     let transferringCount: Int
+    let audioTerminalReason: WatchCaptureTerminalReason?
+    let audioTerminalDisposition: WatchCaptureTerminalDisposition?
     let diagnosticsEnvelope: Data?
 
     enum CodingKeys: String, CodingKey {
@@ -29,6 +31,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         case seq
         case queuedCount
         case transferringCount
+        case audioTerminalReason
+        case audioTerminalDisposition
         case diagnosticsEnvelope
     }
 
@@ -40,6 +44,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         seq: Int,
         queuedCount: Int,
         transferringCount: Int,
+        audioTerminalReason: WatchCaptureTerminalReason? = nil,
+        audioTerminalDisposition: WatchCaptureTerminalDisposition? = nil,
         diagnosticsEnvelope: Data? = nil
     ) {
         self.phase = phase
@@ -49,6 +55,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = seq
         self.queuedCount = queuedCount
         self.transferringCount = transferringCount
+        self.audioTerminalReason = audioTerminalReason
+        self.audioTerminalDisposition = audioTerminalDisposition
         self.diagnosticsEnvelope = diagnosticsEnvelope
     }
 
@@ -61,6 +69,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = try container.decode(Int.self, forKey: .seq)
         self.queuedCount = max(0, try container.decodeIfPresent(Int.self, forKey: .queuedCount) ?? 0)
         self.transferringCount = max(0, try container.decodeIfPresent(Int.self, forKey: .transferringCount) ?? 0)
+        self.audioTerminalReason = try container.decodeIfPresent(WatchCaptureTerminalReason.self, forKey: .audioTerminalReason)
+        self.audioTerminalDisposition = try container.decodeIfPresent(WatchCaptureTerminalDisposition.self, forKey: .audioTerminalDisposition)
         if container.contains(.diagnosticsEnvelope) {
             do {
                 self.diagnosticsEnvelope = try container.decodeIfPresent(Data.self, forKey: .diagnosticsEnvelope)

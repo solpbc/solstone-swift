@@ -10,7 +10,6 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
             .off,
             .enrolling,
             .active,
-            .paused,
             .needsAttention(.diskFull),
         ]
 
@@ -30,7 +29,6 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         let cases: [(WatchCaptureRuntimeStatus, WatchComplicationMark)] = [
             (.active, .sun),
             (.off, .cloud),
-            (.paused, .cloud),
             (.enrolling, .cloud),
             (.needsAttention(.diskFull), .bang),
         ]
@@ -106,7 +104,6 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
     func testSunMarkIsUnreachableFromNonActiveStatuses() {
         let nonActiveStatuses: [WatchCaptureRuntimeStatus] = [
             .off,
-            .paused,
             .enrolling,
             .needsAttention(.diskFull),
         ]

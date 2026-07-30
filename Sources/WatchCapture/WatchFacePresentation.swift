@@ -4,7 +4,6 @@
 nonisolated enum WatchFaceMark: Equatable, Sendable {
     case active
     case activeDimmed
-    case paused
     case alert
 }
 
@@ -56,13 +55,6 @@ nonisolated func watchFaceModel(
             SourceVocabulary.watchHeadlineEnrolling,
             .active,
             .live,
-            false
-        )
-    case .paused:
-        state = (
-            SourceVocabulary.watchHeadlinePaused,
-            .paused,
-            .calm,
             false
         )
     case .needsAttention(let error):

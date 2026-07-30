@@ -82,7 +82,7 @@ private extension WatchComplicationSnapshot {
         switch status {
         case .active:
             .sun
-        case .off, .paused, .enrolling:
+        case .off, .enrolling:
             .cloud
         case .needsAttention:
             .bang

@@ -12,6 +12,7 @@ final class WatchCaptureStorage {
     }
 
     static let rootDirectoryName = "WatchCapture"
+    static let sessionRecordFileName = "watch-capture-session.json"
 
     let rootURL: URL
     let fileWriter: any WatchFileWriting
@@ -69,6 +70,10 @@ final class WatchCaptureStorage {
         directory.appendingPathComponent("manifest.json", isDirectory: false)
     }
 
+    func sessionRecordURL() -> URL {
+        self.rootURL.appendingPathComponent(Self.sessionRecordFileName, isDirectory: false)
+    }
+
     func ensureSegmentDirectory(day: String, segment: String) throws -> URL {
         let directory = self.segmentDirectoryURL(day: day, segment: segment)
         if self.fileWriter.fileExists(at: directory) {
@@ -101,6 +106,17 @@ final class WatchCaptureStorage {
 
     func readManifest(from url: URL) throws -> WatchSegmentManifest {
         try self.decoder.decode(WatchSegmentManifest.self, from: self.fileWriter.readData(from: url))
+    }
+
+    func writeSessionRecord(_ record: WatchCaptureSessionRecord) throws {
+        let data = try self.encoder.encode(record)
+        try self.fileWriter.atomicReplaceFile(at: self.sessionRecordURL(), with: data)
+    }
+
+    func readSessionRecord() throws -> WatchCaptureSessionRecord? {
+        let url = self.sessionRecordURL()
+        guard self.fileWriter.fileExists(at: url) else { return nil }
+        return try self.decoder.decode(WatchCaptureSessionRecord.self, from: self.fileWriter.readData(from: url))
     }
 
     func scanManifests() throws -> [ManifestEntry] {

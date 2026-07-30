@@ -170,8 +170,6 @@ private extension WatchHomeView {
         switch markVariant {
         case .active, .activeDimmed:
             "SolRingActive"
-        case .paused:
-            "SolRingPaused"
         case .alert:
             "SolRingAlert"
         }

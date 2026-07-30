@@ -58,6 +58,8 @@ final class WatchCaptureModel {
                         seq: context.seq,
                         queuedCount: context.queuedCount,
                         transferringCount: context.transferringCount,
+                        audioTerminalReason: context.audioTerminalReason,
+                        audioTerminalDisposition: context.audioTerminalDisposition,
                         diagnosticsEnvelope: fallbackEnvelope
                     )
                     do {
@@ -98,7 +100,7 @@ final class WatchCaptureModel {
 
     var isRunning: Bool {
         switch self.presentation.status {
-        case .enrolling, .active, .paused:
+        case .enrolling, .active:
             true
         case .needsAttention:
             self.presentation.isSessionRunning

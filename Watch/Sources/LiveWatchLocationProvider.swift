@@ -11,6 +11,7 @@ nonisolated private let liveWatchLocationLog = Logger(subsystem: "app.solstone.s
 final class LiveWatchLocationProvider: NSObject, WatchLocationProviding, CLLocationManagerDelegate {
     var onFix: (@MainActor @Sendable (WatchLocationFix) -> Void)?
     var onAuthorizationChanged: (@MainActor @Sendable (WatchLocationAuthorization) -> Void)?
+    var onFailure: (@MainActor @Sendable (any Error) -> Void)?
 
     private let manager: CLLocationManager
 
@@ -69,6 +70,9 @@ final class LiveWatchLocationProvider: NSObject, WatchLocationProviding, CLLocat
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
         liveWatchLocationLog.error("watch location failed: \(String(describing: error), privacy: .public)")
+        Task { @MainActor [weak self] in
+            self?.onFailure?(error)
+        }
     }
 
     nonisolated static func fix(from location: CLLocation) -> WatchLocationFix {

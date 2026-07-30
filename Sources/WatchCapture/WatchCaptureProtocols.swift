@@ -8,16 +8,25 @@ import Foundation
 protocol WatchAudioRecording: AnyObject {
     var url: URL? { get }
     var currentTime: TimeInterval { get }
+    var isRecording: Bool { get }
+    var microphonePermission: WatchMicrophonePermission { get }
+    var eventSink: (any WatchAudioRecorderEventSink)? { get set }
 
-    func requestPermission() async -> Bool
+    func requestPermission() async -> WatchMicrophonePermission
     func start(url: URL) throws
-    func pause()
-    func resume() throws
     func stop() throws -> TimeInterval
 }
 
 @MainActor
+protocol WatchAudioRecorderEventSink: AnyObject {
+    func audioRecorderDidFinish(successfully: Bool)
+    func audioRecorderEncodeError(_ error: (any Error)?)
+}
+
+@MainActor
 protocol WatchAudioSessionControlling: AnyObject {
+    var hasSuitableInput: Bool { get }
+
     func setCategory(_ category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions) throws
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws
 }
@@ -26,6 +35,7 @@ protocol WatchAudioSessionControlling: AnyObject {
 protocol WatchLocationProviding: AnyObject {
     var onFix: (@MainActor @Sendable (WatchLocationFix) -> Void)? { get set }
     var onAuthorizationChanged: (@MainActor @Sendable (WatchLocationAuthorization) -> Void)? { get set }
+    var onFailure: (@MainActor @Sendable (any Error) -> Void)? { get set }
     var authorizationStatus: WatchLocationAuthorization { get }
 
     func requestWhenInUseAuthorization()

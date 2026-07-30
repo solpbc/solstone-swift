@@ -83,11 +83,120 @@ nonisolated enum WatchLocationAuthorization: Equatable, Sendable {
     case denied
 }
 
+nonisolated enum WatchMicrophonePermission: Equatable, Sendable {
+    case granted
+    case denied
+    case notDetermined
+}
+
+nonisolated enum WatchCaptureStartRefusalReason: String, Codable, Equatable, Sendable {
+    case microphonePermissionDenied = "microphone-permission-denied"
+    case microphonePermissionNotDetermined = "microphone-permission-not-determined"
+    case audioArmFailed = "audio-arm-failed"
+}
+
+nonisolated enum WatchCaptureTerminalReason: String, Codable, Equatable, Sendable {
+    case ownerStopped = "owner-stopped"
+    case audioStartFailed = "audio-start-failed"
+    case audioFinishUnsuccessful = "audio-finish-unsuccessful"
+    case audioEncodeError = "audio-encode-error"
+    case audioInterrupted = "audio-interrupted"
+    case audioRouteUnavailable = "audio-route-unavailable"
+    case audioMediaServicesLost = "audio-media-services-lost"
+    case audioMediaServicesReset = "audio-media-services-reset"
+    case audioRecorderStopped = "audio-recorder-stopped"
+    case audioClockStalled = "audio-clock-stalled"
+    case audioUndecodable = "audio-undecodable"
+    case processExitedWhileActive = "process-exited-while-active"
+
+    var observerError: ObserverError {
+        switch self {
+        case .ownerStopped:
+            .unavailable(reason: SourceVocabulary.watchHeadlineOff)
+        case .audioRouteUnavailable, .audioStartFailed:
+            .unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable)
+        case .audioUndecodable:
+            .unavailable(reason: SourceVocabulary.watchAudioCouldNotBeSaved)
+        case .processExitedWhileActive:
+            .unavailable(reason: SourceVocabulary.watchAudioStoppedItself)
+        case .audioFinishUnsuccessful,
+             .audioEncodeError,
+             .audioInterrupted,
+             .audioMediaServicesLost,
+             .audioMediaServicesReset,
+             .audioRecorderStopped,
+             .audioClockStalled:
+            .unavailable(reason: SourceVocabulary.watchAudioStoppedItself)
+        }
+    }
+}
+
+nonisolated enum WatchCaptureTerminalDisposition: String, Codable, Equatable, Sendable {
+    case ownerStopped = "owner-stopped"
+    case detectedStoppedItself = "detected-stopped-itself"
+    case inferredStoppedItself = "inferred-stopped-itself"
+}
+
+nonisolated enum WatchCapturePersistenceAdvisory: String, Codable, Equatable, Sendable {
+    case sessionRecordWriteFailed = "session-record-write-failed"
+    case sessionRecordUnreadable = "session-record-unreadable"
+    case manifestScanFailed = "manifest-scan-failed"
+
+    var message: String {
+        switch self {
+        case .sessionRecordWriteFailed:
+            SourceVocabulary.watchStatusSaveFailed
+        case .sessionRecordUnreadable:
+            SourceVocabulary.watchStatusUnreadable
+        case .manifestScanFailed:
+            SourceVocabulary.watchManifestScanFailed
+        }
+    }
+}
+
+nonisolated enum WatchCaptureLocationAdvisory: String, Codable, Equatable, Sendable {
+    case authorizationLost = "authorization-lost"
+    case writeFailed = "write-failed"
+    case providerFailed = "provider-failed"
+
+    var message: String {
+        SourceVocabulary.watchLocationUnavailable
+    }
+}
+
+nonisolated enum WatchCaptureSettingsRoute: Equatable, Sendable {
+    case microphone
+}
+
+nonisolated enum WatchCaptureSessionRecordState: String, Codable, Equatable, Sendable {
+    case active
+    case terminal
+}
+
+nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
+    let sessionID: String
+    let startedAt: Date
+    var state: WatchCaptureSessionRecordState
+    var terminalReason: WatchCaptureTerminalReason?
+    var terminalDisposition: WatchCaptureTerminalDisposition?
+    var terminalAt: Date?
+    var noticeOwed: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID
+        case startedAt
+        case state
+        case terminalReason
+        case terminalDisposition
+        case terminalAt
+        case noticeOwed
+    }
+}
+
 nonisolated enum WatchCaptureRuntimeStatus: Equatable, Sendable {
     case off
     case enrolling
     case active
-    case paused
     case needsAttention(ObserverError)
 
     var needsAttention: Bool {
@@ -106,6 +215,12 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let handedOffCount: Int
     let isSessionRunning: Bool
     let sessionStartedAt: Date?
+    let settingsRoute: WatchCaptureSettingsRoute?
+    let startRefusalReason: WatchCaptureStartRefusalReason?
+    let terminalReason: WatchCaptureTerminalReason?
+    let terminalDisposition: WatchCaptureTerminalDisposition?
+    let locationAdvisory: WatchCaptureLocationAdvisory?
+    let persistenceAdvisory: WatchCapturePersistenceAdvisory?
 
     init(
         status: WatchCaptureRuntimeStatus,
@@ -114,7 +229,13 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         confirmingCount: Int = 0,
         handedOffCount: Int = 0,
         isSessionRunning: Bool = false,
-        sessionStartedAt: Date? = nil
+        sessionStartedAt: Date? = nil,
+        settingsRoute: WatchCaptureSettingsRoute? = nil,
+        startRefusalReason: WatchCaptureStartRefusalReason? = nil,
+        terminalReason: WatchCaptureTerminalReason? = nil,
+        terminalDisposition: WatchCaptureTerminalDisposition? = nil,
+        locationAdvisory: WatchCaptureLocationAdvisory? = nil,
+        persistenceAdvisory: WatchCapturePersistenceAdvisory? = nil
     ) {
         self.status = status
         self.queuedCount = queuedCount
@@ -123,6 +244,12 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         self.handedOffCount = handedOffCount
         self.isSessionRunning = isSessionRunning
         self.sessionStartedAt = sessionStartedAt
+        self.settingsRoute = settingsRoute
+        self.startRefusalReason = startRefusalReason
+        self.terminalReason = terminalReason
+        self.terminalDisposition = terminalDisposition
+        self.locationAdvisory = locationAdvisory
+        self.persistenceAdvisory = persistenceAdvisory
     }
 
     var headline: String {
@@ -131,8 +258,6 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
             return error.message
         case .enrolling:
             return SourceVocabulary.watchHeadlineEnrolling
-        case .paused:
-            return SourceVocabulary.watchHeadlinePaused
         case .active:
             return SourceVocabulary.watchHeadlineListening
         case .off:
@@ -177,6 +302,12 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         if case .needsAttention(let error) = self.status {
             return error.message
         }
+        if let persistenceAdvisory {
+            return persistenceAdvisory.message
+        }
+        if let locationAdvisory {
+            return locationAdvisory.message
+        }
         return nil
     }
 }
@@ -191,6 +322,6 @@ nonisolated enum WatchCaptureFailureMapper {
         if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileWriteOutOfSpaceError {
             return .diskFull
         }
-        return .unavailable(reason: String(describing: error))
+        return .unavailable(reason: SourceVocabulary.watchGenericUnavailable)
     }
 }

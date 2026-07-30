@@ -728,6 +728,47 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckNextStep))
     }
 
+    func testRetentionRowsRenderOriginalAudioZeroLengthBucket() {
+        let payload = Self.payload(
+            activeBacklogCount: 1,
+            observations: [],
+            originalAudioFileCounts: .available(WatchRelayOriginalFileStateCounts(
+                missing: 0,
+                readableNonempty: 0,
+                zeroLength: 1,
+                unreadable: 0
+            ))
+        )
+
+        let export = WatchPipelineReducer.reduce(Self.input(
+            watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil)
+        )).diagnosticsExportText
+
+        XCTAssertTrue(export.contains("original audio files:"))
+        XCTAssertTrue(export.contains("zero-length 1"))
+    }
+
+    func testRetentionRowsAlwaysEmitOriginalAudioEvidenceWhenSummaryAvailable() {
+        let payload = Self.payload(
+            activeBacklogCount: 1,
+            observations: [],
+            originalAudioFileCounts: .available(WatchRelayOriginalFileStateCounts(
+                missing: 1,
+                readableNonempty: 0,
+                zeroLength: 0,
+                unreadable: 0
+            ))
+        )
+
+        let export = WatchPipelineReducer.reduce(Self.input(
+            watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil)
+        )).diagnosticsExportText
+
+        XCTAssertTrue(export.contains("original audio files:"))
+        XCTAssertTrue(export.contains("readable-nonempty 0"))
+        XCTAssertTrue(export.contains("missing 1"))
+    }
+
     func testClassificationDenominatorsUseVisibleActiveDistinctNotOmittedObservationCount() {
         let visible = (0..<10).map { index in
             Self.observation(id: Self.uuid(index), relation: index == 0 ? .duplicate : .matched)
@@ -1088,7 +1129,10 @@ private extension WatchPipelineReducerTests {
     static func payload(
         activeBacklogCount: Int,
         observations: [WatchRelayTransferObservation],
-        omittedObservationCount: Int = 0
+        omittedObservationCount: Int = 0,
+        originalAudioFileCounts: DiagnosticAvailability<WatchRelayOriginalFileStateCounts> = .unavailable(
+            reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild
+        )
     ) -> WatchRelayDiagnosticsPayload {
         WatchRelayDiagnosticsPayload(
             watchAppMarketingVersion: .available("0.1.0"),
@@ -1108,7 +1152,8 @@ private extension WatchPipelineReducerTests {
                 activeBacklogCount: activeBacklogCount,
                 retainedSourceBytes: .available(0),
                 oldestActiveEnqueuedAt: .available(nil),
-                oldestActiveEnqueueAgeSeconds: .available(nil)
+                oldestActiveEnqueueAgeSeconds: .available(nil),
+                originalAudioFileCounts: originalAudioFileCounts
             )),
             appleQueue: .available(WatchRelayAppleQueueSnapshot(
                 asOf: Self.now,

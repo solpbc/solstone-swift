@@ -213,6 +213,9 @@ nonisolated func watchRecordingStatus(
     guard let context else {
         return hasFreshReceipt(lastReceivedAt, now: now) ? .noContextButReceiving : .noContext
     }
+    if context.audioTerminalDisposition != nil {
+        return .idle
+    }
     switch context.phase {
     case .idle, .stopping:
         return .idle

@@ -236,6 +236,24 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             ),
             .idle
         )
+        XCTAssertEqual(
+            watchRecordingStatus(
+                context: WatchStatusContext(
+                    phase: .observing,
+                    sessionID: "session-1",
+                    startedAt: Date(timeIntervalSince1970: 900),
+                    asOf: now,
+                    seq: 1,
+                    queuedCount: 0,
+                    transferringCount: 0,
+                    audioTerminalReason: .processExitedWhileActive,
+                    audioTerminalDisposition: .inferredStoppedItself
+                ),
+                now: now,
+                lastReceivedAt: nil
+            ),
+            .idle
+        )
     }
 
     func testFutureAsOfClampsThenAgesOut() {

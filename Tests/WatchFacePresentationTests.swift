@@ -9,7 +9,6 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
         let cases: [(WatchCaptureRuntimeStatus, String, WatchFaceMark, WatchFaceColorRole, Bool)] = [
             (.active, SourceVocabulary.watchHeadlineListening, .active, .live, true),
             (.enrolling, SourceVocabulary.watchHeadlineEnrolling, .active, .live, false),
-            (.paused, SourceVocabulary.watchHeadlinePaused, .paused, .calm, false),
             (.needsAttention(.diskFull), ObserverError.diskFull.message, .alert, .alert, false),
             (.off, SourceVocabulary.watchHeadlineOff, .activeDimmed, .calm, false),
         ]
@@ -146,7 +145,6 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
 
         let statuses: [WatchCaptureRuntimeStatus] = [
             .enrolling,
-            .paused,
             .needsAttention(.diskFull),
             .off,
         ]
@@ -164,7 +162,6 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
         let statuses: [WatchCaptureRuntimeStatus] = [
             .active,
             .enrolling,
-            .paused,
             .needsAttention(.diskFull),
             .off,
         ]
@@ -205,7 +202,6 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
         let statuses: [WatchCaptureRuntimeStatus] = [
             .active,
             .enrolling,
-            .paused,
             .needsAttention(.diskFull),
             .off,
         ]

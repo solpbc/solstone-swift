@@ -14,7 +14,9 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
             asOf: Date(timeIntervalSince1970: 1_015),
             seq: 7,
             queuedCount: 2,
-            transferringCount: 1
+            transferringCount: 1,
+            audioTerminalReason: .audioInterrupted,
+            audioTerminalDisposition: .detectedStoppedItself
         )
 
         let applicationContext = context.applicationContext()
@@ -40,6 +42,8 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
 
         XCTAssertEqual(decoded.queuedCount, 0)
         XCTAssertEqual(decoded.transferringCount, 0)
+        XCTAssertNil(decoded.audioTerminalReason)
+        XCTAssertNil(decoded.audioTerminalDisposition)
     }
 
     func testNegativeDecodedCountsClampToZero() throws {
@@ -61,6 +65,34 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
 
         XCTAssertEqual(decoded.queuedCount, 0)
         XCTAssertEqual(decoded.transferringCount, 0)
+    }
+
+    func testFrozenLegacyStatusPayloadDecodesTerminalUnknown() throws {
+        let payload = try Self.encode(
+            LegacyContext(
+                phase: .idle,
+                sessionID: "legacy-session",
+                startedAt: Date(timeIntervalSince1970: 1_000),
+                asOf: Date(timeIntervalSince1970: 1_015),
+                seq: 7
+            )
+        )
+
+        let decoded = try XCTUnwrap(WatchStatusContext(applicationContext: [
+            WatchStatusContext.applicationContextKey: payload,
+        ]))
+
+        XCTAssertEqual(decoded.phase, .idle)
+        XCTAssertNil(decoded.audioTerminalReason)
+        XCTAssertNil(decoded.audioTerminalDisposition)
+        XCTAssertEqual(
+            Set(["idle", "observing", "stopping"]),
+            Set([
+                WatchStatusContext.Phase.idle.rawValue,
+                WatchStatusContext.Phase.observing.rawValue,
+                WatchStatusContext.Phase.stopping.rawValue,
+            ])
+        )
     }
 
     func testMissingContextReturnsNil() {
