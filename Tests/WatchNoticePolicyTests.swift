@@ -9,6 +9,49 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
         XCTAssertNil(WatchNoticeCopy(reason: .ownerStopped, disposition: .ownerStopped))
     }
 
+    func testOwnerStoppedWithDetectedDispositionStillDoesNotScheduleWristNotice() {
+        XCTAssertEqual(
+            watchNoticeDecision(
+                authorizationStatus: .authorized,
+                alertSetting: .enabled,
+                disposition: .detectedStoppedItself,
+                reason: .ownerStopped,
+                leaseArmed: false
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            watchNoticeDecision(
+                authorizationStatus: .authorized,
+                alertSetting: .enabled,
+                disposition: .detectedStoppedItself,
+                reason: .ownerStopped,
+                leaseArmed: true
+            ),
+            .cancelLease
+        )
+    }
+
+    func testTerminalResolverHandlesHalfPopulatedPairs() {
+        XCTAssertNil(WatchNoticeCopy(terminalReason: nil, terminalDisposition: nil))
+        XCTAssertNil(WatchNoticeCopy(
+            terminalReason: .audioInterrupted,
+            terminalDisposition: .ownerStopped
+        ))
+        XCTAssertEqual(
+            WatchNoticeCopy(terminalReason: nil, terminalDisposition: .detectedStoppedItself),
+            .audioCouldNotBeConfirmed
+        )
+        XCTAssertEqual(
+            WatchNoticeCopy(terminalReason: .audioInterrupted, terminalDisposition: nil),
+            .audioCouldNotBeConfirmed
+        )
+        XCTAssertEqual(
+            WatchNoticeCopy(terminalReason: .audioInterrupted, terminalDisposition: .detectedStoppedItself),
+            .audioStoppedItself
+        )
+    }
+
     func testCannotConfirmCopyIsNotDetectedCopy() {
         let detectedCopies = Set(WatchNoticeCopy.allCases.filter(\.isDetectedCopy).map(\.title))
 
@@ -51,6 +94,63 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
             WatchNoticeCopy(reason: .audioInterrupted, disposition: .inferredStoppedItself),
             .audioCouldNotBeConfirmed
         )
+    }
+
+    func testDetectedAndInferredDispositionCopyDifferForSameReason() throws {
+        let detected = try XCTUnwrap(WatchNoticeCopy(
+            reason: .audioInterrupted,
+            disposition: .detectedStoppedItself
+        ))
+        let inferred = try XCTUnwrap(WatchNoticeCopy(
+            reason: .audioInterrupted,
+            disposition: .inferredStoppedItself
+        ))
+
+        XCTAssertNotEqual(detected.title, inferred.title)
+        XCTAssertNotEqual(detected.body, inferred.body)
+    }
+
+    func testInferredDispositionAlwaysUsesCannotConfirmCopy() {
+        for reason in WatchCaptureTerminalReason.allCases {
+            XCTAssertEqual(
+                WatchNoticeCopy(reason: reason, disposition: .inferredStoppedItself),
+                .audioCouldNotBeConfirmed,
+                "\(reason)"
+            )
+        }
+    }
+
+    func testAllNonOwnerDetectedReasonsHaveNoticeCopy() {
+        for reason in WatchCaptureTerminalReason.allCases where reason != .ownerStopped {
+            for disposition in [WatchCaptureTerminalDisposition.detectedStoppedItself, .inferredStoppedItself] {
+                XCTAssertNotNil(
+                    WatchNoticeCopy(reason: reason, disposition: disposition),
+                    "\(reason) \(disposition)"
+                )
+            }
+        }
+    }
+
+    func testOwnerFacingNoticeCopyDoesNotExposeRawValuesOrSwiftText() {
+        for reason in WatchCaptureTerminalReason.allCases {
+            for disposition in Self.terminalDispositions {
+                guard let copy = WatchNoticeCopy(reason: reason, disposition: disposition) else {
+                    continue
+                }
+                Self.assertOwnerFacingCopyIsClean(copy.title)
+                Self.assertOwnerFacingCopyIsClean(copy.body)
+            }
+        }
+    }
+
+    func testNewWatchStatusVocabularyAvoidsForbiddenWords() {
+        for string in [
+            SourceVocabulary.watchStatusAudioOutcomeLabel,
+            SourceVocabulary.watchStatusAudioOutcomeOwnerStopped,
+        ] {
+            XCTAssertFalse(string.contains("capture"))
+            XCTAssertFalse(string.contains("server"))
+        }
     }
 
     func testWristAlertDecisionSeparatesRequestAndSettingsRoutes() {
@@ -114,5 +214,38 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
             WatchNoticeCopy(reason: .microphonePermissionRevoked, disposition: .detectedStoppedItself),
             .microphoneAccessNeeded
         )
+    }
+}
+
+private extension WatchNoticePolicyTests {
+    static let terminalDispositions: [WatchCaptureTerminalDisposition] = [
+        .ownerStopped,
+        .detectedStoppedItself,
+        .inferredStoppedItself,
+    ]
+
+    static var terminalRawValues: [String] {
+        WatchCaptureTerminalReason.allCases.map(\.rawValue)
+            + terminalDispositions.map(\.rawValue)
+    }
+
+    static func assertOwnerFacingCopyIsClean(
+        _ string: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for rawValue in terminalRawValues {
+            XCTAssertFalse(string.contains(rawValue), rawValue, file: file, line: line)
+        }
+
+        XCTAssertNil(
+            string.range(of: #"[a-z]+(?:[-_][a-z0-9]+)+"#, options: .regularExpression),
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(string.contains("Error"), file: file, line: line)
+        XCTAssertFalse(string.contains("NSError"), file: file, line: line)
+        XCTAssertFalse(string.contains("Swift"), file: file, line: line)
+        XCTAssertFalse(string.contains("Optional("), file: file, line: line)
     }
 }

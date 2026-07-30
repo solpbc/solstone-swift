@@ -1305,11 +1305,13 @@ private extension WatchPipelineReducer {
             status.phase.rawValue,
             self.relativeText(secondsAgo: self.age(of: status.asOf, now: now) ?? 0),
         ]
-        if let disposition = status.audioTerminalDisposition {
-            parts.append("audio disposition \(disposition.rawValue)")
-        }
-        if let reason = status.audioTerminalReason {
-            parts.append("audio reason \(reason.rawValue)")
+        if status.audioTerminalDisposition == .ownerStopped {
+            parts.append("\(SourceVocabulary.watchStatusAudioOutcomeLabel): \(SourceVocabulary.watchStatusAudioOutcomeOwnerStopped)")
+        } else if let copy = WatchNoticeCopy(
+            terminalReason: status.audioTerminalReason,
+            terminalDisposition: status.audioTerminalDisposition
+        ) {
+            parts.append("\(SourceVocabulary.watchStatusAudioOutcomeLabel): \(copy.title)")
         }
         return parts.joined(separator: " · ")
     }

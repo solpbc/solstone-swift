@@ -33,6 +33,7 @@ nonisolated enum PhoneWatchSourceLane: Equatable, Sendable {
 
     nonisolated enum InstalledFlow: Equatable, Sendable {
         case stuck(WatchPipelineStuck)
+        case stoppedItself(WatchNoticeCopy)
         case observing
         case receiving
         case waiting(WatchWaitingBreakdown)
@@ -48,6 +49,7 @@ nonisolated enum WatchRecordingStatus: Equatable, Sendable {
 
     case noContext
     case noContextButReceiving
+    case stoppedItself(WatchNoticeCopy)
     case observing
     case idle
 }
@@ -100,10 +102,15 @@ nonisolated func watchActivatedReadiness(
 }
 
 nonisolated func watchInstalledFlow(_ input: WatchInstalledFlowInput) -> PhoneWatchSourceLane.InstalledFlow {
+    if case .stoppedItself(let copy) = input.recordingStatus {
+        return .stoppedItself(copy)
+    }
     if input.stuck != .none {
         return .stuck(input.stuck)
     }
     switch input.recordingStatus {
+    case .stoppedItself:
+        preconditionFailure("stopped-itself status should be handled before stuck or waiting")
     case .observing:
         return .observing
     case .noContextButReceiving:
@@ -177,6 +184,12 @@ nonisolated func phoneWatchSourcePresentation(
             attention: reason.map { SourceAttention(message: $0) },
             subtext: reason
         )
+    case .installedActive(.stoppedItself(let copy)):
+        return PhoneWatchSourcePresentation(
+            state: .needsAttention,
+            attention: SourceAttention(message: copy.body),
+            subtext: copy.title
+        )
     case .installedActive(.observing):
         return PhoneWatchSourcePresentation(
             state: .active,
@@ -213,7 +226,13 @@ nonisolated func watchRecordingStatus(
     guard let context else {
         return hasFreshReceipt(lastReceivedAt, now: now) ? .noContextButReceiving : .noContext
     }
-    if context.audioTerminalDisposition != nil {
+    if let copy = WatchNoticeCopy(
+        terminalReason: context.audioTerminalReason,
+        terminalDisposition: context.audioTerminalDisposition
+    ) {
+        return .stoppedItself(copy)
+    }
+    if context.audioTerminalDisposition == .ownerStopped {
         return .idle
     }
     switch context.phase {

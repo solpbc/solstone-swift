@@ -387,6 +387,55 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(verdict.nextStep, SourceVocabulary.watchPipelineOrphanStuckNextStep)
     }
 
+    func testSteadyVerdictStoppedItselfOutranksStuckAndWaiting() {
+        func status(
+            terminalReason: WatchCaptureTerminalReason?,
+            terminalDisposition: WatchCaptureTerminalDisposition?
+        ) -> WatchStatusContext {
+            Self.context(
+                phase: .idle,
+                queuedCount: 4,
+                asOf: Self.now,
+                audioTerminalReason: terminalReason,
+                audioTerminalDisposition: terminalDisposition
+            )
+        }
+
+        let stoppedStatus = status(
+            terminalReason: .audioInterrupted,
+            terminalDisposition: .detectedStoppedItself
+        )
+        let noTerminalStatus = status(terminalReason: nil, terminalDisposition: nil)
+        let stuckInput = Self.input(
+            watchStatus: stoppedStatus,
+            nonTerminalCount: 3,
+            oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800)
+        )
+        let stuckTwin = Self.input(
+            watchStatus: noTerminalStatus,
+            nonTerminalCount: 3,
+            oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800)
+        )
+        let waitingInput = Self.input(
+            watchStatus: stoppedStatus,
+            nonTerminalCount: 2
+        )
+        let waitingTwin = Self.input(
+            watchStatus: noTerminalStatus,
+            nonTerminalCount: 2
+        )
+
+        let stoppedOverStuck = Self.steadyVerdict(stuckInput)
+        let stuckWithoutDisposition = Self.steadyVerdict(stuckTwin)
+        let stoppedOverWaiting = Self.steadyVerdict(waitingInput)
+        let waitingWithoutDisposition = Self.steadyVerdict(waitingTwin)
+
+        XCTAssertEqual(stoppedOverStuck.kind, .stoppedItself(.audioStoppedItself))
+        XCTAssertEqual(stuckWithoutDisposition.kind, .stuck(.orphan))
+        XCTAssertEqual(stoppedOverWaiting.kind, .stoppedItself(.audioStoppedItself))
+        XCTAssertEqual(waitingWithoutDisposition.kind, .watchWaiting)
+    }
+
     func testSteadyVerdictObservingUsesRequiredCopyAndElapsedSuffix() {
         let input = Self.input(
             watchStatus: Self.context(
@@ -421,6 +470,45 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
 
         XCTAssertNotEqual(verdict.kind, .observing)
         XCTAssertEqual(verdict.kind, .quiet)
+    }
+
+    func testSteadyVerdictStoppedItselfSurvivesCaughtUpIncidentState() {
+        func input(
+            terminalReason: WatchCaptureTerminalReason?,
+            terminalDisposition: WatchCaptureTerminalDisposition?
+        ) -> WatchPipelineInput {
+            Self.input(
+                watchStatus: Self.context(
+                    phase: .observing,
+                    asOf: Self.now.addingTimeInterval(-(WatchRecordingStatus.defaultTTL + 1)),
+                    startedAt: Self.now.addingTimeInterval(-60),
+                    audioTerminalReason: terminalReason,
+                    audioTerminalDisposition: terminalDisposition
+                ),
+                phoneLedgerSnapshot: .available(Self.ledgerSnapshot(entries: [:]))
+            )
+        }
+
+        let verdict = Self.steadyVerdict(
+            input(
+                terminalReason: .audioInterrupted,
+                terminalDisposition: .detectedStoppedItself
+            ),
+            facts: Self.facts(watchAppCheckedIn: true)
+        )
+        let caughtUpTwin = Self.steadyVerdict(
+            input(terminalReason: nil, terminalDisposition: nil),
+            facts: Self.facts(watchAppCheckedIn: true)
+        )
+
+        XCTAssertEqual(verdict.kind, .stoppedItself(.audioStoppedItself))
+        XCTAssertNotEqual(verdict.headline, SourceVocabulary.syncedHeadline)
+        XCTAssertEqual(verdict.state, .needsAttention)
+        XCTAssertEqual(verdict.headline, WatchNoticeCopy.audioStoppedItself.title)
+        XCTAssertEqual(verdict.sentence, WatchNoticeCopy.audioStoppedItself.body)
+        XCTAssertNil(verdict.nextStep)
+        XCTAssertEqual(caughtUpTwin.kind, .caughtUp)
+        XCTAssertEqual(caughtUpTwin.headline, SourceVocabulary.syncedHeadline)
     }
 
     func testSteadyVerdictReceivingReusesReceivingSubtext() {
@@ -682,7 +770,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             switch verdict.kind {
             case .observing, .receiving:
                 break
-            case .stuck, .watchWaiting, .phoneSyncing, .caughtUp, .quiet:
+            case .stuck, .stoppedItself, .watchWaiting, .phoneSyncing, .caughtUp, .quiet:
                 XCTFail("expected on-family verdict for \(verdict.kind)")
             }
         }
@@ -726,6 +814,43 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineRelayStuckNextStep))
         XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineHandoffStuckNextStep))
         XCTAssertFalse(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckNextStep))
+    }
+
+    func testDiagnosticsExportRendersTerminalOutcomeWithoutRawTerminalValues() {
+        let input = Self.input(watchStatus: Self.context(
+            phase: .observing,
+            asOf: Self.now,
+            startedAt: Self.now.addingTimeInterval(-60),
+            audioTerminalReason: .microphonePermissionRevoked,
+            audioTerminalDisposition: .detectedStoppedItself
+        ))
+
+        let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
+
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchStatusLabel): observing · \(Self.relativeText(secondsAgo: 0))"))
+        XCTAssertTrue(
+            export.contains("\(SourceVocabulary.watchStatusAudioOutcomeLabel): \(WatchNoticeCopy.microphoneAccessNeeded.title)")
+        )
+        for rawValue in Self.terminalRawValues {
+            XCTAssertFalse(export.contains(rawValue), rawValue)
+        }
+    }
+
+    func testDiagnosticsExportHealthyObservingKeepsPhaseAndOmitsTerminalOutcome() {
+        let input = Self.input(watchStatus: Self.context(
+            phase: .observing,
+            asOf: Self.now,
+            startedAt: Self.now.addingTimeInterval(-60)
+        ))
+
+        let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
+
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchStatusLabel): observing · \(Self.relativeText(secondsAgo: 0))"))
+        XCTAssertFalse(export.contains("\(SourceVocabulary.watchStatusAudioOutcomeLabel):"))
+        XCTAssertFalse(export.contains(WatchNoticeCopy.microphoneAccessNeeded.title))
+        for rawValue in Self.terminalRawValues {
+            XCTAssertFalse(export.contains(rawValue), rawValue)
+        }
     }
 
     func testRetentionRowsRenderOriginalAudioZeroLengthBucket() {
@@ -996,7 +1121,9 @@ private extension WatchPipelineReducerTests {
         queuedCount: Int = 0,
         transferringCount: Int = 0,
         asOf: Date = Date(timeIntervalSince1970: 2_000),
-        startedAt: Date? = nil
+        startedAt: Date? = nil,
+        audioTerminalReason: WatchCaptureTerminalReason? = nil,
+        audioTerminalDisposition: WatchCaptureTerminalDisposition? = nil
     ) -> WatchStatusContext {
         WatchStatusContext(
             phase: phase,
@@ -1005,7 +1132,9 @@ private extension WatchPipelineReducerTests {
             asOf: asOf,
             seq: 1,
             queuedCount: queuedCount,
-            transferringCount: transferringCount
+            transferringCount: transferringCount,
+            audioTerminalReason: audioTerminalReason,
+            audioTerminalDisposition: audioTerminalDisposition
         )
     }
 
@@ -1068,6 +1197,15 @@ private extension WatchPipelineReducerTests {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(fromTimeInterval: -secondsAgo)
+    }
+
+    static var terminalRawValues: [String] {
+        WatchCaptureTerminalReason.allCases.map(\.rawValue)
+            + [
+                WatchCaptureTerminalDisposition.ownerStopped,
+                .detectedStoppedItself,
+                .inferredStoppedItself,
+            ].map(\.rawValue)
     }
 
     static func facts(

@@ -176,6 +176,19 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         )
     }
 
+    func testSteadyVerdictIdentifierAndTintSeparateStoppedItselfFromStuck() {
+        let stuck = Self.verdict(kind: .stuck(.relay), state: .needsAttention)
+        let stopped = Self.verdict(kind: .stoppedItself(.audioStoppedItself), state: .needsAttention)
+        let quiet = Self.verdict(kind: .quiet, state: .off)
+
+        XCTAssertTrue(watchSteadyVerdictUsesAttentionTint(stuck))
+        XCTAssertTrue(watchSteadyVerdictUsesAttentionTint(stopped))
+        XCTAssertFalse(watchSteadyVerdictUsesAttentionTint(quiet))
+        XCTAssertEqual(watchSteadyVerdictAccessibilityIdentifier(stuck), "watch.pipelineStuckNotice")
+        XCTAssertEqual(watchSteadyVerdictAccessibilityIdentifier(stopped), "watch.stoppedItselfNotice")
+        XCTAssertEqual(watchSteadyVerdictAccessibilityIdentifier(quiet), "watch.steadyVerdict")
+    }
+
     func testInstallButtonKeepsAccessibilityIdentifierAndHint() throws {
         let viewText = try String(
             contentsOf: Self.worktreeRoot().appendingPathComponent("Sources/WatchCapture/WatchSourceDetailView.swift"),
@@ -325,6 +338,23 @@ private extension WatchSourceDetailPresentationTests {
             return nil
         }
         return card
+    }
+
+    static func verdict(
+        kind: WatchSteadyVerdictKind,
+        state: SourceState
+    ) -> WatchSteadyVerdict {
+        WatchSteadyVerdict(
+            kind: kind,
+            state: state,
+            headline: "headline",
+            sentence: "sentence",
+            nextStep: nil,
+            presenceLine: nil,
+            todayLine: nil,
+            detailsSummary: "summary",
+            accessibilityLabel: "headline sentence"
+        )
     }
 
     static func worktreeRoot() -> URL {

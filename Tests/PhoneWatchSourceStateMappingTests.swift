@@ -118,6 +118,12 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             (.installedActive(.observing), .active, SourceVocabulary.watchListeningSubtext, nil),
             (.installedActive(.receiving), .active, SourceVocabulary.watchReceivingNowSubtext, nil),
             (.installedActive(.waiting(Self.waiting(count: 2))), .off, SourceVocabulary.watchWaitingToSyncFromWatch(2), nil),
+            (
+                .installedActive(.stoppedItself(.audioStoppedItself)),
+                .needsAttention,
+                WatchNoticeCopy.audioStoppedItself.title,
+                SourceAttention(message: WatchNoticeCopy.audioStoppedItself.body)
+            ),
             (.installedActive(.idle), .off, SourceVocabulary.watchIdleNowSubtext, nil),
         ]
 
@@ -142,6 +148,14 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             .stuck(.relay)
         )
         XCTAssertEqual(
+            watchInstalledFlow(Self.flow(
+                stuck: .relay,
+                recordingStatus: .stoppedItself(.audioStoppedItself),
+                waiting: waiting
+            )),
+            .stoppedItself(.audioStoppedItself)
+        )
+        XCTAssertEqual(
             watchInstalledFlow(Self.flow(recordingStatus: .observing, waiting: waiting)),
             .observing
         )
@@ -152,6 +166,10 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         XCTAssertEqual(
             watchInstalledFlow(Self.flow(recordingStatus: .idle, waiting: waiting)),
             .waiting(waiting)
+        )
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(recordingStatus: .stoppedItself(.audioCouldNotBeConfirmed), waiting: waiting)),
+            .stoppedItself(.audioCouldNotBeConfirmed)
         )
         XCTAssertEqual(
             watchInstalledFlow(Self.flow(recordingStatus: .idle, waiting: Self.waiting(count: 0))),
@@ -190,6 +208,7 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             .installedActive(.observing),
             .installedActive(.receiving),
             .installedActive(.waiting(Self.waiting(count: 2))),
+            .installedActive(.stoppedItself(.audioStoppedItself)),
             .installedActive(.idle),
         ]
 
@@ -252,7 +271,97 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
                 now: now,
                 lastReceivedAt: nil
             ),
-            .idle
+            .stoppedItself(.audioCouldNotBeConfirmed)
+        )
+    }
+
+    func testTerminalStatusThreadsThroughLaneAndPresentation() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let context = Self.context(
+            phase: .idle,
+            asOf: now,
+            audioTerminalReason: .audioInterrupted,
+            audioTerminalDisposition: .detectedStoppedItself
+        )
+        let status = watchRecordingStatus(context: context, now: now, lastReceivedAt: nil)
+        let flow = watchInstalledFlow(Self.flow(recordingStatus: status))
+        let presentation = phoneWatchSourcePresentation(lane: .installedActive(flow))
+
+        XCTAssertEqual(status, .stoppedItself(.audioStoppedItself))
+        XCTAssertEqual(flow, .stoppedItself(.audioStoppedItself))
+        XCTAssertEqual(presentation.state, .needsAttention)
+        XCTAssertEqual(presentation.subtext, WatchNoticeCopy.audioStoppedItself.title)
+        XCTAssertEqual(presentation.attention, SourceAttention(message: WatchNoticeCopy.audioStoppedItself.body))
+        XCTAssertNotEqual(
+            presentation,
+            phoneWatchSourcePresentation(lane: .installedActive(.idle))
+        )
+    }
+
+    func testTerminalStatusNegativeTwinsKeepExistingBehavior() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let idleStatus = watchRecordingStatus(
+            context: Self.context(phase: .idle, asOf: now),
+            now: now,
+            lastReceivedAt: nil
+        )
+        let ownerStatus = watchRecordingStatus(
+            context: Self.context(
+                phase: .observing,
+                asOf: now,
+                audioTerminalReason: .ownerStopped,
+                audioTerminalDisposition: .ownerStopped
+            ),
+            now: now,
+            lastReceivedAt: nil
+        )
+        let observingStatus = watchRecordingStatus(
+            context: Self.context(phase: .observing, asOf: now),
+            now: now,
+            lastReceivedAt: nil
+        )
+
+        XCTAssertEqual(idleStatus, .idle)
+        XCTAssertEqual(phoneWatchSourcePresentation(lane: .installedActive(.idle)).state, .off)
+        XCTAssertEqual(
+            phoneWatchSourcePresentation(lane: .installedActive(.idle)).subtext,
+            SourceVocabulary.watchIdleNowSubtext
+        )
+        XCTAssertEqual(ownerStatus, .idle)
+        XCTAssertEqual(watchInstalledFlow(Self.flow(recordingStatus: ownerStatus)), .idle)
+        XCTAssertEqual(phoneWatchSourcePresentation(lane: .installedActive(.idle)).attention, nil)
+        XCTAssertEqual(observingStatus, .observing)
+    }
+
+    func testHalfPopulatedTerminalPairsResolveToCannotConfirm() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(
+            watchRecordingStatus(
+                context: Self.context(
+                    phase: .observing,
+                    asOf: now,
+                    audioTerminalReason: nil,
+                    audioTerminalDisposition: .detectedStoppedItself
+                ),
+                now: now,
+                lastReceivedAt: nil
+            ),
+            .stoppedItself(.audioCouldNotBeConfirmed)
+        )
+        XCTAssertEqual(
+            watchRecordingStatus(
+                context: Self.context(
+                    phase: .observing,
+                    asOf: now,
+                    audioTerminalReason: .audioInterrupted,
+                    audioTerminalDisposition: nil
+                ),
+                now: now,
+                lastReceivedAt: nil
+            ),
+            .stoppedItself(.audioCouldNotBeConfirmed)
         )
     }
 
@@ -370,7 +479,9 @@ private extension PhoneWatchSourceStateMappingTests {
 
     static func context(
         phase: WatchStatusContext.Phase,
-        asOf: Date
+        asOf: Date,
+        audioTerminalReason: WatchCaptureTerminalReason? = nil,
+        audioTerminalDisposition: WatchCaptureTerminalDisposition? = nil
     ) -> WatchStatusContext {
         WatchStatusContext(
             phase: phase,
@@ -379,7 +490,9 @@ private extension PhoneWatchSourceStateMappingTests {
             asOf: asOf,
             seq: 1,
             queuedCount: 0,
-            transferringCount: 0
+            transferringCount: 0,
+            audioTerminalReason: audioTerminalReason,
+            audioTerminalDisposition: audioTerminalDisposition
         )
     }
 }

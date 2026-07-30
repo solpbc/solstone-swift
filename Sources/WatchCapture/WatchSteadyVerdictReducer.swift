@@ -5,6 +5,7 @@ import Foundation
 
 nonisolated enum WatchSteadyVerdictKind: Equatable, Sendable {
     case stuck(WatchPipelineStuck)
+    case stoppedItself(WatchNoticeCopy)
     case observing
     case receiving
     case watchWaiting
@@ -55,6 +56,18 @@ nonisolated enum WatchSteadyVerdictReducer {
         let presenceLine = self.presenceLine(input: input, facts: facts)
         let todayLine = self.todayLine(input: input, calendar: calendar)
 
+        if case .stoppedItself(let copy) = recordingStatus {
+            return self.verdict(
+                kind: .stoppedItself(copy),
+                headline: copy.title,
+                sentence: copy.body,
+                nextStep: nil,
+                presenceLine: presenceLine,
+                todayLine: todayLine,
+                detailsSummary: detailsSummary
+            )
+        }
+
         let stuck = WatchPipelineReducer.stuckState(input)
         if stuck != .none, let reason = stuck.reason {
             return self.verdict(
@@ -69,6 +82,8 @@ nonisolated enum WatchSteadyVerdictReducer {
         }
 
         switch recordingStatus {
+        case .stoppedItself:
+            preconditionFailure("stopped-itself status should be handled before stuck or waiting")
         case .observing:
             return self.verdict(
                 kind: .observing,
@@ -179,7 +194,7 @@ private extension WatchSteadyVerdictReducer {
 
     nonisolated static func state(for kind: WatchSteadyVerdictKind) -> SourceState {
         switch kind {
-        case .stuck:
+        case .stuck, .stoppedItself:
             .needsAttention
         case .observing, .receiving:
             .active

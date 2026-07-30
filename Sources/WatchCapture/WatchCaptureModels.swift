@@ -160,7 +160,7 @@ nonisolated enum WatchCaptureStartRefusalReason: String, Codable, Equatable, Sen
     case audioArmFailed = "audio-arm-failed"
 }
 
-nonisolated enum WatchCaptureTerminalReason: String, Codable, Equatable, Sendable {
+nonisolated enum WatchCaptureTerminalReason: String, Codable, Equatable, Sendable, CaseIterable {
     case ownerStopped = "owner-stopped"
     case microphonePermissionRevoked = "microphone-permission-revoked"
     case audioStartFailed = "audio-start-failed"
@@ -270,6 +270,22 @@ nonisolated enum WatchNoticeCopy: Equatable, Sendable, CaseIterable {
         case .audioUndecodable:
             self = .audioCouldNotBeSaved
         case .processExitedWhileActive:
+            self = .audioCouldNotBeConfirmed
+        }
+    }
+
+    init?(
+        terminalReason: WatchCaptureTerminalReason?,
+        terminalDisposition: WatchCaptureTerminalDisposition?
+    ) {
+        switch (terminalReason, terminalDisposition) {
+        case (nil, nil):
+            return nil
+        case (_, .ownerStopped):
+            return nil
+        case let (reason?, disposition?):
+            self = WatchNoticeCopy(reason: reason, disposition: disposition) ?? .audioCouldNotBeConfirmed
+        default:
             self = .audioCouldNotBeConfirmed
         }
     }

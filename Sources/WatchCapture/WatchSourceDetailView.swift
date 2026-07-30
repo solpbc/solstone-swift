@@ -174,17 +174,17 @@ private extension WatchSourceDetailView {
     }
 
     func verdictBlock(_ verdict: WatchSteadyVerdict) -> some View {
-        let stuck = self.isStuck(verdict)
+        let usesAttentionTint = watchSteadyVerdictUsesAttentionTint(verdict)
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: verdict.state.symbol)
-                .foregroundStyle(stuck ? Color.solOrange : Color.primary)
+                .foregroundStyle(usesAttentionTint ? Color.solOrange : Color.primary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(verdict.headline)
                     .font(.headline)
-                    .foregroundStyle(stuck ? Color.orangeInk : Color.primary)
+                    .foregroundStyle(usesAttentionTint ? Color.orangeInk : Color.primary)
                 Text(verdict.sentence)
                     .font(.subheadline)
-                    .foregroundStyle(stuck ? Color.orangeInk : Color.secondary)
+                    .foregroundStyle(usesAttentionTint ? Color.orangeInk : Color.secondary)
                 if let nextStep = verdict.nextStep {
                     Text(nextStep)
                         .font(.subheadline)
@@ -204,7 +204,7 @@ private extension WatchSourceDetailView {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(verdict.accessibilityLabel)
-        .accessibilityIdentifier(stuck ? "watch.pipelineStuckNotice" : "watch.steadyVerdict")
+        .accessibilityIdentifier(watchSteadyVerdictAccessibilityIdentifier(verdict))
     }
 
     func steadyDetailsDisclosure(_ verdict: WatchSteadyVerdict) -> some View {
@@ -409,13 +409,6 @@ private extension WatchSourceDetailView {
         )
     }
 
-    func isStuck(_ verdict: WatchSteadyVerdict) -> Bool {
-        if case .stuck = verdict.kind {
-            return true
-        }
-        return false
-    }
-
     func refreshNowPeriodically() async {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(30))
@@ -472,6 +465,21 @@ private extension WatchSourceDetailView {
         case .done:
             .solGold
         }
+    }
+}
+
+nonisolated func watchSteadyVerdictUsesAttentionTint(_ verdict: WatchSteadyVerdict) -> Bool {
+    verdict.state == .needsAttention
+}
+
+nonisolated func watchSteadyVerdictAccessibilityIdentifier(_ verdict: WatchSteadyVerdict) -> String {
+    switch verdict.kind {
+    case .stuck:
+        "watch.pipelineStuckNotice"
+    case .stoppedItself:
+        "watch.stoppedItselfNotice"
+    case .observing, .receiving, .watchWaiting, .phoneSyncing, .caughtUp, .quiet:
+        "watch.steadyVerdict"
     }
 }
 

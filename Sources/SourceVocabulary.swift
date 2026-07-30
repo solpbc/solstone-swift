@@ -158,6 +158,8 @@ nonisolated enum SourceVocabulary {
     static let watchManifestScanFailed = "saved items could not be checked"
     static let watchLocationUnavailable = "location unavailable"
     static let watchGenericUnavailable = "something went wrong"
+    static let watchStatusAudioOutcomeLabel = "audio outcome"
+    static let watchStatusAudioOutcomeOwnerStopped = "stopped by you"
     static let watchNoticeMicrophoneAccessTitle = "microphone access needed"
     static let watchNoticeMicrophoneAccessBody = "allow microphone access on your watch, then start again."
     static let watchNoticeAudioCouldNotStartTitle = "audio could not start"
