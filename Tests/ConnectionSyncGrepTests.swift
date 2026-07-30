@@ -115,19 +115,106 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
     }
 
     func testRefreshFromInputChangeHasProductionSourceCallSite() throws {
-        let hits = try Self.sourceLineHits(containing: "refreshFromInputChange(", under: "Sources")
-        XCTAssertFalse(hits.isEmpty, "refreshFromInputChange( was not found in Sources")
+        let hits = try Self.sourceLineHits(containing: Self.refreshFromInputChangeCallNeedle, under: "Sources")
+        XCTAssertFalse(hits.isEmpty, "\(Self.refreshFromInputChangeCallNeedle) was not found in Sources")
 
         let productionHits = hits.filter { !$0.isInsideDebugRegion }
         XCTAssertFalse(
             productionHits.isEmpty,
-            "refreshFromInputChange( only appeared under DEBUG: \(Self.describe(hits))"
+            "\(Self.refreshFromInputChangeCallNeedle) only appeared under DEBUG: \(Self.describe(hits))"
         )
         XCTAssertTrue(
             productionHits.contains { $0.relativePath == "Sources/SolstoneSwiftApp.swift" },
             "expected production foreground call site in Sources/SolstoneSwiftApp.swift, got \(Self.describe(productionHits))"
         )
     }
+
+    func testRefreshFromInputChangeScannerHandlesPreprocessorAndComments() {
+        let fixtures: [(String, String, Bool)] = [
+            (
+                "debug branch",
+                """
+                #if DEBUG
+                connectionSyncModel.refreshFromInputChange()
+                #endif
+                """,
+                false
+            ),
+            (
+                "debug else branch",
+                """
+                #if DEBUG
+                integrationOnly()
+                #else
+                connectionSyncModel.refreshFromInputChange()
+                #endif
+                """,
+                true
+            ),
+            (
+                "inverted debug else branch",
+                """
+                #if !DEBUG
+                productionOnly()
+                #else
+                connectionSyncModel.refreshFromInputChange()
+                #endif
+                """,
+                false
+            ),
+            (
+                "nested under outer debug",
+                """
+                #if DEBUG
+                #if canImport(UIKit)
+                connectionSyncModel.refreshFromInputChange()
+                #else
+                connectionSyncModel.refreshFromInputChange()
+                #endif
+                #endif
+                """,
+                false
+            ),
+            (
+                "line comment",
+                """
+                // connectionSyncModel.refreshFromInputChange()
+                """,
+                false
+            ),
+            (
+                "bare symbol",
+                """
+                refreshFromInputChange()
+                """,
+                false
+            ),
+            (
+                "simulator debug branch",
+                """
+                #if DEBUG && targetEnvironment(simulator)
+                connectionSyncModel.refreshFromInputChange()
+                #endif
+                """,
+                false
+            ),
+        ]
+
+        for (name, source, expectsProductionHit) in fixtures {
+            let hits = Self.sourceLineHits(
+                containing: Self.refreshFromInputChangeCallNeedle,
+                in: source,
+                relativePath: "\(name).swift"
+            )
+            XCTAssertEqual(
+                hits.contains { !$0.isInsideDebugRegion },
+                expectsProductionHit,
+                name
+            )
+        }
+    }
+
+    private static let refreshFromInputChangeCallNeedle = "connectionSyncModel.refreshFromInputChange("
 
     private static func sourceText(_ relativePath: String) throws -> String {
         let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
@@ -168,6 +255,36 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         let isInsideDebugRegion: Bool
     }
 
+    private enum DebugBranch {
+        case debug
+        case nonDebug
+        case unrelated
+
+        var inverted: DebugBranch {
+            switch self {
+            case .debug:
+                return .nonDebug
+            case .nonDebug:
+                return .debug
+            case .unrelated:
+                return .unrelated
+            }
+        }
+
+        var isDebug: Bool {
+            self == .debug
+        }
+    }
+
+    private struct DebugFrame {
+        let parentIsInsideDebugRegion: Bool
+        var branch: DebugBranch
+
+        var isInsideDebugRegion: Bool {
+            self.parentIsInsideDebugRegion || self.branch.isDebug
+        }
+    }
+
     private static func sourceLineHits(
         containing needle: String,
         under relativePath: String
@@ -176,33 +293,47 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         return try self.sourceFiles(under: relativePath).flatMap { file -> [SourceLineHit] in
             let text = try String(contentsOf: file, encoding: .utf8)
             let relativeFilePath = self.relativePath(for: file, under: worktree)
-            var debugStack: [Bool] = []
-            var hits: [SourceLineHit] = []
+            return self.sourceLineHits(containing: needle, in: text, relativePath: relativeFilePath)
+        }
+    }
 
-            for (offset, line) in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).enumerated() {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if self.isIfDirective(trimmed) {
-                    debugStack.append(debugStack.contains(true) || self.startsDebugRegion(trimmed))
-                } else if self.isElseIfDirective(trimmed) {
-                    if !debugStack.isEmpty, !debugStack[debugStack.count - 1] {
-                        debugStack[debugStack.count - 1] = self.startsDebugRegion(trimmed)
-                            || debugStack.dropLast().contains(true)
-                    }
-                } else if self.isEndIfDirective(trimmed), !debugStack.isEmpty {
-                    _ = debugStack.removeLast()
-                }
+    private static func sourceLineHits(
+        containing needle: String,
+        in text: String,
+        relativePath: String
+    ) -> [SourceLineHit] {
+        var debugStack: [DebugFrame] = []
+        var hits: [SourceLineHit] = []
 
-                if line.contains(needle) {
-                    hits.append(SourceLineHit(
-                        relativePath: relativeFilePath,
-                        lineNumber: offset + 1,
-                        isInsideDebugRegion: debugStack.contains(true)
-                    ))
-                }
+        for (offset, line) in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if self.isIfDirective(trimmed) {
+                debugStack.append(DebugFrame(
+                    parentIsInsideDebugRegion: self.isInsideDebugRegion(debugStack),
+                    branch: self.debugBranch(for: trimmed)
+                ))
+            } else if self.isElseIfDirective(trimmed), !debugStack.isEmpty {
+                debugStack[debugStack.count - 1].branch = self.debugBranch(for: trimmed)
+            } else if self.isElseDirective(trimmed), !debugStack.isEmpty {
+                debugStack[debugStack.count - 1].branch = debugStack[debugStack.count - 1].branch.inverted
+            } else if self.isEndIfDirective(trimmed), !debugStack.isEmpty {
+                _ = debugStack.removeLast()
             }
 
-            return hits
+            if self.codeBeforeLineComment(in: line).range(of: needle) != nil {
+                hits.append(SourceLineHit(
+                    relativePath: relativePath,
+                    lineNumber: offset + 1,
+                    isInsideDebugRegion: self.isInsideDebugRegion(debugStack)
+                ))
+            }
         }
+
+        return hits
+    }
+
+    private static func isInsideDebugRegion(_ debugStack: [DebugFrame]) -> Bool {
+        debugStack.last?.isInsideDebugRegion == true
     }
 
     private static func isIfDirective(_ trimmed: String) -> Bool {
@@ -213,24 +344,41 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         trimmed.hasPrefix("#elseif ")
     }
 
+    private static func isElseDirective(_ trimmed: String) -> Bool {
+        trimmed == "#else" || trimmed.hasPrefix("#else ")
+    }
+
     private static func isEndIfDirective(_ trimmed: String) -> Bool {
         trimmed == "#endif" || trimmed.hasPrefix("#endif ")
     }
 
-    private static func startsDebugRegion(_ trimmed: String) -> Bool {
+    private static func debugBranch(for trimmed: String) -> DebugBranch {
         let directive: String
         if trimmed.hasPrefix("#elseif ") {
             directive = "#elseif"
         } else if trimmed.hasPrefix("#if ") {
             directive = "#if"
         } else {
-            return false
+            return .unrelated
         }
         let condition = trimmed.dropFirst(directive.count).trimmingCharacters(in: .whitespaces)
+        if condition.hasPrefix("!") {
+            let inverted = condition.dropFirst().trimmingCharacters(in: .whitespaces)
+            return self.hasLeadingDebugToken(inverted) ? .nonDebug : .unrelated
+        }
+        return self.hasLeadingDebugToken(condition) ? .debug : .unrelated
+    }
+
+    private static func hasLeadingDebugToken(_ condition: String) -> Bool {
         guard condition.hasPrefix("DEBUG") else { return false }
         let suffix = condition.dropFirst("DEBUG".count)
         guard let first = suffix.first else { return true }
         return !first.isLetter && !first.isNumber && first != "_"
+    }
+
+    private static func codeBeforeLineComment(in line: String) -> Substring {
+        guard let comment = line.range(of: "//") else { return line[...] }
+        return line[..<comment.lowerBound]
     }
 
     private static func relativePath(for file: URL, under worktree: URL) -> String {
