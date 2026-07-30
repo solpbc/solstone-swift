@@ -29,6 +29,31 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
         XCTAssertTrue(IntegrationGateDriver.shouldProcess(sequence: 2, after: 1))
     }
 
+    func testRelayOnlyPolicyLifetimeWrapsStableDriverLoop() throws {
+        let sourceURL = StringLiteralGrepSupport.worktreeRoot()
+            .appendingPathComponent("Sources/IntegrationGate/IntegrationGateDriver.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let runStart = try XCTUnwrap(source.range(of: "func run() async {"))
+        let runOnceStart = try XCTUnwrap(source.range(of: "func runOnce() async {"))
+        let manifestRunStart = try XCTUnwrap(
+            source.range(of: "private func run(manifest:")
+        )
+        let validateReplayStart = try XCTUnwrap(
+            source.range(of: "private func validateReplay(")
+        )
+
+        let stableLoop = source[runStart.lowerBound..<runOnceStart.lowerBound]
+        XCTAssertTrue(stableLoop.contains("installIntegrationGateRelayOnlyCandidatePolicy()"))
+        XCTAssertTrue(stableLoop.contains("clearIntegrationGateRelayOnlyCandidatePolicy()"))
+        XCTAssertTrue(stableLoop.contains("while !Task.isCancelled"))
+
+        let perManifest = source[
+            manifestRunStart.lowerBound..<validateReplayStart.lowerBound
+        ]
+        XCTAssertFalse(perManifest.contains("installIntegrationGateRelayOnlyCandidatePolicy()"))
+        XCTAssertFalse(perManifest.contains("clearIntegrationGateRelayOnlyCandidatePolicy()"))
+    }
+
     func testResultEncodingKeepsClosedSchemaKeysWhenOptionalsAreNil() throws {
         let result = IntegrationGateResult.terminalError(
             sequence: nil,

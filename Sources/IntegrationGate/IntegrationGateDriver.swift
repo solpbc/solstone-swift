@@ -46,6 +46,13 @@ final class IntegrationGateDriver {
     }
 
     func run() async {
+        // The coordinator keeps this process alive across every gate action.
+        // Keep the relay-only and injected-revocation safeguards alive across
+        // the inter-manifest polling gaps too.
+        dependencies.tunnelManager.installIntegrationGateRelayOnlyCandidatePolicy()
+        defer {
+            dependencies.tunnelManager.clearIntegrationGateRelayOnlyCandidatePolicy()
+        }
         var lastProcessedSequence: UInt64?
         while !Task.isCancelled {
             switch await self.processNextManifest(after: lastProcessedSequence) {
@@ -60,6 +67,10 @@ final class IntegrationGateDriver {
     }
 
     func runOnce() async {
+        dependencies.tunnelManager.installIntegrationGateRelayOnlyCandidatePolicy()
+        defer {
+            dependencies.tunnelManager.clearIntegrationGateRelayOnlyCandidatePolicy()
+        }
         _ = await self.processNextManifest(after: nil)
     }
 
@@ -122,11 +133,6 @@ final class IntegrationGateDriver {
                 manifest: manifest,
                 keychainStore: dependencies.keychainStore
             )
-            dependencies.tunnelManager.installIntegrationGateRelayOnlyCandidatePolicy()
-            defer {
-                dependencies.tunnelManager.clearIntegrationGateRelayOnlyCandidatePolicy()
-            }
-
             let httpClient = IntegrationGateHTTPClient(
                 tunnelManager: dependencies.tunnelManager,
                 now: { self.now() }
