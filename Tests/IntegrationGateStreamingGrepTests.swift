@@ -4,7 +4,7 @@
 import Foundation
 import XCTest
 
-// criterion 6: integration-gate HTTP streaming does not use URLSession's byte reader.
+// integration-gate HTTP streaming must not use URLSession's byte reader.
 final class IntegrationGateStreamingGrepTests: XCTestCase {
     func testGateSourceListIsNonEmpty() throws {
         XCTAssertFalse(try Self.gateSourceFiles().isEmpty)

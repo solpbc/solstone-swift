@@ -351,6 +351,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
             sessionConfiguration: Self.emptyLocalEndpointsConfiguration(),
             now: { clock.now() }
         )
+        defer { httpClient.shutdown() }
         let sync = ConnectionSyncModel(clock: clock) {
             ConnectionSyncInputs(
                 tunnelState: manager.state,

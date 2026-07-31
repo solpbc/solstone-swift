@@ -198,13 +198,12 @@ nonisolated private final class IntegrationGateHTTPStreamStateBox: Sendable {
     }
 
     func receive(data: Data) {
-        let continuation = self.lock.withLock { state in
-            guard !state.finished else {
-                return nil as AsyncThrowingStream<Data, Error>.Continuation?
+        self.lock.withLock { state in
+            guard !state.finished, let continuation = state.bodyContinuation else {
+                return
             }
-            return state.bodyContinuation
+            _ = continuation.yield(data)
         }
-        continuation?.yield(data)
     }
 
     func cancelTask(throwing failure: IntegrationGateHTTPStreamFailure) {
@@ -285,8 +284,9 @@ nonisolated private struct IntegrationGateHTTPDataTaskReader: Sendable {
     }
 }
 
-// NSObject URLSession delegates cross executor boundaries; all mutable state is
-// isolated behind Sendable unfair-lock boxes keyed by task identifier.
+// NSObject URLSession delegates cross executor boundaries; all mutable state and
+// yield-vs-finish decisions are serialized behind Sendable unfair-lock boxes
+// keyed by task identifier.
 nonisolated private final class IntegrationGateHTTPStreamDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let states = OSAllocatedUnfairLock(initialState: [Int: IntegrationGateHTTPStreamStateBox]())
 

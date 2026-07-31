@@ -314,6 +314,90 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
         try await Self.waitForStopLoadingCount(1)
     }
 
+    func testStreamCeilingExceededMidBodyCancelsTaskAndRestoresAccounting() async throws {
+        let clock = MockObserverClock()
+        let chunk = Data(repeating: 0x44, count: 64 * 1024)
+        let totalLength = UInt64(chunk.count * 3)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: totalLength, expectedTotal: totalLength)
+            return IntegrationGateRangeHeaderURLProtocolPayload(
+                response: response,
+                chunks: [chunk, chunk, chunk],
+                finishesLoading: false
+            )
+        }
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
+        tunnelManager.forceConnected(port: 5151, via: .remote)
+        let client = IntegrationGateHTTPClient(
+            tunnelManager: tunnelManager,
+            sessionConfiguration: configuration,
+            now: { clock.now() }
+        )
+        defer { client.shutdown() }
+        XCTAssertEqual(client.activeGateIssuedRequestCount, 0)
+
+        do {
+            _ = try await client.rangedStreamingRequest(
+                routeLabel: .gateRange,
+                rangeStart: 0,
+                rangeLength: totalLength,
+                expectedTotal: totalLength,
+                progress: { byteCount in
+                    if byteCount == UInt64(chunk.count) {
+                        clock.advance(by: TimeInterval(IntegrationGateConstants.streamCeilingMilliseconds) / 1_000 + 0.001)
+                    }
+                }
+            )
+            XCTFail("request unexpectedly succeeded")
+        } catch let error as IntegrationGateValidationError {
+            XCTAssertEqual(error.reasonCode, .requestTimedOut)
+        }
+        XCTAssertEqual(client.activeGateIssuedRequestCount, 0)
+        try await Self.waitForStopLoadingCount(1)
+    }
+
+    func testParentTaskCancellationCancelsTaskAndRestoresAccounting() async throws {
+        let rangeLength: UInt64 = 64 * 1024
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: rangeLength, expectedTotal: rangeLength)
+            return IntegrationGateRangeHeaderURLProtocolPayload(
+                response: response,
+                chunks: [],
+                finishesLoading: false
+            )
+        }
+        let client = Self.client()
+        defer { client.shutdown() }
+        XCTAssertEqual(client.activeGateIssuedRequestCount, 0)
+
+        let task = Task { () -> (any Error)? in
+            do {
+                _ = try await client.rangedStreamingRequest(
+                    routeLabel: .gateRange,
+                    rangeStart: 0,
+                    rangeLength: rangeLength,
+                    expectedTotal: rangeLength
+                )
+                return nil
+            } catch {
+                return error
+            }
+        }
+        await Self.drainUntil {
+            client.activeGateIssuedRequestCount == 1 && !IntegrationGateRangeHeaderURLProtocol.capturedRequests.isEmpty
+        }
+        task.cancel()
+
+        let maybeError = await task.value
+        let error = try XCTUnwrap(maybeError)
+
+        XCTAssertTrue(error is CancellationError, "expected CancellationError, got \(String(describing: error))")
+        XCTAssertEqual(client.activeGateIssuedRequestCount, 0)
+        try await Self.waitForStopLoadingCount(1)
+    }
+
     func testProgressFiresWithCumulativeTransportChunkCount() async throws {
         let chunk = Data(repeating: 0x24, count: 64 * 1024)
         let totalLength = UInt64(chunk.count * 20)
@@ -516,6 +600,17 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
     private static func sourceText(_ relativePath: String) throws -> String {
         let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
         return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func drainUntil(
+        timeoutIterations: Int = 200,
+        _ condition: @MainActor () -> Bool
+    ) async {
+        for _ in 0..<timeoutIterations {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("condition did not become true")
     }
 
     private static func waitForStopLoadingCount(_ expected: Int) async throws {

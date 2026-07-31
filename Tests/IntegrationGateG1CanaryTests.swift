@@ -11,11 +11,13 @@ import XCTest
 final class IntegrationGateG1CanaryTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
+        try Self.resetGateDirectory()
         IntegrationGateRangeHeaderURLProtocol.reset()
     }
 
     override func tearDown() async throws {
         IntegrationGateRangeHeaderURLProtocol.reset()
+        try Self.resetGateDirectory()
         try await super.tearDown()
     }
 
@@ -126,6 +128,50 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         XCTAssertEqual(result.samples.last?.canaryStatusCode, 200)
     }
 
+    func testCanaryActionSamplesPersistThroughResultJSONBoundary() throws {
+        let samples = [
+            Self.sample(index: 0, rawStatus: "offline"),
+            Self.sample(index: 1, rawStatus: "offline"),
+            Self.sample(index: 2, rawStatus: "connectedIdle"),
+        ]
+        let result = IntegrationGateResult(
+            schemaVersion: IntegrationGateConstants.schemaVersion,
+            sequence: 1,
+            nonce: "synthetic-g1-nonce",
+            correlationID: "1-synthetic-g1-nonce",
+            recordState: .terminal,
+            verdict: .pass,
+            reasonCode: .none,
+            startedAtUnixMillis: 1,
+            updatedAtUnixMillis: 2,
+            finishedAtUnixMillis: 2,
+            durationMillis: 1,
+            buildMetadata: .current,
+            pairingSnapshot: nil,
+            routeLabel: .homePulse,
+            generation: IntegrationGateResultGeneration(
+                currentGeneration: 7,
+                activeGeneration: 7,
+                lastClosedGeneration: nil
+            ),
+            httpOutcome: nil,
+            accounting: .zero,
+            samples: samples,
+            transportStages: [],
+            reconnectReasonBuckets: []
+        )
+        let store = IntegrationGateFileStore()
+
+        try store.writeResult(result)
+        let data = try XCTUnwrap(store.readPriorResultData())
+        let decoded = try JSONDecoder().decode(IntegrationGateResult.self, from: data)
+        let driverText = try Self.sourceText("Sources/IntegrationGate/IntegrationGateDriver.swift")
+
+        XCTAssertTrue(driverText.contains("samples: actionResult.samples"))
+        XCTAssertEqual(decoded.samples.map(\.sampleIndex), [0, 1, 2])
+        XCTAssertEqual(decoded.samples.map(\.rawConnectionSyncStatus), ["offline", "offline", "connectedIdle"])
+    }
+
     func testCanaryActionChecksElapsedWindowBeforeIssuingNextSample() async throws {
         Self.installTwoHundredCanaryHandler()
         let harness = Self.actionHarness(initialInputs: Self.inputs(status: .offline))
@@ -191,6 +237,12 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
             ),
             coBoundFailure: coBoundFailure
         )
+    }
+
+    private static func sample(index: UInt64, rawStatus: String) -> IntegrationGateSample {
+        var sample = Self.observation(rawStatus: rawStatus, publishedStatus: rawStatus).sample
+        sample.sampleIndex = index
+        return sample
     }
 
     private static func manifest() -> IntegrationGateManifest {
@@ -355,6 +407,16 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
 
     private static func digest(_ character: Character) -> String {
         String(repeating: String(character), count: 64)
+    }
+
+    private static func sourceText(_ relativePath: String) throws -> String {
+        let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func resetGateDirectory() throws {
+        let directory = try IntegrationGateConstants.gateDirectoryURL()
+        try? FileManager.default.removeItem(at: directory)
     }
 
     private static func drainUntil(

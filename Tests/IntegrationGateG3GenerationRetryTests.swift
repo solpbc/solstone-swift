@@ -226,6 +226,87 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
         XCTAssertEqual(requests[1].value(forHTTPHeaderField: "Range"), "bytes=\(rangeStart)-\(rangeEnd)")
     }
 
+    func testGenerationRetryPublishesRunningWhenFirstAttemptEndsAtRangeLengthBelowExpectedTotal() async throws {
+        IntegrationGateRangeHeaderURLProtocol.reset()
+        defer { IntegrationGateRangeHeaderURLProtocol.reset() }
+        let rangeStart: UInt64 = 512
+        let rangeLength = UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 64
+        let expectedTotal = rangeLength * 4
+        let data = IntegrationGateG2RangeHashTests.data(length: rangeLength)
+        let expectedDigest = IntegrationGateG2RangeHashTests.sha256Hex(data)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = IntegrationGateG2RangeHashTests.partialResponse(
+                request: request,
+                rangeStart: rangeStart,
+                rangeLength: rangeLength,
+                expectedTotal: expectedTotal
+            )
+            return IntegrationGateRangeHeaderURLProtocolPayload(response: response, chunks: [data])
+        }
+
+        let clock = MockObserverClock()
+        let transport = MockCFTunnelTransport()
+        transport.generationSnapshot = TransportGenerationSnapshot(
+            currentGeneration: 3,
+            activeGeneration: 3,
+            lastClosedGeneration: nil
+        )
+        let manager = TunnelManager(transport: transport)
+        manager.forceConnected(port: 5151, via: .remote)
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let httpClient = IntegrationGateHTTPClient(
+            tunnelManager: manager,
+            sessionConfiguration: configuration,
+            now: { clock.now() }
+        )
+        defer { httpClient.shutdown() }
+        let sync = ConnectionSyncModel(clock: clock) {
+            ConnectionSyncInputs(
+                tunnelState: manager.state,
+                reconnectCountdown: manager.reconnectCountdown,
+                isNetworkSatisfied: manager.isNetworkSatisfied,
+                confirmedTransferCount: 0,
+                recentBytesPerSecond: 0,
+                backlogPending: 0,
+                backlogFailed: 0
+            )
+        }
+        let sampler = IntegrationGateSampler(
+            tunnelManager: manager,
+            connectionSyncModel: sync,
+            httpClient: httpClient,
+            clock: clock
+        )
+        var runningResults: [IntegrationGateActionRunResult] = []
+        let actions = IntegrationGateActions(
+            tunnelManager: manager,
+            httpClient: httpClient,
+            sampler: sampler,
+            clock: clock,
+            writeRunning: { result in
+                runningResults.append(result)
+            }
+        )
+
+        let result = await actions.run(
+            manifest: Self.manifest(
+                expectedContentLength: expectedTotal,
+                expectedDigest: expectedDigest,
+                rangeStart: rangeStart,
+                rangeLength: rangeLength
+            )
+        )
+
+        XCTAssertEqual(result.verdict, .fail)
+        XCTAssertEqual(result.reasonCode, .completedFirstAttempt)
+        XCTAssertEqual(runningResults.count, 1)
+        XCTAssertEqual(runningResults.first?.httpOutcome?.byteCount, rangeLength)
+        let request = try XCTUnwrap(IntegrationGateRangeHeaderURLProtocol.capturedRequests.first)
+        let rangeEnd = rangeStart + rangeLength - 1
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Range"), "bytes=\(rangeStart)-\(rangeEnd)")
+    }
+
     private static func facts(
         oldGeneration: UInt64? = 3,
         firstProgressBytes: UInt64 = UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 1,
