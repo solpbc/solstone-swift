@@ -125,7 +125,7 @@ private struct StrictPayload: Decodable {
         }
 
         switch decodedAction {
-        case .rangeHash:
+        case .rangeHash, .generationRetry:
             guard let rangeStart, let rangeLength, rangeLength > 0 else {
                 throw IntegrationGateValidationError(.invalidRange)
             }
@@ -134,13 +134,6 @@ private struct StrictPayload: Decodable {
             }
             guard expectedContentLength != nil, expectedSHA256Hex != nil else {
                 throw IntegrationGateValidationError(.invalidDigest)
-            }
-        case .generationRetry:
-            guard expectedContentLength != nil, expectedSHA256Hex != nil else {
-                throw IntegrationGateValidationError(.invalidDigest)
-            }
-            if rangeStart != nil || rangeLength != nil {
-                throw IntegrationGateValidationError(.invalidRange)
             }
         case .canary, .syncReconnectWindow, .syncTransferWindow:
             if rangeStart != nil || rangeLength != nil {

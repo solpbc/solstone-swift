@@ -73,7 +73,7 @@ enum IntegrationGateActionClassifiers {
         guard let sample = facts.sample else {
             return (.fail, .missingPositiveTransition)
         }
-        if let failure = sample.coBoundFailure {
+        if let failure = Self.coBoundFailureReason(for: sample) {
             return (.fail, failure)
         }
         guard sample.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive ||
@@ -198,9 +198,28 @@ enum IntegrationGateActionClassifiers {
         return (.pass, .none)
     }
 
+    static func coBoundFailureReason(for observation: IntegrationGateSampleObservation) -> IntegrationGateReasonCode? {
+        guard let failure = observation.coBoundFailure else {
+            return nil
+        }
+        if observation.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
+            switch failure {
+            case .canaryFailed, .canarySkewExceeded:
+                return .publishedHealthyCanaryFailed
+            case .canaryMissing, .canaryGenerationMismatch:
+                return failure
+            default:
+                return failure
+            }
+        }
+        return failure
+    }
+
     private static func firstCoBoundFailure(in observations: [IntegrationGateSampleObservation]) -> IntegrationGateReasonCode? {
-        for observation in observations where observation.coBoundFailure != nil {
-            return observation.coBoundFailure
+        for observation in observations {
+            if let failure = Self.coBoundFailureReason(for: observation) {
+                return failure
+            }
         }
         return nil
     }
@@ -251,16 +270,51 @@ final class IntegrationGateActions {
         }
         let generation = tunnelManager.transportGenerationSnapshot.activeGeneration
         let outcome = await httpClient.canary(routeLabel: .homePulse)
+        let windowStartedAt = clock.now()
+        let windowCeiling = IntegrationGateOperationCeiling(
+            startedAt: windowStartedAt,
+            ceilingMilliseconds: IntegrationGateConstants.g1ObservationWindowMilliseconds
+        )
+        var observations: [IntegrationGateSampleObservation] = []
+        var selectedSample: IntegrationGateSampleObservation?
+        var sampleIndex: UInt64 = 0
+        while true {
+            do {
+                try windowCeiling.check(at: clock.now())
+            } catch {
+                break
+            }
+            let observation = await sampler.captureSample(
+                sampleIndex: sampleIndex,
+                httpOutcome: sampleIndex == 0 ? outcome : nil
+            )
+            observations.append(observation)
+            if IntegrationGateActionClassifiers.coBoundFailureReason(for: observation) != nil {
+                selectedSample = observation
+                break
+            }
+            if observation.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive ||
+                observation.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
+                selectedSample = observation
+                break
+            }
+            sampleIndex += 1
+            do {
+                try windowCeiling.check(at: clock.now())
+            } catch {
+                break
+            }
+            try? await clock.sleep(for: .seconds(1))
+        }
         let final = httpClient.activeGateIssuedRequestCount
         let accounting = self.accounting(baseline: baseline, final: final)
-        let sample = await sampler.captureSample(sampleIndex: 0, httpOutcome: outcome)
         let facts = IntegrationGateG1Facts(
             endpointKind: tunnelManager.state.integrationGateEndpointKind,
             managerConnectionEpoch: tunnelManager.connectionEpoch,
             activeGeneration: generation,
             httpStatusCode: outcome.statusCode,
             accounting: accounting,
-            sample: sample
+            sample: selectedSample
         )
         let classified = IntegrationGateActionClassifiers.classifyG1(facts)
         return self.result(
@@ -268,7 +322,7 @@ final class IntegrationGateActions {
             reason: classified.1,
             httpOutcome: outcome,
             accounting: accounting,
-            samples: [sample.sample]
+            samples: observations.map(\.sample)
         )
     }
 
@@ -326,6 +380,11 @@ final class IntegrationGateActions {
         else {
             return self.result(verdict: .fail, reason: .invalidDigest, accountingBaseline: baseline)
         }
+        guard let rangeStart = manifest.rangeStart,
+              let rangeLength = manifest.rangeLength
+        else {
+            return self.result(verdict: .fail, reason: .invalidRange, accountingBaseline: baseline)
+        }
         let oldGeneration = tunnelManager.transportGenerationSnapshot.activeGeneration
         var firstProgressBytes: UInt64 = 0
         var runningPublished = false
@@ -335,8 +394,8 @@ final class IntegrationGateActions {
         do {
             _ = try await httpClient.rangedStreamingRequest(
                 routeLabel: manifest.action.routeLabel,
-                rangeStart: 0,
-                rangeLength: expectedLength,
+                rangeStart: rangeStart,
+                rangeLength: rangeLength,
                 expectedTotal: expectedLength,
                 ceilingMilliseconds: IntegrationGateConstants.streamCeilingMilliseconds,
                 progress: { [weak self] byteCount in
@@ -418,8 +477,8 @@ final class IntegrationGateActions {
         do {
             retryResponse = try await httpClient.rangedStreamingRequest(
                 routeLabel: manifest.action.routeLabel,
-                rangeStart: 0,
-                rangeLength: expectedLength,
+                rangeStart: rangeStart,
+                rangeLength: rangeLength,
                 expectedTotal: expectedLength,
                 ceilingMilliseconds: IntegrationGateConstants.streamCeilingMilliseconds
             )

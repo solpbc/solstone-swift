@@ -137,6 +137,9 @@ final class IntegrationGateDriver {
                 tunnelManager: dependencies.tunnelManager,
                 now: { self.now() }
             )
+            defer {
+                httpClient.shutdown()
+            }
             let clock = SystemObserverClock()
             let sampler = IntegrationGateSampler(
                 tunnelManager: dependencies.tunnelManager,

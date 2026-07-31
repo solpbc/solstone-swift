@@ -55,6 +55,7 @@ enum IntegrationGateReasonCode: String, Codable, Sendable, Equatable, CaseIterab
     case canaryMissing
     case canaryGenerationMismatch
     case canarySkewExceeded
+    case publishedHealthyCanaryFailed
     case missingPositiveTransition
     case accountingLeak
     case requestFailed

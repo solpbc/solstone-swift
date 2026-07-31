@@ -103,7 +103,7 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
     }
 
     func testPositiveSampleRequiresSameGenerationTwoHundredCanaryInsideSkew() {
-        for reason in [IntegrationGateReasonCode.canaryMissing, .canaryGenerationMismatch, .canarySkewExceeded] {
+        for reason in [IntegrationGateReasonCode.canaryMissing, .canaryGenerationMismatch] {
             let classified = IntegrationGateActionClassifiers.classifyG4(
                 IntegrationGateWindowFacts(observations: [
                     Self.observation("connectedIdle", coBoundFailure: reason),
@@ -111,6 +111,60 @@ final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
             )
             XCTAssertEqual(classified.0, .fail)
             XCTAssertEqual(classified.1, reason)
+        }
+    }
+
+    func testReconnectWindowPublishedPositiveCanarySkewUsesPublishedHealthyReason() {
+        let classified = IntegrationGateActionClassifiers.classifyG4(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("connectedIdle", coBoundFailure: .canarySkewExceeded),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .publishedHealthyCanaryFailed)
+    }
+
+    func testReconnectWindowPublishedPositiveCanaryFailedUsesPublishedHealthyReason() {
+        let classified = IntegrationGateActionClassifiers.classifyG4(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("connectedWaiting", coBoundFailure: .canaryFailed),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .publishedHealthyCanaryFailed)
+    }
+
+    func testReconnectWindowNonPublishedPositiveCanaryFailureKeepsOriginalReason() {
+        let classified = IntegrationGateActionClassifiers.classifyG4(
+            IntegrationGateWindowFacts(observations: [
+                Self.observation("connectedIdle", publishedStatus: "offline", coBoundFailure: .canaryFailed),
+            ])
+        )
+
+        XCTAssertEqual(classified.0, .fail)
+        XCTAssertEqual(classified.1, .canaryFailed)
+    }
+
+    func testTransferWindowPartitionsCoBoundCanaryFailures() {
+        let cases: [(IntegrationGateReasonCode?, IntegrationGateReasonCode)] = [
+            (.canaryFailed, .publishedHealthyCanaryFailed),
+            (.canarySkewExceeded, .publishedHealthyCanaryFailed),
+            (.canaryMissing, .canaryMissing),
+            (.canaryGenerationMismatch, .canaryGenerationMismatch),
+            (nil, .none),
+        ]
+
+        for (failure, expectedReason) in cases {
+            let classified = IntegrationGateActionClassifiers.classifyG5(
+                IntegrationGateWindowFacts(observations: [
+                    Self.observation("connectedTransferring", coBoundFailure: failure),
+                ])
+            )
+
+            XCTAssertEqual(classified.0, expectedReason == .none ? .pass : .fail)
+            XCTAssertEqual(classified.1, expectedReason)
         }
     }
 

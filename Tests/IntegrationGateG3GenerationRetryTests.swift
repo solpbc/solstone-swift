@@ -2,6 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+@testable import SPLTunnel
+import Foundation
+import os
 import XCTest
 
 // criterion 7: G3 generation retry classification and Option-A accounting.
@@ -120,6 +123,109 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
         XCTAssertEqual(result.reasonCode, .runningRecordWriteFailed)
     }
 
+    func testGenerationRetryUsesManifestRangeForBothAttemptsAndPublishesRunningAtChunkSeventeen() async throws {
+        IntegrationGateRangeHeaderURLProtocol.reset()
+        defer { IntegrationGateRangeHeaderURLProtocol.reset() }
+        let rangeStart: UInt64 = 256
+        let rangeLength: UInt64 = 2_097_169
+        let expectedTotal: UInt64 = 8_388_625
+        let retryData = IntegrationGateG2RangeHashTests.data(length: rangeLength)
+        let expectedDigest = IntegrationGateG2RangeHashTests.sha256Hex(retryData)
+        let firstAttemptChunk = Data(repeating: 0x7a, count: 64 * 1024)
+        let requestCount = OSAllocatedUnfairLock(initialState: 0)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let index = requestCount.withLock { count in
+                count += 1
+                return count
+            }
+            let response = IntegrationGateG2RangeHashTests.partialResponse(
+                request: request,
+                rangeStart: rangeStart,
+                rangeLength: rangeLength,
+                expectedTotal: expectedTotal
+            )
+            if index == 1 {
+                return IntegrationGateRangeHeaderURLProtocolPayload(
+                    response: response,
+                    chunks: Array(repeating: firstAttemptChunk, count: 17),
+                    failureAfterChunks: true
+                )
+            }
+            return IntegrationGateRangeHeaderURLProtocolPayload(
+                response: response,
+                chunks: IntegrationGateG2RangeHashTests.chunks(retryData, size: 64 * 1024)
+            )
+        }
+
+        let clock = MockObserverClock()
+        let transport = MockCFTunnelTransport()
+        transport.generationSnapshot = TransportGenerationSnapshot(
+            currentGeneration: 3,
+            activeGeneration: 3,
+            lastClosedGeneration: nil
+        )
+        let manager = TunnelManager(transport: transport)
+        manager.forceConnected(port: 5151, via: .remote)
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let httpClient = IntegrationGateHTTPClient(
+            tunnelManager: manager,
+            sessionConfiguration: configuration,
+            now: { clock.now() }
+        )
+        defer { httpClient.shutdown() }
+        let sync = ConnectionSyncModel(clock: clock) {
+            ConnectionSyncInputs(
+                tunnelState: manager.state,
+                reconnectCountdown: manager.reconnectCountdown,
+                isNetworkSatisfied: manager.isNetworkSatisfied,
+                confirmedTransferCount: 0,
+                recentBytesPerSecond: 0,
+                backlogPending: 0,
+                backlogFailed: 0
+            )
+        }
+        let sampler = IntegrationGateSampler(
+            tunnelManager: manager,
+            connectionSyncModel: sync,
+            httpClient: httpClient,
+            clock: clock
+        )
+        var runningResults: [IntegrationGateActionRunResult] = []
+        let actions = IntegrationGateActions(
+            tunnelManager: manager,
+            httpClient: httpClient,
+            sampler: sampler,
+            clock: clock,
+            writeRunning: { result in
+                runningResults.append(result)
+                transport.generationSnapshot = TransportGenerationSnapshot(
+                    currentGeneration: 4,
+                    activeGeneration: 4,
+                    lastClosedGeneration: 3
+                )
+            }
+        )
+        let result = await actions.run(
+            manifest: Self.manifest(
+                expectedContentLength: expectedTotal,
+                expectedDigest: expectedDigest,
+                rangeStart: rangeStart,
+                rangeLength: rangeLength
+            )
+        )
+
+        XCTAssertEqual(result.verdict, .pass)
+        XCTAssertEqual(result.reasonCode, .none)
+        XCTAssertEqual(runningResults.first?.httpOutcome?.byteCount, 1_114_112)
+        XCTAssertEqual(result.httpOutcome?.byteCount, rangeLength)
+        let requests = IntegrationGateRangeHeaderURLProtocol.capturedRequests
+        XCTAssertEqual(requests.count, 2)
+        let rangeEnd = rangeStart + rangeLength - 1
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Range"), "bytes=\(rangeStart)-\(rangeEnd)")
+        XCTAssertEqual(requests[1].value(forHTTPHeaderField: "Range"), "bytes=\(rangeStart)-\(rangeEnd)")
+    }
+
     private static func facts(
         oldGeneration: UInt64? = 3,
         firstProgressBytes: UInt64 = UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 1,
@@ -170,5 +276,31 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
 
     private static func digest(_ character: Character) -> String {
         String(repeating: String(character), count: 64)
+    }
+
+    private static func manifest(
+        expectedContentLength: UInt64,
+        expectedDigest: String,
+        rangeStart: UInt64,
+        rangeLength: UInt64
+    ) -> IntegrationGateManifest {
+        IntegrationGateManifest(
+            schemaVersion: IntegrationGateConstants.schemaVersion,
+            sequence: 1,
+            nonce: "synthetic-g3-nonce",
+            action: .generationRetry,
+            createdAtUnixMillis: 1,
+            expiresAtUnixMillis: 2_000,
+            expectedPairing: .init(
+                instanceID: "synthetic-instance",
+                fingerprintSHA256Hex: Self.digest("c"),
+                pairedAtNotBeforeUnixMillis: 1
+            ),
+            expectedBuild: .init(sourceCommit: "synthetic-source", splSwiftRevision: "synthetic-spl"),
+            expectedContentLength: expectedContentLength,
+            expectedSHA256Hex: expectedDigest,
+            rangeStart: rangeStart,
+            rangeLength: rangeLength
+        )
     }
 }

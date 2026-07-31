@@ -75,22 +75,24 @@ final class IntegrationGateManifestCorrelationTests: XCTestCase {
         XCTAssertEqual(decoded.rangeLength, rangeLength)
     }
 
-    func testGenerationRetryRequiresContentExpectationsButNotRange() throws {
+    func testGenerationRetryRequiresContentExpectationsAndRange() throws {
         let valid = Self.baseManifest { manifest in
-            manifest["action"] = "generationRetry"
-            manifest["expectedContentLength"] = 64
-            manifest["expectedSHA256Hex"] = Self.digest("b")
-        }
-        XCTAssertNoThrow(try IntegrationGateManifest.decodeAndValidate(Self.data(valid)))
-
-        let withRange = Self.baseManifest { manifest in
             manifest["action"] = "generationRetry"
             manifest["expectedContentLength"] = 64
             manifest["expectedSHA256Hex"] = Self.digest("b")
             manifest["rangeStart"] = 1
             manifest["rangeLength"] = 4
         }
-        try Self.assertManifest(withRange, failsWith: .invalidRange)
+        let decoded = try IntegrationGateManifest.decodeAndValidate(Self.data(valid))
+        XCTAssertEqual(decoded.rangeStart, 1)
+        XCTAssertEqual(decoded.rangeLength, 4)
+
+        let missingRange = Self.baseManifest { manifest in
+            manifest["action"] = "generationRetry"
+            manifest["expectedContentLength"] = 64
+            manifest["expectedSHA256Hex"] = Self.digest("b")
+        }
+        try Self.assertManifest(missingRange, failsWith: .invalidRange)
     }
 
     func testReplayRejectsStaleSequenceAndRepeatedNonce() throws {

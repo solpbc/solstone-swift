@@ -18,7 +18,10 @@ enum IntegrationGateConstants {
     static let canarySkewMilliseconds: UInt64 = 2_000
     static let connectCeilingMilliseconds: UInt64 = 30_000
     static let canaryCeilingMilliseconds: UInt64 = 10_000
+    static let g1ObservationWindowMilliseconds: UInt64 = 10_000
     static let cleanupCeilingMilliseconds: UInt64 = 5_000
+    // Stays at 20s for the first chunked-reader fix. The local reader cost is
+    // now known to be roughly 1000x lower; re-derive from the first live gate run.
     static let streamCeilingMilliseconds: UInt64 = 20_000
     static let progressCeilingMilliseconds: UInt64 = 30_000
     static let reconnectCeilingMilliseconds: UInt64 = 60_000

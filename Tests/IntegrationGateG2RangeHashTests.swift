@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Crypto
 import Foundation
 import os
 import XCTest
@@ -154,15 +155,14 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: nil
             )!
-            return (response, Data())
+            return IntegrationGateRangeHeaderURLProtocolPayload(response: response, chunks: [])
         }
-        let configuration = URLSessionConfiguration.ephemeral
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
         configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
         let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
         tunnelManager.forceConnected(port: 5151, via: .remote)
-        let client = IntegrationGateHTTPClient(tunnelManager: tunnelManager, session: session)
+        let client = IntegrationGateHTTPClient(tunnelManager: tunnelManager, sessionConfiguration: configuration)
+        defer { client.shutdown() }
 
         let response = try await client.rangedStreamingRequest(
             routeLabel: .gateRange,
@@ -179,6 +179,204 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
         XCTAssertEqual(response.outcome.byteCount, 0)
         XCTAssertNil(response.contentRange)
         XCTAssertEqual(response.sha256Hex, "")
+    }
+
+    func testDefaultClientOwnsNonSharedSession() {
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
+        let client = IntegrationGateHTTPClient(tunnelManager: tunnelManager)
+        defer { client.shutdown() }
+
+        XCTAssertFalse(client.session === URLSession.shared)
+    }
+
+    func testProductionConfigurationShapeSupportsProtocolInjection() async throws {
+        let data = Self.data(length: UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 17)
+        let digest = Self.sha256Hex(data)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: UInt64(data.count), expectedTotal: UInt64(data.count))
+            return IntegrationGateRangeHeaderURLProtocolPayload(response: response, chunks: [data])
+        }
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
+        tunnelManager.forceConnected(port: 5151, via: .remote)
+        let client = IntegrationGateHTTPClient(tunnelManager: tunnelManager, sessionConfiguration: configuration)
+        defer { client.shutdown() }
+
+        let response = try await client.rangedStreamingRequest(
+            routeLabel: .gateRange,
+            rangeStart: 0,
+            rangeLength: UInt64(data.count),
+            expectedTotal: UInt64(data.count)
+        )
+
+        XCTAssertEqual(response.outcome.byteCount, UInt64(data.count))
+        XCTAssertEqual(response.sha256Hex, digest)
+    }
+
+    func testDriverSourceKeepsDefaultHTTPClientConstruction() throws {
+        let text = try Self.sourceText("Sources/IntegrationGate/IntegrationGateDriver.swift")
+        let start = try XCTUnwrap(text.range(of: "let httpClient = IntegrationGateHTTPClient("))
+        let end = try XCTUnwrap(text.range(of: "let clock = SystemObserverClock()", range: start.upperBound..<text.endIndex))
+        let construction = text[start.lowerBound..<end.lowerBound]
+
+        XCTAssertTrue(construction.contains("tunnelManager: dependencies.tunnelManager"))
+        XCTAssertTrue(construction.contains("now: { self.now() }"))
+        XCTAssertFalse(construction.contains("sessionConfiguration:"))
+    }
+
+    func testMidBodyTransportErrorThrowsRequestFailedInsteadOfShortSuccessfulBody() async throws {
+        let chunk = Data(repeating: 0x42, count: 64 * 1024)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: UInt64(chunk.count * 5), expectedTotal: UInt64(chunk.count * 5))
+            return IntegrationGateRangeHeaderURLProtocolPayload(
+                response: response,
+                chunks: [chunk, chunk, chunk],
+                failureAfterChunks: true
+            )
+        }
+        let client = Self.client()
+        defer { client.shutdown() }
+
+        do {
+            _ = try await client.rangedStreamingRequest(
+                routeLabel: .gateRange,
+                rangeStart: 0,
+                rangeLength: UInt64(chunk.count * 5),
+                expectedTotal: UInt64(chunk.count * 5)
+            )
+            XCTFail("request unexpectedly succeeded")
+        } catch let error as IntegrationGateValidationError {
+            XCTAssertEqual(error.reasonCode, .requestFailed)
+        }
+    }
+
+    func testChunkBoundariesProduceWholeBodyDigestAndByteCount() async throws {
+        let data = Self.data(length: UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 123)
+        let digest = Self.sha256Hex(data)
+        let variants: [[Data]] = [
+            [data],
+            Self.chunks(data, size: 4 * 1024),
+            Self.chunks(data, size: 10 * 1024),
+            Self.chunks(data, size: 64 * 1024),
+        ]
+
+        for chunks in variants {
+            IntegrationGateRangeHeaderURLProtocol.reset()
+            IntegrationGateRangeHeaderURLProtocol.handler = { request in
+                let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: UInt64(data.count), expectedTotal: UInt64(data.count))
+                return IntegrationGateRangeHeaderURLProtocolPayload(response: response, chunks: chunks)
+            }
+            let client = Self.client()
+            defer { client.shutdown() }
+
+            let response = try await client.rangedStreamingRequest(
+                routeLabel: .gateRange,
+                rangeStart: 0,
+                rangeLength: UInt64(data.count),
+                expectedTotal: UInt64(data.count)
+            )
+
+            XCTAssertEqual(response.outcome.byteCount, UInt64(data.count))
+            XCTAssertEqual(response.sha256Hex, digest)
+        }
+    }
+
+    func testEarlyProgressFailureCancelsTaskAndRestoresAccounting() async throws {
+        let chunk = Data(repeating: 0x33, count: 64 * 1024)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: UInt64(chunk.count), expectedTotal: UInt64(chunk.count))
+            return IntegrationGateRangeHeaderURLProtocolPayload(
+                response: response,
+                chunks: [chunk],
+                finishesLoading: false
+            )
+        }
+        let client = Self.client()
+        defer { client.shutdown() }
+        XCTAssertEqual(client.activeGateIssuedRequestCount, 0)
+
+        do {
+            _ = try await client.rangedStreamingRequest(
+                routeLabel: .gateRange,
+                rangeStart: 0,
+                rangeLength: UInt64(chunk.count),
+                expectedTotal: UInt64(chunk.count),
+                progress: { _ in
+                    throw IntegrationGateValidationError(.requestTimedOut)
+                }
+            )
+            XCTFail("request unexpectedly succeeded")
+        } catch let error as IntegrationGateValidationError {
+            XCTAssertEqual(error.reasonCode, .requestTimedOut)
+        }
+        XCTAssertEqual(client.activeGateIssuedRequestCount, 0)
+        try await Self.waitForStopLoadingCount(1)
+    }
+
+    func testProgressFiresWithCumulativeTransportChunkCount() async throws {
+        let chunk = Data(repeating: 0x24, count: 64 * 1024)
+        let totalLength = UInt64(chunk.count * 20)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(request: request, rangeStart: 0, rangeLength: totalLength, expectedTotal: totalLength)
+            return IntegrationGateRangeHeaderURLProtocolPayload(
+                response: response,
+                chunks: Array(repeating: chunk, count: 20)
+            )
+        }
+        let client = Self.client()
+        defer { client.shutdown() }
+        var firstPublished: UInt64?
+
+        _ = try await client.rangedStreamingRequest(
+            routeLabel: .gateRange,
+            rangeStart: 0,
+            rangeLength: totalLength,
+            expectedTotal: totalLength,
+            progress: { byteCount in
+                if firstPublished == nil,
+                   byteCount > UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes),
+                   byteCount < totalLength {
+                    firstPublished = byteCount
+                }
+            }
+        )
+
+        XCTAssertEqual(firstPublished, 1_114_112)
+    }
+
+    func testProgressGuardCanPublishWhenFinalRangeChunkIsBelowExpectedTotal() async throws {
+        let rangeLength = UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes) + 64
+        let expectedTotal = rangeLength * 4
+        let data = Self.data(length: rangeLength)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            let response = Self.partialResponse(
+                request: request,
+                rangeStart: 0,
+                rangeLength: rangeLength,
+                expectedTotal: expectedTotal
+            )
+            return IntegrationGateRangeHeaderURLProtocolPayload(response: response, chunks: [data])
+        }
+        let client = Self.client()
+        defer { client.shutdown() }
+        var published: UInt64?
+
+        _ = try await client.rangedStreamingRequest(
+            routeLabel: .gateRange,
+            rangeStart: 0,
+            rangeLength: rangeLength,
+            expectedTotal: expectedTotal,
+            progress: { byteCount in
+                if published == nil,
+                   byteCount > UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes),
+                   byteCount < expectedTotal {
+                    published = byteCount
+                }
+            }
+        )
+
+        XCTAssertEqual(published, rangeLength)
     }
 
     func testContentRangeRejectsWildcardMultipleRangesOverflowAndMismatches() {
@@ -264,13 +462,99 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
     private static func digest(_ character: Character) -> String {
         String(repeating: String(character), count: 64)
     }
+
+    static func client() -> IntegrationGateHTTPClient {
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
+        tunnelManager.forceConnected(port: 5151, via: .remote)
+        return IntegrationGateHTTPClient(tunnelManager: tunnelManager, sessionConfiguration: configuration)
+    }
+
+    nonisolated static func partialResponse(
+        request: URLRequest,
+        rangeStart: UInt64,
+        rangeLength: UInt64,
+        expectedTotal: UInt64
+    ) -> HTTPURLResponse {
+        let rangeEnd = rangeStart + rangeLength - 1
+        return HTTPURLResponse(
+            url: request.url!,
+            statusCode: 206,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Range": "bytes \(rangeStart)-\(rangeEnd)/\(expectedTotal)",
+                "Content-Length": "\(rangeLength)",
+            ]
+        )!
+    }
+
+    nonisolated static func data(length: UInt64) -> Data {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(Int(length))
+        for index in 0..<length {
+            bytes.append(UInt8(index % 251))
+        }
+        return Data(bytes)
+    }
+
+    nonisolated static func chunks(_ data: Data, size: Int) -> [Data] {
+        var chunks: [Data] = []
+        var start = data.startIndex
+        while start < data.endIndex {
+            let end = data.index(start, offsetBy: min(size, data.distance(from: start, to: data.endIndex)))
+            chunks.append(data[start..<end])
+            start = end
+        }
+        return chunks
+    }
+
+    nonisolated static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func sourceText(_ relativePath: String) throws -> String {
+        let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func waitForStopLoadingCount(_ expected: Int) async throws {
+        for _ in 0..<50 {
+            if IntegrationGateRangeHeaderURLProtocol.stopLoadingCount == expected {
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("timed out waiting for stopLoadingCount \(expected)")
+    }
 }
 
-private final class IntegrationGateRangeHeaderURLProtocol: URLProtocol, @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+struct IntegrationGateRangeHeaderURLProtocolPayload: Sendable {
+    var response: HTTPURLResponse
+    var chunks: [Data]
+    var failureAfterChunks: Bool
+    var finishesLoading: Bool
+
+    init(
+        response: HTTPURLResponse,
+        chunks: [Data],
+        failureAfterChunks: Bool = false,
+        finishesLoading: Bool = true
+    ) {
+        self.response = response
+        self.chunks = chunks
+        self.failureAfterChunks = failureAfterChunks
+        self.finishesLoading = finishesLoading
+    }
+}
+
+final class IntegrationGateRangeHeaderURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) throws -> IntegrationGateRangeHeaderURLProtocolPayload
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
     private static let capturedRequestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
+    private static let stopLoadingCountBox = OSAllocatedUnfairLock(initialState: 0)
+    private let stopped = OSAllocatedUnfairLock(initialState: false)
 
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
@@ -282,9 +566,14 @@ private final class IntegrationGateRangeHeaderURLProtocol: URLProtocol, @uncheck
         set { self.capturedRequestsBox.withLock { $0 = newValue } }
     }
 
+    static var stopLoadingCount: Int {
+        self.stopLoadingCountBox.withLock { $0 }
+    }
+
     static func reset() {
         self.handler = nil
         self.capturedRequests = []
+        self.stopLoadingCountBox.withLock { $0 = 0 }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -304,14 +593,32 @@ private final class IntegrationGateRangeHeaderURLProtocol: URLProtocol, @uncheck
         }
 
         do {
-            let (response, data) = try handler(self.request)
-            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            self.client?.urlProtocol(self, didLoad: data)
-            self.client?.urlProtocolDidFinishLoading(self)
+            let payload = try handler(self.request)
+            self.client?.urlProtocol(self, didReceive: payload.response, cacheStoragePolicy: .notAllowed)
+            self.deliver(payload: payload, index: 0)
         } catch {
             self.client?.urlProtocol(self, didFailWithError: error)
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        self.stopped.withLock { $0 = true }
+        Self.stopLoadingCountBox.withLock { $0 += 1 }
+    }
+
+    private func deliver(payload: IntegrationGateRangeHeaderURLProtocolPayload, index: Int) {
+        guard !self.stopped.withLock({ $0 }) else { return }
+        guard index < payload.chunks.count else {
+            if payload.failureAfterChunks {
+                self.client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            } else if payload.finishesLoading {
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
+            return
+        }
+        self.client?.urlProtocol(self, didLoad: payload.chunks[index])
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(1)) {
+            self.deliver(payload: payload, index: index + 1)
+        }
+    }
 }
