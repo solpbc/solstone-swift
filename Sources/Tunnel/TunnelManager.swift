@@ -28,18 +28,6 @@ struct IntegrationGateCandidateBuildSummary: Sendable, Equatable {
     let bootstrapDirectCandidateCount: Int
     let returnedDirectCandidateCount: Int
     let returnedRelayCandidateCount: Int
-    let postConnectCachedDirectCandidateCount: Int?
-
-    func withPostConnectCachedDirectCandidateCount(_ count: Int) -> IntegrationGateCandidateBuildSummary {
-        IntegrationGateCandidateBuildSummary(
-            originalLocalEndpointCount: originalLocalEndpointCount,
-            cachedDirectCandidateCount: cachedDirectCandidateCount,
-            bootstrapDirectCandidateCount: bootstrapDirectCandidateCount,
-            returnedDirectCandidateCount: returnedDirectCandidateCount,
-            returnedRelayCandidateCount: returnedRelayCandidateCount,
-            postConnectCachedDirectCandidateCount: count
-        )
-    }
 }
 
 private struct IntegrationGateRelayOnlyCandidatePolicy: Sendable {
@@ -395,11 +383,7 @@ final class TunnelManager {
                 Task {
 #if DEBUG && targetEnvironment(simulator)
                     if self.integrationGateRelayOnlyCandidatePolicy != nil {
-                        let cachedDirectCount = await self.endpointCache.endpoints()
-                            .filter { self.directCandidateKey(for: $0) != nil }
-                            .count
-                        self.integrationGateCandidateBuildSummary = self.integrationGateCandidateBuildSummary?
-                            .withPostConnectCachedDirectCandidateCount(cachedDirectCount)
+                        // why: relay-only gate runs must not repopulate LAN candidates after connect; production refresh still runs below.
                         return
                     }
 #endif
@@ -1015,8 +999,7 @@ final class TunnelManager {
                 cachedDirectCandidateCount: cachedCandidates.filter { self.directCandidateKey(for: $0) != nil }.count,
                 bootstrapDirectCandidateCount: bootstrapCandidates.filter { self.directCandidateKey(for: $0) != nil }.count,
                 returnedDirectCandidateCount: candidates.filter { self.directCandidateKey(for: $0) != nil }.count,
-                returnedRelayCandidateCount: relayCandidates.count,
-                postConnectCachedDirectCandidateCount: nil
+                returnedRelayCandidateCount: relayCandidates.count
             )
         }
 #endif

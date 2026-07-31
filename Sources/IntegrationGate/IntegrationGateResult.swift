@@ -45,7 +45,6 @@ enum IntegrationGateReasonCode: String, Codable, Sendable, Equatable, CaseIterab
     case foreignPairing
     case absentRelayEnrollment
     case wrongRelayEndpoint
-    case runtimeLanRepopulation
     case selectedLanEndpoint
     case fileWriteFailed
     case runningRecordWriteFailed

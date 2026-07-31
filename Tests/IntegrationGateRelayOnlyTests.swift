@@ -31,7 +31,6 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
-        try await Self.waitForPostConnectDirectCount(manager, expected: 1)
         XCTAssertEqual(Self.lanCount(transport.capturedCandidates), 0)
         XCTAssertEqual(Self.relayCount(transport.capturedCandidates), 1)
         let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
@@ -40,7 +39,6 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertEqual(summary.bootstrapDirectCandidateCount, 0)
         XCTAssertEqual(summary.returnedDirectCandidateCount, 0)
         XCTAssertEqual(summary.returnedRelayCandidateCount, 1)
-        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 1)
     }
 
     func testRelayOnlyPolicyPreservesPairingDuringInjectedRevocation() async {
@@ -84,7 +82,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
                 headerFields: nil
             )!
             let body = Data("""
-            {"local_endpoints":[{"host":"10.0.0.30","port":7657,"scope":"local"}]}
+            {"local_endpoints":[{"ip":"10.0.0.30","port":7657,"scope":"local"}]}
             """.utf8)
             return (response, body)
         }
@@ -108,18 +106,62 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
-        try await Self.waitForPostConnectDirectCount(manager, expected: 0)
+        try await Self.waitForNoPostConnectLanRefresh(requestCount: requestCount, cache: cache)
         let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
         XCTAssertEqual(summary.returnedDirectCandidateCount, 0)
-        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 0)
         XCTAssertEqual(requestCount.withLock { $0 }, 0)
-        let cachedDirectCount = await cache.endpoints().filter {
-            if case .lan = $0 {
-                return true
-            }
-            return false
-        }.count
+        let cachedDirectEndpoints = await Self.cachedLanEndpoints(in: cache)
+        let cachedDirectCount = cachedDirectEndpoints.count
         XCTAssertEqual(cachedDirectCount, 0)
+        await manager.disconnect()
+    }
+
+    func testPostConnectLanRefreshRunsWithoutRelayOnlyPolicy() async throws {
+        IntegrationGateRelayOnlyURLProtocol.reset()
+        defer { IntegrationGateRelayOnlyURLProtocol.reset() }
+        let requestCount = OSAllocatedUnfairLock(initialState: 0)
+        let refreshedEndpoint = TransportEndpoint.lan(host: "10.0.0.30", port: 7657, scope: "local")
+        IntegrationGateRelayOnlyURLProtocol.handler = { request in
+            requestCount.withLock { $0 += 1 }
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/app/network/local-endpoints")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = Data("""
+            {"local_endpoints":[{"ip":"10.0.0.30","port":7657,"scope":"local"}]}
+            """.utf8)
+            return (response, body)
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [IntegrationGateRelayOnlyURLProtocol.self]
+        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: configuration))
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        let pairing = Self.pairing()
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: cache,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+
+        await manager.connect()
+
+        // connect() fires the refresh and returns before it completes; this poll is the URLProtocol reset barrier.
+        try await Self.waitForPostConnectLanRefresh(
+            requestCount: requestCount,
+            cache: cache,
+            expectedEndpoint: refreshedEndpoint
+        )
+        XCTAssertGreaterThanOrEqual(requestCount.withLock { $0 }, 1)
+        let cachedEndpoints = await Self.cachedLanEndpoints(in: cache)
+        XCTAssertTrue(cachedEndpoints.contains(refreshedEndpoint))
         await manager.disconnect()
     }
 
@@ -185,13 +227,6 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
-        // connect() spawns a detached post-connect endpoint-cache refresh that issues the
-        // only request routed through IntegrationGateRelayOnlyURLProtocol here. The summary
-        // records postConnectCachedDirectCandidateCount strictly after that refresh returns,
-        // so waiting for it proves the request is done and cannot outlive the deferred
-        // handler reset and trip the unstubbed-request tripwire during a later test.
-        try await Self.waitForPostConnectDirectCount(manager, expected: 0)
-
         let reconnect = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
         XCTAssertEqual(reconnect.verdict, .fail)
         XCTAssertEqual(reconnect.reasonCode, .selectedLanEndpoint)
@@ -202,11 +237,10 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         await manager.disconnect()
     }
 
-    func testRelayOnlyPolicyMeasuresRawCachedDirectCountWithoutPostConnectRefresh() async throws {
+    func testRelayOnlyPolicyAllowsCanaryClassifierWithSeededCachedDirectCandidates() async throws {
         IntegrationGateRelayOnlyURLProtocol.reset()
         defer { IntegrationGateRelayOnlyURLProtocol.reset() }
-        let requestCount = OSAllocatedUnfairLock(initialState: 0)
-        let configuration = Self.emptyLocalEndpointsConfiguration(requestCount: requestCount)
+        let configuration = Self.emptyLocalEndpointsConfiguration()
         let cache = EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: configuration))
         await cache.bootstrap(from: Self.pairing(localEndpoints: [
             LocalEndpoint(host: "10.0.0.20", port: 7657, scope: "local"),
@@ -228,14 +262,14 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
-        try await Self.waitForPostConnectDirectCount(manager, expected: 2)
-        let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
-        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 2)
-        XCTAssertEqual(requestCount.withLock { $0 }, 0)
+        let cachedDirectEndpoints = await Self.cachedLanEndpoints(in: cache)
+        XCTAssertEqual(cachedDirectEndpoints.count, 2)
+        XCTAssertTrue(cachedDirectEndpoints.contains(.lan(host: "10.0.0.20", port: 7657, scope: "local")))
+        XCTAssertTrue(cachedDirectEndpoints.contains(.lan(host: "10.0.0.21", port: 7657, scope: "local")))
 
-        let reconnect = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
-        XCTAssertEqual(reconnect.verdict, .fail)
-        XCTAssertEqual(reconnect.reasonCode, .runtimeLanRepopulation)
+        let canary = await Self.actionResult(manager: manager, action: .canary)
+        XCTAssertEqual(canary.verdict, .fail)
+        XCTAssertEqual(canary.reasonCode, .noActiveGeneration)
         await manager.disconnect()
     }
 
@@ -379,15 +413,49 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         return await actions.run(manifest: Self.manifest(action: action))
     }
 
-    private static func waitForPostConnectDirectCount(_ manager: TunnelManager, expected: Int) async throws {
+    private static func cachedLanEndpoints(in cache: EndpointCache) async -> [TransportEndpoint] {
+        await cache.endpoints().filter {
+            if case .lan = $0 {
+                return true
+            }
+            return false
+        }
+    }
+
+    private static func waitForNoPostConnectLanRefresh(
+        requestCount: OSAllocatedUnfairLock<Int>,
+        cache: EndpointCache
+    ) async throws {
         for _ in 0..<50 {
-            if manager.integrationGateCandidateBuildSummary?.postConnectCachedDirectCandidateCount == expected {
+            if requestCount.withLock({ $0 }) > 0 {
+                XCTFail("post-connect LAN refresh ran under relay-only policy")
+                return
+            }
+            let cachedEndpoints = await Self.cachedLanEndpoints(in: cache)
+            if cachedEndpoints.isEmpty == false {
+                XCTFail("post-connect LAN refresh populated LAN endpoints under relay-only policy")
                 return
             }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        XCTFail("timed out waiting for post-connect direct candidate count")
     }
+
+    private static func waitForPostConnectLanRefresh(
+        requestCount: OSAllocatedUnfairLock<Int>,
+        cache: EndpointCache,
+        expectedEndpoint: TransportEndpoint
+    ) async throws {
+        for _ in 0..<50 {
+            let currentRequestCount = requestCount.withLock { $0 }
+            let cachedEndpoints = await Self.cachedLanEndpoints(in: cache)
+            if currentRequestCount >= 1, cachedEndpoints.contains(expectedEndpoint) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("timed out waiting for post-connect LAN refresh")
+    }
+
 }
 
 private final class IntegrationGateRelayOnlyURLProtocol: URLProtocol, @unchecked Sendable {

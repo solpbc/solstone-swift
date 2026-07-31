@@ -617,10 +617,6 @@ final class IntegrationGateActions {
     }
 
     private func relayOnlyIntegrityFailure() -> IntegrationGateReasonCode? {
-        if let summary = tunnelManager.integrationGateCandidateBuildSummary,
-           (summary.postConnectCachedDirectCandidateCount ?? 0) > 0 {
-            return .runtimeLanRepopulation
-        }
         if tunnelManager.state.integrationGateEndpointKind == "lan" {
             return .selectedLanEndpoint
         }
