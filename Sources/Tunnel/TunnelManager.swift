@@ -395,8 +395,11 @@ final class TunnelManager {
                 Task {
 #if DEBUG && targetEnvironment(simulator)
                     if self.integrationGateRelayOnlyCandidatePolicy != nil {
+                        let cachedDirectCount = await self.endpointCache.endpoints()
+                            .filter { self.directCandidateKey(for: $0) != nil }
+                            .count
                         self.integrationGateCandidateBuildSummary = self.integrationGateCandidateBuildSummary?
-                            .withPostConnectCachedDirectCandidateCount(0)
+                            .withPostConnectCachedDirectCandidateCount(cachedDirectCount)
                         return
                     }
 #endif

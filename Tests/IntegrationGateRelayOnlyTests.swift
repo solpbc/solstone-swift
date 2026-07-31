@@ -31,7 +31,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         manager.installIntegrationGateRelayOnlyCandidatePolicy()
         await manager.connect()
 
-        try await Self.waitForPostConnectDirectCount(manager, expected: 0)
+        try await Self.waitForPostConnectDirectCount(manager, expected: 1)
         XCTAssertEqual(Self.lanCount(transport.capturedCandidates), 0)
         XCTAssertEqual(Self.relayCount(transport.capturedCandidates), 1)
         let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
@@ -40,7 +40,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertEqual(summary.bootstrapDirectCandidateCount, 0)
         XCTAssertEqual(summary.returnedDirectCandidateCount, 0)
         XCTAssertEqual(summary.returnedRelayCandidateCount, 1)
-        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 0)
+        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 1)
     }
 
     func testRelayOnlyPolicyPreservesPairingDuringInjectedRevocation() async {
@@ -202,6 +202,43 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         await manager.disconnect()
     }
 
+    func testRelayOnlyPolicyMeasuresRawCachedDirectCountWithoutPostConnectRefresh() async throws {
+        IntegrationGateRelayOnlyURLProtocol.reset()
+        defer { IntegrationGateRelayOnlyURLProtocol.reset() }
+        let requestCount = OSAllocatedUnfairLock(initialState: 0)
+        let configuration = Self.emptyLocalEndpointsConfiguration(requestCount: requestCount)
+        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: configuration))
+        await cache.bootstrap(from: Self.pairing(localEndpoints: [
+            LocalEndpoint(host: "10.0.0.20", port: 7657, scope: "local"),
+            LocalEndpoint(host: "10.0.0.21", port: 7657, scope: "local"),
+        ]))
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        let pairing = Self.pairing(localEndpoints: [
+            LocalEndpoint(host: "10.0.0.10", port: 7657, scope: "local"),
+        ])
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: cache,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+
+        manager.installIntegrationGateRelayOnlyCandidatePolicy()
+        await manager.connect()
+
+        try await Self.waitForPostConnectDirectCount(manager, expected: 2)
+        let summary = try XCTUnwrap(manager.integrationGateCandidateBuildSummary)
+        XCTAssertEqual(summary.postConnectCachedDirectCandidateCount, 2)
+        XCTAssertEqual(requestCount.withLock { $0 }, 0)
+
+        let reconnect = await Self.actionResult(manager: manager, action: .syncReconnectWindow)
+        XCTAssertEqual(reconnect.verdict, .fail)
+        XCTAssertEqual(reconnect.reasonCode, .runtimeLanRepopulation)
+        await manager.disconnect()
+    }
+
     private static func manifest(action: IntegrationGateAction = .canary) -> IntegrationGateManifest {
         IntegrationGateManifest(
             schemaVersion: IntegrationGateConstants.schemaVersion,
@@ -281,8 +318,11 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
             .appendingPathExtension("json")
     }
 
-    private static func emptyLocalEndpointsSession() -> URLSession {
+    private static func emptyLocalEndpointsConfiguration(
+        requestCount: OSAllocatedUnfairLock<Int>? = nil
+    ) -> URLSessionConfiguration {
         IntegrationGateRelayOnlyURLProtocol.handler = { request in
+            requestCount?.withLock { $0 += 1 }
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -293,6 +333,11 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [IntegrationGateRelayOnlyURLProtocol.self]
+        return configuration
+    }
+
+    private static func emptyLocalEndpointsSession() -> URLSession {
+        let configuration = Self.emptyLocalEndpointsConfiguration()
         return URLSession(configuration: configuration)
     }
 
@@ -303,7 +348,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         let clock = MockObserverClock()
         let httpClient = IntegrationGateHTTPClient(
             tunnelManager: manager,
-            session: Self.emptyLocalEndpointsSession(),
+            sessionConfiguration: Self.emptyLocalEndpointsConfiguration(),
             now: { clock.now() }
         )
         let sync = ConnectionSyncModel(clock: clock) {
