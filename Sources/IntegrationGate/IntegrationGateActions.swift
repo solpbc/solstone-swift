@@ -576,6 +576,27 @@ final class IntegrationGateActions {
             observations.append(await sampler.captureSample(sampleIndex: tailIndex))
             tailIndex += 1
         }
+        // Settle. Converging on the very last sample is not enough: the coordinator's
+        // owner-UI observer polls from outside this process and snapshots its batch when
+        // the terminal result appears, so a label that becomes correct at the final
+        // instant is never seen. Run 20260731T2316Z converged at sample 20 and
+        // `g4.recovered` was still unobserved -- the recovered "status: connected"
+        // observation landed in G5's batch instead. Hold the converged label on screen
+        // for a couple of samples so the observation has somewhere to land.
+        if tailIndex > UInt64(sampleCount),
+           let last = observations.last,
+           last.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
+            for _ in 0..<IntegrationGateConstants.syncRecoverySettleSamples {
+                do {
+                    try tailCeiling.check(at: clock.now())
+                } catch {
+                    break
+                }
+                try? await clock.sleep(for: .seconds(1))
+                observations.append(await sampler.captureSample(sampleIndex: tailIndex))
+                tailIndex += 1
+            }
+        }
         let classified = IntegrationGateActionClassifiers.classifyG4(IntegrationGateWindowFacts(observations: observations))
         return self.result(
             verdict: classified.0,

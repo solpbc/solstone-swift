@@ -32,6 +32,10 @@ enum IntegrationGateConstants {
     // instant raw recovers hands the verifier a pessimistic sample and G4/G5 fail on the
     // benign direction. 10s is 4x the worst-case publish latency.
     static let syncRecoveryTailMilliseconds: UInt64 = 10_000
+    // Samples held after the label converges, so the coordinator's out-of-process owner-UI
+    // observer has a window in which the correct label is actually on screen. Still
+    // bounded by `syncRecoveryTailMilliseconds`.
+    static let syncRecoverySettleSamples: Int = 2
     // G3's mid-stream interrupt window, made explicit. It used to exist only as an
     // artifact of the per-byte drain defect (~10-12s for 2 MiB); repairing the drain
     // cut that to 498 ms and the window vanished, leaving G3 UNREACHABLE rather than
