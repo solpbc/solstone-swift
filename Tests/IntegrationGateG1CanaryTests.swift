@@ -117,6 +117,11 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         harness.clock.advance(by: 1)
         await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
         harness.inputs.current = Self.inputs(status: .connectedIdle)
+        // Converge the owner-visible label at the same moment the transport comes up.
+        // G1 now waits for the PUBLISHED status, because sampling the instant raw goes
+        // positive reads the 2.5s publish debounce every time and reports it as
+        // `false_healthy` -- an app under-claiming its own health.
+        harness.sync.refreshNow()
         harness.clock.advance(by: 1)
 
         let result = await task.value
@@ -126,6 +131,48 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         XCTAssertEqual(result.samples.map(\.sampleIndex), [0, 1, 2])
         XCTAssertEqual(result.samples.map(\.rawConnectionSyncStatus), ["offline", "offline", "connectedIdle"])
         XCTAssertEqual(result.samples.last?.canaryStatusCode, 200)
+    }
+
+    func testCanaryActionKeepsSamplingUntilTheOwnerLabelCatchesUp() async throws {
+        // The behaviour the window exists for, and the one nothing else here pins.
+        // Raw goes positive while the published label is still catching up -- the
+        // designed 2.5s debounce. Breaking there hands the verifier a sample it is
+        // guaranteed to reject and G1 reports `false_healthy` about an app that was
+        // under-claiming its own health. Run 20260731T2135Z did exactly this: one
+        // sample, raw=connectedIdle, pub=waitingForHome, published never positive.
+        Self.installTwoHundredCanaryHandler()
+        let harness = Self.actionHarness(initialInputs: Self.inputs(status: .offline))
+        defer { harness.httpClient.shutdown() }
+
+        let task = Task {
+            await harness.actions.run(manifest: Self.manifest())
+        }
+        await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
+        harness.clock.advance(by: 1)
+        await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
+
+        // Transport up, label NOT yet converged.
+        harness.inputs.current = Self.inputs(status: .connectedIdle)
+        harness.clock.advance(by: 1)
+        // Reaching another sleeper is the assertion: the window did not stop on a
+        // raw-positive sample whose label was still behind.
+        await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
+
+        harness.sync.refreshNow()
+        harness.clock.advance(by: 1)
+
+        let result = await task.value
+
+        XCTAssertEqual(result.verdict, .pass)
+        XCTAssertEqual(result.reasonCode, .none)
+        XCTAssertEqual(result.samples.map(\.sampleIndex), [0, 1, 2, 3])
+        XCTAssertEqual(
+            result.samples.map(\.rawConnectionSyncStatus),
+            ["offline", "offline", "connectedIdle", "connectedIdle"]
+        )
+        // The selected sample is the converged one, which is what the verifier reads.
+        XCTAssertEqual(result.samples.last?.publishedConnectionSyncStatus, "connectedIdle")
+        XCTAssertEqual(result.samples[2].publishedConnectionSyncStatus, "offline")
     }
 
     func testCanaryActionSamplesPersistThroughResultJSONBoundary() throws {
@@ -304,7 +351,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
             clock: clock,
             inputs: inputs,
             httpClient: httpClient,
-            actions: actions
+            actions: actions,
+            sync: sync
         )
     }
 
@@ -443,5 +491,11 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         let inputs: G1InputBox
         let httpClient: IntegrationGateHTTPClient
         let actions: IntegrationGateActions
+        // The published status is what G1 now waits for, so a harness that cannot move
+        // it cannot exercise G1 at all. `ConnectionSyncModel.run()` is deliberately NOT
+        // started here -- it would add poll and debounce sleepers to every test's
+        // hand-cranked clock accounting. `refreshNow()` publishes synchronously, so a
+        // test can converge the label at the exact point it chooses, with no clock ticks.
+        let sync: ConnectionSyncModel
     }
 }

@@ -26,6 +26,24 @@ enum IntegrationGateConstants {
     static let progressCeilingMilliseconds: UInt64 = 30_000
     static let reconnectCeilingMilliseconds: UInt64 = 60_000
     static let observationWindowMilliseconds: UInt64 = 20_000
+    // Bounded extension past `observationWindowMilliseconds`, entered only while the raw
+    // status has recovered and the published one has not caught up yet. Publishing lags
+    // raw by up to `pollCadence + debounceInterval` (2.5s), so a window that ends the
+    // instant raw recovers hands the verifier a pessimistic sample and G4/G5 fail on the
+    // benign direction. 10s is 4x the worst-case publish latency.
+    static let syncRecoveryTailMilliseconds: UInt64 = 10_000
+    // G3's mid-stream interrupt window, made explicit. It used to exist only as an
+    // artifact of the per-byte drain defect (~10-12s for 2 MiB); repairing the drain
+    // cut that to 498 ms and the window vanished, leaving G3 UNREACHABLE rather than
+    // merely unpassable -- run 20260731T1929Z never observed a running record at all.
+    // After publishing the running record the app holds the stream open so the
+    // coordinator's fault has somewhere to land. The fault arriving is what normally
+    // ends the hold; the ceiling is only the backstop, and a run with no fault
+    // injected still drains and reports `completedFirstAttempt`.
+    static let g3InterruptHoldMilliseconds: UInt64 = 45_000
+    // Must exceed the hold plus the drain, or the hold trips the stream ceiling and
+    // G3 reports `requestTimedOut` instead of being interrupted.
+    static let g3StreamCeilingMilliseconds: UInt64 = 75_000
     static let networkStatusPath = "/app/network/api/status"
     static let homePulsePath = "/app/home/api/pulse"
     // The fixed real journal transcripts serve_file route for both media

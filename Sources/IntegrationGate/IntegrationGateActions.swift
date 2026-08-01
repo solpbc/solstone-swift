@@ -293,10 +293,19 @@ final class IntegrationGateActions {
                 selectedSample = observation
                 break
             }
-            if observation.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive ||
-                observation.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
+            // The verifier's positive-sample predicate requires the PUBLISHED status to be
+            // positive. Stopping the instant `raw` goes positive therefore guarantees we
+            // hand it the publish lag, and G1 fails `false_healthy` on the benign
+            // direction -- which is exactly what run 20260731T1829Z did, breaking on
+            // sample 0 with raw=connectedIdle, pub=waitingForHome. Keep sampling until
+            // published converges, and carry the most recent raw-positive observation as a
+            // fallback so a window that never converges still reports honestly.
+            if observation.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
                 selectedSample = observation
                 break
+            }
+            if observation.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive {
+                selectedSample = observation
             }
             sampleIndex += 1
             do {
@@ -543,6 +552,29 @@ final class IntegrationGateActions {
                 }
                 try? await clock.sleep(for: .seconds(1))
             }
+        }
+        // The recovery assertion reads the LAST observation, and the verifier requires its
+        // published status be positive. A window that ends the moment raw recovers hands it
+        // a pessimistic sample: run 20260731T1829Z ended at sample 19 with
+        // raw=connectedIdle, pub=reconnecting, and G4 failed `recovery_failed` (and G5
+        // `false_healthy`) on the benign direction. Extend, bounded, and only while raw has
+        // recovered and published has not yet caught up.
+        let tailCeiling = IntegrationGateOperationCeiling(
+            startedAt: clock.now(),
+            ceilingMilliseconds: IntegrationGateConstants.syncRecoveryTailMilliseconds
+        )
+        var tailIndex = UInt64(sampleCount)
+        while let last = observations.last,
+              last.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive,
+              !last.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
+            do {
+                try tailCeiling.check(at: clock.now())
+            } catch {
+                break
+            }
+            try? await clock.sleep(for: .seconds(1))
+            observations.append(await sampler.captureSample(sampleIndex: tailIndex))
+            tailIndex += 1
         }
         let classified = IntegrationGateActionClassifiers.classifyG4(IntegrationGateWindowFacts(observations: observations))
         return self.result(
