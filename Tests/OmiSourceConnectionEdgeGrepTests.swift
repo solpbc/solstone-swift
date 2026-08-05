@@ -54,17 +54,17 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
         XCTAssertFalse(audioBody.contains("connectionState = .needsAttention(.audioUnavailable)"))
     }
 
-    func testDisconnectFinalizesOpenChunkBeforeReconnectDecision() throws {
+    func testDisconnectRecordsReconnectStateBeforeFinalizingOpenChunk() throws {
         let managerURL = StringLiteralGrepSupport.worktreeRoot()
             .appendingPathComponent("Sources/Omi/OmiSourceManager.swift")
         let text = try String(contentsOf: managerURL, encoding: .utf8)
         let body = try Self.functionSlice(named: "handleDisconnected", in: text)
 
         let finalize = try XCTUnwrap(body.range(of: "await self.omiSegmentWriter?.finalizeOpenChunk()"))
-        let decision = try XCTUnwrap(body.range(of: "OmiSourceLogic.reconnectDecision"))
+        let state = try XCTUnwrap(body.range(of: "self.connectionState = .reconnecting"))
         XCTAssertLessThan(
-            body.distance(from: body.startIndex, to: finalize.lowerBound),
-            body.distance(from: body.startIndex, to: decision.lowerBound)
+            body.distance(from: body.startIndex, to: state.lowerBound),
+            body.distance(from: body.startIndex, to: finalize.lowerBound)
         )
     }
 

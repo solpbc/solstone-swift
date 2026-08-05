@@ -119,6 +119,24 @@ nonisolated struct OmiSourceEvent: Equatable, Sendable {
     let reason: String
     let appStateAtDrop: String
     let timeToReconnect: TimeInterval?
+    let identity: OmiEventIdentity?
+    let revision: Int
+
+    init(
+        timestamp: Date,
+        reason: String,
+        appStateAtDrop: String,
+        timeToReconnect: TimeInterval?,
+        identity: OmiEventIdentity? = nil,
+        revision: Int = 1
+    ) {
+        self.timestamp = timestamp
+        self.reason = reason
+        self.appStateAtDrop = appStateAtDrop
+        self.timeToReconnect = timeToReconnect
+        self.identity = identity
+        self.revision = revision
+    }
 }
 
 nonisolated struct OmiEventRing: Equatable, Sendable {
@@ -140,8 +158,8 @@ nonisolated struct OmiEventRing: Equatable, Sendable {
         }
     }
 
-    mutating func backfillMostRecentReconnect(timeToReconnect: TimeInterval) {
-        guard let index = self.events.indices.reversed().first(where: { self.events[$0].timeToReconnect == nil }) else {
+    mutating func completeReconnect(identity: OmiEventIdentity, timeToReconnect: TimeInterval) {
+        guard let index = self.events.indices.first(where: { self.events[$0].identity == identity }) else {
             return
         }
         let event = self.events[index]
@@ -149,7 +167,9 @@ nonisolated struct OmiEventRing: Equatable, Sendable {
             timestamp: event.timestamp,
             reason: event.reason,
             appStateAtDrop: event.appStateAtDrop,
-            timeToReconnect: timeToReconnect
+            timeToReconnect: timeToReconnect,
+            identity: event.identity,
+            revision: event.revision + 1
         )
     }
 }
@@ -188,6 +208,17 @@ nonisolated enum OmiAudioHealth: Equatable, Sendable {
 }
 
 nonisolated enum OmiSourceLogic {
+    static func segmentConnectionState(_ state: OmiSourceState) -> String {
+        switch state {
+        case .connected:
+            "connected"
+        case .connecting, .reconnecting:
+            "reconnecting"
+        case .disconnected, .needsAttention:
+            "disconnected"
+        }
+    }
+
     static let audioSilenceAttentionWindow: TimeInterval = 5 * 60
     // Reconnect misses are harder failures than quiet subscribed audio, so surface them sooner.
     static let reconnectAttentionDeadline: TimeInterval = 2 * 60

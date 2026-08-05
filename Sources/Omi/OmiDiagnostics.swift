@@ -43,16 +43,31 @@ final class OmiDiagnostics {
     @ObservationIgnored private var decodeLastSeen = OmiDiagnosticsPayload.DecodeCounters()
     @ObservationIgnored private var coalescingDepth = 0
     @ObservationIgnored private var hasCoalescedChanges = false
+    @ObservationIgnored private var didLogReconnectDeltaCap = false
+    @ObservationIgnored private var didLogSubscribeDeltaCap = false
 
     init(
         clock: any ObserverClock = SystemObserverClock(),
         fileURL: URL = OmiDiagnostics.defaultFileURL,
-        persistenceSink: (any OmiDiagnosticsPersistenceSink)? = nil
+        persistenceSink: (any OmiDiagnosticsPersistenceSink)? = nil,
+        processID: UUID = UUID(),
+        processStartedAt: Date? = nil
     ) {
         self.clock = clock
         self.fileURL = fileURL
         self.persistenceSink = persistenceSink ?? FileOmiDiagnosticsPersistenceSink(fileURL: fileURL)
-        self.payload = (try? Self.loadPayload(from: fileURL)) ?? OmiDiagnosticsPayload()
+        let startedAt = processStartedAt ?? clock.now()
+        var payload = (try? Self.loadPayload(from: fileURL)) ?? OmiDiagnosticsPayload()
+        let preservesSequence = payload.processID == processID && payload.processStartedAt == startedAt
+        payload.processID = processID
+        payload.processStartedAt = startedAt
+        if !preservesSequence {
+            payload.nextSequence = 0
+        }
+        self.payload = payload
+        if !preservesSequence {
+            self.persist()
+        }
     }
 
     func beginCoalescing() {
@@ -82,13 +97,34 @@ final class OmiDiagnostics {
         self.persist()
     }
 
-    func recordDisconnected(event: OmiSourceEvent) {
+    func allocateEventIdentity() -> OmiEventIdentity {
+        guard let processID = self.payload.processID else {
+            preconditionFailure("omi diagnostics process anchor unavailable")
+        }
+        let sequence = self.payload.nextSequence ?? 0
+        self.payload.nextSequence = sequence + 1
+        self.persist()
+        return OmiEventIdentity(processID: processID, sequence: sequence)
+    }
+
+    @discardableResult
+    func recordDisconnected(event: OmiSourceEvent) -> OmiEventIdentity {
+        let identity = event.identity ?? self.allocateEventIdentity()
+        let persistedEvent = OmiDiagnosticsPayload.ReconnectEvent(
+            timestamp: event.timestamp,
+            reason: event.reason,
+            appStateAtDrop: event.appStateAtDrop,
+            timeToReconnect: event.timeToReconnect,
+            processID: identity.processID,
+            sequence: identity.sequence,
+            revision: event.revision
+        )
         self.ensureFirstObserved(at: event.timestamp)
         self.closeOpenConnectedSilentGap(at: event.timestamp)
         var uptime = self.payload.uptime.accumulator
         uptime.noteDisconnected(at: event.timestamp)
         self.payload.uptime = OmiDiagnosticsPayload.UptimeSnapshot(uptime)
-        self.payload.reconnectEvents.append(OmiDiagnosticsPayload.ReconnectEvent(event))
+        self.payload.reconnectEvents.append(persistedEvent)
         if self.payload.reconnectEvents.count > OmiEventRing.capacity {
             self.payload.reconnectEvents.removeFirst(self.payload.reconnectEvents.count - OmiEventRing.capacity)
         }
@@ -96,17 +132,20 @@ final class OmiDiagnostics {
             self.payload.gapTallies.disconnectGapCount += 1
             self.payload.openDisconnectStartedAt = event.timestamp
         }
+        self.appendUnhandedReconnect(persistedEvent)
         self.persist()
+        return identity
     }
 
-    func recordReconnect(latency: TimeInterval) {
-        guard let index = self.payload.reconnectEvents.indices.reversed().first(where: {
-            self.payload.reconnectEvents[$0].timeToReconnect == nil
-        }) else {
-            self.persist()
-            return
-        }
-        self.payload.reconnectEvents[index].timeToReconnect = latency
+    func recordReconnect(identity: OmiEventIdentity, latency: TimeInterval) {
+        Self.completeReconnect(
+            in: &self.payload.reconnectEvents,
+            identity: identity,
+            latency: latency
+        )
+        var unhanded = self.payload.unhandedReconnectEvents ?? []
+        Self.completeReconnect(in: &unhanded, identity: identity, latency: latency)
+        self.payload.unhandedReconnectEvents = unhanded.isEmpty ? nil : unhanded
         self.persist()
     }
 
@@ -143,16 +182,109 @@ final class OmiDiagnostics {
         latencySeconds: TimeInterval,
         appState: String
     ) {
-        self.ensureFirstObserved(at: timestamp)
-        var samples = self.payload.subscribeLatencySamples ?? []
-        samples.append(OmiDiagnosticsPayload.SubscribeLatencySample(
-            timestamp: timestamp,
+        let identity = self.allocateEventIdentity()
+        self.beginSubscribe(identity: identity, connectedAt: timestamp, appState: appState)
+        self.completeSubscribe(
+            identity: identity,
+            connectedAt: timestamp,
+            subscribedAt: timestamp,
             latencySeconds: latencySeconds,
             appState: appState
+        )
+    }
+
+    func beginSubscribe(identity: OmiEventIdentity, connectedAt: Date, appState: String) {
+        self.ensureFirstObserved(at: connectedAt)
+        self.appendUnhandedSubscribe(OmiDiagnosticsPayload.SubscribeLatencySample(
+            timestamp: connectedAt,
+            latencySeconds: 0,
+            appState: appState,
+            connectedAt: connectedAt,
+            processID: identity.processID,
+            sequence: identity.sequence,
+            revision: 1
         ))
+        self.persist()
+    }
+
+    func completeSubscribe(
+        identity: OmiEventIdentity,
+        connectedAt: Date,
+        subscribedAt: Date,
+        latencySeconds: TimeInterval,
+        appState: String
+    ) {
+        self.ensureFirstObserved(at: subscribedAt)
+        let completed = OmiDiagnosticsPayload.SubscribeLatencySample(
+            timestamp: subscribedAt,
+            latencySeconds: latencySeconds,
+            appState: appState,
+            connectedAt: connectedAt,
+            processID: identity.processID,
+            sequence: identity.sequence,
+            revision: 2
+        )
+        var samples = self.payload.subscribeLatencySamples ?? []
+        samples.append(completed)
         self.payload.subscribeLatencySamples = OmiDiagnosticsLogic.retainingMostRecent(
             samples,
             limit: OmiDiagnosticsLogic.retainedEventSeriesCount
+        )
+        var unhanded = self.payload.unhandedSubscribeLatencySamples ?? []
+        if let index = unhanded.indices.first(where: { Self.matches(unhanded[$0], identity: identity) }) {
+            unhanded[index] = completed
+        } else {
+            self.appendUnhandedSubscribe(completed, to: &unhanded)
+        }
+        self.payload.unhandedSubscribeLatencySamples = unhanded.isEmpty ? nil : unhanded
+        self.persist()
+    }
+
+    func frozenSegmentDeltas() -> (
+        reconnectEvents: [OmiDiagnosticsPayload.ReconnectEvent],
+        subscribeSamples: [OmiDiagnosticsPayload.SubscribeLatencySample],
+        tokens: [OmiSegmentMetadataToken]
+    ) {
+        let reconnectEvents = self.payload.unhandedReconnectEvents ?? []
+        let subscribeSamples = self.payload.unhandedSubscribeLatencySamples ?? []
+        let reconnectTokens: [OmiSegmentMetadataToken] = reconnectEvents.compactMap { event -> OmiSegmentMetadataToken? in
+            guard let processID = event.processID,
+                  let sequence = event.sequence,
+                  let revision = event.revision
+            else { return nil }
+            return OmiSegmentMetadataToken(
+                kind: .reconnect,
+                processID: processID,
+                sequence: sequence,
+                revision: revision
+            )
+        }
+        let subscribeTokens: [OmiSegmentMetadataToken] = subscribeSamples.compactMap { sample -> OmiSegmentMetadataToken? in
+            guard let processID = sample.processID,
+                  let sequence = sample.sequence,
+                  let revision = sample.revision
+            else { return nil }
+            return OmiSegmentMetadataToken(
+                kind: .subscribe,
+                processID: processID,
+                sequence: sequence,
+                revision: revision
+            )
+        }
+        return (reconnectEvents, subscribeSamples, reconnectTokens + subscribeTokens)
+    }
+
+    func acknowledgeSegmentMetadata(tokens: [OmiSegmentMetadataToken]) {
+        guard !tokens.isEmpty else { return }
+        let reconnectTokens = tokens.filter { $0.kind == .reconnect }
+        let subscribeTokens = tokens.filter { $0.kind == .subscribe }
+        self.payload.unhandedReconnectEvents = self.removingAcknowledged(
+            self.payload.unhandedReconnectEvents ?? [],
+            tokens: reconnectTokens
+        )
+        self.payload.unhandedSubscribeLatencySamples = self.removingAcknowledged(
+            self.payload.unhandedSubscribeLatencySamples ?? [],
+            tokens: subscribeTokens
         )
         self.persist()
     }
@@ -372,6 +504,95 @@ final class OmiDiagnostics {
 }
 
 private extension OmiDiagnostics {
+    static func matches(
+        _ event: OmiDiagnosticsPayload.ReconnectEvent,
+        identity: OmiEventIdentity
+    ) -> Bool {
+        event.processID == identity.processID && event.sequence == identity.sequence
+    }
+
+    static func matches(
+        _ sample: OmiDiagnosticsPayload.SubscribeLatencySample,
+        identity: OmiEventIdentity
+    ) -> Bool {
+        sample.processID == identity.processID && sample.sequence == identity.sequence
+    }
+
+    static func completeReconnect(
+        in events: inout [OmiDiagnosticsPayload.ReconnectEvent],
+        identity: OmiEventIdentity,
+        latency: TimeInterval
+    ) {
+        guard let index = events.indices.first(where: { Self.matches(events[$0], identity: identity) }) else {
+            return
+        }
+        events[index].timeToReconnect = latency
+        events[index].revision = (events[index].revision ?? 1) + 1
+    }
+
+    func appendUnhandedReconnect(_ event: OmiDiagnosticsPayload.ReconnectEvent) {
+        var events = self.payload.unhandedReconnectEvents ?? []
+        events.append(event)
+        if events.count > OmiEventRing.capacity {
+            let dropped = events.count - OmiEventRing.capacity
+            events.removeFirst(dropped)
+            if !self.didLogReconnectDeltaCap {
+                self.didLogReconnectDeltaCap = true
+                self.log.error("omi segment reconnect delta cap reached dropped=\(dropped, privacy: .public)")
+            }
+        }
+        self.payload.unhandedReconnectEvents = events
+    }
+
+    func appendUnhandedSubscribe(_ sample: OmiDiagnosticsPayload.SubscribeLatencySample) {
+        var samples = self.payload.unhandedSubscribeLatencySamples ?? []
+        self.appendUnhandedSubscribe(sample, to: &samples)
+        self.payload.unhandedSubscribeLatencySamples = samples
+    }
+
+    func appendUnhandedSubscribe(
+        _ sample: OmiDiagnosticsPayload.SubscribeLatencySample,
+        to samples: inout [OmiDiagnosticsPayload.SubscribeLatencySample]
+    ) {
+        samples.append(sample)
+        if samples.count > OmiEventRing.capacity {
+            let dropped = samples.count - OmiEventRing.capacity
+            samples.removeFirst(dropped)
+            if !self.didLogSubscribeDeltaCap {
+                self.didLogSubscribeDeltaCap = true
+                self.log.error("omi segment subscribe delta cap reached dropped=\(dropped, privacy: .public)")
+            }
+        }
+    }
+
+    func removingAcknowledged(
+        _ events: [OmiDiagnosticsPayload.ReconnectEvent],
+        tokens: [OmiSegmentMetadataToken]
+    ) -> [OmiDiagnosticsPayload.ReconnectEvent]? {
+        let retained = events.filter { event in
+            !tokens.contains {
+                $0.processID == event.processID
+                    && $0.sequence == event.sequence
+                    && $0.revision == event.revision
+            }
+        }
+        return retained.isEmpty ? nil : retained
+    }
+
+    func removingAcknowledged(
+        _ samples: [OmiDiagnosticsPayload.SubscribeLatencySample],
+        tokens: [OmiSegmentMetadataToken]
+    ) -> [OmiDiagnosticsPayload.SubscribeLatencySample]? {
+        let retained = samples.filter { sample in
+            !tokens.contains {
+                $0.processID == sample.processID
+                    && $0.sequence == sample.sequence
+                    && $0.revision == sample.revision
+            }
+        }
+        return retained.isEmpty ? nil : retained
+    }
+
     static func loadPayload(from fileURL: URL) throws -> OmiDiagnosticsPayload {
         let data = try Data(contentsOf: fileURL)
         let decoder = JSONDecoder()

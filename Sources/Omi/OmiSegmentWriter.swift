@@ -19,10 +19,13 @@ final class OmiSegmentWriter {
     private let cacheRootURL: URL
     private let fileManager: FileManager
     private let clock: any ObserverClock
+    private let sampleLimit: Int
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-writer")
 
     var onChunkFinalized: ((_ day: String, _ durationS: TimeInterval, _ identity: String) -> Void)?
     var onWriterFault: (() -> Void)?
+    var freezeSegmentMetadata: (() -> OmiSegmentMetadataSnapshot?)?
+    var acknowledgeSegmentMetadata: (([OmiSegmentMetadataToken]) -> Void)?
 
     private(set) var droppedSamples = 0
     private(set) var failedOpens = 0
@@ -33,6 +36,7 @@ final class OmiSegmentWriter {
     private var samplesWritten = 0
     private var currentFile: AVAudioFile?
     private var currentURL: URL?
+    private var pendingChunkStart: Date?
     private var segmentationTask: Task<Void, Never>?
     private var consecutiveChunkOpenFailures = 0
     private var didNotifyWriterFaultForCurrentWedge = false
@@ -41,8 +45,10 @@ final class OmiSegmentWriter {
         transferEnqueuer: ObserverAudioTransferEnqueuer,
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
-        clock: any ObserverClock = SystemObserverClock()
+        clock: any ObserverClock = SystemObserverClock(),
+        sampleLimit: Int = 4_800_000
     ) {
+        precondition(sampleLimit > 0)
         self.transferEnqueuer = transferEnqueuer
         self.fileManager = fileManager
         self.cacheRootURL = cacheRootURL
@@ -51,6 +57,7 @@ final class OmiSegmentWriter {
             ?? fileManager.temporaryDirectory
                 .appendingPathComponent(Self.cacheDirectoryName, isDirectory: true)
         self.clock = clock
+        self.sampleLimit = sampleLimit
     }
 
     func start() {
@@ -75,19 +82,29 @@ final class OmiSegmentWriter {
         guard self.sessionID != nil else { return }
 
         _ = self.rotateIfElapsed()
-        guard self.ensureCurrentChunk(droppedSampleCount: samples.count) else { return }
+        let partitions = OmiSamplePartitioner.partitions(
+            samples: samples,
+            alreadyWritten: self.samplesWritten,
+            sampleLimit: self.sampleLimit
+        )
 
-        guard let audioFile = self.currentFile else { return }
-        guard let buffer = Self.makeBuffer(samples) else {
-            self.log.error("omi writer buffer unavailable")
-            return
-        }
+        for partition in partitions {
+            self.rotateForSampleLimitIfNeeded()
+            guard self.ensureCurrentChunk(droppedSampleCount: partition.count) else {
+                continue
+            }
+            guard let audioFile = self.currentFile else { continue }
+            guard let buffer = Self.makeBuffer(partition) else {
+                self.log.error("omi writer buffer unavailable")
+                continue
+            }
 
-        do {
-            try audioFile.write(from: buffer)
-            self.samplesWritten += samples.count
-        } catch {
-            self.log.error("omi writer write failed: \(String(describing: error), privacy: .public)")
+            do {
+                try audioFile.write(from: buffer)
+                self.samplesWritten += partition.count
+            } catch {
+                self.log.error("omi writer write failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -107,7 +124,7 @@ final class OmiSegmentWriter {
         }
     }
 
-    static func makeBuffer(_ samples: [Int16]) -> AVAudioPCMBuffer? {
+    static func makeBuffer(_ samples: ArraySlice<Int16>) -> AVAudioPCMBuffer? {
         guard !samples.isEmpty, samples.count <= Int(UInt32.max) else { return nil }
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
@@ -161,11 +178,12 @@ private extension OmiSegmentWriter {
         }
     }
 
-    func openChunk() throws {
+    func openChunk(startedAt: Date? = nil) throws {
         guard let sessionID = self.sessionID else {
             return
         }
 
+        let chunkStart = startedAt ?? self.pendingChunkStart ?? self.clock.now()
         let chunkID = Self.chunkID(sessionID: sessionID, index: self.chunkIndex)
         let url = try self.inProgressChunkURL(sessionID: sessionID, chunkID: chunkID)
         let file = try AVAudioFile(
@@ -176,8 +194,9 @@ private extension OmiSegmentWriter {
         )
         self.currentFile = file
         self.currentURL = url
-        self.currentChunkStart = self.clock.now()
+        self.currentChunkStart = chunkStart
         self.samplesWritten = 0
+        self.pendingChunkStart = nil
         self.resetChunkOpenFailureState()
     }
 
@@ -201,15 +220,36 @@ private extension OmiSegmentWriter {
         }
     }
 
+    func rotateForSampleLimitIfNeeded() {
+        guard self.currentFile != nil,
+              let currentChunkStart,
+              self.samplesWritten >= self.sampleLimit
+        else {
+            return
+        }
+
+        let successorStart = currentChunkStart.addingTimeInterval(
+            Double(self.samplesWritten) / Self.sampleRate
+        )
+        self.finalizeCurrentChunk()
+        self.chunkIndex += 1
+        self.pendingChunkStart = successorStart
+    }
+
     func finalizeCurrentChunk() {
         guard let finalizedChunk = self.takeFinalizedChunk() else { return }
+        let snapshot = self.freezeSegmentMetadata?()
         let transferEnqueuer = self.transferEnqueuer
-        Task { @MainActor [weak self, transferEnqueuer, finalizedChunk] in
+        Task { @MainActor [weak self, transferEnqueuer, finalizedChunk, snapshot] in
             do {
                 _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
                     chunkURL: finalizedChunk.url,
-                    sidecar: finalizedChunk.sidecar
+                    sidecar: finalizedChunk.sidecar,
+                    metadata: snapshot?.metadata
                 )
+                if let snapshot, !snapshot.frozenTokens.isEmpty {
+                    self?.acknowledgeSegmentMetadata?(snapshot.frozenTokens)
+                }
                 self?.notifyChunkFinalized(finalizedChunk)
             } catch {
                 self?.log.error("omi writer enqueue failed: \(String(describing: error), privacy: .public)")
@@ -219,11 +259,16 @@ private extension OmiSegmentWriter {
 
     func finalizeCurrentChunkAwaitingEnqueue() async {
         guard let finalizedChunk = self.takeFinalizedChunk() else { return }
+        let snapshot = self.freezeSegmentMetadata?()
         do {
             _ = try await self.transferEnqueuer.enqueueOmiChunkMovingFile(
                 chunkURL: finalizedChunk.url,
-                sidecar: finalizedChunk.sidecar
+                sidecar: finalizedChunk.sidecar,
+                metadata: snapshot?.metadata
             )
+            if let snapshot, !snapshot.frozenTokens.isEmpty {
+                self.acknowledgeSegmentMetadata?(snapshot.frozenTokens)
+            }
             self.notifyChunkFinalized(finalizedChunk)
         } catch {
             self.log.error("omi writer enqueue failed: \(String(describing: error), privacy: .public)")
@@ -292,6 +337,7 @@ private extension OmiSegmentWriter {
         self.currentFile?.close()
         self.sessionID = nil
         self.chunkIndex = 0
+        self.pendingChunkStart = nil
         self.resetChunkOpenFailureState()
         self.clearCurrentChunk()
     }

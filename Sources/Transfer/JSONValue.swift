@@ -69,3 +69,24 @@ nonisolated enum JSONValue: Codable, Equatable, Sendable {
         }
     }
 }
+
+extension JSONValue {
+    nonisolated var foundationObject: Any {
+        switch self {
+        case .null:
+            NSNull()
+        case .bool(let value):
+            value
+        case .string(let value):
+            value
+        case .int(let value):
+            value
+        case .double(let value):
+            value
+        case .array(let values):
+            values.map(\.foundationObject)
+        case .object(let object):
+            object.mapValues(\.foundationObject)
+        }
+    }
+}

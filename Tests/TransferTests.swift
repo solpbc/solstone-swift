@@ -899,6 +899,38 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertTrue(body.contains(#""chunk_index":7"#))
     }
 
+    @MainActor
+    func testObserverIngestMultipartBuilderNestsOmiWithoutShadowingReservedKeys() throws {
+        let boundary = "Boundary-omi"
+        let body = try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
+            boundary: boundary,
+            platform: "ios",
+            segment: "120000_3",
+            day: "20260420",
+            startedAt: Self.baseDate,
+            durationS: 3,
+            sources: ["audio"],
+            chunkIndex: 7,
+            sessionID: Self.uuid(8),
+            modeRawValue: ObserverMode.meeting.rawValue,
+            omiMetadata: .object([
+                "connection_state": .string("connected"),
+                "segment": .string("cannot-shadow"),
+                "day": .string("cannot-shadow"),
+            ]),
+            artifacts: ObserverIngestMultipartArtifacts(audioData: Data("audio".utf8))
+        ))
+
+        let meta = try self.multipartMeta(body, boundary: boundary)
+        XCTAssertEqual(meta["segment"] as? String, "120000_3")
+        XCTAssertEqual(meta["day"] as? String, "20260420")
+        XCTAssertEqual(meta["chunk_index"] as? Int, 7)
+        let omi = try XCTUnwrap(meta["omi"] as? [String: Any])
+        XCTAssertEqual(omi["connection_state"] as? String, "connected")
+        XCTAssertEqual(omi["segment"] as? String, "cannot-shadow")
+        XCTAssertEqual(omi["day"] as? String, "cannot-shadow")
+    }
+
     func testCrashTimingHonestyForBodyAndPhaseRecovery() async throws {
         let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("a", isDirectory: true))
         _ = try spool.stage(manifest: self.makeManifest(itemID: Self.uuid(31)), payloads: self.audioPayloads())
@@ -1864,6 +1896,15 @@ nonisolated final class TransferTests: XCTestCase {
 
 private extension TransferTests {
     static let baseDate = Date(timeIntervalSince1970: 1_713_624_000)
+
+    func multipartMeta(_ body: Data, boundary: String) throws -> [String: Any] {
+        let text = String(decoding: body, as: UTF8.self)
+        let marker = "name=\"meta\"\r\n\r\n"
+        let start = try XCTUnwrap(text.range(of: marker)?.upperBound)
+        let end = try XCTUnwrap(text[start...].range(of: "\r\n--\(boundary)")).lowerBound
+        let data = Data(text[start..<end].utf8)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
 
     func makeEngine(
         spool: TransferSpool? = nil,

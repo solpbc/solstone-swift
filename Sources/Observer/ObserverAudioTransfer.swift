@@ -105,8 +105,12 @@ final class ObserverAudioTransferEnqueuer {
     }
 
     @discardableResult
-    func enqueueOmiChunkMovingFile(chunkURL: URL, sidecar: ChunkSidecar) async throws -> UUID {
-        let manifest = Self.makeOmiManifest(sidecar: sidecar)
+    func enqueueOmiChunkMovingFile(
+        chunkURL: URL,
+        sidecar: ChunkSidecar,
+        metadata: OmiSegmentMetadata? = nil
+    ) async throws -> UUID {
+        let manifest = Self.makeOmiManifest(sidecar: sidecar, metadata: metadata)
         return try await self.engine.enqueue(manifest: manifest, payloadFileURLs: ["audio": chunkURL])
     }
 
@@ -150,9 +154,10 @@ final class ObserverAudioTransferEnqueuer {
 
     nonisolated static func makeOmiManifest(
         itemID: UUID = UUID(),
-        sidecar: ChunkSidecar
+        sidecar: ChunkSidecar,
+        metadata: OmiSegmentMetadata? = nil
     ) -> TransferManifest {
-        self.makeManifest(
+        var manifest = self.makeManifest(
             itemID: itemID,
             source: ObserverAudioTransferSource.omi,
             platform: "ios",
@@ -168,6 +173,10 @@ final class ObserverAudioTransferEnqueuer {
             segmentID: nil,
             payloadParts: [Self.audioPart()]
         )
+        if let metadata {
+            manifest.meta = OmiSegmentMetadata.attaching(metadata, to: manifest.meta)
+        }
+        return manifest
     }
 
     nonisolated static func makeWatchManifest(

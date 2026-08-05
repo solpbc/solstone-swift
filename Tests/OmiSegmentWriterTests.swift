@@ -201,7 +201,8 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
 
     @MainActor
     func testPCM16BufferFraming() throws {
-        let buffer = try XCTUnwrap(OmiSegmentWriter.makeBuffer([1, -2, 3, -4]))
+        let samples: [Int16] = [1, -2, 3, -4]
+        let buffer = try XCTUnwrap(OmiSegmentWriter.makeBuffer(samples[...]))
 
         XCTAssertEqual(buffer.frameCapacity, 4)
         XCTAssertEqual(buffer.frameLength, 4)
@@ -318,6 +319,137 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
         XCTAssertEqual(Set(chunks.map(\.sidecar.chunkIndex)).count, chunks.count)
     }
+
+    @MainActor
+    func testSingleAppendCrossingOneSampleBoundaryProducesDistinctChunks() async throws {
+        let start = try self.fixedLocalDate(hour: 10, minute: 43, second: 55)
+        let clock = MockObserverClock(now: start)
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(
+            transferEnqueuer: uploader.transferEnqueuer,
+            cacheRootURL: self.tempDirectory,
+            clock: clock,
+            sampleLimit: 16_000
+        )
+
+        writer.start()
+        writer.append(self.samples(count: 32_000))
+        try await self.waitForPendingCount(1, uploader: uploader)
+        writer.stop()
+        try await self.waitForPendingCount(2, uploader: uploader)
+
+        let chunks = try self.pendingChunks()
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0, 1])
+        XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
+        XCTAssertEqual(chunks.map(\.sidecar.durationS), [1, 1])
+        XCTAssertEqual(chunks.map(\.sidecar.startedAt), [start, start.addingTimeInterval(1)])
+        XCTAssertEqual(Set(chunks.map { "\($0.sidecar.day)/\($0.sidecar.segment)" }).count, 2)
+    }
+
+    @MainActor
+    func testSingleAppendCrossingMultipleSampleBoundariesPreservesChronology() async throws {
+        let start = try self.fixedLocalDate(hour: 10, minute: 43, second: 55)
+        let clock = MockObserverClock(now: start)
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(
+            transferEnqueuer: uploader.transferEnqueuer,
+            cacheRootURL: self.tempDirectory,
+            clock: clock,
+            sampleLimit: 16_000
+        )
+
+        writer.start()
+        writer.append(self.samples(count: 48_000))
+        try await self.waitForPendingCount(2, uploader: uploader)
+        writer.stop()
+        try await self.waitForPendingCount(3, uploader: uploader)
+
+        let chunks = try self.pendingChunks()
+        XCTAssertEqual(chunks.map(\.sidecar.chunkIndex), [0, 1, 2])
+        XCTAssertEqual(Set(chunks.map(\.sidecar.sessionID)).count, 1)
+        XCTAssertEqual(chunks.map(\.sidecar.durationS), [1, 1, 1])
+        XCTAssertEqual(
+            chunks.map(\.sidecar.startedAt),
+            [start, start.addingTimeInterval(1), start.addingTimeInterval(2)]
+        )
+        XCTAssertEqual(Set(chunks.map { "\($0.sidecar.day)/\($0.sidecar.segment)" }).count, 3)
+    }
+
+    @MainActor
+    func testSampleBoundaryOpenFailureDropsRemainingPartitionsAndSignalsFaultOnce() async throws {
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(
+            transferEnqueuer: uploader.transferEnqueuer,
+            cacheRootURL: self.tempDirectory,
+            clock: MockObserverClock(),
+            sampleLimit: 1_600
+        )
+        var faultCount = 0
+        writer.onWriterFault = {
+            faultCount += 1
+        }
+
+        writer.start()
+        let sessionDirectory = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: self.tempDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ).first
+        )
+        let sessionID = try XCTUnwrap(UUID(uuidString: sessionDirectory.lastPathComponent))
+        let blockedURL = sessionDirectory
+            .appendingPathComponent("in-progress", isDirectory: true)
+            .appendingPathComponent("\(sessionID.uuidString.lowercased())-1.m4a", isDirectory: false)
+        try FileManager.default.createDirectory(at: blockedURL, withIntermediateDirectories: true)
+
+        writer.append(self.samples(count: 4_000))
+        try await self.waitForPendingCount(1, uploader: uploader)
+
+        XCTAssertEqual(writer.droppedSamples, 2_400)
+        XCTAssertEqual(writer.failedOpens, 3)
+        XCTAssertEqual(faultCount, 1)
+        writer.stop()
+    }
+
+    @MainActor
+    func testFinalizationFreezesMetadataIntoQueuedManifest() async throws {
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(
+            transferEnqueuer: uploader.transferEnqueuer,
+            cacheRootURL: self.tempDirectory,
+            clock: MockObserverClock()
+        )
+        let processID = UUID()
+        var connectionState = "connected"
+        var acknowledgments: [[OmiSegmentMetadataToken]] = []
+        writer.freezeSegmentMetadata = {
+            OmiSegmentMetadataSnapshot(
+                metadata: OmiSegmentMetadata(
+                    connectionState: connectionState,
+                    processID: processID,
+                    reconnectCount: 2
+                ),
+                frozenTokens: []
+            )
+        }
+        writer.acknowledgeSegmentMetadata = { tokens in
+            acknowledgments.append(tokens)
+        }
+
+        writer.start()
+        writer.append(self.samples(count: 3_200))
+        await writer.finalizeOpenChunk()
+        connectionState = "disconnected"
+
+        try await self.waitForPendingCount(1, uploader: uploader)
+        let manifest = try XCTUnwrap(self.pendingChunks().first?.manifest)
+        let metadata = try XCTUnwrap(OmiSegmentMetadata.from(meta: manifest.meta))
+        XCTAssertEqual(metadata.connectionState, "connected")
+        XCTAssertEqual(metadata.processID, processID)
+        XCTAssertEqual(metadata.reconnectCount, 2)
+        XCTAssertTrue(acknowledgments.isEmpty)
+    }
 }
 
 private struct FinalizedChunkEvent: Sendable {
@@ -348,6 +480,7 @@ private extension OmiSegmentWriterTests {
         let chunkID: String
         let audioURL: URL
         let sidecar: ChunkSidecar
+        let manifest: TransferManifest
     }
 
     func makeUploader() -> OmiWriterTransferHarness {
@@ -405,7 +538,8 @@ private extension OmiSegmentWriterTests {
             return PendingChunk(
                 chunkID: "\(sessionID.uuidString.lowercased())-\(chunkIndex)",
                 audioURL: itemURL.appendingPathComponent("audio.m4a", isDirectory: false),
-                sidecar: sidecar
+                sidecar: sidecar,
+                manifest: manifest
             )
         }
             .sorted { $0.sidecar.chunkIndex < $1.sidecar.chunkIndex }

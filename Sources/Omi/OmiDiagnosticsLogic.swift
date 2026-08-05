@@ -42,17 +42,26 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         var reason: String
         var appStateAtDrop: String
         var timeToReconnect: TimeInterval?
+        var processID: UUID? = nil
+        var sequence: Int? = nil
+        var revision: Int? = nil
 
         init(
             timestamp: Date,
             reason: String,
             appStateAtDrop: String,
-            timeToReconnect: TimeInterval?
+            timeToReconnect: TimeInterval?,
+            processID: UUID? = nil,
+            sequence: Int? = nil,
+            revision: Int? = nil
         ) {
             self.timestamp = timestamp
             self.reason = reason
             self.appStateAtDrop = appStateAtDrop
             self.timeToReconnect = timeToReconnect
+            self.processID = processID
+            self.sequence = sequence
+            self.revision = revision
         }
 
         init(_ event: OmiSourceEvent) {
@@ -60,7 +69,10 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
                 timestamp: event.timestamp,
                 reason: event.reason,
                 appStateAtDrop: event.appStateAtDrop,
-                timeToReconnect: event.timeToReconnect
+                timeToReconnect: event.timeToReconnect,
+                processID: event.identity?.processID,
+                sequence: event.identity?.sequence,
+                revision: event.revision
             )
         }
     }
@@ -124,6 +136,10 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         var timestamp: Date
         var latencySeconds: TimeInterval
         var appState: String
+        var connectedAt: Date? = nil
+        var processID: UUID? = nil
+        var sequence: Int? = nil
+        var revision: Int? = nil
     }
 
     struct StorageBacklogSample: Codable, Sendable, Equatable {
@@ -199,6 +215,11 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
     var mtuAtConnect: Int? = nil
     var mtuAtSubscribeConfirm: Int? = nil
     var connectToFirstAudioSeconds: TimeInterval? = nil
+    var unhandedReconnectEvents: [ReconnectEvent]? = nil
+    var unhandedSubscribeLatencySamples: [SubscribeLatencySample]? = nil
+    var processID: UUID? = nil
+    var processStartedAt: Date? = nil
+    var nextSequence: Int? = nil
 
     init(
         version: Int = Self.currentVersion,
@@ -218,7 +239,12 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         pendantRebootEvents: [PendantRebootEvent]? = nil,
         mtuAtConnect: Int? = nil,
         mtuAtSubscribeConfirm: Int? = nil,
-        connectToFirstAudioSeconds: TimeInterval? = nil
+        connectToFirstAudioSeconds: TimeInterval? = nil,
+        unhandedReconnectEvents: [ReconnectEvent]? = nil,
+        unhandedSubscribeLatencySamples: [SubscribeLatencySample]? = nil,
+        processID: UUID? = nil,
+        processStartedAt: Date? = nil,
+        nextSequence: Int? = nil
     ) {
         self.version = version
         self.firstObservedAt = firstObservedAt
@@ -238,6 +264,11 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
         self.mtuAtConnect = mtuAtConnect
         self.mtuAtSubscribeConfirm = mtuAtSubscribeConfirm
         self.connectToFirstAudioSeconds = connectToFirstAudioSeconds
+        self.unhandedReconnectEvents = unhandedReconnectEvents
+        self.unhandedSubscribeLatencySamples = unhandedSubscribeLatencySamples
+        self.processID = processID
+        self.processStartedAt = processStartedAt
+        self.nextSequence = nextSequence
     }
 }
 

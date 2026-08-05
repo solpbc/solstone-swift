@@ -7,6 +7,11 @@ import Observation
 import UIKit
 import os
 
+private struct OmiPendingSubscribe: Sendable {
+    let identity: OmiEventIdentity
+    let connectedAt: Date
+}
+
 @MainActor
 @Observable
 final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
@@ -75,7 +80,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private(set) var didAttemptWriterStart = false
     @ObservationIgnored private var lastLoggedAudioHealth: OmiAudioHealth?
     @ObservationIgnored private var connectedAt: Date?
-    @ObservationIgnored private var subscribePending = false
+    @ObservationIgnored private var pendingReconnectIdentity: OmiEventIdentity?
+    @ObservationIgnored private var pendingSubscribe: OmiPendingSubscribe?
     @ObservationIgnored private var currentConnectionMTUAtConnect: Int?
     @ObservationIgnored private var currentConnectionMTUAtSubscribeConfirm: Int?
     @ObservationIgnored private var currentConnectionFirstAudioAt: Date?
@@ -160,6 +166,71 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func noteWriterFault() {
         self.writerFaulted = true
         self.refreshDiagnosticDecodeCounters(persist: true)
+    }
+
+    func freezeSegmentMetadata() -> OmiSegmentMetadataSnapshot {
+        let deltas = self.diagnostics.frozenSegmentDeltas()
+        let reconnectEvents: [OmiSegmentMetadata.ReconnectEvent] = deltas.reconnectEvents.compactMap { event -> OmiSegmentMetadata.ReconnectEvent? in
+            guard let processID = event.processID,
+                  let sequence = event.sequence,
+                  let revision = event.revision
+            else { return nil }
+            return OmiSegmentMetadata.ReconnectEvent(
+                processID: processID,
+                sequence: sequence,
+                revision: revision,
+                disconnectedAt: event.timestamp,
+                appState: event.appStateAtDrop,
+                latencySeconds: event.timeToReconnect
+            )
+        }
+        let subscribeEvents: [OmiSegmentMetadata.SubscribeEvent] = deltas.subscribeSamples.compactMap { sample -> OmiSegmentMetadata.SubscribeEvent? in
+            guard let processID = sample.processID,
+                  let sequence = sample.sequence,
+                  let revision = sample.revision,
+                  let connectedAt = sample.connectedAt
+            else { return nil }
+            let isCompleted = revision > 1
+            return OmiSegmentMetadata.SubscribeEvent(
+                processID: processID,
+                sequence: sequence,
+                revision: revision,
+                connectedAt: connectedAt,
+                subscribedAt: isCompleted ? sample.timestamp : nil,
+                latencySeconds: isCompleted ? sample.latencySeconds : nil,
+                appState: sample.appState
+            )
+        }
+        let phoneSample = self.diagnostics.payload.phoneSamples.last
+        let firmware: String?
+        if case .value(let value) = self.firmware, !value.isEmpty {
+            firmware = value
+        } else {
+            firmware = nil
+        }
+        return OmiSegmentMetadataSnapshot(
+            metadata: OmiSegmentMetadata(
+                connectionState: self.segmentConnectionState,
+                processID: self.diagnostics.payload.processID,
+                processStartedAt: self.diagnostics.payload.processStartedAt,
+                pendantBatteryLevel: self.lastKnownBattery?.value,
+                pendantBatteryAt: self.lastKnownBattery?.at,
+                phoneBatteryLevel: phoneSample?.batteryLevel,
+                phoneBatteryAt: phoneSample?.timestamp,
+                phoneBatteryState: phoneSample?.batteryState,
+                phoneThermalState: phoneSample?.thermalState,
+                firmware: firmware,
+                connectToFirstAudioSeconds: self.currentConnectionConnectToFirstAudioSeconds,
+                reconnectCount: self.reconnectCount,
+                reconnectEvents: reconnectEvents,
+                subscribeEvents: subscribeEvents
+            ),
+            frozenTokens: deltas.tokens
+        )
+    }
+
+    func acknowledgeSegmentMetadata(tokens: [OmiSegmentMetadataToken]) {
+        self.diagnostics.acknowledgeSegmentMetadata(tokens: tokens)
     }
 
     func effectiveConnectionState(now: Date) -> OmiSourceState {
@@ -501,9 +572,12 @@ private extension OmiSourceManager {
             let latency = now.timeIntervalSince(reconnectStartedAt)
             self.lastReconnectLatencySeconds = latency
             self.reconnectCount += 1
-            self.eventRing.backfillMostRecentReconnect(timeToReconnect: latency)
-            self.diagnostics.recordReconnect(latency: latency)
+            if let pendingReconnectIdentity {
+                self.eventRing.completeReconnect(identity: pendingReconnectIdentity, timeToReconnect: latency)
+                self.diagnostics.recordReconnect(identity: pendingReconnectIdentity, latency: latency)
+            }
             self.reconnectStartedAt = nil
+            self.pendingReconnectIdentity = nil
             self.isSystemReconnecting = false
         }
 
@@ -542,7 +616,6 @@ private extension OmiSourceManager {
         isReconnecting: Bool,
         error: (any Error)?
     ) async {
-        await self.omiSegmentWriter?.finalizeOpenChunk()
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
         self.lastDisconnectedAt = disconnectedAt
         self.uptime.noteDisconnected(at: disconnectedAt)
@@ -554,32 +627,44 @@ private extension OmiSourceManager {
         )
 
         if !self.manuallyDisconnected {
+            let identity = self.diagnostics.allocateEventIdentity()
             let event = OmiSourceEvent(
                 timestamp: disconnectedAt,
                 reason: error?.localizedDescription ?? "link lost",
                 appStateAtDrop: self.currentAppStateString,
-                timeToReconnect: nil
+                timeToReconnect: nil,
+                identity: identity
             )
             self.eventRing.append(event)
             self.diagnostics.recordDisconnected(event: event)
+            self.pendingReconnectIdentity = identity
             self.lastSilentAttributionAt = nil
         }
 
+        // Set edge state before freezing; defer cleanup/rearm so live readings survive and no new connection starts before audio closes.
         switch decision {
         case .stayDisconnected:
             self.connectionState = .disconnected
-            self.clearConnectionArtifacts()
-            self.log.info("omi stopped")
         case .systemReconnecting:
             self.isSystemReconnecting = true
             self.reconnectStartedAt = disconnectedAt
             self.connectionState = .reconnecting
-            self.clearTransientConnectionState()
-            self.log.info("omi reconnecting through bluetooth")
         case .rearmConnect:
             self.isSystemReconnecting = false
             self.reconnectStartedAt = disconnectedAt
             self.connectionState = .reconnecting
+        }
+
+        await self.omiSegmentWriter?.finalizeOpenChunk()
+
+        switch decision {
+        case .stayDisconnected:
+            self.clearConnectionArtifacts()
+            self.log.info("omi stopped")
+        case .systemReconnecting:
+            self.clearTransientConnectionState()
+            self.log.info("omi reconnecting through bluetooth")
+        case .rearmConnect:
             self.clearTransientConnectionState()
             self.beginConnect(peripheral, isReconnect: true)
             self.log.info("omi reconnect armed")
@@ -897,33 +982,41 @@ private extension OmiSourceManager {
     ) {
         self.clearPerConnectionInstrumentationState()
         self.connectedAt = now
-        self.subscribePending = expectsSubscribeConfirm
+        if expectsSubscribeConfirm || appendAdoptedLatency {
+            let identity = self.diagnostics.allocateEventIdentity()
+            self.pendingSubscribe = OmiPendingSubscribe(identity: identity, connectedAt: now)
+            self.diagnostics.beginSubscribe(
+                identity: identity,
+                connectedAt: now,
+                appState: self.currentAppStateString
+            )
+        } else {
+            self.pendingSubscribe = nil
+        }
         self.currentConnectionMTUAtConnect = self.connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
         self.diagnostics.clearPerConnectionPointReadingsForNewConnection()
         self.diagnostics.setMTUAtConnect(self.currentConnectionMTUAtConnect)
 
         if appendAdoptedLatency {
-            self.diagnostics.appendSubscribeLatency(
-                timestamp: now,
-                latencySeconds: 0,
-                appState: self.currentAppStateString
-            )
+            self.appendSubscribeLatencyIfNeeded(at: now)
         }
     }
 
     func appendSubscribeLatencyIfNeeded(at date: Date) {
-        guard self.subscribePending, let connectedAt else {
+        guard let pendingSubscribe else {
             return
         }
 
-        self.diagnostics.appendSubscribeLatency(
-            timestamp: date,
-            latencySeconds: date.timeIntervalSince(connectedAt),
+        self.diagnostics.completeSubscribe(
+            identity: pendingSubscribe.identity,
+            connectedAt: pendingSubscribe.connectedAt,
+            subscribedAt: date,
+            latencySeconds: date.timeIntervalSince(pendingSubscribe.connectedAt),
             appState: self.currentAppStateString
         )
         self.currentConnectionMTUAtSubscribeConfirm = self.connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
         self.diagnostics.setMTUAtSubscribeConfirm(self.currentConnectionMTUAtSubscribeConfirm)
-        self.subscribePending = false
+        self.pendingSubscribe = nil
     }
 
     func noteFirstAudioIfNeeded(at date: Date) {
@@ -962,7 +1055,7 @@ private extension OmiSourceManager {
 
     func clearPerConnectionInstrumentationState() {
         self.connectedAt = nil
-        self.subscribePending = false
+        self.pendingSubscribe = nil
         self.currentConnectionMTUAtConnect = nil
         self.currentConnectionMTUAtSubscribeConfirm = nil
         self.currentConnectionFirstAudioAt = nil
@@ -1311,6 +1404,10 @@ private extension OmiSourceManager {
             applicationStateIsActive: UIApplication.shared.applicationState == .active,
             isProtectedDataAvailable: UIApplication.shared.isProtectedDataAvailable
         )
+    }
+
+    var segmentConnectionState: String {
+        OmiSourceLogic.segmentConnectionState(self.connectionState)
     }
 
     static func littleEndianUInt32(_ data: Data, offset: Int) -> UInt32 {

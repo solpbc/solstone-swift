@@ -94,6 +94,7 @@ nonisolated enum DefaultTransferBodyBuilder {
                 sessionID: ingest.sessionID,
                 modeRawValue: ingest.modeRawValue,
                 segmentID: ingest.segmentID,
+                omiMetadata: OmiSegmentMetadata.namespaceValue(from: item.manifest.meta),
                 artifacts: ObserverIngestMultipartArtifacts(
                     audioData: audioData,
                     locationJSONL: locationData,

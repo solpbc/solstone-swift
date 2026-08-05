@@ -98,25 +98,41 @@ nonisolated final class OmiSourceLogicTests: XCTestCase {
         XCTAssertEqual(ring.events.last?.reason, "drop 50")
     }
 
-    func testEventRingBackfillsMostRecentUnresolvedReconnect() {
+    func testEventRingCompletesMatchingReconnectIdentity() {
         var ring = OmiEventRing()
-        ring.append(Self.event(0))
+        let firstIdentity = OmiEventIdentity(processID: UUID(), sequence: 0)
+        let completedIdentity = OmiEventIdentity(processID: UUID(), sequence: 1)
+        let targetIdentity = OmiEventIdentity(processID: UUID(), sequence: 2)
+        ring.append(OmiSourceEvent(
+            timestamp: Date(timeIntervalSince1970: 0),
+            reason: "first",
+            appStateAtDrop: "foreground",
+            timeToReconnect: nil,
+            identity: firstIdentity
+        ))
         ring.append(OmiSourceEvent(
             timestamp: Date(timeIntervalSince1970: 1),
             reason: "resolved",
             appStateAtDrop: "foreground",
-            timeToReconnect: 1.25
+            timeToReconnect: 1.25,
+            identity: completedIdentity
         ))
-        ring.append(Self.event(2))
+        ring.append(OmiSourceEvent(
+            timestamp: Date(timeIntervalSince1970: 2),
+            reason: "target",
+            appStateAtDrop: "foreground",
+            timeToReconnect: nil,
+            identity: targetIdentity
+        ))
 
-        ring.backfillMostRecentReconnect(timeToReconnect: 3.5)
+        ring.completeReconnect(identity: targetIdentity, timeToReconnect: 3.5)
 
         XCTAssertNil(ring.events[0].timeToReconnect)
         XCTAssertEqual(ring.events[1].timeToReconnect, 1.25)
         XCTAssertEqual(ring.events[2].timeToReconnect, 3.5)
     }
 
-    func testEventRingBackfillNoOpsWhenNoUnresolvedEventExists() {
+    func testEventRingCompletionNoOpsForUnknownIdentity() {
         var ring = OmiEventRing()
         ring.append(OmiSourceEvent(
             timestamp: Date(timeIntervalSince1970: 1),
@@ -125,7 +141,10 @@ nonisolated final class OmiSourceLogicTests: XCTestCase {
             timeToReconnect: 1.25
         ))
 
-        ring.backfillMostRecentReconnect(timeToReconnect: 3.5)
+        ring.completeReconnect(
+            identity: OmiEventIdentity(processID: UUID(), sequence: 3),
+            timeToReconnect: 3.5
+        )
 
         XCTAssertEqual(ring.events.first?.timeToReconnect, 1.25)
     }

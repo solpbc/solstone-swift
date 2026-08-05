@@ -464,6 +464,12 @@ struct SolstoneSwiftApp: App {
         omiSegmentWriter.onWriterFault = { [weak omiSource] in
             omiSource?.noteWriterFault()
         }
+        omiSegmentWriter.freezeSegmentMetadata = { [weak omiSource] in
+            omiSource?.freezeSegmentMetadata()
+        }
+        omiSegmentWriter.acknowledgeSegmentMetadata = { [weak omiSource] tokens in
+            omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
+        }
         omiSource.omiSegmentWriter = omiSegmentWriter
         omiSource.onDecodedSamples = { [weak omiSegmentWriter] samples in
             omiSegmentWriter?.append(samples)

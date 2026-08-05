@@ -15,6 +15,7 @@ nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
     var sessionID: UUID?
     var modeRawValue: String?
     var segmentID: UUID?
+    var omiMetadata: JSONValue?
     var artifacts: ObserverIngestMultipartArtifacts
 
     init(
@@ -29,6 +30,7 @@ nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
         sessionID: UUID? = nil,
         modeRawValue: String? = nil,
         segmentID: UUID? = nil,
+        omiMetadata: JSONValue? = nil,
         artifacts: ObserverIngestMultipartArtifacts
     ) {
         self.boundary = boundary
@@ -42,6 +44,7 @@ nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
         self.sessionID = sessionID
         self.modeRawValue = modeRawValue
         self.segmentID = segmentID
+        self.omiMetadata = omiMetadata
         self.artifacts = artifacts
     }
 }
@@ -95,6 +98,9 @@ nonisolated enum ObserverIngestMultipartBody {
         }
         if let segmentID = input.segmentID {
             metaObject["segment_id"] = segmentID.uuidString
+        }
+        if let omiMetadata = input.omiMetadata {
+            metaObject[OmiSegmentMetadata.key] = omiMetadata.foundationObject
         }
         let meta = try JSONSerialization.data(withJSONObject: metaObject, options: [.sortedKeys])
         body.append(self.multipartField(

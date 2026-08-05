@@ -41,13 +41,13 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         )
         diagnostics.recordBattery(level: 87, at: start.addingTimeInterval(2))
         diagnostics.recordSignal(level: -62, at: start.addingTimeInterval(3))
-        diagnostics.recordDisconnected(event: OmiSourceEvent(
+        let reconnectIdentity = diagnostics.recordDisconnected(event: OmiSourceEvent(
             timestamp: start.addingTimeInterval(20),
             reason: "link lost",
             appStateAtDrop: "foreground",
             timeToReconnect: nil
         ))
-        diagnostics.recordReconnect(latency: 4)
+        diagnostics.recordReconnect(identity: reconnectIdentity, latency: 4)
         clock.advance(by: 24)
         diagnostics.recordConnected()
         diagnostics.recordPhoneSample()
@@ -138,7 +138,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
         let payload = diagnostics.payload
 
-        XCTAssertEqual(payload.version, 1)
+        XCTAssertEqual(payload.version, OmiDiagnosticsPayload.currentVersion)
         XCTAssertEqual(payload.firstObservedAt, Self.date("2024-04-20T12:00:00Z"))
         XCTAssertEqual(payload.uptime.connectedSince, Self.date("2024-04-20T12:40:00Z"))
         XCTAssertEqual(payload.uptime.accumulatedConnectedSeconds, 1800, accuracy: 0.001)
@@ -263,7 +263,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
         let payload = diagnostics.payload
 
-        XCTAssertEqual(payload.version, 2)
+        XCTAssertEqual(payload.version, OmiDiagnosticsPayload.currentVersion)
         XCTAssertEqual(payload.firstObservedAt, Self.date("2024-05-21T08:00:00Z"))
         XCTAssertEqual(payload.decodeCounters.ok, 52)
         XCTAssertEqual(payload.decodeCounters.errors, 3)
@@ -355,9 +355,9 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         diagnostics.appendStorageBacklogSample(timestamp: start, usedBytes: 100, rawHex: "64000000", fileCountUnconfirmed: 1)
         diagnostics.appendPendantRebootEvent(observedAt: start, epochBefore: 2_000, epochAfter: 1_000)
 
-        XCTAssertEqual(sink.writeCount, 0)
-        diagnostics.endCoalescing()
         XCTAssertEqual(sink.writeCount, 1)
+        diagnostics.endCoalescing()
+        XCTAssertEqual(sink.writeCount, 2)
     }
 
     @MainActor
@@ -372,7 +372,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
 
         diagnostics.recordBattery(level: 88, at: Date(timeIntervalSince1970: 1_713_624_176))
 
-        XCTAssertEqual(sink.writeCount, 1)
+        XCTAssertEqual(sink.writeCount, 2)
     }
 
     @MainActor
@@ -423,7 +423,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         XCTAssertEqual(diagnostics.payload.pendantBatteryTrend.first?.timestamp, start.addingTimeInterval(5 * 60))
         XCTAssertEqual(diagnostics.payload.storageBacklogSamples?.first?.usedBytes, 5)
         XCTAssertEqual(diagnostics.payload.subscribeLatencySamples?.first?.latencySeconds, 5)
-        XCTAssertEqual(sink.writeCount, 1)
+        XCTAssertEqual(sink.writeCount, 2)
     }
 
     @MainActor
@@ -520,7 +520,7 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         let diagnostics = OmiDiagnostics(clock: MockObserverClock(), fileURL: fileURL)
         let payload = diagnostics.payload
 
-        XCTAssertEqual(payload.version, 1)
+        XCTAssertEqual(payload.version, OmiDiagnosticsPayload.currentVersion)
         XCTAssertEqual(payload.pendantBatteryTrend.first?.rawByte, nil)
         XCTAssertNil(payload.gapTallies.connectedSilentForegroundSeconds)
         XCTAssertNil(payload.gapTallies.connectedSilentBackgroundSeconds)
@@ -555,13 +555,13 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         diagnostics.updateDecodeCounters(ok: 9, errors: 1, gaps: 2, outOfOrder: 0, malformed: 3, droppedSamples: 4, failedOpens: 5)
         diagnostics.recordBattery(level: 92, at: start)
         diagnostics.recordSignal(level: -58, at: start.addingTimeInterval(1))
-        diagnostics.recordDisconnected(event: OmiSourceEvent(
+        let reconnectIdentity = diagnostics.recordDisconnected(event: OmiSourceEvent(
             timestamp: start.addingTimeInterval(10),
             reason: "link lost",
             appStateAtDrop: "foreground",
             timeToReconnect: nil
         ))
-        diagnostics.recordReconnect(latency: 5)
+        diagnostics.recordReconnect(identity: reconnectIdentity, latency: 5)
         clock.advance(by: 15)
         diagnostics.recordConnected()
         diagnostics.recordPhoneSample()
@@ -604,6 +604,105 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
             XCTAssertTrue(report.contains(requiredLine), requiredLine)
         }
         XCTAssertTrue(report.hasSuffix("\n"))
+    }
+
+    @MainActor
+    func testProcessAnchorPreservesOldDeltasAndContinuesSequenceForSameProcess() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_300)
+        let fileURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        let processA = UUID()
+        let first = OmiDiagnostics(
+            clock: MockObserverClock(now: start),
+            fileURL: fileURL,
+            processID: processA,
+            processStartedAt: start
+        )
+        let firstIdentity = first.allocateEventIdentity()
+        _ = first.recordDisconnected(event: OmiSourceEvent(
+            timestamp: start,
+            reason: "owner-only",
+            appStateAtDrop: "foreground",
+            timeToReconnect: nil,
+            identity: firstIdentity
+        ))
+
+        let resumed = OmiDiagnostics(
+            clock: MockObserverClock(now: start),
+            fileURL: fileURL,
+            processID: processA,
+            processStartedAt: start
+        )
+        XCTAssertEqual(resumed.allocateEventIdentity().sequence, firstIdentity.sequence + 1)
+
+        let processB = UUID()
+        let restarted = OmiDiagnostics(
+            clock: MockObserverClock(now: start.addingTimeInterval(1)),
+            fileURL: fileURL,
+            processID: processB,
+            processStartedAt: start.addingTimeInterval(1)
+        )
+        XCTAssertEqual(restarted.payload.processID, processB)
+        XCTAssertEqual(restarted.allocateEventIdentity().sequence, 0)
+        XCTAssertEqual(restarted.payload.unhandedReconnectEvents?.first?.processID, processA)
+    }
+
+    @MainActor
+    func testIdentityCompletionAndAcknowledgmentRetainNewerRevision() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_400)
+        let diagnostics = OmiDiagnostics(
+            clock: MockObserverClock(now: start),
+            fileURL: self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        )
+        let firstIdentity = diagnostics.allocateEventIdentity()
+        let secondIdentity = diagnostics.allocateEventIdentity()
+        _ = diagnostics.recordDisconnected(event: OmiSourceEvent(
+            timestamp: start,
+            reason: "first",
+            appStateAtDrop: "foreground",
+            timeToReconnect: nil,
+            identity: firstIdentity
+        ))
+        _ = diagnostics.recordDisconnected(event: OmiSourceEvent(
+            timestamp: start.addingTimeInterval(1),
+            reason: "second",
+            appStateAtDrop: "background",
+            timeToReconnect: nil,
+            identity: secondIdentity
+        ))
+        let frozen = diagnostics.frozenSegmentDeltas()
+        diagnostics.recordReconnect(identity: firstIdentity, latency: 2)
+        diagnostics.acknowledgeSegmentMetadata(tokens: frozen.tokens)
+
+        let retained = diagnostics.payload.unhandedReconnectEvents ?? []
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertEqual(retained.first?.processID, firstIdentity.processID)
+        XCTAssertEqual(retained.first?.sequence, firstIdentity.sequence)
+        XCTAssertEqual(retained.first?.revision, 2)
+        XCTAssertEqual(retained.first?.timeToReconnect, 2)
+    }
+
+    @MainActor
+    func testSubscribePendingPersistsConnectedAtForZeroLatencyCompletion() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_500)
+        let diagnostics = OmiDiagnostics(
+            clock: MockObserverClock(now: start),
+            fileURL: self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        )
+        let identity = diagnostics.allocateEventIdentity()
+        diagnostics.beginSubscribe(identity: identity, connectedAt: start, appState: "foreground")
+        diagnostics.completeSubscribe(
+            identity: identity,
+            connectedAt: start,
+            subscribedAt: start,
+            latencySeconds: 0,
+            appState: "foreground"
+        )
+
+        let sample = try XCTUnwrap(diagnostics.payload.unhandedSubscribeLatencySamples?.first)
+        XCTAssertEqual(sample.connectedAt, start)
+        XCTAssertEqual(sample.timestamp, start)
+        XCTAssertEqual(sample.latencySeconds, 0)
+        XCTAssertEqual(sample.revision, 2)
     }
 
     private static func date(_ string: String) -> Date {
