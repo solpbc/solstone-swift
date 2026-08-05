@@ -64,17 +64,6 @@ nonisolated struct OmiDiagnosticsPayload: Codable, Sendable, Equatable {
             self.revision = revision
         }
 
-        init(_ event: OmiSourceEvent) {
-            self.init(
-                timestamp: event.timestamp,
-                reason: event.reason,
-                appStateAtDrop: event.appStateAtDrop,
-                timeToReconnect: event.timeToReconnect,
-                processID: event.identity?.processID,
-                sequence: event.identity?.sequence,
-                revision: event.revision
-            )
-        }
     }
 
     struct DecodeCounters: Codable, Sendable, Equatable {

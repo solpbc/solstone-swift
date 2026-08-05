@@ -931,6 +931,44 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(omi["day"] as? String, "cannot-shadow")
     }
 
+    func testDefaultTransferBodyBuilderCarriesOnlyManifestOmiNamespace() throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory)
+        let processID = Self.uuid(501)
+        let metadata = OmiSegmentMetadata(
+            connectionState: "reconnecting",
+            processID: processID,
+            reconnectCount: 3
+        )
+        var manifestWithOmi = self.makeManifest(itemID: Self.uuid(502))
+        manifestWithOmi.meta = OmiSegmentMetadata.attaching(metadata, to: manifestWithOmi.meta)
+        let itemWithOmi = try spool.stage(
+            manifest: manifestWithOmi,
+            payloads: self.audioPayloads()
+        ).item
+
+        let bodyWithOmi = try DefaultTransferBodyBuilder.build(item: itemWithOmi, spool: spool)
+        let metaWithOmi = try self.multipartMeta(
+            bodyWithOmi,
+            boundary: TransferTransport.boundary(for: manifestWithOmi.itemID)
+        )
+        let omi = try XCTUnwrap(metaWithOmi[OmiSegmentMetadata.key] as? [String: Any])
+        XCTAssertEqual(omi["connection_state"] as? String, "reconnecting")
+        XCTAssertEqual(omi["process_id"] as? String, processID.uuidString)
+        XCTAssertEqual(omi["reconnect_count"] as? Int, 3)
+
+        let manifestWithoutOmi = self.makeManifest(itemID: Self.uuid(503))
+        let itemWithoutOmi = try spool.stage(
+            manifest: manifestWithoutOmi,
+            payloads: self.audioPayloads()
+        ).item
+        let bodyWithoutOmi = try DefaultTransferBodyBuilder.build(item: itemWithoutOmi, spool: spool)
+        let metaWithoutOmi = try self.multipartMeta(
+            bodyWithoutOmi,
+            boundary: TransferTransport.boundary(for: manifestWithoutOmi.itemID)
+        )
+        XCTAssertNil(metaWithoutOmi[OmiSegmentMetadata.key])
+    }
+
     func testCrashTimingHonestyForBodyAndPhaseRecovery() async throws {
         let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("a", isDirectory: true))
         _ = try spool.stage(manifest: self.makeManifest(itemID: Self.uuid(31)), payloads: self.audioPayloads())

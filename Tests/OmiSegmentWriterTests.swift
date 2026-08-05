@@ -3,7 +3,9 @@
 
 @testable import solstone_swift
 import AVFoundation
+import Dispatch
 import Foundation
+import os
 import XCTest
 
 nonisolated final class OmiSegmentWriterTests: XCTestCase {
@@ -414,7 +416,9 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
 
     @MainActor
     func testFinalizationFreezesMetadataIntoQueuedManifest() async throws {
-        let uploader = self.makeUploader()
+        let fileSystem = BlockingMoveTransferFileSystem()
+        defer { fileSystem.releaseMove() }
+        let uploader = self.makeUploader(fileSystem: fileSystem)
         let writer = OmiSegmentWriter(
             transferEnqueuer: uploader.transferEnqueuer,
             cacheRootURL: self.tempDirectory,
@@ -439,8 +443,11 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
 
         writer.start()
         writer.append(self.samples(count: 3_200))
-        await writer.finalizeOpenChunk()
+        writer.stop()
+
+        try await self.waitForBlockedMove(fileSystem)
         connectionState = "disconnected"
+        fileSystem.releaseMove()
 
         try await self.waitForPendingCount(1, uploader: uploader)
         let manifest = try XCTUnwrap(self.pendingChunks().first?.manifest)
@@ -463,8 +470,8 @@ private final class OmiWriterTransferHarness {
     let transferEnqueuer: ObserverAudioTransferEnqueuer
     private let mirror: TransferStatusMirror
 
-    init(rootURL: URL) {
-        let harness = makeTransferCutoverHarness(rootURL: rootURL)
+    init(rootURL: URL, fileSystem: (any TransferFileSystem)? = nil) {
+        let harness = makeTransferCutoverHarness(rootURL: rootURL, fileSystem: fileSystem)
         self.transferEnqueuer = harness.enqueuer
         self.mirror = harness.mirror
     }
@@ -483,9 +490,10 @@ private extension OmiSegmentWriterTests {
         let manifest: TransferManifest
     }
 
-    func makeUploader() -> OmiWriterTransferHarness {
+    func makeUploader(fileSystem: (any TransferFileSystem)? = nil) -> OmiWriterTransferHarness {
         OmiWriterTransferHarness(
-            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+            rootURL: self.tempDirectory.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true),
+            fileSystem: fileSystem
         )
     }
 
@@ -506,6 +514,20 @@ private extension OmiSegmentWriterTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("timed out waiting for pendingCount \(count)", file: file, line: line)
+    }
+
+    func waitForBlockedMove(
+        _ fileSystem: BlockingMoveTransferFileSystem,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if fileSystem.hasBlockedMove {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("timed out waiting for transfer spool move", file: file, line: line)
     }
 
     func pendingChunks() throws -> [PendingChunk] {
@@ -583,5 +605,65 @@ private extension OmiSegmentWriterTests {
             second: second
         )
         return try XCTUnwrap(calendar.date(from: components))
+    }
+}
+
+private final class BlockingMoveTransferFileSystem: TransferFileSystem, @unchecked Sendable {
+    private let base = FoundationTransferFileSystem()
+    private let blockedMove = OSAllocatedUnfairLock(initialState: false)
+    private let moveRelease = DispatchSemaphore(value: 0)
+
+    var hasBlockedMove: Bool {
+        self.blockedMove.withLock { $0 }
+    }
+
+    func releaseMove() {
+        self.moveRelease.signal()
+    }
+
+    func fileExists(atPath path: String) -> Bool {
+        self.base.fileExists(atPath: path)
+    }
+
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        try self.base.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try self.base.contentsOfDirectory(at: url)
+    }
+
+    func removeItem(at url: URL) throws {
+        try self.base.removeItem(at: url)
+    }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        let shouldBlock = self.blockedMove.withLock { hasBlockedMove in
+            guard !hasBlockedMove else { return false }
+            hasBlockedMove = true
+            return true
+        }
+        if shouldBlock {
+            guard self.moveRelease.wait(timeout: .now() + 5) == .success else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        try self.base.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func replaceItem(at originalURL: URL, withItemAt newURL: URL) throws {
+        try self.base.replaceItem(at: originalURL, withItemAt: newURL)
+    }
+
+    func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        try self.base.write(data, to: url, options: options)
+    }
+
+    func data(contentsOf url: URL) throws -> Data {
+        try self.base.data(contentsOf: url)
+    }
+
+    func byteCount(at url: URL) throws -> Int {
+        try self.base.byteCount(at: url)
     }
 }

@@ -627,18 +627,25 @@ private extension OmiSourceManager {
         )
 
         if !self.manuallyDisconnected {
-            let identity = self.diagnostics.allocateEventIdentity()
-            let event = OmiSourceEvent(
-                timestamp: disconnectedAt,
-                reason: error?.localizedDescription ?? "link lost",
-                appStateAtDrop: self.currentAppStateString,
-                timeToReconnect: nil,
-                identity: identity
-            )
-            self.eventRing.append(event)
-            self.diagnostics.recordDisconnected(event: event)
-            self.pendingReconnectIdentity = identity
-            self.lastSilentAttributionAt = nil
+            do {
+                self.diagnostics.beginCoalescing()
+                defer {
+                    self.diagnostics.endCoalescing()
+                }
+
+                let identity = self.diagnostics.allocateEventIdentity()
+                let event = OmiSourceEvent(
+                    timestamp: disconnectedAt,
+                    reason: error?.localizedDescription ?? "link lost",
+                    appStateAtDrop: self.currentAppStateString,
+                    timeToReconnect: nil,
+                    identity: identity
+                )
+                self.eventRing.append(event)
+                self.diagnostics.recordDisconnected(event: event)
+                self.pendingReconnectIdentity = identity
+                self.lastSilentAttributionAt = nil
+            }
         }
 
         // Set edge state before freezing; defer cleanup/rearm so live readings survive and no new connection starts before audio closes.
@@ -980,6 +987,11 @@ private extension OmiSourceManager {
         expectsSubscribeConfirm: Bool,
         appendAdoptedLatency: Bool = false
     ) {
+        self.diagnostics.beginCoalescing()
+        defer {
+            self.diagnostics.endCoalescing()
+        }
+
         self.clearPerConnectionInstrumentationState()
         self.connectedAt = now
         if expectsSubscribeConfirm || appendAdoptedLatency {

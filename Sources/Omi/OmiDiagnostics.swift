@@ -177,22 +177,6 @@ final class OmiDiagnostics {
         self.persist()
     }
 
-    func appendSubscribeLatency(
-        timestamp: Date,
-        latencySeconds: TimeInterval,
-        appState: String
-    ) {
-        let identity = self.allocateEventIdentity()
-        self.beginSubscribe(identity: identity, connectedAt: timestamp, appState: appState)
-        self.completeSubscribe(
-            identity: identity,
-            connectedAt: timestamp,
-            subscribedAt: timestamp,
-            latencySeconds: latencySeconds,
-            appState: appState
-        )
-    }
-
     func beginSubscribe(identity: OmiEventIdentity, connectedAt: Date, appState: String) {
         self.ensureFirstObserved(at: connectedAt)
         self.appendUnhandedSubscribe(OmiDiagnosticsPayload.SubscribeLatencySample(

@@ -351,7 +351,15 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         diagnostics.recordDecodeCounters(ok: 1, errors: 2, gaps: 3, outOfOrder: 4, malformed: 5, droppedSamples: 6, failedOpens: 7)
         diagnostics.recordBattery(level: 87, at: start, rawByte: 87)
         diagnostics.recordSignal(level: -60, at: start)
-        diagnostics.appendSubscribeLatency(timestamp: start, latencySeconds: 1.25, appState: "foreground")
+        let subscribeIdentity = diagnostics.allocateEventIdentity()
+        diagnostics.beginSubscribe(identity: subscribeIdentity, connectedAt: start, appState: "foreground")
+        diagnostics.completeSubscribe(
+            identity: subscribeIdentity,
+            connectedAt: start,
+            subscribedAt: start,
+            latencySeconds: 1.25,
+            appState: "foreground"
+        )
         diagnostics.appendStorageBacklogSample(timestamp: start, usedBytes: 100, rawHex: "64000000", fileCountUnconfirmed: 1)
         diagnostics.appendPendantRebootEvent(observedAt: start, epochBefore: 2_000, epochAfter: 1_000)
 
@@ -401,8 +409,12 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
         }
         for index in 0..<(eventLimit + 5) {
             let date = start.addingTimeInterval(TimeInterval(index))
-            diagnostics.appendSubscribeLatency(
-                timestamp: date,
+            let subscribeIdentity = diagnostics.allocateEventIdentity()
+            diagnostics.beginSubscribe(identity: subscribeIdentity, connectedAt: date, appState: "foreground")
+            diagnostics.completeSubscribe(
+                identity: subscribeIdentity,
+                connectedAt: date,
+                subscribedAt: date,
                 latencySeconds: TimeInterval(index),
                 appState: "foreground"
             )

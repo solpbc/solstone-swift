@@ -101,21 +101,38 @@ nonisolated final class OmiSegmentMetadataTests: XCTestCase {
         )
     }
 
-    func testWireDataExcludesReconnectReason() throws {
-        let processID = UUID()
-        let metadata = OmiSegmentMetadata(
-            connectionState: "disconnected",
-            reconnectEvents: [OmiSegmentMetadata.ReconnectEvent(
-                processID: processID,
-                sequence: 9,
-                revision: 1,
-                disconnectedAt: Date(timeIntervalSince1970: 1_713_624_000),
-                appState: "locked",
-                latencySeconds: nil
-            )]
-        )
-        let encoded = try JSONEncoder().encode(OmiSegmentMetadata.attaching(metadata, to: .object([:])))
-        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("owner-only-reason"))
+    @MainActor
+    func testFreezeExcludesReconnectReason() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_000)
+        let diagnosticsURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OmiSegmentMetadataTests-\(UUID().uuidString).json", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: diagnosticsURL) }
+        let defaultsName = "OmiSegmentMetadataTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let clock = MockObserverClock(now: start)
+        let diagnostics = OmiDiagnostics(clock: clock, fileURL: diagnosticsURL)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: diagnostics, clock: clock)
+        let sentinel = "owner-only-reconnect-reason"
+        let error = NSError(domain: "OmiSegmentMetadataTests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: sentinel,
+        ])
+
+        let identity = diagnostics.allocateEventIdentity()
+        _ = diagnostics.recordDisconnected(event: OmiSourceEvent(
+            timestamp: start,
+            reason: error.localizedDescription,
+            appStateAtDrop: "locked",
+            timeToReconnect: nil,
+            identity: identity
+        ))
+        let snapshot = manager.freezeSegmentMetadata()
+        XCTAssertFalse(snapshot.metadata.reconnectEvents.isEmpty)
+        let reconnectEvent = try XCTUnwrap(snapshot.metadata.reconnectEvents.first)
+        XCTAssertEqual(reconnectEvent.processID, identity.processID)
+        XCTAssertEqual(reconnectEvent.sequence, identity.sequence)
+        let encoded = try JSONEncoder().encode(OmiSegmentMetadata.attaching(snapshot.metadata, to: .object([:])))
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains(sentinel))
         XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("reason"))
     }
 }
