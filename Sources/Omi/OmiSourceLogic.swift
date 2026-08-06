@@ -56,7 +56,6 @@ nonisolated enum OmiAttention: Equatable, Sendable {
 }
 
 nonisolated enum OmiReconnectDecision: Equatable, Sendable {
-    case stayDisconnected
     case systemReconnecting
     case rearmConnect
 }
@@ -226,13 +225,7 @@ nonisolated enum OmiSourceLogic {
     // Reconnect misses are harder failures than quiet subscribed audio, so surface them sooner.
     static let reconnectAttentionDeadline: TimeInterval = 2 * 60
 
-    static func reconnectDecision(
-        isManualDisconnect: Bool,
-        isReconnecting: Bool
-    ) -> OmiReconnectDecision {
-        if isManualDisconnect {
-            return .stayDisconnected
-        }
+    static func reconnectDecision(isReconnecting: Bool) -> OmiReconnectDecision {
         if isReconnecting {
             return .systemReconnecting
         }

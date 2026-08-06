@@ -524,8 +524,7 @@ extension OmiSourceManager {
                 self.didLogPoweredOn = true
                 self.log.info("omi bluetooth ready")
             }
-            if !self.manuallyDisconnected,
-               let pendingConnectionID,
+            if let pendingConnectionID,
                let peripheral = self.peripheralsByID[pendingConnectionID],
                self.connectedPeripheralID == nil
             {
@@ -545,8 +544,7 @@ extension OmiSourceManager {
             return
         }
 
-        guard !self.manuallyDisconnected,
-              self.isTryingOrConnected,
+        guard self.isTryingOrConnected,
               let attention = OmiSourceLogic.attention(for: state)
         else {
             return
@@ -669,7 +667,7 @@ extension OmiSourceManager {
             codec: self.codec
         )
 
-        self.log.info("omi restore action: \(String(describing: action), privacy: .public)")
+        self.log.info("omi readiness action: \(String(describing: action), privacy: .public)")
         guard self.isLaunchReady else {
             self.deferredReadinessPeripheralID = peripheral.id
             return
@@ -704,12 +702,12 @@ extension OmiSourceManager {
                 self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: audioService.id)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
-                self.log.error("omi audio unavailable after restore")
+                self.log.error("omi audio unavailable during readiness")
             }
         case .needsAttention(let attention):
             _ = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .needsAttention(attention)
-            self.log.error("omi restore needs attention: \(attention.displayString, privacy: .public)")
+            self.log.error("omi readiness needs attention: \(attention.displayString, privacy: .public)")
         case .subscribeAudio:
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
@@ -725,7 +723,7 @@ extension OmiSourceManager {
                 self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: audioService.id)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
-                self.log.error("omi audio unavailable after restore")
+                self.log.error("omi audio unavailable during readiness")
             }
         case .alreadyLive:
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
@@ -817,37 +815,30 @@ extension OmiSourceManager {
         self.uptime.noteDisconnected(at: disconnectedAt)
         self.attributeOpenConnectedSilentGap(at: disconnectedAt)
 
-        let decision = OmiSourceLogic.reconnectDecision(
-            isManualDisconnect: self.manuallyDisconnected,
-            isReconnecting: isReconnecting
-        )
+        let decision = OmiSourceLogic.reconnectDecision(isReconnecting: isReconnecting)
 
-        if !self.manuallyDisconnected {
-            do {
-                self.diagnostics.beginCoalescing()
-                defer {
-                    self.diagnostics.endCoalescing()
-                }
-
-                let identity = self.diagnostics.allocateEventIdentity()
-                let event = OmiSourceEvent(
-                    timestamp: disconnectedAt,
-                    reason: error?.localizedDescription ?? "link lost",
-                    appStateAtDrop: self.currentAppStateString,
-                    timeToReconnect: nil,
-                    identity: identity
-                )
-                self.eventRing.append(event)
-                self.diagnostics.recordDisconnected(event: event)
-                self.pendingReconnectIdentity = identity
-                self.lastSilentAttributionAt = nil
+        do {
+            self.diagnostics.beginCoalescing()
+            defer {
+                self.diagnostics.endCoalescing()
             }
+
+            let identity = self.diagnostics.allocateEventIdentity()
+            let event = OmiSourceEvent(
+                timestamp: disconnectedAt,
+                reason: error?.localizedDescription ?? "link lost",
+                appStateAtDrop: self.currentAppStateString,
+                timeToReconnect: nil,
+                identity: identity
+            )
+            self.eventRing.append(event)
+            self.diagnostics.recordDisconnected(event: event)
+            self.pendingReconnectIdentity = identity
+            self.lastSilentAttributionAt = nil
         }
 
         // Set edge state before freezing; defer cleanup/rearm so live readings survive and no new connection starts before audio closes.
         switch decision {
-        case .stayDisconnected:
-            self.connectionState = .disconnected
         case .systemReconnecting:
             self.isSystemReconnecting = true
             self.reconnectStartedAt = disconnectedAt
@@ -863,9 +854,6 @@ extension OmiSourceManager {
         }
 
         switch decision {
-        case .stayDisconnected:
-            self.clearConnectionArtifacts()
-            self.log.info("omi stopped")
         case .systemReconnecting:
             self.clearTransientConnectionState()
             self.log.info("omi reconnecting through bluetooth")
@@ -1601,7 +1589,7 @@ private extension OmiSourceManager {
 
     func audioCharacteristic(in peripheral: OmiPeripheralDescriptor) -> OmiCharacteristicDescriptor? {
         peripheral.services
-            .flatMap(\.characteristics)
+            .flatMap { $0.characteristics }
             .first { $0.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID) }
     }
 

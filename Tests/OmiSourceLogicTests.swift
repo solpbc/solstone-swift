@@ -7,27 +7,16 @@ import Foundation
 import XCTest
 
 nonisolated final class OmiSourceLogicTests: XCTestCase {
-    func testReconnectDecisionManualDisconnectStaysDisconnected() {
-        XCTAssertEqual(
-            OmiSourceLogic.reconnectDecision(isManualDisconnect: true, isReconnecting: false),
-            .stayDisconnected
-        )
-        XCTAssertEqual(
-            OmiSourceLogic.reconnectDecision(isManualDisconnect: true, isReconnecting: true),
-            .stayDisconnected
-        )
-    }
-
     func testReconnectDecisionUnexpectedDropRearmsConnect() {
         XCTAssertEqual(
-            OmiSourceLogic.reconnectDecision(isManualDisconnect: false, isReconnecting: false),
+            OmiSourceLogic.reconnectDecision(isReconnecting: false),
             .rearmConnect
         )
     }
 
     func testReconnectDecisionSystemReconnectWaitsForIOS() {
         XCTAssertEqual(
-            OmiSourceLogic.reconnectDecision(isManualDisconnect: false, isReconnecting: true),
+            OmiSourceLogic.reconnectDecision(isReconnecting: true),
             .systemReconnecting
         )
     }

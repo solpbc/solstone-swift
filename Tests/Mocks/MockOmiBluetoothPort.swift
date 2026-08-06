@@ -36,7 +36,11 @@ final class MockOmiBluetoothPort: OmiBluetoothPort {
     func descriptor(peripheralID: UUID) -> OmiPeripheralDescriptor? { self.peripheralsByID[peripheralID] }
 
     func retrieveConnectedPeripherals(serviceIDs: [String]) -> [OmiPeripheralDescriptor] {
-        self.peripheralsByID.values.filter { $0.state == .connected }
+        self.peripheralsByID.values.filter { peripheral in
+            peripheral.state == .connected && peripheral.services.contains { service in
+                serviceIDs.contains { $0.caseInsensitiveCompare(service.id) == .orderedSame }
+            }
+        }
     }
     func retrievePeripherals(identifiers: [UUID]) -> [OmiPeripheralDescriptor] {
         identifiers.compactMap { self.peripheralsByID[$0] }

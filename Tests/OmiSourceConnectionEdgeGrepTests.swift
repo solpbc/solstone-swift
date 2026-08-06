@@ -147,6 +147,16 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
             ("finalizeOpenChunkForBackground", "finalizeOpenChunk()")
         ]
 
+        // `enable()` clears manual disconnect before starting the writer, so only its readiness ordering applies.
+        let enableBody = try Self.functionSlice(named: "enable", in: text)
+        let enableReadiness = try XCTUnwrap(enableBody.range(of: "isLaunchReady"))
+        let enableWriterStart = try XCTUnwrap(enableBody.range(of: "omiSegmentWriter?.start()"))
+        XCTAssertLessThan(
+            enableBody.distance(from: enableBody.startIndex, to: enableReadiness.lowerBound),
+            enableBody.distance(from: enableBody.startIndex, to: enableWriterStart.lowerBound),
+            "enable performs writer start before launch readiness"
+        )
+
         for (method, effect) in guardedEffects {
             let body = try Self.functionSlice(named: method, in: text)
             let readiness = try XCTUnwrap(body.range(of: "isLaunchReady"), "missing readiness gate in \(method)")
