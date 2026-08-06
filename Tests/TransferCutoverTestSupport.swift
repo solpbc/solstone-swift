@@ -148,6 +148,41 @@ final class QuarantineMoveFailingFileManager: FileManager {
     }
 }
 
+final class TargetedRemovalFailingFileManager: FileManager {
+    private let failingURL: URL?
+    private let copyFailureSourceURL: URL?
+    private let expectedEnvelopeURL: URL?
+    private(set) var observedEnvelopeBeforeCopyFailure = false
+
+    init(
+        failingURL: URL? = nil,
+        copyFailureSourceURL: URL? = nil,
+        expectedEnvelopeURL: URL? = nil
+    ) {
+        self.failingURL = failingURL?.standardizedFileURL
+        self.copyFailureSourceURL = copyFailureSourceURL?.standardizedFileURL
+        self.expectedEnvelopeURL = expectedEnvelopeURL?.standardizedFileURL
+        super.init()
+    }
+
+    override func removeItem(at url: URL) throws {
+        if url.standardizedFileURL == self.failingURL {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try super.removeItem(at: url)
+    }
+
+    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        if srcURL.standardizedFileURL == self.copyFailureSourceURL {
+            if let expectedEnvelopeURL {
+                self.observedEnvelopeBeforeCopyFailure = self.fileExists(atPath: expectedEnvelopeURL.path)
+            }
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try super.copyItem(at: srcURL, to: dstURL)
+    }
+}
+
 func transferTestWaitFor(
     _ label: String,
     timeout: Duration = .seconds(3),

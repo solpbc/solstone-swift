@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
 final class OmiHandoffRecoveryTests: XCTestCase {
@@ -56,6 +57,7 @@ final class OmiHandoffRecoveryTests: XCTestCase {
             rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
             transferEnqueuer: harness.enqueuer,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
             diagnosticLog: nil
         )
@@ -83,6 +85,7 @@ final class OmiHandoffRecoveryTests: XCTestCase {
             rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
             transferEnqueuer: harness.enqueuer,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
             diagnosticLog: nil
         )
@@ -106,7 +109,7 @@ final class OmiHandoffRecoveryTests: XCTestCase {
         let token = OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
         let envelopeURL = try self.writeEnvelope(appGroupRoot: appGroupRoot, sessionID: sessionID, itemID: itemID, sidecar: sidecar, token: token)
         var acknowledgements: [[OmiSegmentMetadataToken]] = []
-        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: nil)
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, registerDispatchHold: { _ in }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: nil)
         XCTAssertEqual(result.unresolvedCount, 0)
         XCTAssertEqual(acknowledgements, [[token]])
         XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
@@ -126,11 +129,168 @@ final class OmiHandoffRecoveryTests: XCTestCase {
         let envelopeURL = try self.writeEnvelope(appGroupRoot: appGroupRoot, sessionID: sessionID, itemID: itemID, sidecar: sidecar, token: token)
         let log = DiagnosticLog()
         var acknowledgements: [[OmiSegmentMetadataToken]] = []
-        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: log, fileManager: HandoffRemovalFailingFileManager())
+        var heldItemIDs: [UUID] = []
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, registerDispatchHold: { heldItemIDs.append($0); await harness.engine.hold(itemID: $0) }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: log, fileManager: HandoffRemovalFailingFileManager())
         XCTAssertEqual(result.unresolvedCount, 1)
         XCTAssertEqual(acknowledgements, [[token]])
+        XCTAssertEqual(heldItemIDs, [itemID])
         XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
         XCTAssertTrue(log.events.contains { $0.detail?.hasSuffix("reason=envelope removal failed") == true })
+        await harness.engine.drop(itemID: itemID)
+        let heldSnapshot = await harness.engine.itemSnapshot(itemID: itemID)
+        XCTAssertNotNil(heldSnapshot)
+    }
+
+    @MainActor func testEnvelopeBackedAudioRemovalFailureAwaitsHoldBeforeDispatch() async throws {
+        let appGroupRoot = self.rootURL.appendingPathComponent("audio-removal", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let sessionID = UUID()
+        let itemID = UUID()
+        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
+        let envelopeURL = try self.writeEnvelope(
+            appGroupRoot: appGroupRoot,
+            sessionID: sessionID,
+            itemID: itemID,
+            sidecar: sidecar,
+            token: token
+        )
+        let audioURL = envelopeURL.deletingPathExtension().appendingPathExtension("m4a")
+        try writeTransferTestAudio(at: audioURL)
+        var didRegisterHold = false
+
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(
+            sessionID: sessionID,
+            rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+            transferEnqueuer: harness.enqueuer,
+            acknowledgeTokens: { _ in },
+            registerDispatchHold: { id in
+                didRegisterHold = true
+                await harness.engine.hold(itemID: id)
+            },
+            quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
+            diagnosticLog: nil,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: envelopeURL)
+        )
+
+        XCTAssertEqual(result.recoveredCount, 1)
+        XCTAssertEqual(result.unresolvedCount, 1)
+        XCTAssertTrue(didRegisterHold)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+        let heldSnapshot = await harness.engine.itemSnapshot(itemID: itemID)
+        XCTAssertNotNil(heldSnapshot)
+        await harness.engine.drop(itemID: itemID)
+        let retainedSnapshot = await harness.engine.itemSnapshot(itemID: itemID)
+        XCTAssertNotNil(retainedSnapshot)
+    }
+
+    @MainActor func testEnvelopeOnlyRemovalFailureRegistersHoldWithSharedFaultInjector() async throws {
+        let appGroupRoot = self.rootURL.appendingPathComponent("envelope-removal", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let sessionID = UUID()
+        let itemID = UUID()
+        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+        _ = try await harness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar),
+            payloads: ["audio": Data("audio".utf8)]
+        )
+        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
+        let envelopeURL = try self.writeEnvelope(appGroupRoot: appGroupRoot, sessionID: sessionID, itemID: itemID, sidecar: sidecar, token: token)
+        var heldItemIDs: [UUID] = []
+
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(
+            sessionID: sessionID,
+            rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+            transferEnqueuer: harness.enqueuer,
+            acknowledgeTokens: { _ in },
+            registerDispatchHold: { id in
+                heldItemIDs.append(id)
+                await harness.engine.hold(itemID: id)
+            },
+            quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
+            diagnosticLog: nil,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: envelopeURL)
+        )
+
+        XCTAssertEqual(result.unresolvedCount, 1)
+        XCTAssertEqual(heldItemIDs, [itemID])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+        await harness.engine.drop(itemID: itemID)
+        let retainedSnapshot = await harness.engine.itemSnapshot(itemID: itemID)
+        XCTAssertNotNil(retainedSnapshot)
+    }
+
+    @MainActor func testMigrationAndRecoveryHoldsEmitOneDiagnosticForSameItem() async throws {
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        let appGroupRoot = self.rootURL.appendingPathComponent("cross-seam", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(
+            rootURL: transferRoot,
+            diagnosticsSink: { event in events.withLock { $0.append(event) } }
+        )
+        try await harness.engine.initialize()
+        let sessionID = UUID()
+        let itemID = UUID()
+        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+        let pendingDirectory = appGroupRoot
+            .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
+            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
+            .appendingPathComponent("pending", isDirectory: true)
+        let pendingAudioURL = pendingDirectory.appendingPathComponent("\(sessionID.uuidString.lowercased())-0.m4a")
+        try writeTransferTestAudio(at: pendingAudioURL)
+        try writeTransferTestSidecar(sidecar, to: pendingAudioURL.deletingPathExtension().appendingPathExtension("json"))
+        let pendingEnvelopeURL = OmiPendingHandoffStore.url(for: pendingAudioURL)
+        try OmiPendingHandoffStore.write(
+            try OmiPendingHandoffStore.encode(
+                OmiPendingHandoffEnvelope(itemID: itemID, sidecar: sidecar, metadata: nil, frozenTokens: [])
+            ),
+            to: pendingEnvelopeURL
+        )
+        _ = try await harness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar),
+            payloads: ["audio": Data(contentsOf: pendingAudioURL)]
+        )
+        let defaultsName = "OmiHandoffRecoveryTests-cross-seam-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { UserDefaults.standard.removePersistentDomain(forName: defaultsName) }
+
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: nil,
+            acknowledgeTokens: { _ in },
+            registerDispatchHold: { await harness.engine.hold(itemID: $0) },
+            defaults: defaults,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: pendingAudioURL)
+        )
+
+        let recoveryEnvelopeURL = try self.writeEnvelope(
+            appGroupRoot: appGroupRoot,
+            sessionID: sessionID,
+            itemID: itemID,
+            sidecar: sidecar,
+            token: OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
+        )
+        _ = await OmiInProgressRecovery.recoverInProgressFiles(
+            sessionID: sessionID,
+            rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+            transferEnqueuer: harness.enqueuer,
+            acknowledgeTokens: { _ in },
+            registerDispatchHold: { await harness.engine.hold(itemID: $0) },
+            quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
+            diagnosticLog: nil,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: recoveryEnvelopeURL)
+        )
+
+        let heldEvents = events.withLock { values in
+            values.filter { $0.outcome == .held && $0.itemID == itemID }
+        }
+        XCTAssertEqual(heldEvents.count, 1)
     }
 
     @MainActor func testEnvelopeOnlyLookupFailureRetainsAndDiagnoses() async throws {
@@ -146,7 +306,7 @@ final class OmiHandoffRecoveryTests: XCTestCase {
         fileSystem.failDirectoryReads = true
         let log = DiagnosticLog()
         var acknowledgements: [[OmiSegmentMetadataToken]] = []
-        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: log)
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, registerDispatchHold: { _ in }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: log)
         XCTAssertEqual(result.unresolvedCount, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
         XCTAssertTrue(acknowledgements.isEmpty)
@@ -168,7 +328,7 @@ final class OmiHandoffRecoveryTests: XCTestCase {
         let envelopeURL = try self.writeEnvelope(appGroupRoot: appGroupRoot, sessionID: sessionID, itemID: itemID, sidecar: sidecar, token: token)
         fileSystem.failChunkReads = true
         var acknowledgements: [[OmiSegmentMetadataToken]] = []
-        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: nil)
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, registerDispatchHold: { _ in }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: nil)
         XCTAssertEqual(result.unresolvedCount, 0)
         XCTAssertEqual(acknowledgements, [[token]])
         XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
@@ -223,7 +383,7 @@ final class OmiHandoffRecoveryTests: XCTestCase {
             }
             let log = DiagnosticLog()
             var acknowledgements: [[OmiSegmentMetadataToken]] = []
-            let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: log)
+            let result = await OmiInProgressRecovery.recoverInProgressFiles(sessionID: sessionID, rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true), transferEnqueuer: harness.enqueuer, acknowledgeTokens: { acknowledgements.append($0) }, registerDispatchHold: { _ in }, quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot), diagnosticLog: log)
             XCTAssertEqual(result.unresolvedCount, 1, testCase.rawValue)
             XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path), testCase.rawValue)
             XCTAssertTrue(acknowledgements.isEmpty, testCase.rawValue)

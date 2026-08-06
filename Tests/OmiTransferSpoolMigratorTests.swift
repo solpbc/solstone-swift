@@ -91,6 +91,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -132,6 +133,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         let snapshotsAfterSecondRun = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
@@ -162,6 +164,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -175,6 +178,39 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertTrue(diagnosticLog.events.contains { $0.detail?.contains(source.audioURL.path) == true })
         let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(snapshots.count, 0)
+    }
+
+    func testRootRemovalFailureDoesNotRegisterDispatchHold() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("root-removal", isDirectory: true)
+        let omiRoot = self.appGroupOmiRoot(appGroupRoot)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let sessionID = UUID()
+        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+        _ = try self.seedChunk(
+            rootURL: omiRoot,
+            sessionID: sessionID,
+            directoryName: "pending",
+            chunkID: "\(sessionID.uuidString.lowercased())-0",
+            sidecar: sidecar
+        )
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "\(self.defaultsSuiteName!)-root-removal"))
+        var heldItemIDs: [UUID] = []
+
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: nil,
+            acknowledgeTokens: { _ in },
+            registerDispatchHold: { heldItemIDs.append($0) },
+            defaults: defaults,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: omiRoot)
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: omiRoot.path))
+        XCTAssertTrue(heldItemIDs.isEmpty)
     }
 
     func testEnvelopeLessChunksPersistEnvelopeBeforeCopyForSidecarAndRebuiltShapes() async throws {
@@ -209,6 +245,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
                 transferEnqueuer: harness.enqueuer,
                 diagnosticLog: nil,
                 acknowledgeTokens: { _ in },
+                registerDispatchHold: { _ in },
                 defaults: defaults,
                 fileManager: failingManager
             )
@@ -228,6 +265,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
                 transferEnqueuer: harness.enqueuer,
                 diagnosticLog: nil,
                 acknowledgeTokens: { _ in },
+                registerDispatchHold: { _ in },
                 defaults: defaults
             )
             let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
@@ -281,6 +319,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: first.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults,
             fileManager: TargetedRemovalFailingFileManager(failingURL: source.audioURL)
         )
@@ -303,6 +342,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: second.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         let secondOwners = await second.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
@@ -337,6 +377,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: third.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         await third.engine.enableDispatch()
@@ -369,6 +410,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -392,6 +434,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         let recoveredSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
@@ -442,6 +485,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -472,6 +516,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults,
             fileManager: QuarantineMoveFailingFileManager()
         )
@@ -509,6 +554,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             rootURL: omiRoot,
             transferEnqueuer: harness.enqueuer,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
             diagnosticLog: diagnosticLog
         )
@@ -559,6 +605,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             rootURL: omiRoot,
             transferEnqueuer: harness.enqueuer,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
             diagnosticLog: nil
         )
@@ -592,7 +639,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         try await second.engine.start()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
         var acknowledgements: [[OmiSegmentMetadataToken]] = []
-        await OmiTransferSpoolMigrator.migrate(appGroupRootURL: appGroupRoot, legacyCachesRootURL: nil, transferEnqueuer: second.enqueuer, diagnosticLog: nil, acknowledgeTokens: { acknowledgements.append($0) }, defaults: defaults)
+        await OmiTransferSpoolMigrator.migrate(appGroupRootURL: appGroupRoot, legacyCachesRootURL: nil, transferEnqueuer: second.enqueuer, diagnosticLog: nil, acknowledgeTokens: { acknowledgements.append($0) }, registerDispatchHold: { _ in }, defaults: defaults)
         let snapshots = await second.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(snapshots.filter { $0.manifest.itemID == itemID }.count, 1)
         XCTAssertEqual(acknowledgements, [[token]])
@@ -635,6 +682,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         try await harness.engine.initialize()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
         var acknowledgements: [[OmiSegmentMetadataToken]] = []
+        var heldItemIDs: [UUID] = []
 
         await OmiTransferSpoolMigrator.migrate(
             appGroupRootURL: appGroupRoot,
@@ -642,7 +690,9 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
-            defaults: defaults
+            registerDispatchHold: { heldItemIDs.append($0) },
+            defaults: defaults,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: source.audioURL)
         )
 
         let queuedItemURL = transferRoot
@@ -656,6 +706,21 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertFalse(transferTestPathExists(containing: itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.stagingDirectoryName, isDirectory: true)))
         XCTAssertFalse(transferTestPathExists(containing: itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.salvageDirectoryName, isDirectory: true)))
         XCTAssertEqual(acknowledgements, [[token]])
+        XCTAssertEqual(heldItemIDs, [itemID])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: nil,
+            acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
+            defaults: defaults
+        )
+
+        XCTAssertEqual(acknowledgements, [[token], [token]])
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.audioURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.sidecarURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.uploadURL.path))
@@ -663,7 +728,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
     }
 
-    func testCleanupRemovalFaultsNeverReenqueueCommittedEnvelope() async throws {
+    func testCleanupRemovalFaultMatrixRegistersHoldForQueuedOwner() async throws {
         for fault in CleanupRemovalFault.allCases {
             try await self.assertCleanupRemovalFaultNeverReenqueues(fault)
         }
@@ -839,6 +904,7 @@ private extension OmiTransferSpoolMigratorTests {
         let failingFileManager = TargetedRemovalFailingFileManager(failingURL: targetURL)
         let defaultsSuiteName = try XCTUnwrap(self.defaultsSuiteName)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "\(defaultsSuiteName)-\(fault.rawValue)"))
+        var heldItemIDs: [UUID] = []
 
         for attempt in 0..<3 {
             await OmiTransferSpoolMigrator.migrate(
@@ -847,6 +913,10 @@ private extension OmiTransferSpoolMigratorTests {
                 transferEnqueuer: harness.enqueuer,
                 diagnosticLog: nil,
                 acknowledgeTokens: { _ in },
+                registerDispatchHold: { id in
+                    heldItemIDs.append(id)
+                    await harness.engine.hold(itemID: id)
+                },
                 defaults: defaults,
                 fileManager: failingFileManager
             )
@@ -859,6 +929,7 @@ private extension OmiTransferSpoolMigratorTests {
             XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path), "fault=\(fault.rawValue) attempt=\(attempt)")
             XCTAssertTrue(FileManager.default.fileExists(atPath: omiRoot.path), "fault=\(fault.rawValue) attempt=\(attempt)")
             XCTAssertFalse(defaults.bool(forKey: OmiTransferSpoolMigrator.flagKey), "fault=\(fault.rawValue) attempt=\(attempt)")
+            XCTAssertEqual(heldItemIDs, Array(repeating: itemID, count: attempt + 1), "fault=\(fault.rawValue)")
         }
 
         await OmiTransferSpoolMigrator.migrate(
@@ -867,6 +938,7 @@ private extension OmiTransferSpoolMigratorTests {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -959,6 +1031,7 @@ private extension OmiTransferSpoolMigratorTests {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -1047,6 +1120,7 @@ private extension OmiTransferSpoolMigratorTests {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { diagnostics.acknowledgeSegmentMetadata(tokens: $0) },
+            registerDispatchHold: { _ in },
             defaults: defaults,
             fileManager: removalFileManager
         )
@@ -1112,18 +1186,21 @@ private extension OmiTransferSpoolMigratorTests {
         try await harness.engine.initialize()
         let defaultsSuiteName = try XCTUnwrap(self.defaultsSuiteName)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "\(defaultsSuiteName)-residue-\(residue.rawValue)"))
+        var heldItemIDs: [UUID] = []
         await OmiTransferSpoolMigrator.migrate(
             appGroupRootURL: appGroupRoot,
             legacyCachesRootURL: nil,
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { _ in },
+            registerDispatchHold: { heldItemIDs.append($0) },
             defaults: defaults
         )
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: omiRoot.path), "residue=\(residue.rawValue)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: residueURL.path), "residue=\(residue.rawValue)")
         XCTAssertFalse(defaults.bool(forKey: OmiTransferSpoolMigrator.flagKey), "residue=\(residue.rawValue)")
+        XCTAssertTrue(heldItemIDs.isEmpty, "residue=\(residue.rawValue)")
     }
 
     func manifestWithByteCount(_ manifest: TransferManifest, audioByteCount: Int) -> TransferManifest {
@@ -1223,41 +1300,6 @@ private final class CommitToAttentionTransferFileSystem: TransferFileSystem, @un
 
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
         try self.base.readChunks(at: url, chunkSize: chunkSize, consume)
-    }
-}
-
-private final class TargetedRemovalFailingFileManager: FileManager {
-    private let failingURL: URL?
-    private let copyFailureSourceURL: URL?
-    private let expectedEnvelopeURL: URL?
-    private(set) var observedEnvelopeBeforeCopyFailure = false
-
-    init(
-        failingURL: URL? = nil,
-        copyFailureSourceURL: URL? = nil,
-        expectedEnvelopeURL: URL? = nil
-    ) {
-        self.failingURL = failingURL?.standardizedFileURL
-        self.copyFailureSourceURL = copyFailureSourceURL?.standardizedFileURL
-        self.expectedEnvelopeURL = expectedEnvelopeURL?.standardizedFileURL
-        super.init()
-    }
-
-    override func removeItem(at url: URL) throws {
-        if url.standardizedFileURL == self.failingURL {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try super.removeItem(at: url)
-    }
-
-    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
-        if srcURL.standardizedFileURL == self.copyFailureSourceURL {
-            if let expectedEnvelopeURL {
-                self.observedEnvelopeBeforeCopyFailure = self.fileExists(atPath: expectedEnvelopeURL.path)
-            }
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try super.copyItem(at: srcURL, to: dstURL)
     }
 }
 

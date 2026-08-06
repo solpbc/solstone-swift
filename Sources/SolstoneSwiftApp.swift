@@ -1006,6 +1006,9 @@ struct SolstoneSwiftApp: App {
                     diagnosticLog: self.diagnosticLog,
                     acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
                         omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
+                    },
+                    registerDispatchHold: { itemID in
+                        await self.transferEngine.hold(itemID: itemID)
                     }
                 )
                 await WatchTransferSpoolMigrator.migrate(
@@ -1076,6 +1079,9 @@ struct SolstoneSwiftApp: App {
                 transferEnqueuer: self.transferEnqueuer,
                 acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
                     omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
+                },
+                registerDispatchHold: { itemID in
+                    await self.transferEngine.hold(itemID: itemID)
                 },
                 quarantineRootURL: quarantineRoot,
                 diagnosticLog: self.diagnosticLog

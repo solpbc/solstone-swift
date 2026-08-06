@@ -506,6 +506,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
             rootURL: self.tempDirectory,
             transferEnqueuer: uploader.transferEnqueuer,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             quarantineRootURL: self.tempDirectory.appendingPathComponent("quarantine", isDirectory: true),
             diagnosticLog: nil
         )

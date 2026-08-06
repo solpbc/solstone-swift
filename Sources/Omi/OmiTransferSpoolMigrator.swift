@@ -21,6 +21,7 @@ enum OmiTransferSpoolMigrator {
         transferEnqueuer: ObserverAudioTransferEnqueuer,
         diagnosticLog: DiagnosticLog?,
         acknowledgeTokens: @escaping ([OmiSegmentMetadataToken]) -> Void,
+        registerDispatchHold: @escaping (UUID) async -> Void,
         defaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) async {
@@ -40,6 +41,7 @@ enum OmiTransferSpoolMigrator {
                 quarantineRootURL: quarantineRoot,
                 diagnosticLog: diagnosticLog,
                 acknowledgeTokens: acknowledgeTokens,
+                registerDispatchHold: registerDispatchHold,
                 fileManager: fileManager
             )
         }
@@ -82,6 +84,7 @@ private extension OmiTransferSpoolMigrator {
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         acknowledgeTokens: @escaping ([OmiSegmentMetadataToken]) -> Void,
+        registerDispatchHold: @escaping (UUID) async -> Void,
         fileManager: FileManager
     ) async -> Int {
         let sessions: [URL]
@@ -109,6 +112,7 @@ private extension OmiTransferSpoolMigrator {
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     acknowledgeTokens: acknowledgeTokens,
+                    registerDispatchHold: registerDispatchHold,
                     fileManager: fileManager
                 )
             }
@@ -141,6 +145,7 @@ private extension OmiTransferSpoolMigrator {
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         acknowledgeTokens: @escaping ([OmiSegmentMetadataToken]) -> Void,
+        registerDispatchHold: @escaping (UUID) async -> Void,
         fileManager: FileManager
     ) async -> Int {
         let entries: [URL]
@@ -270,6 +275,8 @@ private extension OmiTransferSpoolMigrator {
                     diagnosticLog: diagnosticLog,
                     fileManager: fileManager
                 ) {
+                    // Keep duplicate legacy evidence from racing dispatch into a second send next launch.
+                    await registerDispatchHold(envelope.itemID)
                     unresolved += 1
                 }
             case .notFound where hasAudio:
@@ -313,6 +320,8 @@ private extension OmiTransferSpoolMigrator {
                         diagnosticLog: diagnosticLog,
                         fileManager: fileManager
                     ) {
+                        // Keep duplicate legacy evidence from racing dispatch into a second send next launch.
+                        await registerDispatchHold(envelope.itemID)
                         unresolved += 1
                     }
                 case .conflict(let reason):

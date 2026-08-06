@@ -152,6 +152,7 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
             transferEnqueuer: first.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         await first.engine.enableDispatch()
@@ -174,6 +175,7 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
             transferEnqueuer: second.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
@@ -195,6 +197,7 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
             transferEnqueuer: third.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
+            registerDispatchHold: { _ in },
             defaults: defaults
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.audioURL.path))

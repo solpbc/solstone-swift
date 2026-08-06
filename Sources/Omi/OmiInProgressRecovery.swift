@@ -21,6 +21,7 @@ enum OmiInProgressRecovery {
         rootURL: URL,
         transferEnqueuer: ObserverAudioTransferEnqueuer,
         acknowledgeTokens: ([OmiSegmentMetadataToken]) -> Void,
+        registerDispatchHold: @escaping (UUID) async -> Void,
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         fileManager: FileManager = .default,
@@ -116,6 +117,8 @@ enum OmiInProgressRecovery {
                         acknowledgeTokens(envelope.frozenTokens)
                     }
                     if !OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
+                        // Keep duplicate recovery evidence from racing dispatch into a second send next launch.
+                        await registerDispatchHold(envelope.itemID)
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }
@@ -196,6 +199,8 @@ enum OmiInProgressRecovery {
                     }
                     if OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
                     } else {
+                        // Keep duplicate recovery evidence from racing dispatch into a second send next launch.
+                        await registerDispatchHold(envelope.itemID)
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }

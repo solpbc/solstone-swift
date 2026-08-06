@@ -220,6 +220,7 @@ actor TransferEngine {
     private var inFlightSourceKeys: [UUID: String] = [:]
     private var droppedItemIDs: Set<UUID> = []
     private var conflictedItemIDs: Set<UUID> = []
+    private var heldItemIDs: Set<UUID> = []
     private var attemptCountByItemID: [UUID: Int] = [:]
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
@@ -275,6 +276,7 @@ actor TransferEngine {
         self.inFlightSourceKeys = [:]
         self.droppedItemIDs = []
         self.conflictedItemIDs = snapshot.conflictedItemIDs
+        self.heldItemIDs = []
         self.attemptCountByItemID = [:]
         self.aggregateByteWindow = TransferByteWindow()
         self.counters = TransferCounters(
@@ -373,6 +375,24 @@ actor TransferEngine {
             self.conflictedItemIDs.insert(expectedManifest.itemID)
         }
         return verdict
+    }
+
+    func hold(itemID: UUID) {
+        guard self.heldItemIDs.insert(itemID).inserted,
+              let item = self.queuedItems[itemID] ?? self.attentionItems[itemID]
+        else {
+            return
+        }
+        let previousState: TransferRuntimeState = self.attentionItems[itemID] == nil ? .queued : .attention
+        self.emit(
+            item: item,
+            previousState: previousState,
+            nextState: .held,
+            outcome: .held,
+            attempt: self.attemptCountByItemID[itemID, default: 0],
+            detail: "reason=duplicate cleanup"
+        )
+        self.scheduleStatusUpdate(summary: "held")
     }
 
     @discardableResult
@@ -492,6 +512,7 @@ actor TransferEngine {
     func retryAttention(source: String? = nil) throws {
         let items = self.attentionItems.values
             .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+            .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
             .filter { source == nil || $0.manifest.sourceKey == source }
             .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
         try self.moveAttentionItemsToQueued(items)
@@ -502,6 +523,7 @@ actor TransferEngine {
     /// a no-op that still kicks the engine.
     func retryAttention(itemID: UUID) throws {
         guard !self.conflictedItemIDs.contains(itemID) else { return }
+        guard !self.heldItemIDs.contains(itemID) else { return }
         guard let item = self.attentionItems[itemID] else {
             self.scheduleStatusUpdate(summary: self.lastEventSummary)
             self.scheduleWork()
@@ -513,6 +535,7 @@ actor TransferEngine {
     private func moveAttentionItemsToQueued(_ items: [TransferStoredItem]) throws {
         for item in items {
             guard !self.conflictedItemIDs.contains(item.manifest.itemID) else { continue }
+            guard !self.heldItemIDs.contains(item.manifest.itemID) else { continue }
             let moved = try self.spool.moveAttentionItemToQueued(item)
             self.attentionItems.removeValue(forKey: item.manifest.itemID)
             self.queuedItems[moved.manifest.itemID] = moved
@@ -541,6 +564,7 @@ actor TransferEngine {
 
     func drop(itemID: UUID) {
         guard !self.conflictedItemIDs.contains(itemID) else { return }
+        guard !self.heldItemIDs.contains(itemID) else { return }
         self.droppedItemIDs.insert(itemID)
         if let item = self.queuedItems.removeValue(forKey: itemID) {
             self.counters.queuedCount -= 1
@@ -698,6 +722,7 @@ actor TransferEngine {
                 .filter { !self.inFlight.contains($0.manifest.itemID) }
                 .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
                 .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+                .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
                 .filter {
                     TransferClockMath.retryEligible(
                         nextAttemptAt: $0.manifest.nextAttemptAt,
