@@ -105,6 +105,12 @@ nonisolated struct TransferRecoveryDiagnostic: Equatable, Sendable {
     var detail: String
 }
 
+nonisolated enum TransferSpoolItemLocation: Equatable, Sendable {
+    case queued(URL)
+    case attention(URL)
+    case salvage(URL)
+}
+
 nonisolated struct TransferSpool: Sendable {
     static let rootDirectoryName = "Transfers"
     static let stagingDirectoryName = "staging"
@@ -196,12 +202,9 @@ nonisolated struct TransferSpool: Sendable {
         )
     }
 
-    /// Moves producer-owned payload files into staging without a full-file
-    /// `Data` read. On success the producer's files are gone from their
-    /// original URLs. On partial failure, `TransferSpoolError.partialFileMove`
-    /// names the parts already consumed; those producer files are gone,
-    /// remaining producer files are untouched, and the partial staging
-    /// directory is salvaged on the next `initialize()`.
+    /// Writes in-memory payload data before its manifest. Unlike file-URL
+    /// staging, these bytes have no producer-owned durable source after a crash,
+    /// so this deliberate asymmetry retains them in salvage for inspection.
     ///
     /// Declare only parts that physically exist at enqueue time. A part that is
     /// optional by nature, such as a location file that may not exist for a
@@ -239,6 +242,15 @@ nonisolated struct TransferSpool: Sendable {
         )
     }
 
+    /// Moves producer-owned payload files into staging without a full-file
+    /// `Data` read. It writes a complete manifest before moving any payload, so
+    /// staging never contains payload bytes without their manifest. On success
+    /// the producer's files are gone from their original URLs. On partial
+    /// failure, `TransferSpoolError.partialFileMove` names the parts already
+    /// consumed; those producer files are gone, remaining producer files are
+    /// untouched, and the partial staging directory is salvaged on the next
+    /// `initialize()`.
+    ///
     /// Declare only parts that physically exist at enqueue time. A part that is
     /// optional by nature, such as a location file that may not exist for a
     /// given segment, is omitted from `payloadParts` for that item; it is never
@@ -260,6 +272,12 @@ nonisolated struct TransferSpool: Sendable {
         let itemDirectory = prepared.directoryURL
         try self.fileSystem.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
         var byteCounts: [String: Int] = [:]
+        for (part, sourceURL) in resolvedPayloads {
+            byteCounts[part.partID] = try self.fileSystem.byteCount(at: sourceURL)
+        }
+        let stagedManifest = self.manifestByApplyingByteCounts(manifest, byteCountsByPartID: byteCounts)
+            .replacingDiskState(.queued)
+        try self.writeManifestAtomically(stagedManifest, in: itemDirectory)
         var consumedPartIDs: [String] = []
         for (part, sourceURL) in resolvedPayloads {
             let destinationURL = try self.payloadURL(for: part, in: itemDirectory)
@@ -268,7 +286,6 @@ nonisolated struct TransferSpool: Sendable {
                     at: destinationURL.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                byteCounts[part.partID] = try self.fileSystem.byteCount(at: sourceURL)
                 try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
                 consumedPartIDs.append(part.partID)
             } catch {
@@ -280,9 +297,6 @@ nonisolated struct TransferSpool: Sendable {
                 )
             }
         }
-        let stagedManifest = self.manifestByApplyingByteCounts(manifest, byteCountsByPartID: byteCounts)
-            .replacingDiskState(.queued)
-        try self.writeManifestAtomically(stagedManifest, in: itemDirectory)
         return TransferSpoolStageResult(
             item: TransferStoredItem(manifest: stagedManifest, directoryURL: itemDirectory),
             recoveryDiagnostics: prepared.diagnostics
@@ -297,6 +311,28 @@ nonisolated struct TransferSpool: Sendable {
             throw TransferSpoolError.destinationAlreadyExists(destinationURL.path)
         }
         return try self.moveStagedItemToQueued(sourceURL: sourceURL, destinationURL: destinationURL)
+    }
+
+    func locateCommittedOrSalvagedItem(itemID: UUID) throws -> TransferSpoolItemLocation? {
+        let name = itemID.uuidString
+        let queued = self.queuedDirectoryURL.appendingPathComponent(name, isDirectory: true)
+        if self.fileSystem.fileExists(atPath: queued.path) {
+            return .queued(queued)
+        }
+        let attention = self.attentionDirectoryURL.appendingPathComponent(name, isDirectory: true)
+        if self.fileSystem.fileExists(atPath: attention.path) {
+            return .attention(attention)
+        }
+        guard self.fileSystem.fileExists(atPath: self.salvageDirectoryURL.path) else { return nil }
+        for reason in try self.fileSystem.contentsOfDirectory(at: self.salvageDirectoryURL) {
+            for recovery in try self.fileSystem.contentsOfDirectory(at: reason) {
+                let candidate = recovery.appendingPathComponent(name, isDirectory: true)
+                if self.fileSystem.fileExists(atPath: candidate.path) {
+                    return .salvage(candidate)
+                }
+            }
+        }
+        return nil
     }
 
     func writeManifestAtomically(_ manifest: TransferManifest, in directoryURL: URL) throws {

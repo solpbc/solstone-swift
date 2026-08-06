@@ -20,6 +20,7 @@ enum OmiInProgressRecovery {
         sessionID: UUID,
         rootURL: URL,
         transferEnqueuer: ObserverAudioTransferEnqueuer,
+        acknowledgeTokens: ([OmiSegmentMetadataToken]) -> Void = { _ in },
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         fileManager: FileManager = .default,
@@ -49,12 +50,19 @@ enum OmiInProgressRecovery {
         }
 
         var result = Result()
-        for audioURL in entries where audioURL.pathExtension == "m4a" {
+        let audioURLs = Set(entries.filter { $0.pathExtension == "m4a" })
+        for audioURL in audioURLs {
             guard !Task.isCancelled else { return result }
             await cooperator.step()
             guard !Task.isCancelled else { return result }
 
             let chunkID = audioURL.deletingPathExtension().lastPathComponent
+            let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
+            let envelope = self.loadEnvelope(
+                at: envelopeURL,
+                diagnosticLog: diagnosticLog,
+                fileManager: fileManager
+            )
             guard let byteCount = self.byteCountIfAvailable(at: audioURL, fileManager: fileManager) else {
                 let quarantined = self.quarantine(
                     audioURL,
@@ -63,6 +71,9 @@ enum OmiInProgressRecovery {
                     reason: "size unavailable",
                     fileManager: fileManager
                 )
+                if quarantined > 0 {
+                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                }
                 result.quarantinedCount += quarantined
                 if quarantined == 0 {
                     result.unresolvedCount += 1
@@ -71,8 +82,52 @@ enum OmiInProgressRecovery {
             }
             if byteCount == 0 {
                 try? fileManager.removeItem(at: audioURL)
+                OmiPendingHandoffStore.remove(at: envelopeURL)
                 result.zeroByteRemovedCount += 1
                 continue
+            }
+
+            guard self.decodableAudioDuration(at: audioURL) != nil else {
+                let quarantined = self.quarantine(
+                    audioURL,
+                    quarantineRootURL: quarantineRootURL,
+                    diagnosticLog: diagnosticLog,
+                    reason: "probe failed",
+                    fileManager: fileManager
+                )
+                if quarantined > 0 {
+                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                }
+                result.quarantinedCount += quarantined
+                if quarantined == 0 {
+                    result.unresolvedCount += 1
+                }
+                continue
+            }
+            if let envelope {
+                do {
+                    _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
+                        itemID: envelope.itemID,
+                        chunkURL: audioURL,
+                        sidecar: envelope.sidecar,
+                        metadata: envelope.metadata
+                    )
+                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    if !envelope.frozenTokens.isEmpty {
+                        acknowledgeTokens(envelope.frozenTokens)
+                    }
+                    result.recoveredCount += 1
+                    continue
+                } catch {
+                    result.unresolvedCount += 1
+                    self.emitDiagnostic(
+                        diagnosticLog: diagnosticLog,
+                        message: "needs attention",
+                        detail: "source=\(audioURL.path) reason=enqueue failed"
+                    )
+                    omiRecoveryLog.error("omi in-progress enqueue failed source=\(audioURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+                    continue
+                }
             }
 
             guard let sidecar = self.rebuildSidecar(
@@ -88,6 +143,9 @@ enum OmiInProgressRecovery {
                     reason: "probe failed",
                     fileManager: fileManager
                 )
+                if quarantined > 0 {
+                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                }
                 result.quarantinedCount += quarantined
                 if quarantined == 0 {
                     result.unresolvedCount += 1
@@ -106,6 +164,53 @@ enum OmiInProgressRecovery {
                     detail: "source=\(audioURL.path) reason=enqueue failed"
                 )
                 omiRecoveryLog.error("omi in-progress enqueue failed source=\(audioURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
+
+        // TransferEngine.start() precedes this recovery, so staging leftovers have
+        // already been promoted or salvaged; reconciliation intentionally skips staging.
+        for envelopeURL in entries where envelopeURL.pathExtension == OmiPendingHandoffEnvelope.pathExtension {
+            let audioURL = envelopeURL.deletingPathExtension().appendingPathExtension("m4a")
+            guard !audioURLs.contains(audioURL) else { continue }
+            guard let envelope = self.loadEnvelope(
+                at: envelopeURL,
+                diagnosticLog: diagnosticLog,
+                fileManager: fileManager
+            ) else {
+                result.unresolvedCount += 1
+                continue
+            }
+            do {
+                switch try await transferEnqueuer.locateOmiTransfer(itemID: envelope.itemID) {
+                case .queued, .attention:
+                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    if !envelope.frozenTokens.isEmpty {
+                        acknowledgeTokens(envelope.frozenTokens)
+                    }
+                case .salvage:
+                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    result.unresolvedCount += 1
+                    self.emitDiagnostic(
+                        diagnosticLog: diagnosticLog,
+                        message: "needs attention",
+                        detail: "source=\(envelopeURL.path) reason=envelope audio in salvage"
+                    )
+                case nil:
+                    result.unresolvedCount += 1
+                    self.emitDiagnostic(
+                        diagnosticLog: diagnosticLog,
+                        message: "needs attention",
+                        detail: "source=\(envelopeURL.path) reason=envelope audio missing and item unlocatable"
+                    )
+                }
+            } catch {
+                result.unresolvedCount += 1
+                self.emitDiagnostic(
+                    diagnosticLog: diagnosticLog,
+                    message: "needs attention",
+                    detail: "source=\(envelopeURL.path) reason=envelope item lookup failed"
+                )
+                omiRecoveryLog.error("omi handoff lookup failed source=\(envelopeURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
 
@@ -144,6 +249,34 @@ enum OmiInProgressRecovery {
             mode: .meeting,
             locationJSONL: nil
         )
+    }
+
+    static func loadEnvelope(
+        at envelopeURL: URL,
+        diagnosticLog: DiagnosticLog?,
+        fileManager: FileManager
+    ) -> OmiPendingHandoffEnvelope? {
+        guard fileManager.fileExists(atPath: envelopeURL.path) else { return nil }
+        do {
+            let envelope = try OmiPendingHandoffStore.read(from: envelopeURL)
+            guard envelope.isSupported else {
+                self.emitDiagnostic(
+                    diagnosticLog: diagnosticLog,
+                    message: "needs attention",
+                    detail: "source=\(envelopeURL.path) reason=envelope unsupported version"
+                )
+                return nil
+            }
+            return envelope
+        } catch {
+            self.emitDiagnostic(
+                diagnosticLog: diagnosticLog,
+                message: "needs attention",
+                detail: "source=\(envelopeURL.path) reason=envelope decode failed"
+            )
+            omiRecoveryLog.error("omi handoff decode failed source=\(envelopeURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     nonisolated static func chunkIndex(fromChunkID chunkID: String, sessionID: UUID) -> Int? {

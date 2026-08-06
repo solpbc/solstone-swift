@@ -26,6 +26,7 @@ final class OmiSegmentWriter {
     var onWriterFault: (() -> Void)?
     var freezeSegmentMetadata: (() -> OmiSegmentMetadataSnapshot?)?
     var acknowledgeSegmentMetadata: (([OmiSegmentMetadataToken]) -> Void)?
+    var onHandoffDegradation: ((String) -> Void)?
 
     private(set) var droppedSamples = 0
     private(set) var failedOpens = 0
@@ -119,6 +120,14 @@ final class OmiSegmentWriter {
     func finalizeOpenChunk() async {
         let hadOpenChunk = self.currentURL != nil
         await self.finalizeCurrentChunkAwaitingEnqueue()
+        if hadOpenChunk {
+            self.chunkIndex += 1
+        }
+    }
+
+    func finalizeOpenChunkForDisconnect() {
+        let hadOpenChunk = self.currentURL != nil
+        self.finalizeCurrentChunk()
         if hadOpenChunk {
             self.chunkIndex += 1
         }
@@ -237,45 +246,42 @@ private extension OmiSegmentWriter {
     }
 
     func finalizeCurrentChunk() {
-        guard let finalizedChunk = self.takeFinalizedChunk() else { return }
-        let snapshot = self.freezeSegmentMetadata?()
+        guard let handoff = self.preparePendingHandoff() else { return }
         let transferEnqueuer = self.transferEnqueuer
-        Task { @MainActor [weak self, transferEnqueuer, finalizedChunk, snapshot] in
-            do {
-                _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
-                    chunkURL: finalizedChunk.url,
-                    sidecar: finalizedChunk.sidecar,
-                    metadata: snapshot?.metadata
-                )
-                if let snapshot, !snapshot.frozenTokens.isEmpty {
-                    self?.acknowledgeSegmentMetadata?(snapshot.frozenTokens)
-                }
-                self?.notifyChunkFinalized(finalizedChunk)
-            } catch {
-                self?.log.error("omi writer enqueue failed: \(String(describing: error), privacy: .public)")
-            }
+        Task { @MainActor [weak self, transferEnqueuer, handoff] in
+            await self?.completePendingHandoff(handoff, transferEnqueuer: transferEnqueuer)
         }
     }
 
     func finalizeCurrentChunkAwaitingEnqueue() async {
-        guard let finalizedChunk = self.takeFinalizedChunk() else { return }
-        let snapshot = self.freezeSegmentMetadata?()
+        guard let handoff = self.preparePendingHandoff() else { return }
+        await self.completePendingHandoff(handoff, transferEnqueuer: self.transferEnqueuer)
+    }
+
+    func completePendingHandoff(
+        _ handoff: OmiPendingHandoff,
+        transferEnqueuer: ObserverAudioTransferEnqueuer
+    ) async {
         do {
-            _ = try await self.transferEnqueuer.enqueueOmiChunkMovingFile(
-                chunkURL: finalizedChunk.url,
-                sidecar: finalizedChunk.sidecar,
-                metadata: snapshot?.metadata
+            _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
+                itemID: handoff.envelope.itemID,
+                chunkURL: handoff.finalizedChunk.url,
+                sidecar: handoff.envelope.sidecar,
+                metadata: handoff.envelope.metadata
             )
-            if let snapshot, !snapshot.frozenTokens.isEmpty {
-                self.acknowledgeSegmentMetadata?(snapshot.frozenTokens)
+            if handoff.envelopeWasPersisted {
+                OmiPendingHandoffStore.remove(at: handoff.envelopeURL)
             }
-            self.notifyChunkFinalized(finalizedChunk)
+            if !handoff.envelope.frozenTokens.isEmpty {
+                self.acknowledgeSegmentMetadata?(handoff.envelope.frozenTokens)
+            }
+            self.notifyChunkFinalized(handoff.finalizedChunk)
         } catch {
             self.log.error("omi writer enqueue failed: \(String(describing: error), privacy: .public)")
         }
     }
 
-    func takeFinalizedChunk() -> FinalizedChunk? {
+    func preparePendingHandoff() -> OmiPendingHandoff? {
         guard let sessionID = self.sessionID,
               let url = self.currentURL,
               let startedAt = self.currentChunkStart
@@ -287,15 +293,16 @@ private extension OmiSegmentWriter {
 
         let chunkIndex = self.chunkIndex
         let samplesWritten = self.samplesWritten
-        self.currentFile?.close()
-        self.clearCurrentChunk()
-
         let duration = Double(samplesWritten) / Self.sampleRate
         guard samplesWritten > 0, duration >= Self.minChunkDurationSeconds else {
+            self.currentFile?.close()
+            self.clearCurrentChunk()
             try? FileManager.default.removeItem(at: url)
             return nil
         }
 
+        let snapshot = self.freezeSegmentMetadata?()
+        let itemID = UUID()
         let day = ObserverSegmentNaming.dayString(for: startedAt)
         let sidecar = ChunkSidecar(
             segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: duration),
@@ -307,13 +314,53 @@ private extension OmiSegmentWriter {
             mode: .meeting,
             locationJSONL: nil
         )
-        return FinalizedChunk(
+        let finalizedChunk = FinalizedChunk(
             url: url,
             sidecar: sidecar,
             day: day,
             durationS: duration,
             identity: Self.chunkID(sessionID: sessionID, index: chunkIndex)
         )
+        let envelope = OmiPendingHandoffEnvelope(
+            itemID: itemID,
+            sidecar: sidecar,
+            metadata: snapshot?.metadata,
+            frozenTokens: snapshot?.frozenTokens ?? []
+        )
+        let envelopeURL = OmiPendingHandoffStore.url(for: url)
+        let envelopeWasPersisted: Bool
+        do {
+            let data = try OmiPendingHandoffStore.encode(envelope)
+            do {
+                try OmiPendingHandoffStore.write(data, to: envelopeURL)
+                envelopeWasPersisted = true
+            } catch {
+                envelopeWasPersisted = false
+                self.noteHandoffDegradation(
+                    "source=\(envelopeURL.path) reason=envelope write failed",
+                    error: error
+                )
+            }
+        } catch {
+            envelopeWasPersisted = false
+            self.noteHandoffDegradation(
+                "source=\(envelopeURL.path) reason=envelope encode failed",
+                error: error
+            )
+        }
+        self.currentFile?.close()
+        self.clearCurrentChunk()
+        return OmiPendingHandoff(
+            finalizedChunk: finalizedChunk,
+            envelope: envelope,
+            envelopeURL: envelopeURL,
+            envelopeWasPersisted: envelopeWasPersisted
+        )
+    }
+
+    func noteHandoffDegradation(_ detail: String, error: any Error) {
+        self.log.error("omi handoff degradation \(detail, privacy: .public): \(String(describing: error), privacy: .public)")
+        self.onHandoffDegradation?(detail)
     }
 
     func notifyChunkFinalized(_ finalizedChunk: FinalizedChunk) {
@@ -401,4 +448,11 @@ private struct FinalizedChunk: Sendable {
     let day: String
     let durationS: TimeInterval
     let identity: String
+}
+
+private struct OmiPendingHandoff: Sendable {
+    let finalizedChunk: FinalizedChunk
+    let envelope: OmiPendingHandoffEnvelope
+    let envelopeURL: URL
+    let envelopeWasPersisted: Bool
 }

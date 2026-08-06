@@ -321,6 +321,9 @@ actor TransferEngine {
             .manifest.itemID
     }
 
+    /// Stages a complete manifest before moving file-owned payloads, then commits
+    /// the item. In-memory payload staging intentionally retains its older order.
+    ///
     /// Moves producer-owned payload files into staging without a full-file
     /// `Data` read, then commits the staged item. On success the producer's
     /// files are gone from their original URLs. On partial failure,
@@ -340,6 +343,10 @@ actor TransferEngine {
     func enqueue(manifest: TransferManifest, payloadFileURLs: [String: URL]) throws -> UUID {
         try self.commitStagedResult(self.spool.stage(manifest: manifest, payloadFileURLs: payloadFileURLs))
             .manifest.itemID
+    }
+
+    func locateCommittedOrSalvagedItem(itemID: UUID) throws -> TransferSpoolItemLocation? {
+        try self.spool.locateCommittedOrSalvagedItem(itemID: itemID)
     }
 
     @discardableResult

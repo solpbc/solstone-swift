@@ -478,6 +478,14 @@ struct SolstoneSwiftApp: App {
         omiSegmentWriter.acknowledgeSegmentMetadata = { [weak omiSource] tokens in
             omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
         }
+        omiSegmentWriter.onHandoffDegradation = { detail in
+            log.append(
+                category: .upload,
+                severity: .warning,
+                message: "needs attention",
+                detail: detail
+            )
+        }
         omiSource.omiSegmentWriter = omiSegmentWriter
         omiSource.onDecodedSamples = { [weak omiSegmentWriter] samples in
             omiSegmentWriter?.append(samples)
@@ -1024,6 +1032,9 @@ struct SolstoneSwiftApp: App {
                 sessionID: sessionID,
                 rootURL: rootURL,
                 transferEnqueuer: self.transferEnqueuer,
+                acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
+                    omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
+                },
                 quarantineRootURL: quarantineRoot,
                 diagnosticLog: self.diagnosticLog
             )

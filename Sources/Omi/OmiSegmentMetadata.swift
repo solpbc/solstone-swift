@@ -266,7 +266,7 @@ nonisolated struct OmiSegmentMetadata: Codable, Equatable, Sendable {
     }
 }
 
-nonisolated struct OmiSegmentMetadataToken: Equatable, Sendable {
+nonisolated struct OmiSegmentMetadataToken: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Equatable, Sendable {
         case reconnect
         case subscribe
@@ -276,6 +276,13 @@ nonisolated struct OmiSegmentMetadataToken: Equatable, Sendable {
     var processID: UUID
     var sequence: Int
     var revision: Int
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case processID = "process_id"
+        case sequence
+        case revision
+    }
 }
 
 nonisolated struct OmiSegmentMetadataSnapshot: Equatable, Sendable {

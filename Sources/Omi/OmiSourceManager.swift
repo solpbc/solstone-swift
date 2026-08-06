@@ -662,7 +662,7 @@ private extension OmiSourceManager {
             self.connectionState = .reconnecting
         }
 
-        await self.omiSegmentWriter?.finalizeOpenChunk()
+        self.omiSegmentWriter?.finalizeOpenChunkForDisconnect()
 
         switch decision {
         case .stayDisconnected:

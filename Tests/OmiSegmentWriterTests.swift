@@ -425,6 +425,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
             clock: MockObserverClock()
         )
         let processID = UUID()
+        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: processID, sequence: 3, revision: 1)
         var connectionState = "connected"
         var acknowledgments: [[OmiSegmentMetadataToken]] = []
         writer.freezeSegmentMetadata = {
@@ -434,7 +435,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
                     processID: processID,
                     reconnectCount: 2
                 ),
-                frozenTokens: []
+                frozenTokens: [token]
             )
         }
         writer.acknowledgeSegmentMetadata = { tokens in
@@ -446,6 +447,12 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         writer.stop()
 
         try await self.waitForBlockedMove(fileSystem)
+        let envelopeURL = try XCTUnwrap(self.files(withExtension: OmiPendingHandoffEnvelope.pathExtension).first)
+        let envelope = try OmiPendingHandoffStore.read(from: envelopeURL)
+        XCTAssertEqual(envelope.version, OmiPendingHandoffEnvelope.currentVersion)
+        XCTAssertEqual(envelope.metadata?.connectionState, "connected")
+        XCTAssertEqual(envelope.metadata?.processID, processID)
+        XCTAssertEqual(envelope.frozenTokens, [token])
         connectionState = "disconnected"
         fileSystem.releaseMove()
 
@@ -455,7 +462,8 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(metadata.connectionState, "connected")
         XCTAssertEqual(metadata.processID, processID)
         XCTAssertEqual(metadata.reconnectCount, 2)
-        XCTAssertTrue(acknowledgments.isEmpty)
+        XCTAssertEqual(acknowledgments, [[token]])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
     }
 }
 

@@ -237,6 +237,56 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertTrue(diagnosticLog.events.contains { $0.detail?.contains(source.audioURL.path) == true })
         try self.assertNoSourceCodeRemovesTransferQuarantine()
     }
+
+    func testInProgressRecoveryUsesPendingEnvelopeIdentityMetadataAndTokens() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-envelope", isDirectory: true)
+        let omiRoot = self.appGroupOmiRoot(appGroupRoot)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await harness.engine.start()
+        let sessionID = UUID()
+        let itemID = UUID()
+        let processID = UUID()
+        let sidecar = makeTransferTestSidecar(
+            sessionID: sessionID,
+            chunkIndex: 0,
+            startedAt: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+        let source = try self.seedChunk(
+            rootURL: omiRoot,
+            sessionID: sessionID,
+            directoryName: "in-progress",
+            chunkID: "\(sessionID.uuidString.lowercased())-0",
+            sidecar: sidecar
+        )
+        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: processID, sequence: 4, revision: 2)
+        let envelope = OmiPendingHandoffEnvelope(
+            itemID: itemID,
+            sidecar: sidecar,
+            metadata: OmiSegmentMetadata(connectionState: "reconnecting", processID: processID),
+            frozenTokens: [token]
+        )
+        let envelopeURL = OmiPendingHandoffStore.url(for: source.audioURL)
+        try OmiPendingHandoffStore.write(try OmiPendingHandoffStore.encode(envelope), to: envelopeURL)
+        var acknowledgements: [[OmiSegmentMetadataToken]] = []
+
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(
+            sessionID: sessionID,
+            rootURL: omiRoot,
+            transferEnqueuer: harness.enqueuer,
+            acknowledgeTokens: { acknowledgements.append($0) },
+            quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
+            diagnosticLog: nil
+        )
+
+        XCTAssertEqual(result.recoveredCount, 1)
+        XCTAssertEqual(acknowledgements, [[token]])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshot = try XCTUnwrap(snapshots.first)
+        XCTAssertEqual(snapshot.manifest.itemID, itemID)
+        XCTAssertEqual(OmiSegmentMetadata.from(meta: snapshot.manifest.meta)?.connectionState, "reconnecting")
+    }
 }
 
 private extension OmiTransferSpoolMigratorTests {

@@ -1211,6 +1211,24 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertFalse(fileSystem.dataReadURLs.contains { $0.lastPathComponent == "audio.m4a" })
     }
 
+    func testFileURLManifestWriteFailureLeavesSourceBeforeAnyMove() throws {
+        let root = self.tempDirectory.appendingPathComponent("manifest-first", isDirectory: true)
+        let fileSystem = FailingManifestWriteFileSystem()
+        fileSystem.failManifestWrites = true
+        let spool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let sourceURL = self.tempDirectory.appendingPathComponent("manifest-first-source.m4a", isDirectory: false)
+        try Data("audio".utf8).write(to: sourceURL)
+        let manifest = self.makeManifest(itemID: Self.uuid(307))
+
+        XCTAssertThrowsError(try spool.stage(manifest: manifest, payloadFileURLs: ["audio": sourceURL]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
+        let stagedAudioURL = root
+            .appendingPathComponent(TransferSpool.stagingDirectoryName, isDirectory: true)
+            .appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
+            .appendingPathComponent("audio.m4a", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedAudioURL.path))
+    }
+
     func testInitPromotesCompleteStagingAndSalvagesIncompleteAndDuplicateStaging() throws {
         let root = self.tempDirectory.appendingPathComponent("staging-recovery", isDirectory: true)
         let seedSpool = TransferSpool(rootURL: root)

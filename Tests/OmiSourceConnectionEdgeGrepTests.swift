@@ -54,18 +54,24 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
         XCTAssertFalse(audioBody.contains("connectionState = .needsAttention(.audioUnavailable)"))
     }
 
-    func testDisconnectRecordsReconnectStateBeforeFinalizingOpenChunk() throws {
+    func testDisconnectRecordsReconnectStateBeforeStartingNonblockingFinalization() throws {
         let managerURL = StringLiteralGrepSupport.worktreeRoot()
             .appendingPathComponent("Sources/Omi/OmiSourceManager.swift")
         let text = try String(contentsOf: managerURL, encoding: .utf8)
         let body = try Self.functionSlice(named: "handleDisconnected", in: text)
 
-        let finalize = try XCTUnwrap(body.range(of: "await self.omiSegmentWriter?.finalizeOpenChunk()"))
+        let finalize = try XCTUnwrap(body.range(of: "self.omiSegmentWriter?.finalizeOpenChunkForDisconnect()"))
         let state = try XCTUnwrap(body.range(of: "self.connectionState = .reconnecting"))
+        let beginConnect = try XCTUnwrap(body.range(of: "self.beginConnect("))
         XCTAssertLessThan(
             body.distance(from: body.startIndex, to: state.lowerBound),
             body.distance(from: body.startIndex, to: finalize.lowerBound)
         )
+        XCTAssertLessThan(
+            body.distance(from: body.startIndex, to: finalize.lowerBound),
+            body.distance(from: body.startIndex, to: beginConnect.lowerBound)
+        )
+        XCTAssertFalse(body.contains("await self.omiSegmentWriter?.finalizeOpenChunk()"))
     }
 
     func testBackgroundFinalizesOmiBeforeDrainCoordinatorRuns() throws {
