@@ -29,12 +29,12 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     var connectedRSSI: Int?
     var lastKnownBattery: TimedReading<Int>?
     var lastKnownSignal: TimedReading<Int>?
-    var firmware: BLEReadState<String> = .notRead
-    var manufacturer: BLEReadState<String> = .notRead
-    var model: BLEReadState<String> = .notRead
-    var hardwareRevision: BLEReadState<String> = .notRead
-    var battery: BLEReadState<Int> = .notRead
-    var codec: BLEReadState<BLEAudioCodecInfo> = .notRead
+    var firmware: OmiReadState<String> = .notRead
+    var manufacturer: OmiReadState<String> = .notRead
+    var model: OmiReadState<String> = .notRead
+    var hardwareRevision: OmiReadState<String> = .notRead
+    var battery: OmiReadState<Int> = .notRead
+    var codec: OmiReadState<OmiAudioCodecInfo> = .notRead
     var isAudioSubscribed = false
     var writerFaulted = false
     var audioUnsubscribedWhileConnected = false
@@ -66,8 +66,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var peripheralsByID: [UUID: CBPeripheral] = [:]
     @ObservationIgnored private var characteristicsByID: [String: CBCharacteristic] = [:]
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var reassembler = BLEAudioReassembler()
-    @ObservationIgnored private var opusDecoder: BLEOpusAudioDecoder?
+    @ObservationIgnored private var reassembler = OmiAudioReassembler()
+    @ObservationIgnored private var opusDecoder: OmiOpusAudioDecoder?
     @ObservationIgnored private var pendingConnectionID: UUID?
     @ObservationIgnored private var manuallyDisconnected = false
     @ObservationIgnored private var didLogPoweredOn = false
@@ -134,8 +134,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.cancelInitialConnectTimeout()
 
         let connected = self.central?.retrieveConnectedPeripherals(withServices: [
-            BLEDiagnosticUUIDs.audioService,
-            BLEDiagnosticUUIDs.storageService
+            OmiUUIDs.audioService,
+            OmiUUIDs.storageService
         ]).first
 
         let persistedID = OmiSourceLogic.persistedPeripheralID(
@@ -398,10 +398,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 private extension OmiSourceManager {
     var restoreServiceUUIDs: [CBUUID] {
         [
-            BLEDiagnosticUUIDs.audioService,
-            BLEDiagnosticUUIDs.deviceInformationService,
-            BLEDiagnosticUUIDs.batteryService,
-            BLEDiagnosticUUIDs.storageService
+            OmiUUIDs.audioService,
+            OmiUUIDs.deviceInformationService,
+            OmiUUIDs.batteryService,
+            OmiUUIDs.storageService
         ]
     }
 
@@ -490,7 +490,7 @@ private extension OmiSourceManager {
 
         let audioCharacteristic = self.audioCharacteristic(in: peripheral)
         let hasAudioService = peripheral.services?.contains {
-            uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioService)
+            uuidMatches($0.uuid, OmiUUIDs.audioService)
         } ?? false
         let action = OmiSourceLogic.restoreAction(
             peripheralState: peripheral.state,
@@ -518,11 +518,11 @@ private extension OmiSourceManager {
                 now: self.clock.now(),
                 expectsSubscribeConfirm: true
             )
-            if let codecCharacteristic = self.characteristic(for: BLEDiagnosticUUIDs.codecCharacteristic),
+            if let codecCharacteristic = self.characteristic(for: OmiUUIDs.codecCharacteristic),
                codecCharacteristic.properties.contains(.read)
             {
                 peripheral.readValue(for: codecCharacteristic)
-            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioService) }) {
+            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, OmiUUIDs.audioService) }) {
                 peripheral.discoverCharacteristics(nil, for: audioService)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
@@ -541,7 +541,7 @@ private extension OmiSourceManager {
             )
             if let audioCharacteristic {
                 self.setAudioNotify(enabled: true, characteristic: audioCharacteristic)
-            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioService) }) {
+            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, OmiUUIDs.audioService) }) {
                 peripheral.discoverCharacteristics(nil, for: audioService)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
@@ -722,7 +722,7 @@ private extension OmiSourceManager {
         characteristic: CBCharacteristic,
         error: (any Error)?
     ) {
-        if uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) {
+        if uuidMatches(characteristic.uuid, OmiUUIDs.audioDataCharacteristic) {
             if let error {
                 self.log.error("omi audio stream failed: \(error.localizedDescription, privacy: .public)")
                 return
@@ -756,7 +756,7 @@ private extension OmiSourceManager {
         _ characteristic: CBCharacteristic,
         error: (any Error)?
     ) {
-        guard uuidMatches(characteristic.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) else {
+        guard uuidMatches(characteristic.uuid, OmiUUIDs.audioDataCharacteristic) else {
             return
         }
 
@@ -870,7 +870,7 @@ private extension OmiSourceManager {
     }
 
     func updateKnownField(_ uuid: CBUUID, data: Data) -> Bool {
-        if uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic) {
+        if uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic) {
             let rawByte = Self.byte(data, offset: 0)
             let level = Int(rawByte)
             let now = self.clock.now()
@@ -881,7 +881,7 @@ private extension OmiSourceManager {
             return true
         }
 
-        if uuidMatches(uuid, BLEDiagnosticUUIDs.storageControlCharacteristic) {
+        if uuidMatches(uuid, OmiUUIDs.storageControlCharacteristic) {
             guard data.count >= 4 else {
                 self.log.error("omi storage backlog read too short: \(data.count, privacy: .public) bytes")
                 return true
@@ -899,15 +899,15 @@ private extension OmiSourceManager {
             return true
         }
 
-        if uuidMatches(uuid, BLEDiagnosticUUIDs.codecCharacteristic) {
+        if uuidMatches(uuid, OmiUUIDs.codecCharacteristic) {
             guard let byte = data.first else {
                 self.codec = .unavailable
                 self.log.error("omi codec unavailable")
                 return true
             }
-            let info = BLEAudioCodecInfo(
+            let info = OmiAudioCodecInfo(
                 rawByte: byte,
-                label: BLEDiagnosticFormatters.codecLabel(byte)
+                label: OmiAudioCodecInfo.label(for: byte)
             )
             self.codec = .value(info)
             if info.isOpus {
@@ -935,7 +935,7 @@ private extension OmiSourceManager {
 
     func subscribeAudio() {
         self.didAttemptWriterStart = false
-        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.audioDataCharacteristic) else {
+        guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristic) else {
             self.connectionState = .needsAttention(.audioUnavailable)
             self.log.error("omi audio unavailable")
             return
@@ -954,7 +954,7 @@ private extension OmiSourceManager {
 
     func buildOpusDecoder() {
         do {
-            self.opusDecoder = try BLEOpusAudioDecoder()
+            self.opusDecoder = try OmiOpusAudioDecoder()
         } catch {
             self.opusDecoder = nil
             self.log.error("omi opus decoder unavailable: \(error.localizedDescription, privacy: .public)")
@@ -1113,7 +1113,7 @@ private extension OmiSourceManager {
     }
 
     func resetAudioLiveState() {
-        self.reassembler = BLEAudioReassembler()
+        self.reassembler = OmiAudioReassembler()
         self.audioPackets = 0
         self.audioFrames = 0
         self.audioDecodeOK = 0
@@ -1233,7 +1233,7 @@ private extension OmiSourceManager {
     func refreshPendantReadings() {
         self.readRSSI()
 
-        let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.batteryLevelCharacteristic)
+        let characteristic = self.characteristic(for: OmiUUIDs.batteryLevelCharacteristic)
         let connected = self.connectionState == .connected && self.connectedPeripheral != nil
         let hasCachedReadableCharacteristic = characteristic?.properties.contains(.read) == true
         guard OmiSourceLogic.shouldReReadBattery(
@@ -1250,7 +1250,7 @@ private extension OmiSourceManager {
     }
 
     func refreshStorageBacklogReading() {
-        let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.storageControlCharacteristic)
+        let characteristic = self.characteristic(for: OmiUUIDs.storageControlCharacteristic)
         guard self.connectionState == .connected,
               let connectedPeripheral,
               let characteristic,
@@ -1288,7 +1288,7 @@ private extension OmiSourceManager {
     }
 
     func attemptAudioResubscribe() {
-        guard let characteristic = self.characteristic(for: BLEDiagnosticUUIDs.audioDataCharacteristic) else {
+        guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristic) else {
             self.log.notice("omi audio recovery skipped: audio unavailable")
             return
         }
@@ -1323,24 +1323,24 @@ private extension OmiSourceManager {
     }
 
     func markAbsentKnownFieldsUnavailable(for service: CBService, characteristics: [CBCharacteristic]) {
-        if uuidMatches(service.uuid, BLEDiagnosticUUIDs.deviceInformationService) {
+        if uuidMatches(service.uuid, OmiUUIDs.deviceInformationService) {
             for uuid in [
-                BLEDiagnosticUUIDs.firmwareRevisionCharacteristic,
-                BLEDiagnosticUUIDs.manufacturerNameCharacteristic,
-                BLEDiagnosticUUIDs.modelNumberCharacteristic,
-                BLEDiagnosticUUIDs.hardwareRevisionCharacteristic
+                OmiUUIDs.firmwareRevisionCharacteristic,
+                OmiUUIDs.manufacturerNameCharacteristic,
+                OmiUUIDs.modelNumberCharacteristic,
+                OmiUUIDs.hardwareRevisionCharacteristic
             ] where !self.containsCharacteristic(uuid, in: characteristics) {
                 self.setStringField(uuid, state: .unavailable)
             }
-        } else if uuidMatches(service.uuid, BLEDiagnosticUUIDs.batteryService),
-                  !self.containsCharacteristic(BLEDiagnosticUUIDs.batteryLevelCharacteristic, in: characteristics)
+        } else if uuidMatches(service.uuid, OmiUUIDs.batteryService),
+                  !self.containsCharacteristic(OmiUUIDs.batteryLevelCharacteristic, in: characteristics)
         {
             self.battery = .unavailable
-        } else if uuidMatches(service.uuid, BLEDiagnosticUUIDs.audioService) {
-            if !self.containsCharacteristic(BLEDiagnosticUUIDs.codecCharacteristic, in: characteristics) {
+        } else if uuidMatches(service.uuid, OmiUUIDs.audioService) {
+            if !self.containsCharacteristic(OmiUUIDs.codecCharacteristic, in: characteristics) {
                 self.codec = .unavailable
             }
-            if !self.containsCharacteristic(BLEDiagnosticUUIDs.audioDataCharacteristic, in: characteristics) {
+            if !self.containsCharacteristic(OmiUUIDs.audioDataCharacteristic, in: characteristics) {
                 self.connectionState = .needsAttention(.audioUnavailable)
                 self.log.error("omi audio characteristic unavailable")
             }
@@ -1352,38 +1352,38 @@ private extension OmiSourceManager {
     }
 
     func markKnownFieldUnavailable(for uuid: CBUUID) {
-        if uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic) {
+        if uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic) {
             self.battery = .unavailable
-        } else if uuidMatches(uuid, BLEDiagnosticUUIDs.codecCharacteristic) {
+        } else if uuidMatches(uuid, OmiUUIDs.codecCharacteristic) {
             self.codec = .unavailable
         } else if self.isDeviceInfoCharacteristic(uuid) {
             self.setStringField(uuid, state: .unavailable)
         }
     }
 
-    func setStringField(_ uuid: CBUUID, state: BLEReadState<String>) {
-        if uuidMatches(uuid, BLEDiagnosticUUIDs.firmwareRevisionCharacteristic) {
+    func setStringField(_ uuid: CBUUID, state: OmiReadState<String>) {
+        if uuidMatches(uuid, OmiUUIDs.firmwareRevisionCharacteristic) {
             self.firmware = state
-        } else if uuidMatches(uuid, BLEDiagnosticUUIDs.manufacturerNameCharacteristic) {
+        } else if uuidMatches(uuid, OmiUUIDs.manufacturerNameCharacteristic) {
             self.manufacturer = state
-        } else if uuidMatches(uuid, BLEDiagnosticUUIDs.modelNumberCharacteristic) {
+        } else if uuidMatches(uuid, OmiUUIDs.modelNumberCharacteristic) {
             self.model = state
-        } else if uuidMatches(uuid, BLEDiagnosticUUIDs.hardwareRevisionCharacteristic) {
+        } else if uuidMatches(uuid, OmiUUIDs.hardwareRevisionCharacteristic) {
             self.hardwareRevision = state
         }
     }
 
     func isAutoReadCharacteristic(_ uuid: CBUUID) -> Bool {
         self.isDeviceInfoCharacteristic(uuid)
-            || uuidMatches(uuid, BLEDiagnosticUUIDs.batteryLevelCharacteristic)
-            || uuidMatches(uuid, BLEDiagnosticUUIDs.codecCharacteristic)
+            || uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic)
+            || uuidMatches(uuid, OmiUUIDs.codecCharacteristic)
     }
 
     func isDeviceInfoCharacteristic(_ uuid: CBUUID) -> Bool {
-        uuidMatches(uuid, BLEDiagnosticUUIDs.firmwareRevisionCharacteristic)
-            || uuidMatches(uuid, BLEDiagnosticUUIDs.manufacturerNameCharacteristic)
-            || uuidMatches(uuid, BLEDiagnosticUUIDs.modelNumberCharacteristic)
-            || uuidMatches(uuid, BLEDiagnosticUUIDs.hardwareRevisionCharacteristic)
+        uuidMatches(uuid, OmiUUIDs.firmwareRevisionCharacteristic)
+            || uuidMatches(uuid, OmiUUIDs.manufacturerNameCharacteristic)
+            || uuidMatches(uuid, OmiUUIDs.modelNumberCharacteristic)
+            || uuidMatches(uuid, OmiUUIDs.hardwareRevisionCharacteristic)
     }
 
     func characteristic(for uuid: CBUUID) -> CBCharacteristic? {
@@ -1400,7 +1400,7 @@ private extension OmiSourceManager {
     func audioCharacteristic(in peripheral: CBPeripheral) -> CBCharacteristic? {
         peripheral.services?
             .flatMap { $0.characteristics ?? [] }
-            .first { uuidMatches($0.uuid, BLEDiagnosticUUIDs.audioDataCharacteristic) }
+            .first { uuidMatches($0.uuid, OmiUUIDs.audioDataCharacteristic) }
     }
 
     func cacheRestoredCharacteristics(in peripheral: CBPeripheral) {

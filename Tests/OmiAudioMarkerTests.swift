@@ -5,9 +5,9 @@
 import Foundation
 import XCTest
 
-nonisolated final class BLEAudioMarkerTests: XCTestCase {
+nonisolated final class OmiAudioMarkerTests: XCTestCase {
     func testMarkersParseEpochAndDoNotAffectFrameAssembly() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
         let firstEpoch: UInt32 = 1_700_000_000
         let secondEpoch: UInt32 = 1_700_000_123
 
@@ -17,8 +17,8 @@ nonisolated final class BLEAudioMarkerTests: XCTestCase {
         let secondMarker = reassembler.ingest(Self.packet(3, index: 0xFF, payload: Self.epochPayload(secondEpoch)))
         let output = reassembler.ingest(Self.packet(4, index: 0, payload: Data("next".utf8)))
 
-        XCTAssertEqual(firstMarker.markers, [BLEAudioMarker.audio(epoch: firstEpoch)])
-        XCTAssertEqual(secondMarker.markers, [BLEAudioMarker.audio(epoch: secondEpoch)])
+        XCTAssertEqual(firstMarker.markers, [OmiAudioMarker.audio(epoch: firstEpoch)])
+        XCTAssertEqual(secondMarker.markers, [OmiAudioMarker.audio(epoch: secondEpoch)])
         XCTAssertEqual(output.completedFrames, [Data("hello".utf8)])
         XCTAssertEqual(reassembler.markers, 2)
         XCTAssertEqual(reassembler.lastMarkerEpoch, secondEpoch)
@@ -27,7 +27,7 @@ nonisolated final class BLEAudioMarkerTests: XCTestCase {
     }
 
     func testNoMarkersIsNotAnError() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
 
         _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("a".utf8)))
         let output = reassembler.ingest(Self.packet(1, index: 0, payload: Data("b".utf8)))

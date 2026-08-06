@@ -67,7 +67,7 @@ make clean         # remove build artifacts
 
 - `solpbc/spl-swift` (product `SPLTunnel`) — SPL tunnel package pinned at `exactVersion: 0.3.0`; provides pairing, relay, inner mTLS, mux, and loopback transport.
 - `apple/swift-crypto` (product `Crypto`) — used directly by `Sources/MobileSegment/MobileSegmentUploader.swift` and declared explicitly on the app and test targets.
-- `alta/swift-opus` (product `Opus`) — Opus decode for the BLE pendant audio; used in `Sources/Omi/` and `Sources/BLEDiagnostic/BLEOpusAudioDecoder.swift`.
+- `alta/swift-opus` (product `Opus`) — Opus decode for the BLE pendant audio; used in `Sources/Omi/OmiOpusAudioDecoder.swift`.
 
 ## Swift 6 concurrency
 

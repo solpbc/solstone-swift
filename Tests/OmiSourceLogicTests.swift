@@ -188,7 +188,7 @@ nonisolated final class OmiSourceLogicTests: XCTestCase {
     }
 
     func testAudioCounterSnapshotCopiesReassemblerAndDecodeCounts() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
         _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("lost".utf8)))
         _ = reassembler.ingest(Self.packet(2, index: 0, payload: Data("fresh".utf8)))
         _ = reassembler.ingest(Self.packet(3, index: 0, payload: Data("next".utf8)))

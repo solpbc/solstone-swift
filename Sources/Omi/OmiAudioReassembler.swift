@@ -3,7 +3,7 @@
 
 import Foundation
 
-nonisolated struct BLEAudioMarker: Equatable, Sendable {
+nonisolated struct OmiAudioMarker: Equatable, Sendable {
     let epoch: UInt32
 
     // Keep construction behind this factory to satisfy LocationNoMapKitGrepTests.
@@ -12,17 +12,17 @@ nonisolated struct BLEAudioMarker: Equatable, Sendable {
     }
 }
 
-nonisolated struct BLEReassemblyOutput: Equatable, Sendable {
+nonisolated struct OmiReassemblyOutput: Equatable, Sendable {
     let completedFrames: [Data]
-    let markers: [BLEAudioMarker]
+    let markers: [OmiAudioMarker]
 
-    init(completedFrames: [Data] = [], markers: [BLEAudioMarker] = []) {
+    init(completedFrames: [Data] = [], markers: [OmiAudioMarker] = []) {
         self.completedFrames = completedFrames
         self.markers = markers
     }
 }
 
-nonisolated struct BLEAudioReassembler: Equatable, Sendable {
+nonisolated struct OmiAudioReassembler: Equatable, Sendable {
     private(set) var packets = 0
     private(set) var frames = 0
     private(set) var gaps = 0
@@ -36,10 +36,10 @@ nonisolated struct BLEAudioReassembler: Equatable, Sendable {
     private var expectedNextIndex: UInt8 = 0
     private var frameBytes = Data()
 
-    mutating func ingest(_ payload: Data) -> BLEReassemblyOutput {
+    mutating func ingest(_ payload: Data) -> OmiReassemblyOutput {
         guard payload.count >= 3 else {
             self.malformed += 1
-            return BLEReassemblyOutput()
+            return OmiReassemblyOutput()
         }
 
         self.packets += 1
@@ -53,7 +53,7 @@ nonisolated struct BLEAudioReassembler: Equatable, Sendable {
         if index == 0xFF {
             guard fragment.count >= 4 else {
                 self.malformed += 1
-                return BLEReassemblyOutput()
+                return OmiReassemblyOutput()
             }
 
             let bytes = Array(fragment.prefix(4))
@@ -61,10 +61,10 @@ nonisolated struct BLEAudioReassembler: Equatable, Sendable {
                 | (UInt32(bytes[1]) << 8)
                 | (UInt32(bytes[2]) << 16)
                 | (UInt32(bytes[3]) << 24)
-            let marker = BLEAudioMarker.audio(epoch: epoch)
+            let marker = OmiAudioMarker.audio(epoch: epoch)
             self.markers += 1
             self.lastMarkerEpoch = epoch
-            return BLEReassemblyOutput(markers: [marker])
+            return OmiReassemblyOutput(markers: [marker])
         }
 
         if index == 0 {
@@ -76,18 +76,18 @@ nonisolated struct BLEAudioReassembler: Equatable, Sendable {
             self.frameStarted = true
             self.expectedNextIndex = 1
             self.frameBytes = Data(fragment)
-            return BLEReassemblyOutput(completedFrames: completedFrames)
+            return OmiReassemblyOutput(completedFrames: completedFrames)
         }
 
         guard self.frameStarted, index == self.expectedNextIndex else {
             self.outOfOrder += 1
             self.dropInProgressFrame()
-            return BLEReassemblyOutput()
+            return OmiReassemblyOutput()
         }
 
         self.frameBytes.append(contentsOf: fragment)
         self.expectedNextIndex = self.expectedNextIndex &+ 1
-        return BLEReassemblyOutput()
+        return OmiReassemblyOutput()
     }
 
     private mutating func updatePacketOrder(_ packetNumber: UInt16) {

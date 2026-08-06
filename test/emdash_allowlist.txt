@@ -14,7 +14,6 @@ Sources/SourceVocabulary+ConnectionProbe.swift|checked \(relative) — \(Self.pr
 Sources/SourceVocabulary+ConnectionProbe.swift|checked \(relative) — \(Self.probeNotReachable)
 Sources/Pairing/PairFailureReason.swift|your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect.
 Sources/Pairing/PairFlowView.swift|on your computer, open your journal's dashboard and go to the network app — it shows your pairing code.
-Sources/BLEDiagnostic/BLEDiagnosticModels.swift|no storage data received within 5s — read command likely wrong for this firmware
 Sources/Tunnel/TunnelError.swift|connection failed — \(detail)
 Sources/Tunnel/TunnelManager.swift|[solstone-swift] connect() skipped — already in progress
 Sources/Tunnel/TunnelManager.swift|[solstone-swift] connect() skipped — already \(self.state)

@@ -108,6 +108,6 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
 }
 
 private extension OmiSourceRestoreTests {
-    static let opusCodec = BLEAudioCodecInfo(rawByte: 20, label: "opus")
-    static let unsupportedCodec = BLEAudioCodecInfo(rawByte: 1, label: "pcm")
+    static let opusCodec = OmiAudioCodecInfo(rawByte: 20, label: "opus")
+    static let unsupportedCodec = OmiAudioCodecInfo(rawByte: 1, label: "pcm")
 }

@@ -257,7 +257,7 @@ nonisolated enum OmiSourceLogic {
         peripheralState: CBPeripheralState,
         hasAudioService: Bool,
         isAudioNotifying: Bool,
-        codec: BLEReadState<BLEAudioCodecInfo>
+        codec: OmiReadState<OmiAudioCodecInfo>
     ) -> OmiRestoreAction {
         guard peripheralState == .connected else {
             return .rearmConnect
@@ -305,7 +305,7 @@ nonisolated enum OmiSourceLogic {
     }
 
     static func surfacedBattery(
-        live: BLEReadState<Int>,
+        live: OmiReadState<Int>,
         lastKnown: TimedReading<Int>?
     ) -> OmiSurfacedReading<Int> {
         switch live {
@@ -478,7 +478,7 @@ nonisolated enum OmiSourceLogic {
     }
 
     static func audioCounterSnapshot(
-        reassembler: BLEAudioReassembler,
+        reassembler: OmiAudioReassembler,
         decodeOK: Int,
         decodeErrors: Int
     ) -> OmiAudioCounterSnapshot {

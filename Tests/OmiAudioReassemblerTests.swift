@@ -5,9 +5,9 @@
 import Foundation
 import XCTest
 
-nonisolated final class BLEAudioReassemblerTests: XCTestCase {
+nonisolated final class OmiAudioReassemblerTests: XCTestCase {
     func testSingleFragmentFrameEmitsOnNextStart() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
 
         let first = reassembler.ingest(Self.packet(0, index: 0, payload: Data("one".utf8)))
         let second = reassembler.ingest(Self.packet(1, index: 0, payload: Data("two".utf8)))
@@ -21,7 +21,7 @@ nonisolated final class BLEAudioReassemblerTests: XCTestCase {
     }
 
     func testMultiFragmentFrameUsesIncrementingPacketNumbers() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
 
         XCTAssertTrue(reassembler.ingest(Self.packet(0, index: 0, payload: Data([0xAA]))).completedFrames.isEmpty)
         XCTAssertTrue(reassembler.ingest(Self.packet(1, index: 1, payload: Data([0xBB, 0xCC]))).completedFrames.isEmpty)
@@ -35,7 +35,7 @@ nonisolated final class BLEAudioReassemblerTests: XCTestCase {
     }
 
     func testDroppedPacketCountsGapAndDropsInProgress() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
 
         _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("lost".utf8)))
         let gapOutput = reassembler.ingest(Self.packet(2, index: 0, payload: Data("fresh".utf8)))
@@ -48,11 +48,11 @@ nonisolated final class BLEAudioReassemblerTests: XCTestCase {
     }
 
     func testBackwardOrDuplicatePacketCountsOutOfOrder() {
-        var duplicateReassembler = BLEAudioReassembler()
+        var duplicateReassembler = OmiAudioReassembler()
         _ = duplicateReassembler.ingest(Self.packet(5, index: 0, payload: Data("first".utf8)))
         _ = duplicateReassembler.ingest(Self.packet(5, index: 0, payload: Data("duplicate".utf8)))
 
-        var backwardReassembler = BLEAudioReassembler()
+        var backwardReassembler = OmiAudioReassembler()
         _ = backwardReassembler.ingest(Self.packet(5, index: 0, payload: Data("first".utf8)))
         _ = backwardReassembler.ingest(Self.packet(4, index: 0, payload: Data("back".utf8)))
 
@@ -61,11 +61,11 @@ nonisolated final class BLEAudioReassemblerTests: XCTestCase {
     }
 
     func testMalformedShortPayloadIsCountedAndIgnored() {
-        var reassembler = BLEAudioReassembler()
+        var reassembler = OmiAudioReassembler()
 
         let output = reassembler.ingest(Data([0x01, 0x00]))
 
-        XCTAssertEqual(output, BLEReassemblyOutput())
+        XCTAssertEqual(output, OmiReassemblyOutput())
         XCTAssertEqual(reassembler.malformed, 1)
         XCTAssertEqual(reassembler.packets, 0)
     }

@@ -6,7 +6,7 @@ import Foundation
 import Opus
 
 @MainActor
-final class BLEOpusAudioDecoder {
+final class OmiOpusAudioDecoder {
     private let opusDecoder: Opus.Decoder
 
     init() throws {
