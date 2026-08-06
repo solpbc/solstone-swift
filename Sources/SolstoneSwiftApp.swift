@@ -20,6 +20,7 @@ struct SolstoneSwiftApp: App {
     @State private var mobileHealthBeacon: ObserverHealthBeacon
     @State private var mobileSegmentTransferHolder: MobileSegmentTransferHolder
     @State private var omiRegistration: ObserverRegistration
+    @State private var omiRegistrationRefreshCoordinator: OmiRegistrationRefreshCoordinator
     @State private var omiHealthBeacon: ObserverHealthBeacon
     @State private var omiUploaderHolder: OmiUploaderHolder
     @State private var watchRegistration: ObserverRegistration
@@ -266,6 +267,11 @@ struct SolstoneSwiftApp: App {
                 IngestPrefixStore().clear(.watch)
             }
         )
+        let omiRegistrationRefreshCoordinator = OmiRegistrationRefreshCoordinator { port in
+            guard !Self.isIntegrationMode, !Self.isUITest else { return }
+            omiRegistration.activeLocalPort = port
+            _ = try? await omiRegistration.refreshRegistration()
+        }
         let transferEndpointResolver = LoopbackTransferEndpointResolver()
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
@@ -595,6 +601,7 @@ struct SolstoneSwiftApp: App {
         self._mobileHealthBeacon = State(initialValue: mobileHealthBeacon)
         self._mobileSegmentTransferHolder = State(initialValue: mobileSegmentTransferHolder)
         self._omiRegistration = State(initialValue: omiRegistration)
+        self._omiRegistrationRefreshCoordinator = State(initialValue: omiRegistrationRefreshCoordinator)
         self._omiHealthBeacon = State(initialValue: omiHealthBeacon)
         self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
         self._watchRegistration = State(initialValue: watchRegistration)
@@ -737,6 +744,11 @@ struct SolstoneSwiftApp: App {
                     await Self.revalidateThenRequestDrain(tunnelManager: self.tunnelManager) {
                         await self.foregroundDrainGate.requestDrain()
                     }
+                }
+                .task {
+                    // Initial connected state needs the same Omi registration edge observation.
+                    guard case .connected = self.tunnelManager.state else { return }
+                    self.omiRegistrationRefreshCoordinator.observe(tunnelState: self.tunnelManager.state)
                 }
         }
         .onChange(of: self.scenePhase) { _, newPhase in
@@ -887,6 +899,7 @@ struct SolstoneSwiftApp: App {
                 self.integrationObserverStopTask?.cancel()
                 self.integrationObserverStopTask = nil
             }
+            self.omiRegistrationRefreshCoordinator.observe(tunnelState: newState)
         }
         .onChange(of: self.observerManager.state) { _, newState in
             guard Self.isIntegrationMode,

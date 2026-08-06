@@ -111,22 +111,27 @@ final class ObserverRegistration {
             return existing
         }
 
-        if let registrationTask = self.registrationTask {
-            return try await registrationTask.value
+        return try await self.runRegistrationTask {
+            try await self.mintRegistration()
+        }
+    }
+
+    func refreshRegistration() async throws -> String {
+        let cachedKey = try self.loadKey().flatMap { $0.isEmpty ? nil : $0 }
+
+        if let cachedKey {
+            return try await self.runRegistrationTask {
+                do {
+                    return try await self.refreshWithServer(cachedKey: cachedKey)
+                } catch {
+                    self.logRefreshFailure(error)
+                    return cachedKey
+                }
+            }
         }
 
-        let registrationTask = Task { @MainActor in
-            try await self.registerWithServer()
-        }
-        self.registrationTask = registrationTask
-
-        do {
-            let key = try await registrationTask.value
-            self.registrationTask = nil
-            return key
-        } catch {
-            self.registrationTask = nil
-            throw error
+        return try await self.runRegistrationTask {
+            try await self.refreshWithServer(cachedKey: nil)
         }
     }
 
@@ -140,33 +145,84 @@ final class ObserverRegistration {
         return existing
     }
 
-    private func registerWithServer() async throws -> String {
-        if let existing = try self.loadKey(), !existing.isEmpty {
-            self.state = .registered
-            self.restorePersistedPrefixIfNeeded()
-            return existing
+    private func mintRegistration() async throws -> String {
+        self.state = .registering
+        // With no local ingest key, any persisted prefix can only be a backup-restored stale
+        // prefix; a real key would have taken ensureRegistered()'s fast path.
+        try? self.deletePrefix()
+
+        let payload: RegistrationResponse
+        do {
+            payload = try await self.requestRegistration()
+        } catch {
+            self.failRegistration(error)
+            throw error
         }
 
+        do {
+            try self.savePrefix(payload.prefix)
+        } catch {
+            self.failRegistration(reason: "prefix cache save failed")
+            throw error
+        }
+
+        do {
+            try self.saveKey(payload.key)
+        } catch {
+            self.failRegistration(reason: "key commit save failed")
+            throw error
+        }
+
+        self.registrationPrefix = payload.prefix
+        self.state = .registered
+        log.info("observer registration succeeded (key length=\(payload.key.count, privacy: .public))")
+        return payload.key
+    }
+
+    private func refreshWithServer(cachedKey: String?) async throws -> String {
+        if cachedKey == nil {
+            self.state = .registering
+        }
+
+        do {
+            let payload = try await self.requestRegistration()
+            try self.saveKey(payload.key)
+            guard let committedKey = try self.loadKey(), committedKey == payload.key else {
+                throw ObserverRegistrationError.keyCommitReadBackMismatch
+            }
+
+            // A keychain key that saved and read back is authoritative. The app-group
+            // defaults prefix is a repairable cache, so refresh derives it from that key.
+            let derivedPrefix = String(committedKey.prefix(8))
+            do {
+                try self.savePrefix(derivedPrefix)
+            } catch {
+                log.error("observer registration refresh prefix cache failed")
+            }
+            self.registrationPrefix = derivedPrefix
+            self.state = .registered
+            log.info("observer registration refresh succeeded (key length=\(committedKey.count, privacy: .public))")
+            return committedKey
+        } catch {
+            if cachedKey == nil {
+                self.failRegistration(error)
+            }
+            throw error
+        }
+    }
+
+    private func requestRegistration() async throws -> RegistrationResponse {
         guard let localPort = self.activeLocalPort else {
-            let reason = "observer registration unavailable: missing active local port"
-            self.state = .failed(reason: reason)
             throw ObserverRegistrationError.missingLocalPort
         }
 
         guard let url = self.urlBuilder(localPort) else {
-            let reason = "observer registration unavailable: invalid url"
-            self.state = .failed(reason: reason)
             throw ObserverRegistrationError.invalidURL
         }
-
-        // With no local ingest key, any persisted prefix can only be a backup-restored stale
-        // prefix; a real key would have taken the fast path. Clear it before minting a key.
-        try? self.deletePrefix()
 
         var lastError = "observer registration failed"
         for (index, delay) in self.retryDelays.enumerated() {
             try Task.checkCancellation()
-            self.state = .registering
 
             do {
                 var request = URLRequest(url: url)
@@ -190,18 +246,30 @@ final class ObserverRegistration {
                     throw ObserverRegistrationError.http(http.statusCode)
                 }
 
-                let payload = try JSONDecoder().decode(RegistrationResponse.self, from: data)
-                try self.savePrefix(payload.prefix)
-                try self.saveKey(payload.key)
-                self.registrationPrefix = payload.prefix
-                self.state = .registered
-                log.info("observer registration succeeded (key length=\(payload.key.count, privacy: .public))")
-                return payload.key
+                guard !data.isEmpty else {
+                    lastError = "empty response"
+                    throw ObserverRegistrationError.emptyResponse
+                }
+                let payload: RegistrationResponse
+                do {
+                    payload = try JSONDecoder().decode(RegistrationResponse.self, from: data)
+                } catch {
+                    lastError = "decode failed"
+                    throw ObserverRegistrationError.invalidResponse
+                }
+                guard !payload.key.isEmpty else {
+                    lastError = "empty key"
+                    throw ObserverRegistrationError.emptyKey
+                }
+                return payload
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 if Task.isCancelled {
                     throw CancellationError()
+                }
+                if !(error is ObserverRegistrationError) {
+                    lastError = "transport error"
                 }
                 if index == self.retryDelays.count - 1 {
                     break
@@ -211,8 +279,6 @@ final class ObserverRegistration {
             }
         }
 
-        self.state = .failed(reason: lastError)
-        log.error("observer registration failed: \(lastError, privacy: .public)")
         throw ObserverRegistrationError.registrationFailed(lastError)
     }
 
@@ -234,6 +300,65 @@ final class ObserverRegistration {
 }
 
 private extension ObserverRegistration {
+    func runRegistrationTask(
+        _ operation: @escaping @MainActor @Sendable () async throws -> String
+    ) async throws -> String {
+        if let registrationTask = self.registrationTask {
+            return try await registrationTask.value
+        }
+
+        let registrationTask = Task { @MainActor in
+            try await operation()
+        }
+        self.registrationTask = registrationTask
+
+        do {
+            let key = try await registrationTask.value
+            self.registrationTask = nil
+            return key
+        } catch {
+            self.registrationTask = nil
+            throw error
+        }
+    }
+
+    func failRegistration(_ error: Error) {
+        self.failRegistration(reason: self.failureReason(for: error))
+    }
+
+    func failRegistration(reason: String) {
+        self.state = .failed(reason: reason)
+        log.error("observer registration failed: \(reason, privacy: .public)")
+    }
+
+    func logRefreshFailure(_ error: Error) {
+        let reason = self.failureReason(for: error)
+        log.error("observer registration refresh failed: \(reason, privacy: .public)")
+    }
+
+    func failureReason(for error: Error) -> String {
+        switch error {
+        case ObserverRegistrationError.missingLocalPort:
+            "observer registration unavailable: missing active local port"
+        case ObserverRegistrationError.invalidURL:
+            "observer registration unavailable: invalid url"
+        case ObserverRegistrationError.invalidResponse:
+            "invalid response"
+        case ObserverRegistrationError.emptyResponse:
+            "empty response"
+        case ObserverRegistrationError.emptyKey:
+            "empty key"
+        case ObserverRegistrationError.keyCommitReadBackMismatch:
+            "key commit read-back mismatch"
+        case ObserverRegistrationError.http(let status):
+            "HTTP \(status)"
+        case ObserverRegistrationError.registrationFailed(let reason):
+            reason
+        default:
+            "unexpected registration error"
+        }
+    }
+
     func restorePersistedState() {
         if let key = try? self.loadKey(), !key.isEmpty {
             self.state = .registered
@@ -263,6 +388,9 @@ enum ObserverRegistrationError: Error {
     case missingLocalPort
     case invalidURL
     case invalidResponse
+    case emptyResponse
+    case emptyKey
+    case keyCommitReadBackMismatch
     case http(Int)
     case registrationFailed(String)
 }

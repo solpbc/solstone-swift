@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import Dispatch
 import os
 import XCTest
 
@@ -192,6 +193,30 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     }
 
     @MainActor
+    func testMintDoesNotRetryPostAfterKeyCommitFailure() async throws {
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"observer-key-123","prefix":"obs_"}"#.utf8)
+            )
+        }
+        let registration = self.makeRegistration(
+            retryDelays: [1, 2, 3],
+            saveKey: { (_: String) throws in throw ObserverRegistrationTestError.injectedSaveKeyFailure }
+        )
+        registration.activeLocalPort = 7071
+
+        do {
+            _ = try await registration.ensureRegistered()
+            XCTFail("expected key commit failure")
+        } catch {}
+
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+        XCTAssertNil(self.storedKeyBox.withLock { $0 })
+        XCTAssertEqual(registration.state, .failed(reason: "key commit save failed"))
+    }
+
+    @MainActor
     func testRestoredDeviceReregistersAcrossAllStreams() async throws {
         let streams = [
             (
@@ -319,16 +344,257 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         XCTAssertEqual(state, .idle)
     }
 
+    @MainActor
+    func testRefreshRegistrationPostsWithCachedKeyAndCommitsDerivedPrefix() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"refreshed-key-123","prefix":"server_prefix"}"#.utf8)
+            )
+        }
+        let registration = self.makeRegistration(retryDelays: [1])
+        registration.activeLocalPort = 7071
+
+        let key = try await registration.refreshRegistration()
+
+        XCTAssertEqual(key, "refreshed-key-123")
+        XCTAssertEqual(registration.registeredHandle(), "refreshed-key-123")
+        XCTAssertEqual(registration.registrationPrefix, "refreshe")
+        XCTAssertEqual(self.storedPrefixBox.withLock { $0 }, "refreshe")
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+    }
+
+    @MainActor
+    func testRefreshRegistrationSameKeyStillPostsAndDerivesPrefix() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"existing-key","prefix":"server_prefix"}"#.utf8)
+            )
+        }
+        let registration = self.makeRegistration(retryDelays: [1])
+        registration.activeLocalPort = 7071
+
+        let refreshedKey = try await registration.refreshRegistration()
+        XCTAssertEqual(refreshedKey, "existing-key")
+        XCTAssertEqual(registration.registrationPrefix, "existing")
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+    }
+
+    @MainActor
+    func testRefreshRegistrationRequestFailuresFailOpenWithCachedKeyAndFailWithoutOne() async throws {
+        let cases: [(String, ObserverRegistrationURLProtocol.Handler)] = [
+            ("transport", { _ in throw URLError(.cannotConnectToHost) }),
+            ("http", { request in
+                (HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!, Data())
+            }),
+            ("empty", { request in
+                (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
+            }),
+            ("malformed", { request in
+                (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("not json".utf8))
+            }),
+            ("empty-key", { request in
+                (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(#"{"name":"solstone-swift","key":"","prefix":"obs_"}"#.utf8))
+            }),
+        ]
+
+        for (name, handler) in cases {
+            ObserverRegistrationURLProtocol.callCount = 0
+            ObserverRegistrationURLProtocol.handler = handler
+            let cachedKey = OSAllocatedUnfairLock<String?>(initialState: "existing-key")
+            let cachedPrefix = OSAllocatedUnfairLock<String?>(initialState: "obs_existing_")
+            let cached = self.makeRegistration(keyBox: cachedKey, prefixBox: cachedPrefix, retryDelays: [1])
+            cached.activeLocalPort = 7071
+
+            let refreshedKey = try await cached.refreshRegistration()
+            XCTAssertEqual(refreshedKey, "existing-key", name)
+            XCTAssertEqual(cached.registeredHandle(), "existing-key", name)
+            XCTAssertEqual(cached.registrationPrefix, "obs_existing_", name)
+            XCTAssertEqual(cached.state, .registered, name)
+
+            let noKey = self.makeRegistration(
+                keyBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                prefixBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                retryDelays: [1]
+            )
+            noKey.activeLocalPort = 7071
+            do {
+                _ = try await noKey.refreshRegistration()
+                XCTFail("expected no-key refresh failure for \(name)")
+            } catch {}
+            if case .failed = noKey.state {} else {
+                XCTFail("expected failed state for \(name)")
+            }
+        }
+    }
+
+    @MainActor
+    func testRefreshRegistrationKeyCommitFailuresPreserveCachedRegistrationAndFailWithoutKey() async throws {
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"refreshed-key-123","prefix":"server_prefix"}"#.utf8)
+            )
+        }
+
+        let commitFailures: [(String, @Sendable (String) throws -> Void)] = [
+            ("save", { (_: String) throws in throw ObserverRegistrationTestError.injectedSaveKeyFailure }),
+            ("read-back", { (_: String) throws in }),
+        ]
+        for (name, saveKey) in commitFailures {
+            let cachedKey = OSAllocatedUnfairLock<String?>(initialState: "existing-key")
+            let cachedPrefix = OSAllocatedUnfairLock<String?>(initialState: "obs_existing_")
+            let cached = self.makeRegistration(keyBox: cachedKey, prefixBox: cachedPrefix, retryDelays: [1], saveKey: saveKey)
+            cached.activeLocalPort = 7071
+
+            let refreshedKey = try await cached.refreshRegistration()
+            XCTAssertEqual(refreshedKey, "existing-key", name)
+            XCTAssertEqual(cached.registeredHandle(), "existing-key", name)
+            XCTAssertEqual(cached.registrationPrefix, "obs_existing_", name)
+            XCTAssertEqual(cached.state, .registered, name)
+
+            let noKey = self.makeRegistration(
+                keyBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                prefixBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+                retryDelays: [1],
+                saveKey: saveKey
+            )
+            noKey.activeLocalPort = 7071
+            do {
+                _ = try await noKey.refreshRegistration()
+                XCTFail("expected no-key refresh failure for \(name)")
+            } catch {}
+            if case .failed = noKey.state {} else {
+                XCTFail("expected failed state for \(name)")
+            }
+        }
+    }
+
+    @MainActor
+    func testRefreshRegistrationSucceedsWhenPrefixSaveSilentlyNoOps() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"refreshed-key-123","prefix":"server_prefix"}"#.utf8)
+            )
+        }
+        let registration = self.makeRegistration(retryDelays: [1], savePrefix: { _ in })
+        registration.activeLocalPort = 7071
+
+        let refreshedKey = try await registration.refreshRegistration()
+        XCTAssertEqual(refreshedKey, "refreshed-key-123")
+        XCTAssertEqual(registration.registrationPrefix, "refreshe")
+        XCTAssertEqual(self.storedPrefixBox.withLock { $0 }, "obs_existing_")
+    }
+
+    @MainActor
+    func testConcurrentEnsureRegisteredAndRefreshIssueOneRequest() async throws {
+        let gate = ObserverRegistrationResponseGate()
+        ObserverRegistrationURLProtocol.handler = { request in
+            gate.response(for: request)
+        }
+        let registration = self.makeRegistration(retryDelays: [1])
+        registration.activeLocalPort = 7071
+
+        let ensureTask = Task { @MainActor in try await registration.ensureRegistered() }
+        await self.waitForGateStart(gate)
+        let refreshTask = Task { @MainActor in try await registration.refreshRegistration() }
+
+        gate.release()
+        let ensuredKey = try await ensureTask.value
+        let refreshedKey = try await refreshTask.value
+        XCTAssertEqual(ensuredKey, "observer-key-123")
+        XCTAssertEqual(refreshedKey, "observer-key-123")
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+    }
+
+    @MainActor
+    func testConcurrentRefreshCallersIssueOneRequest() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
+        let gate = ObserverRegistrationResponseGate()
+        ObserverRegistrationURLProtocol.handler = { request in
+            gate.response(for: request)
+        }
+        let registration = self.makeRegistration(retryDelays: [1])
+        registration.activeLocalPort = 7071
+
+        let tasks = (0..<4).map { _ in
+            Task { @MainActor in try await registration.refreshRegistration() }
+        }
+        await self.waitForGateStart(gate)
+        gate.release()
+
+        for task in tasks {
+            let refreshedKey = try await task.value
+            XCTAssertEqual(refreshedKey, "observer-key-123")
+        }
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+    }
+
+    @MainActor
+    func testCachedRegistrationStaysAvailableWhileRefreshIsSuspended() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
+        let gate = ObserverRegistrationResponseGate()
+        ObserverRegistrationURLProtocol.handler = { request in
+            gate.response(for: request)
+        }
+        let registration = self.makeRegistration(retryDelays: [1])
+        registration.activeLocalPort = 7071
+        let otherRegistration = self.makeRegistration(
+            streamType: "watch",
+            keyBox: OSAllocatedUnfairLock<String?>(initialState: "watch-handle-xyz"),
+            prefixBox: OSAllocatedUnfairLock<String?>(initialState: "watch_pref_")
+        )
+
+        let refreshTask = Task { @MainActor in try await registration.refreshRegistration() }
+        await self.waitForGateStart(gate)
+
+        let ensuredKey = try await registration.ensureRegistered()
+        XCTAssertEqual(ensuredKey, "existing-key")
+        XCTAssertEqual(registration.registeredHandle(), "existing-key")
+        let otherKey = try await otherRegistration.ensureRegistered()
+        XCTAssertEqual(otherKey, "watch-handle-xyz")
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+
+        gate.release()
+        let refreshedKey = try await refreshTask.value
+        XCTAssertEqual(refreshedKey, "observer-key-123")
+        XCTAssertEqual(registration.registrationPrefix, "observer")
+    }
+
+    @MainActor
+    private func waitForGateStart(_ gate: ObserverRegistrationResponseGate) async {
+        var yields = 0
+        while gate.startedCount == 0 && yields < 10_000 {
+            await Task.yield()
+            yields += 1
+        }
+        if gate.startedCount == 0 {
+            XCTFail("Timed out waiting for observer registration request")
+        }
+    }
+
     @MainActor private func makeRegistration(
         streamType: String = "mobile",
         keyBox: OSAllocatedUnfairLock<String?>? = nil,
         prefixBox: OSAllocatedUnfairLock<String?>? = nil,
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
+        saveKey: (@Sendable (String) throws -> Void)? = nil,
         savePrefix: (@Sendable (String) throws -> Void)? = nil
     ) -> ObserverRegistration {
         let keyBox = keyBox ?? self.storedKeyBox
         let prefixBox = prefixBox ?? self.storedPrefixBox
+        let saveKey = saveKey ?? { [keyBox] key in keyBox.withLock { $0 = key } }
         let savePrefix = savePrefix ?? { [prefixBox] prefix in prefixBox.withLock { $0 = prefix } }
         return ObserverRegistration(
             hostname: "test-device",
@@ -338,7 +604,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
             retryDelays: retryDelays,
             sleep: sleep,
             loadKey: { [keyBox] in keyBox.withLock { $0 } },
-            saveKey: { [keyBox] key in keyBox.withLock { $0 = key } },
+            saveKey: saveKey,
             deleteKey: { [keyBox] in keyBox.withLock { $0 = nil } },
             loadPrefix: { [prefixBox] in prefixBox.withLock { $0 } },
             savePrefix: savePrefix,
@@ -349,6 +615,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
 
 private enum ObserverRegistrationTestError: Error {
     case injectedSavePrefixFailure
+    case injectedSaveKeyFailure
 }
 
 private final class ObserverRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
@@ -402,6 +669,28 @@ private actor DelayRecorder {
 
     func values() -> [UInt64] {
         self.valuesStore
+    }
+}
+
+private final class ObserverRegistrationResponseGate: @unchecked Sendable {
+    private let startedBox = OSAllocatedUnfairLock<Int>(initialState: 0)
+    private let responseSemaphore = DispatchSemaphore(value: 0)
+
+    var startedCount: Int {
+        self.startedBox.withLock { $0 }
+    }
+
+    func response(for request: URLRequest) -> (HTTPURLResponse, Data) {
+        self.startedBox.withLock { $0 += 1 }
+        self.responseSemaphore.wait()
+        return (
+            HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+            Data(#"{"name":"solstone-swift","key":"observer-key-123","prefix":"obs_"}"#.utf8)
+        )
+    }
+
+    func release() {
+        self.responseSemaphore.signal()
     }
 }
 
