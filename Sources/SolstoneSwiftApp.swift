@@ -526,16 +526,8 @@ struct SolstoneSwiftApp: App {
         )
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
         let omiSource = makeOmiSourceManager(clock: observerClock)
-        let launchCaptureRoot: URL
-        do {
-            launchCaptureRoot = try AppGroupContainer.rootURL()
-                .appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
-        } catch {
-            launchCaptureRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
-        }
         let launchCaptureCommitCoordinator = OmiLaunchCaptureCommitCoordinator(
-            rootURL: launchCaptureRoot,
+            rootURL: nil,
             engine: transferEngine,
             sourceManager: omiSource
         )
@@ -1079,8 +1071,12 @@ struct SolstoneSwiftApp: App {
                 }
             },
             reconcileLaunchCapture: { appGroupRoot in
-                _ = appGroupRoot
-                await self.launchCaptureCommitCoordinator.reconcile()
+                await self.launchCaptureCommitCoordinator.reconcile(
+                    rootURL: appGroupRoot.appendingPathComponent(
+                        OmiLaunchCaptureFormat.rootDirectoryName,
+                        isDirectory: true
+                    )
+                )
             },
             conservativelyGateOmi: {
                 await self.launchCaptureCommitCoordinator.conservativelyGateOmi()

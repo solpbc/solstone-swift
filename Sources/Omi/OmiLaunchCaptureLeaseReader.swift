@@ -40,6 +40,13 @@ final class OmiLaunchCaptureLeaseReader {
         )
     }
 
+    func hasDurableAcknowledgment() -> Bool {
+        if case .valid = self.readCursor() {
+            return true
+        }
+        return false
+    }
+
     func lease() -> OmiLaunchCaptureLeaseOutcome {
         guard let scan = self.scanCurrent() else { return .unavailable(.captureUnreadable) }
         let cursorRead = self.readCursor()

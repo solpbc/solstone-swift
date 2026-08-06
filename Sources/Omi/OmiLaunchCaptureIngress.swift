@@ -21,6 +21,7 @@ final class OmiLaunchCaptureIngress {
     private(set) var didAttemptInitialArm = false
 
     var isArmed: Bool { self.writer != nil }
+    var activeGenerationID: UUID { self.generationID }
 
     init(
         appGroupRoot: @escaping () throws -> URL,

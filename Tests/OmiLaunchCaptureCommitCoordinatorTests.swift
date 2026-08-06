@@ -180,7 +180,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             engine: harness.engine,
             sourceManager: self.makeManager(),
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerCleanupBeforeAcknowledgment { await barrier.suspend() }
+                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
             }
         )
         let task = Task { @MainActor in await coordinator.reconcile() }
@@ -195,7 +195,13 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             let failureCaptureRoot = self.rootURL.appendingPathComponent("failure-capture-\(String(describing: operation))", isDirectory: true)
             let failureTransferRoot = self.rootURL.appendingPathComponent("failure-transfer-\(String(describing: operation))", isDirectory: true)
             let io = FaultInjectingOmiLaunchCaptureIO()
-            _ = try self.seedCapture(rootURL: failureCaptureRoot)
+            let generation = try self.seedCapture(rootURL: failureCaptureRoot)
+            let audioURL = failureCaptureRoot
+                .appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
+                .appendingPathComponent(generation.uuidString, isDirectory: true)
+                .appendingPathComponent(OmiSegmentWriter.chunkID(sessionID: generation, index: 0))
+                .appendingPathExtension("m4a")
+            let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
             let failureHarness = self.makeHarness(rootURL: failureTransferRoot)
             try await failureHarness.engine.initialize()
             await failureHarness.engine.enableDispatch()
@@ -205,13 +211,20 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 sourceManager: self.makeManager(),
                 io: io,
                 onReconciliationPhase: { phase in
-                    if phase == .afterOwnerCleanupBeforeAcknowledgment { io.failNext(operation) }
+                    if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                        XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+                        io.failNext(operation)
+                    }
                 }
             )
             await failureCoordinator.reconcile()
             XCTAssertEqual(TransferURLProtocol.requests.count, 0)
             let failureSnapshots = await failureHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
             XCTAssertEqual(failureSnapshots.count, 1)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+            let repeated = try self.materialize(rootURL: failureCaptureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO())
+            XCTAssertEqual(repeated.partitions.count, 1)
+            XCTAssertEqual(repeated.partitions.first?.itemID, failureSnapshots.first?.itemID)
         }
     }
 
@@ -237,47 +250,117 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         try await harness.engine.initialize()
         io.failNext(.listDirectory)
         await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io).reconcile()
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        let gatedBeforeDispatch = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(Set(gatedBeforeDispatch.map(\.itemID)), Set(omiIDs))
         await harness.engine.enableDispatch()
         try await transferTestWaitFor("unrelated dispatch") { TransferURLProtocol.requests.count == 1 }
         XCTAssertEqual(transferTestBoundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.first)), unrelatedID)
         let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(Set(snapshots.map(\.itemID)), Set(omiIDs))
         XCTAssertEqual(snapshots.count, omiIDs.count)
+        XCTAssertEqual(TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) != unrelatedID }.count, 0)
     }
 
     @MainActor func testRepeatedRestartKeepsOneStableOwnerAndOneSendPerPartition() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
         let generation = try self.seedTwoPartitionCapture(rootURL: captureRoot)
-        let beforeAcknowledgment = try self.materialize(rootURL: captureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO()).partitions
-        XCTAssertEqual(beforeAcknowledgment.count, 2)
+        let expectedPartitions = [
+            (
+                itemID: OmiLaunchCaptureMaterializationIdentity.itemID(
+                    generationID: generation,
+                    partitionOrdinal: 0,
+                    startSequence: 0,
+                    startSampleOffset: 0
+                ),
+                coveredThroughSequence: UInt64(0)
+            ),
+            (
+                itemID: OmiLaunchCaptureMaterializationIdentity.itemID(
+                    generationID: generation,
+                    partitionOrdinal: 1,
+                    startSequence: 1,
+                    startSampleOffset: 320
+                ),
+                coveredThroughSequence: UInt64(1)
+            ),
+        ]
         let harness = self.makeHarness(rootURL: transferRoot)
         try await harness.engine.initialize()
         await harness.engine.enableDispatch()
-        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager())
-        await coordinator.reconcile()
-        let afterFirstAcknowledgment = try self.materialize(rootURL: captureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO()).partitions
-        XCTAssertEqual(afterFirstAcknowledgment.count, 1)
-        XCTAssertEqual(afterFirstAcknowledgment.first?.coveredThroughSequence, 1)
-        XCTAssertNotEqual(afterFirstAcknowledgment.first?.itemID, beforeAcknowledgment.first?.itemID)
-        await coordinator.reconcile()
-        try await transferTestWaitFor("two partition deliveries") { TransferURLProtocol.requests.count == 2 }
-        XCTAssertEqual(
-            Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))),
-            Set([beforeAcknowledgment[0].itemID, try XCTUnwrap(afterFirstAcknowledgment.first).itemID])
+        let barrier = CommitCoordinatorBarrier()
+        var gatedOwners = 0
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: self.makeManager(),
+            onReconciliationPhase: { phase in
+                guard phase == .afterNewOwnerGated else { return }
+                gatedOwners += 1
+                if gatedOwners == 2 { await barrier.suspend() }
+            }
         )
+        let abandonedPass = Task { @MainActor in await coordinator.reconcile() }
+        try await transferTestWaitFor("second owner committed") { await barrier.waiting() }
+        let crashSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(
+            Set(crashSnapshots.map(\.itemID)),
+            Set(expectedPartitions.map(\.itemID))
+        )
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
 
+        // This pass is intentionally abandoned at the second owner commit to model a process crash.
         let restarted = self.makeHarness(rootURL: transferRoot)
         try await restarted.engine.initialize()
-        await restarted.engine.enableDispatch()
-        let restartedCoordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: restarted.engine, sourceManager: self.makeManager())
+        let rematerialized = try self.materialize(rootURL: captureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO())
+        XCTAssertEqual(rematerialized.partitions.count, expectedPartitions.count)
+        XCTAssertEqual(rematerialized.partitions.map(\.itemID), expectedPartitions.map(\.itemID))
+        XCTAssertEqual(Set(rematerialized.partitions.map(\.itemID)), Set(expectedPartitions.map(\.itemID)))
+        XCTAssertTrue(rematerialized.partitions.allSatisfy { $0.endsAtSourceFrameBoundary && $0.coveredThroughSequence != nil })
+        for partition in rematerialized.partitions {
+            let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
+            let ownership = try await restarted.engine.verifyOwnership(
+                expectedManifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: partition.itemID, sidecar: envelope.sidecar, metadata: envelope.metadata),
+                expectedPayloadSourceURLs: [:]
+            )
+            XCTAssertEqual(
+                ownership,
+                .ownedInQueued
+            )
+        }
+        var reachedAcknowledgment = false
+        let restartedCoordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: restarted.engine,
+            sourceManager: self.makeManager(),
+            onReconciliationPhase: { phase in
+                if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                    reachedAcknowledgment = true
+                }
+            }
+        )
         await restartedCoordinator.reconcile()
+        XCTAssertTrue(reachedAcknowledgment)
+        await restarted.engine.enableDispatch()
+        try await transferTestWaitFor("both partition deliveries") { TransferURLProtocol.requests.count >= 2 }
         XCTAssertEqual(TransferURLProtocol.requests.count, 2)
-        let repeated = try self.materialize(rootURL: captureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO())
-        XCTAssertTrue(repeated.partitions.isEmpty)
+        XCTAssertEqual(
+            Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))),
+            Set(expectedPartitions.map(\.itemID))
+        )
+        XCTAssertEqual(expectedPartitions.map(\.coveredThroughSequence), [0, 1])
+
+        let secondRestart = self.makeHarness(rootURL: transferRoot)
+        try await secondRestart.engine.initialize()
+        await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: secondRestart.engine, sourceManager: self.makeManager()).reconcile()
+        await secondRestart.engine.enableDispatch()
+        XCTAssertEqual(TransferURLProtocol.requests.count, 2)
+        XCTAssertTrue(try self.materialize(rootURL: captureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO()).partitions.isEmpty)
+        _ = abandonedPass
     }
 
-    @MainActor func testFaultMatrixConvergesFailClosedWithoutBlockingUnrelatedWork() async throws {
+    @MainActor func testIOFaultsConvergeFailClosedWithoutBlockingUnrelatedWork() async throws {
         for operation in [OmiLaunchCaptureInjectedOperation.listDirectory, .remove, .replace, .openForReading, .exists] {
             TransferURLProtocol.reset()
             let captureRoot = self.rootURL.appendingPathComponent("fault-\(String(describing: operation))", isDirectory: true)
@@ -313,12 +396,12 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         await coordinator.reconcile()
         await coordinator.reconcile()
         let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-        XCTAssertEqual(snapshots.count, 1)
-        XCTAssertEqual(snapshots.first?.manifest.diskState, .attention)
-        XCTAssertEqual(snapshots.first?.manifest.payloadParts, [])
-        if case .empty = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation).lease() {
-            XCTFail("boundary must remain available for attention")
-        }
+        XCTAssertEqual(snapshots.filter { $0.manifest.diskState == .queued }.count, 1)
+        let attention = try XCTUnwrap(snapshots.first { $0.manifest.diskState == .attention })
+        XCTAssertEqual(attention.manifest.payloadParts, [])
+        XCTAssertEqual(snapshots.count, 2)
+        XCTAssertEqual(OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation).lease(), .empty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: writer.fileURL.path))
     }
 
     @MainActor private func makeHarness(rootURL: URL) -> (engine: TransferEngine, mirror: TransferStatusMirror, enqueuer: ObserverAudioTransferEnqueuer, omi: OmiUploaderHolder, watch: WatchUploaderHolder) {

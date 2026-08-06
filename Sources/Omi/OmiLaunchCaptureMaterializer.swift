@@ -11,11 +11,9 @@ nonisolated struct OmiLaunchCaptureMarkerObservation: Equatable, Sendable {
 
 nonisolated struct OmiLaunchCaptureMaterializedPartition: Equatable, Sendable {
     let itemID: UUID
-    let ordinal: Int
     let audioURL: URL
     let envelopeURL: URL
     let coveredThroughSequence: UInt64?
-    let terminalSequence: UInt64?
     let endsAtSourceFrameBoundary: Bool
     let isExistingOwner: Bool
 }
@@ -23,14 +21,11 @@ nonisolated struct OmiLaunchCaptureMaterializedPartition: Equatable, Sendable {
 nonisolated struct OmiLaunchCaptureMaterializationResult: Equatable, Sendable {
     let partitions: [OmiLaunchCaptureMaterializedPartition]
     let markers: [OmiLaunchCaptureMarkerObservation]
-    let rebootEvents: [OmiDiagnosticsPayload.PendantRebootEvent]
     let verifiedPrefixEndOffset: Int
 }
 
 @MainActor
 final class OmiLaunchCaptureMaterializer {
-    private static let materializedDirectoryName = "Materialized"
-
     private struct Partition {
         let ordinal: Int
         let startSequence: UInt64
@@ -77,7 +72,7 @@ final class OmiLaunchCaptureMaterializer {
         self.peakLeaseResidentPayloadBytes = 0
         self.peakOpenPartitionSampleCount = 0
         guard let initialPosition = self.reader.acknowledgedPosition() else {
-            return OmiLaunchCaptureMaterializationResult(partitions: [], markers: [], rebootEvents: [], verifiedPrefixEndOffset: 0)
+            return OmiLaunchCaptureMaterializationResult(partitions: [], markers: [], verifiedPrefixEndOffset: 0)
         }
         var position = initialPosition
         var reassembler = OmiAudioReassembler()
@@ -102,7 +97,7 @@ final class OmiLaunchCaptureMaterializer {
         }
         self.consume(reassembler.flushFinalFrame().completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs)
         if let current, !current.samples.isEmpty, let output = self.persist(current) { outputs.append(output) }
-        return OmiLaunchCaptureMaterializationResult(partitions: outputs, markers: markers, rebootEvents: OmiDiagnosticsLogic.pendantRebootEvents(from: markers.map { (observedAt: $0.acquiredAt, epoch: $0.epoch) }), verifiedPrefixEndOffset: verifiedPrefixEndOffset)
+        return OmiLaunchCaptureMaterializationResult(partitions: outputs, markers: markers, verifiedPrefixEndOffset: verifiedPrefixEndOffset)
     }
 
     private func consume(_ frames: [OmiReassembledFrame], current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, decodeFailures: inout Set<Int>, outputs: inout [OmiLaunchCaptureMaterializedPartition]) {
@@ -119,7 +114,6 @@ final class OmiLaunchCaptureMaterializer {
                 if let output = persist(currentPartition) { outputs.append(output) }
                 current = nil
             }
-            let alreadyWritten = current?.samples.count ?? 0
             var remaining = ArraySlice(decoded)
             while !remaining.isEmpty {
                 if let currentPartition = current, currentPartition.samples.isEmpty {
@@ -144,10 +138,14 @@ final class OmiLaunchCaptureMaterializer {
                 if current!.samples.count == limit {
                     let finished = current!
                     if let output = persist(finished) { outputs.append(output) }
-                    let successor = finished.startedAt.addingTimeInterval(Double(finished.samples.count) / OmiAudioChunkFormat.sampleRate)
-                    guard let partition = self.makePartition(ordinal: nextOrdinal, startSequence: finished.startSequence, startSampleOffset: sampleOffset, startedAt: successor) else { return }
-                    current = partition
-                    nextOrdinal += 1
+                    if remaining.isEmpty {
+                        current = nil
+                    } else {
+                        let successor = finished.startedAt.addingTimeInterval(Double(finished.samples.count) / OmiAudioChunkFormat.sampleRate)
+                        guard let partition = self.makePartition(ordinal: nextOrdinal, startSequence: finished.startSequence, startSampleOffset: sampleOffset, startedAt: successor) else { return }
+                        current = partition
+                        nextOrdinal += 1
+                    }
                 }
             }
         }
@@ -155,7 +153,7 @@ final class OmiLaunchCaptureMaterializer {
 
     private func persist(_ partition: Partition) -> OmiLaunchCaptureMaterializedPartition? {
         let chunkID = OmiSegmentWriter.chunkID(sessionID: generationID, index: partition.ordinal)
-        let directory = rootURL.appendingPathComponent(Self.materializedDirectoryName, isDirectory: true).appendingPathComponent(generationID.uuidString, isDirectory: true)
+        let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true).appendingPathComponent(generationID.uuidString, isDirectory: true)
         let audioURL = directory.appendingPathComponent(chunkID).appendingPathExtension("m4a")
         let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
@@ -238,11 +236,9 @@ final class OmiLaunchCaptureMaterializer {
     private func output(itemID: UUID, partition: Partition, audioURL: URL, envelopeURL: URL, isExistingOwner: Bool) -> OmiLaunchCaptureMaterializedPartition {
         OmiLaunchCaptureMaterializedPartition(
             itemID: itemID,
-            ordinal: partition.ordinal,
             audioURL: audioURL,
             envelopeURL: envelopeURL,
             coveredThroughSequence: partition.endsAtSourceFrameBoundary ? partition.terminalSequence : nil,
-            terminalSequence: partition.terminalSequence,
             endsAtSourceFrameBoundary: partition.endsAtSourceFrameBoundary,
             isExistingOwner: isExistingOwner
         )
@@ -251,7 +247,7 @@ final class OmiLaunchCaptureMaterializer {
     private func makePartition(ordinal: Int, startSequence: UInt64, startSampleOffset: UInt64, startedAt: Date) -> Partition? {
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset)
         let chunkID = OmiSegmentWriter.chunkID(sessionID: generationID, index: ordinal)
-        let directory = rootURL.appendingPathComponent(Self.materializedDirectoryName, isDirectory: true).appendingPathComponent(generationID.uuidString, isDirectory: true)
+        let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true).appendingPathComponent(generationID.uuidString, isDirectory: true)
         let audioURL = directory.appendingPathComponent(chunkID).appendingPathExtension("m4a")
         let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
         let boundary: PersistedBoundary?
@@ -313,7 +309,7 @@ final class OmiLaunchCaptureMaterializer {
 
     private func quarantineIfPresent(_ url: URL, isPresent: Bool) -> Bool {
         guard isPresent else { return true }
-        let root = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.quarantineDirectoryName, isDirectory: true).appendingPathComponent(Self.materializedDirectoryName, isDirectory: true)
+        let root = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.quarantineDirectoryName, isDirectory: true).appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
         let destination = root.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
         do {
             try io.moveItem(at: url, to: destination)

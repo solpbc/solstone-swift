@@ -106,7 +106,7 @@ final class TransferOwnerGateTests: XCTestCase {
         XCTAssertTrue(convertedEvents.allSatisfy { !$0.shortDetail.contains("/") })
     }
 
-    func testZeroPayloadAttentionSurvivesRestartAndQueuedCopyIsRejected() throws {
+    func testZeroPayloadAttentionSurvivesRestartAndQueuedCopyIsRejected() async throws {
         let spool = TransferSpool(rootURL: self.rootURL)
         var attentionManifest = self.manifest(itemID: UUID(), chunkIndex: 90)
         attentionManifest.payloadParts = []
@@ -122,6 +122,17 @@ final class TransferOwnerGateTests: XCTestCase {
         let snapshot = try spool.initialize()
         XCTAssertEqual(snapshot.attention.map(\.manifest.itemID), [attentionManifest.itemID])
         XCTAssertFalse(snapshot.queued.contains { $0.manifest.itemID == queuedManifest.itemID })
+
+        let unrelatedID = UUID()
+        let harness = self.makeHarness()
+        try await harness.engine.initialize()
+        _ = try await harness.engine.enqueue(manifest: self.manifest(itemID: unrelatedID, chunkIndex: 92), payloads: ["audio": Data("unrelated".utf8)])
+        await harness.engine.enableDispatch()
+        try await transferTestWaitFor("queued control dispatch") { TransferURLProtocol.requests.count == 1 }
+        XCTAssertEqual(self.sentItemIDs(), [unrelatedID])
+        let restartedSnapshot = await harness.engine.itemSnapshots()
+        XCTAssertTrue(restartedSnapshot.contains { $0.itemID == attentionManifest.itemID && $0.manifest.diskState == .attention })
+        XCTAssertFalse(self.sentItemIDs().contains(attentionManifest.itemID))
     }
 
     func testGateExistingBlocksRestartedItemUntilReleased() async throws {

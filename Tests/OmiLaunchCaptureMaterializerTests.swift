@@ -37,7 +37,6 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let output = try XCTUnwrap(result.partitions.only)
         let envelope = try OmiPendingHandoffStore.read(from: output.envelopeURL)
         XCTAssertEqual(envelope.sidecar.startedAt, Date(timeIntervalSince1970: 1_800_000_001))
-        XCTAssertEqual(result.rebootEvents.map(\.observedAt), [Date(timeIntervalSince1970: 1_800_000_003)])
         let file = try AVAudioFile(forReading: output.audioURL)
         XCTAssertEqual(file.length, 320)
     }

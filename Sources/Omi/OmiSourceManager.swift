@@ -266,6 +266,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.defaults.bool(forKey: Self.enabledKey)
     }
 
+    var activeLaunchCaptureGenerationID: UUID? {
+        self.launchCaptureIngress?.activeGenerationID
+    }
+
     func completeLaunchCaptureCutover(markers: [OmiLaunchCaptureMarkerObservation]) {
         guard self.defaults.bool(forKey: Self.enabledKey) else { return }
         for marker in markers {
