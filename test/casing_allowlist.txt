@@ -121,3 +121,4 @@ ShareImportTransferSpoolMigrator.swift|TransferQuarantine/ShareImport
 OmiLaunchCaptureRecord.swift|"OmiLaunchCapture"
 OmiLaunchCaptureRecord.swift|"Quarantine"
 OmiLaunchCaptureRecord.swift|"SOLLCAP1"
+OmiLaunchCaptureMaterializer.swift|"Materialized"

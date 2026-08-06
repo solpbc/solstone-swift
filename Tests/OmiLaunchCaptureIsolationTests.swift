@@ -32,6 +32,13 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
             generationID: generation
         )
         try Data("cursor evidence".utf8).write(to: cursorURL)
+        let materializedAudio = launchURL.deletingLastPathComponent()
+            .appendingPathComponent("Materialized", isDirectory: true)
+            .appendingPathComponent(generation.uuidString, isDirectory: true)
+            .appendingPathComponent("\(generation.uuidString.lowercased())-0.m4a", isDirectory: false)
+        try FileManager.default.createDirectory(at: materializedAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("materialized audio".utf8).write(to: materializedAudio)
+        try Data("materialized envelope".utf8).write(to: OmiPendingHandoffStore.url(for: materializedAudio))
         XCTAssertEqual(launchURL.deletingLastPathComponent().deletingLastPathComponent(), appGroupRoot)
         XCTAssertNotEqual(launchURL.deletingLastPathComponent().lastPathComponent, OmiSegmentWriter.cacheDirectoryName)
 
@@ -62,6 +69,8 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
         XCTAssertEqual(recovery, OmiInProgressRecovery.Result())
         XCTAssertTrue(FileManager.default.fileExists(atPath: launchURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: cursorURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: materializedAudio.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: OmiPendingHandoffStore.url(for: materializedAudio).path))
     }
 
     func testLaunchCaptureSourcesHaveNoUnsafeOrSensitiveDiagnostics() throws {

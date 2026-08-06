@@ -3,6 +3,12 @@
 
 import Foundation
 
+nonisolated struct OmiLaunchCaptureReadPosition: Equatable, Sendable {
+    let generationID: UUID
+    let nextSequence: UInt64
+    let offset: Int
+}
+
 nonisolated struct OmiLaunchCaptureLease: Equatable, Sendable {
     let generationID: UUID
     let startSequence: UInt64

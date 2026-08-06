@@ -204,7 +204,7 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     @MainActor
     func testPCM16BufferFraming() throws {
         let samples: [Int16] = [1, -2, 3, -4]
-        let buffer = try XCTUnwrap(OmiSegmentWriter.makeBuffer(samples[...]))
+        let buffer = try XCTUnwrap(OmiAudioChunkFormat.makeBuffer(samples[...]))
 
         XCTAssertEqual(buffer.frameCapacity, 4)
         XCTAssertEqual(buffer.frameLength, 4)

@@ -45,6 +45,16 @@ final class OmiLaunchCaptureLeaseReader {
         }
     }
 
+    func lease(from position: OmiLaunchCaptureReadPosition) -> OmiLaunchCaptureLeaseOutcome {
+        guard position.generationID == self.generationID else { return .unavailable(.cursorDoesNotMatchCapture) }
+        guard let scan = self.scanCurrent() else { return .unavailable(.captureUnreadable) }
+        return self.makeLease(cursor: OmiLaunchCaptureCursor(
+            generationID: position.generationID,
+            acknowledgedPrefixNextSequence: position.nextSequence,
+            acknowledgedPrefixEndOffset: position.offset
+        ), scan: scan)
+    }
+
     func acknowledge(throughSequence: UInt64, generationID: UUID? = nil) -> OmiLaunchCaptureAcknowledgmentOutcome {
         if let generationID, generationID != self.generationID {
             return .refused(.foreignGeneration)

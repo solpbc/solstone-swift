@@ -49,6 +49,21 @@ enum OmiPendingHandoffStore {
         try data.write(to: url, options: .atomic)
     }
 
+    static func write(_ data: Data, to url: URL, io: any OmiLaunchCaptureIO) throws {
+        let temporaryURL = url.deletingLastPathComponent().appendingPathComponent(".handoff-\(UUID().uuidString.lowercased()).tmp")
+        let token = try io.openNewFileForWriting(at: temporaryURL)
+        do {
+            try io.append(data, to: token)
+            try io.fullSynchronize(token)
+            try io.close(token)
+            try io.atomicReplaceItem(at: temporaryURL, with: url)
+        } catch {
+            try? io.close(token)
+            try? io.removeItem(at: temporaryURL)
+            throw error
+        }
+    }
+
     static func read(from url: URL) throws -> OmiPendingHandoffEnvelope {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

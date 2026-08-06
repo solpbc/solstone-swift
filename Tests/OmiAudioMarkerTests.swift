@@ -11,15 +11,15 @@ nonisolated final class OmiAudioMarkerTests: XCTestCase {
         let firstEpoch: UInt32 = 1_700_000_000
         let secondEpoch: UInt32 = 1_700_000_123
 
-        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("he".utf8)))
-        let firstMarker = reassembler.ingest(Self.packet(1, index: 0xFF, payload: Self.epochPayload(firstEpoch)))
-        _ = reassembler.ingest(Self.packet(2, index: 1, payload: Data("llo".utf8)))
-        let secondMarker = reassembler.ingest(Self.packet(3, index: 0xFF, payload: Self.epochPayload(secondEpoch)))
-        let output = reassembler.ingest(Self.packet(4, index: 0, payload: Data("next".utf8)))
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("he".utf8)), acquiredAt: .distantPast)
+        let firstMarker = reassembler.ingest(Self.packet(1, index: 0xFF, payload: Self.epochPayload(firstEpoch)), acquiredAt: .distantPast)
+        _ = reassembler.ingest(Self.packet(2, index: 1, payload: Data("llo".utf8)), acquiredAt: .distantPast)
+        let secondMarker = reassembler.ingest(Self.packet(3, index: 0xFF, payload: Self.epochPayload(secondEpoch)), acquiredAt: .distantPast)
+        let output = reassembler.ingest(Self.packet(4, index: 0, payload: Data("next".utf8)), acquiredAt: .distantFuture)
 
         XCTAssertEqual(firstMarker.markers, [OmiAudioMarker.audio(epoch: firstEpoch)])
         XCTAssertEqual(secondMarker.markers, [OmiAudioMarker.audio(epoch: secondEpoch)])
-        XCTAssertEqual(output.completedFrames, [Data("hello".utf8)])
+        XCTAssertEqual(output.completedFrames.map(\.data), [Data("hello".utf8)])
         XCTAssertEqual(reassembler.markers, 2)
         XCTAssertEqual(reassembler.lastMarkerEpoch, secondEpoch)
         XCTAssertEqual(reassembler.gaps, 0)
@@ -29,10 +29,10 @@ nonisolated final class OmiAudioMarkerTests: XCTestCase {
     func testNoMarkersIsNotAnError() {
         var reassembler = OmiAudioReassembler()
 
-        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("a".utf8)))
-        let output = reassembler.ingest(Self.packet(1, index: 0, payload: Data("b".utf8)))
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("a".utf8)), acquiredAt: .distantPast)
+        let output = reassembler.ingest(Self.packet(1, index: 0, payload: Data("b".utf8)), acquiredAt: .distantFuture)
 
-        XCTAssertEqual(output.completedFrames, [Data("a".utf8)])
+        XCTAssertEqual(output.completedFrames.map(\.data), [Data("a".utf8)])
         XCTAssertEqual(reassembler.markers, 0)
         XCTAssertNil(reassembler.lastMarkerEpoch)
         XCTAssertEqual(reassembler.malformed, 0)

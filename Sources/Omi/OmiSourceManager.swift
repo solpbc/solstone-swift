@@ -482,10 +482,10 @@ extension OmiSourceManager {
             }
             return
         }
-        let output = self.reassembler.ingest(data)
+        let observedAt = self.clock.now()
+        let output = self.reassembler.ingest(data, acquiredAt: observedAt)
 
         for marker in output.markers {
-            let observedAt = self.clock.now()
             if let lastSeenMarkerEpoch,
                OmiDiagnosticsLogic.isPendantReboot(
                    epochBefore: lastSeenMarkerEpoch,
@@ -513,7 +513,7 @@ extension OmiSourceManager {
             }
         }
         let deltas = OmiSourceLogic.emitDecodedFrames(
-            output.completedFrames,
+            output.completedFrames.map(\.data),
             decode: { frame in
                 MainActor.assumeIsolated {
                     self.opusDecoder?.decode(frame)

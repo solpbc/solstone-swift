@@ -9,11 +9,7 @@ import os
 final class OmiSegmentWriter {
     nonisolated static let cacheDirectoryName = "OmiObserver"
 
-    private static let chunkDurationSeconds: TimeInterval = 300
-    private static let minChunkDurationSeconds = 0.1
     private static let maxChunkOpenAttempts = 3
-    private static let sampleRate: Double = 16_000
-    private static let channelCount: AVAudioChannelCount = 1
 
     private let transferEnqueuer: ObserverAudioTransferEnqueuer
     private let cacheRootURL: URL
@@ -47,7 +43,7 @@ final class OmiSegmentWriter {
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
         clock: any ObserverClock = SystemObserverClock(),
-        sampleLimit: Int = 4_800_000
+        sampleLimit: Int = OmiAudioChunkFormat.sampleLimit
     ) {
         precondition(sampleLimit > 0)
         self.transferEnqueuer = transferEnqueuer
@@ -95,7 +91,7 @@ final class OmiSegmentWriter {
                 continue
             }
             guard let audioFile = self.currentFile else { continue }
-            guard let buffer = Self.makeBuffer(partition) else {
+            guard let buffer = OmiAudioChunkFormat.makeBuffer(partition) else {
                 self.log.error("omi writer buffer unavailable")
                 continue
             }
@@ -133,51 +129,19 @@ final class OmiSegmentWriter {
         }
     }
 
-    static func makeBuffer(_ samples: ArraySlice<Int16>) -> AVAudioPCMBuffer? {
-        guard !samples.isEmpty, samples.count <= Int(UInt32.max) else { return nil }
-        guard let format = AVAudioFormat(
-            commonFormat: .pcmFormatInt16,
-            sampleRate: Self.sampleRate,
-            channels: Self.channelCount,
-            interleaved: false
-        ) else {
-            return nil
-        }
-
-        let frameCount = AVAudioFrameCount(samples.count)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
-              let channel = buffer.int16ChannelData?[0]
-        else {
-            return nil
-        }
-
-        samples.withUnsafeBufferPointer { pointer in
-            if let baseAddress = pointer.baseAddress {
-                channel.update(from: baseAddress, count: samples.count)
-            }
-        }
-        buffer.frameLength = frameCount
-        return buffer
+    static func chunkID(sessionID: UUID, index: Int) -> String {
+        "\(sessionID.uuidString.lowercased())-\(index)"
     }
 }
 
 private extension OmiSegmentWriter {
-    static var aacSettings: [String: Any] {
-        [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 32_000,
-        ]
-    }
-
     func startSegmentationTimer() {
         self.segmentationTask?.cancel()
         self.segmentationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
                 do {
-                    try await self.clock.sleep(for: .seconds(Self.chunkDurationSeconds))
+                    try await self.clock.sleep(for: .seconds(OmiAudioChunkFormat.chunkDurationSeconds))
                 } catch {
                     return
                 }
@@ -197,7 +161,7 @@ private extension OmiSegmentWriter {
         let url = try self.inProgressChunkURL(sessionID: sessionID, chunkID: chunkID)
         let file = try AVAudioFile(
             forWriting: url,
-            settings: Self.aacSettings,
+            settings: OmiAudioChunkFormat.aacSettings,
             commonFormat: .pcmFormatInt16,
             interleaved: false
         )
@@ -212,7 +176,7 @@ private extension OmiSegmentWriter {
     func rotateIfElapsed() -> Bool {
         guard self.currentFile != nil,
               let currentChunkStart,
-              self.clock.now().timeIntervalSince(currentChunkStart) >= Self.chunkDurationSeconds
+              self.clock.now().timeIntervalSince(currentChunkStart) >= OmiAudioChunkFormat.chunkDurationSeconds
         else {
             return true
         }
@@ -238,7 +202,7 @@ private extension OmiSegmentWriter {
         }
 
         let successorStart = currentChunkStart.addingTimeInterval(
-            Double(self.samplesWritten) / Self.sampleRate
+            Double(self.samplesWritten) / OmiAudioChunkFormat.sampleRate
         )
         self.finalizeCurrentChunk()
         self.chunkIndex += 1
@@ -304,8 +268,8 @@ private extension OmiSegmentWriter {
 
         let chunkIndex = self.chunkIndex
         let samplesWritten = self.samplesWritten
-        let duration = Double(samplesWritten) / Self.sampleRate
-        guard samplesWritten > 0, duration >= Self.minChunkDurationSeconds else {
+        let duration = Double(samplesWritten) / OmiAudioChunkFormat.sampleRate
+        guard samplesWritten > 0, duration >= OmiAudioChunkFormat.minChunkDurationSeconds else {
             self.currentFile?.close()
             self.clearCurrentChunk()
             try? FileManager.default.removeItem(at: url)
@@ -436,10 +400,6 @@ private extension OmiSegmentWriter {
     func resetChunkOpenFailureState() {
         self.consecutiveChunkOpenFailures = 0
         self.didNotifyWriterFaultForCurrentWedge = false
-    }
-
-    static func chunkID(sessionID: UUID, index: Int) -> String {
-        "\(sessionID.uuidString.lowercased())-\(index)"
     }
 
     func sessionDirectoryURL(sessionID: UUID) -> URL {
