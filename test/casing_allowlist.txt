@@ -116,3 +116,8 @@ MobileSegmentUploader.swift|MobileSegmentTransferEnqueue
 MobileSegmentTransferSpoolMigrator.swift|TransferQuarantine/MobileSegmentObserver
 MobileSegmentTransferSpoolMigrator.swift|MobileSegmentBackground
 ShareImportTransferSpoolMigrator.swift|TransferQuarantine/ShareImport
+
+# Omi launch-capture on-disk directory names and file-format magic (not UI copy)
+OmiLaunchCaptureRecord.swift|"OmiLaunchCapture"
+OmiLaunchCaptureRecord.swift|"Quarantine"
+OmiLaunchCaptureRecord.swift|"SOLLCAP1"
