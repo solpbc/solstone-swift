@@ -103,6 +103,7 @@ final class OmiLaunchCaptureWriter {
             return self.blockedOutcome()
         }
 
+        // P must commit before Q reserves, so restart can never expose Q ahead of P's durable order.
         if let pending {
             switch self.retry(pending, lastCommittedRecordEnd: lastCommittedRecordEnd) {
             case .success(let committedEnd):

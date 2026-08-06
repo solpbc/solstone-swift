@@ -9,8 +9,6 @@ func makeOmiSourceManager(
     io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO(),
     generationID: UUID = UUID(),
     defaults: UserDefaults = .standard,
-    diagnostics: OmiDiagnostics = OmiDiagnostics(),
-    heardTally: OmiHeardTally = OmiHeardTally(),
     clock: any ObserverClock = SystemObserverClock(),
     bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort()
 ) -> OmiSourceManager {
@@ -20,13 +18,11 @@ func makeOmiSourceManager(
         clock: clock,
         io: io
     )
-    if defaults.bool(forKey: "omiSource.enabled") {
+    if defaults.bool(forKey: OmiSourceManager.enabledKey) {
         _ = ingress.arm()
     }
     return OmiSourceManager(
         defaults: defaults,
-        diagnostics: diagnostics,
-        heardTally: heardTally,
         clock: clock,
         bluetoothPort: bluetoothPort,
         launchCaptureIngress: ingress

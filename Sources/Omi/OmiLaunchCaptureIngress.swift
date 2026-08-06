@@ -79,11 +79,13 @@ final class OmiLaunchCaptureIngress {
         case .retained:
             return self.didRequestConnectionStop ? .fault(shouldCancelConnection: false) : .none
         case .notRetained:
+            // No durable reservation exists yet, so reserve this sequence as the restart-visible boundary.
             _ = writer.reserveGap()
             return self.faultAction(shouldCancelConnection: shouldCancelConnection)
         case .visibleGap:
             return self.faultAction(shouldCancelConnection: shouldCancelConnection)
         case .rejected(let reason):
+            // Only pending P can become a new Q boundary; existing visible/recovery gaps already name one.
             if case .pendingSlotOccupied = reason {
                 _ = writer.reserveGap()
             }

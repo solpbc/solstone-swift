@@ -16,7 +16,7 @@ private struct OmiPendingSubscribe: Sendable {
 @Observable
 final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated static let restoreIdentifier = "app.solstone.swift.omi-source"
-    private nonisolated static let enabledKey = "omiSource.enabled"
+    nonisolated static let enabledKey = "omiSource.enabled"
     private nonisolated static let lastConnectedPeripheralIDKey = "omiSource.lastConnectedPeripheralID"
 
     private nonisolated let log = Logger(subsystem: "app.solstone.swift", category: "omi")
