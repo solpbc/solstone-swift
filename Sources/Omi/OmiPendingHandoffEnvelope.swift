@@ -55,11 +55,14 @@ enum OmiPendingHandoffStore {
         return try decoder.decode(OmiPendingHandoffEnvelope.self, from: Data(contentsOf: url))
     }
 
-    static func remove(at url: URL) {
+    @discardableResult
+    static func remove(at url: URL, fileManager: FileManager = .default) -> Bool {
         do {
-            try FileManager.default.removeItem(at: url)
+            try fileManager.removeItem(at: url)
+            return true
         } catch {
             self.log.error("omi handoff envelope removal failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }

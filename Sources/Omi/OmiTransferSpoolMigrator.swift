@@ -114,7 +114,14 @@ private extension OmiTransferSpoolMigrator {
         for audioURL in entries where audioURL.pathExtension == "m4a" {
             let chunkID = audioURL.deletingPathExtension().lastPathComponent
             let sidecarURL = directoryURL.appendingPathComponent("\(chunkID).json", isDirectory: false)
-            let sidecar = self.loadSidecar(sidecarURL, fileManager: fileManager)
+            let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
+            let envelope = OmiInProgressRecovery.loadEnvelope(
+                at: envelopeURL,
+                diagnosticLog: diagnosticLog,
+                fileManager: fileManager
+            )
+            let sidecar = envelope?.sidecar
+                ?? self.loadSidecar(sidecarURL, fileManager: fileManager)
                 ?? OmiInProgressRecovery.rebuildSidecar(
                     audioURL: audioURL,
                     chunkID: chunkID,
@@ -141,8 +148,21 @@ private extension OmiTransferSpoolMigrator {
 
             do {
                 let tempURL = try self.copyToTemp(audioURL, fileManager: fileManager)
-                _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(chunkURL: tempURL, sidecar: sidecar)
+                if let envelope {
+                    _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
+                        itemID: envelope.itemID,
+                        chunkURL: tempURL,
+                        sidecar: sidecar,
+                        metadata: envelope.metadata
+                    )
+                } else {
+                    _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(chunkURL: tempURL, sidecar: sidecar)
+                }
                 try fileManager.removeItem(at: audioURL)
+                // Migration preserves envelope metadata but leaves frozen tokens dirty for a later segment.
+                if envelope != nil {
+                    _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
+                }
                 try? fileManager.removeItem(at: sidecarURL)
                 try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).upload", isDirectory: false))
                 try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).failure", isDirectory: false))

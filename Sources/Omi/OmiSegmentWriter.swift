@@ -269,10 +269,21 @@ private extension OmiSegmentWriter {
                 sidecar: handoff.envelope.sidecar,
                 metadata: handoff.envelope.metadata
             )
+            let canAcknowledge: Bool
             if handoff.envelopeWasPersisted {
-                OmiPendingHandoffStore.remove(at: handoff.envelopeURL)
+                canAcknowledge = OmiPendingHandoffStore.remove(
+                    at: handoff.envelopeURL,
+                    fileManager: self.fileManager
+                )
+                if !canAcknowledge {
+                    self.noteHandoffDegradation(
+                        "source=\(handoff.envelopeURL.path) reason=envelope removal failed"
+                    )
+                }
+            } else {
+                canAcknowledge = true
             }
-            if !handoff.envelope.frozenTokens.isEmpty {
+            if canAcknowledge, !handoff.envelope.frozenTokens.isEmpty {
                 self.acknowledgeSegmentMetadata?(handoff.envelope.frozenTokens)
             }
             self.notifyChunkFinalized(handoff.finalizedChunk)
@@ -358,8 +369,12 @@ private extension OmiSegmentWriter {
         )
     }
 
-    func noteHandoffDegradation(_ detail: String, error: any Error) {
-        self.log.error("omi handoff degradation \(detail, privacy: .public): \(String(describing: error), privacy: .public)")
+    func noteHandoffDegradation(_ detail: String, error: (any Error)? = nil) {
+        if let error {
+            self.log.error("omi handoff degradation \(detail, privacy: .public): \(String(describing: error), privacy: .public)")
+        } else {
+            self.log.error("omi handoff degradation \(detail, privacy: .public)")
+        }
         self.onHandoffDegradation?(detail)
     }
 

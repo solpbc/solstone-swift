@@ -20,7 +20,7 @@ enum OmiInProgressRecovery {
         sessionID: UUID,
         rootURL: URL,
         transferEnqueuer: ObserverAudioTransferEnqueuer,
-        acknowledgeTokens: ([OmiSegmentMetadataToken]) -> Void = { _ in },
+        acknowledgeTokens: ([OmiSegmentMetadataToken]) -> Void,
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         fileManager: FileManager = .default,
@@ -72,7 +72,7 @@ enum OmiInProgressRecovery {
                     fileManager: fileManager
                 )
                 if quarantined > 0 {
-                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
                 }
                 result.quarantinedCount += quarantined
                 if quarantined == 0 {
@@ -82,7 +82,7 @@ enum OmiInProgressRecovery {
             }
             if byteCount == 0 {
                 try? fileManager.removeItem(at: audioURL)
-                OmiPendingHandoffStore.remove(at: envelopeURL)
+                _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
                 result.zeroByteRemovedCount += 1
                 continue
             }
@@ -96,7 +96,7 @@ enum OmiInProgressRecovery {
                     fileManager: fileManager
                 )
                 if quarantined > 0 {
-                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
                 }
                 result.quarantinedCount += quarantined
                 if quarantined == 0 {
@@ -112,9 +112,13 @@ enum OmiInProgressRecovery {
                         sidecar: envelope.sidecar,
                         metadata: envelope.metadata
                     )
-                    OmiPendingHandoffStore.remove(at: envelopeURL)
-                    if !envelope.frozenTokens.isEmpty {
-                        acknowledgeTokens(envelope.frozenTokens)
+                    if OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
+                        if !envelope.frozenTokens.isEmpty {
+                            acknowledgeTokens(envelope.frozenTokens)
+                        }
+                    } else {
+                        result.unresolvedCount += 1
+                        self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }
                     result.recoveredCount += 1
                     continue
@@ -140,11 +144,11 @@ enum OmiInProgressRecovery {
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
-                    reason: "probe failed",
+                    reason: "sidecar rebuild failed",
                     fileManager: fileManager
                 )
                 if quarantined > 0 {
-                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
                 }
                 result.quarantinedCount += quarantined
                 if quarantined == 0 {
@@ -183,12 +187,16 @@ enum OmiInProgressRecovery {
             do {
                 switch try await transferEnqueuer.locateOmiTransfer(itemID: envelope.itemID) {
                 case .queued, .attention:
-                    OmiPendingHandoffStore.remove(at: envelopeURL)
-                    if !envelope.frozenTokens.isEmpty {
-                        acknowledgeTokens(envelope.frozenTokens)
+                    if OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
+                        if !envelope.frozenTokens.isEmpty {
+                            acknowledgeTokens(envelope.frozenTokens)
+                        }
+                    } else {
+                        result.unresolvedCount += 1
+                        self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }
                 case .salvage:
-                    OmiPendingHandoffStore.remove(at: envelopeURL)
+                    _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
                     result.unresolvedCount += 1
                     self.emitDiagnostic(
                         diagnosticLog: diagnosticLog,
@@ -277,6 +285,14 @@ enum OmiInProgressRecovery {
             omiRecoveryLog.error("omi handoff decode failed source=\(envelopeURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    static func emitEnvelopeRemovalFailure(at envelopeURL: URL, diagnosticLog: DiagnosticLog?) {
+        self.emitDiagnostic(
+            diagnosticLog: diagnosticLog,
+            message: "needs attention",
+            detail: "source=\(envelopeURL.path) reason=envelope removal failed"
+        )
     }
 
     nonisolated static func chunkIndex(fromChunkID chunkID: String, sessionID: UUID) -> Int? {

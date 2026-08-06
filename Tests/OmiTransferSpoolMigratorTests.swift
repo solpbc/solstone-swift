@@ -170,6 +170,55 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertEqual(snapshots.count, 0)
     }
 
+    func testMigratorPreservesPendingEnvelopeIdentityAndMetadata() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-envelope", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        let diagnosticLog = DiagnosticLog()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
+        let sessionID = UUID()
+        let itemID = UUID()
+        let processID = UUID()
+        let sidecar = makeTransferTestSidecar(
+            sessionID: sessionID,
+            chunkIndex: 0,
+            startedAt: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+        let source = try self.seedChunk(
+            rootURL: self.appGroupOmiRoot(appGroupRoot),
+            sessionID: sessionID,
+            directoryName: "in-progress",
+            chunkID: "\(sessionID.uuidString.lowercased())-0",
+            sidecar: sidecar
+        )
+        let envelopeURL = OmiPendingHandoffStore.url(for: source.audioURL)
+        try OmiPendingHandoffStore.write(
+            try OmiPendingHandoffStore.encode(
+                OmiPendingHandoffEnvelope(
+                    itemID: itemID,
+                    sidecar: sidecar,
+                    metadata: OmiSegmentMetadata(connectionState: "reconnecting", processID: processID),
+                    frozenTokens: [OmiSegmentMetadataToken(kind: .reconnect, processID: processID, sequence: 1, revision: 1)]
+                )
+            ),
+            to: envelopeURL
+        )
+
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: diagnosticLog,
+            defaults: defaults
+        )
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshot = try XCTUnwrap(snapshots.first)
+        XCTAssertEqual(snapshot.manifest.itemID, itemID)
+        XCTAssertEqual(OmiSegmentMetadata.from(meta: snapshot.manifest.meta)?.connectionState, "reconnecting")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
+    }
+
     func testAC3FailedQuarantineLeavesOriginalRootAndFlagUnset() async throws {
         let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-quarantine-failing", isDirectory: true)
         let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
@@ -225,6 +274,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             sessionID: sessionID,
             rootURL: omiRoot,
             transferEnqueuer: harness.enqueuer,
+            acknowledgeTokens: { _ in },
             quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
             diagnosticLog: diagnosticLog
         )

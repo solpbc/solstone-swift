@@ -465,6 +465,55 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(acknowledgments, [[token]])
         XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
     }
+
+    @MainActor
+    func testEnvelopeRemovalFailureDefersAcknowledgementToLaunchRecovery() async throws {
+        let fileManager = HandoffRemovalFailingFileManager()
+        let uploader = self.makeUploader()
+        let writer = OmiSegmentWriter(
+            transferEnqueuer: uploader.transferEnqueuer,
+            cacheRootURL: self.tempDirectory,
+            fileManager: fileManager,
+            clock: MockObserverClock()
+        )
+        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
+        var acknowledgements: [[OmiSegmentMetadataToken]] = []
+        var degradations: [String] = []
+        writer.freezeSegmentMetadata = {
+            OmiSegmentMetadataSnapshot(
+                metadata: OmiSegmentMetadata(connectionState: "connected"),
+                frozenTokens: [token]
+            )
+        }
+        writer.acknowledgeSegmentMetadata = { acknowledgements.append($0) }
+        writer.onHandoffDegradation = { degradations.append($0) }
+
+        writer.start()
+        writer.append(self.samples(count: 3_200))
+        writer.stop()
+
+        try await self.waitForPendingCount(1, uploader: uploader)
+        try await self.waitFor("handoff removal degradation") {
+            !degradations.isEmpty
+        }
+        let envelopeURL = try XCTUnwrap(self.files(withExtension: OmiPendingHandoffEnvelope.pathExtension).first)
+        let sessionID = try XCTUnwrap(UUID(uuidString: envelopeURL.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent))
+        XCTAssertEqual(acknowledgements, [])
+        XCTAssertEqual(degradations, ["source=\(envelopeURL.path) reason=envelope removal failed"])
+
+        let result = await OmiInProgressRecovery.recoverInProgressFiles(
+            sessionID: sessionID,
+            rootURL: self.tempDirectory,
+            transferEnqueuer: uploader.transferEnqueuer,
+            acknowledgeTokens: { acknowledgements.append($0) },
+            quarantineRootURL: self.tempDirectory.appendingPathComponent("quarantine", isDirectory: true),
+            diagnosticLog: nil
+        )
+
+        XCTAssertEqual(result.unresolvedCount, 0)
+        XCTAssertEqual(acknowledgements, [[token]])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
+    }
 }
 
 private struct FinalizedChunkEvent: Sendable {
@@ -522,6 +571,21 @@ private extension OmiSegmentWriterTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("timed out waiting for pendingCount \(count)", file: file, line: line)
+    }
+
+    func waitFor(
+        _ label: String,
+        condition: @escaping @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        for _ in 0..<50 {
+            if condition() {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("timed out waiting for \(label)", file: file, line: line)
     }
 
     func waitForBlockedMove(
@@ -673,5 +737,14 @@ private final class BlockingMoveTransferFileSystem: TransferFileSystem, @uncheck
 
     func byteCount(at url: URL) throws -> Int {
         try self.base.byteCount(at: url)
+    }
+}
+
+private final class HandoffRemovalFailingFileManager: FileManager {
+    override func removeItem(at url: URL) throws {
+        if url.pathExtension == OmiPendingHandoffEnvelope.pathExtension {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try super.removeItem(at: url)
     }
 }
