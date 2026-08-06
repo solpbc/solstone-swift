@@ -128,6 +128,8 @@ final class TransferOwnerGateTests: XCTestCase {
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
         let registration = await second.engine.gateExisting(itemID: targetID)
         let token = self.gatedToken(registration)
+        let duplicateRegistration = await second.engine.gateExisting(itemID: targetID)
+        XCTAssertEqual(duplicateRegistration, .alreadyGated)
         await second.engine.enableDispatch()
 
         try await transferTestWaitFor("restarted unrelated dispatch") {
@@ -382,6 +384,43 @@ final class TransferOwnerGateTests: XCTestCase {
             TransferURLProtocol.requests.count == 2
         }
         XCTAssertEqual(self.sentItemIDs(), [unrelatedID, targetID])
+    }
+
+    func testGatedOperationsRejectBeforeInitializationWithoutLeakingState() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 204), Data())
+        }
+        let harness = self.makeHarness()
+        let targetID = UUID()
+        do {
+            _ = try await harness.engine.enqueueGated(
+                manifest: self.manifest(itemID: targetID, chunkIndex: 0),
+                payloadFileURLs: [:]
+            )
+            XCTFail("expected uninitialized gate error")
+        } catch let error as TransferGateError {
+            XCTAssertEqual(error, .engineNotInitialized)
+        } catch {
+            XCTFail("unexpected uninitialized gate error: \(error)")
+        }
+        let registration = await harness.engine.gateExisting(itemID: targetID)
+        XCTAssertEqual(registration, .engineNotInitialized)
+
+        try await harness.engine.initialize()
+        _ = try await harness.engine.enqueue(
+            manifest: self.manifest(itemID: targetID, chunkIndex: 0),
+            payloads: ["audio": Data("target".utf8)]
+        )
+        let unrelatedID = UUID()
+        _ = try await harness.engine.enqueue(
+            manifest: self.manifest(itemID: unrelatedID, chunkIndex: 1),
+            payloads: ["audio": Data("unrelated".utf8)]
+        )
+        await harness.engine.enableDispatch()
+        try await transferTestWaitFor("uninitialized gate recovery dispatch") {
+            TransferURLProtocol.requests.count == 2
+        }
+        XCTAssertEqual(Set(self.sentItemIDs()), Set([targetID, unrelatedID]))
     }
 
     func testTransientAndLifetimeGatesResistDispatchTriggers() async throws {

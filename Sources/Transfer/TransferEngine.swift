@@ -57,12 +57,14 @@ nonisolated struct TransferGateToken: Equatable, Sendable {
 
 nonisolated enum TransferGateError: Error, Equatable, Sendable {
     case itemAlreadyGated
+    case engineNotInitialized
 }
 
 nonisolated enum TransferGateRegistrationOutcome: Equatable, Sendable {
     case gated(TransferGateToken)
     case alreadyGated
     case dispatchAlreadyEnabled
+    case engineNotInitialized
 }
 
 nonisolated enum TransferGateSettlementOutcome: Equatable, Sendable {
@@ -403,14 +405,19 @@ actor TransferEngine {
             .manifest.itemID
     }
 
-    /// Commits a file-owned item with a process-local gate already active. The
-    /// gate is lost on process death, so callers must re-establish it from
+    /// Commits a file-owned item with a process-local gate already active. It is
+    /// valid after `initialize()` rebuilds in-memory state from the spool and
+    /// before `enableDispatch()`; initialization clears process-local gates.
+    /// Gates are lost on process death, so callers re-establish them from
     /// durable evidence before dispatch opens. This method is synchronous from
     /// gate install through commit and work scheduling, so selection never sees
-    /// the committed item without its gate. An already active gate for this ID
-    /// throws `TransferGateError.itemAlreadyGated` and is never replaced.
+    /// the committed item without its gate. An active gate throws
+    /// `TransferGateError.itemAlreadyGated` and is never replaced.
     @discardableResult
     func enqueueGated(manifest: TransferManifest, payloadFileURLs: [String: URL]) throws -> TransferGateToken {
+        guard self.initializedForLaunch else {
+            throw TransferGateError.engineNotInitialized
+        }
         guard !self.isGateActive(manifest.itemID) else {
             throw TransferGateError.itemAlreadyGated
         }
@@ -457,11 +464,14 @@ actor TransferEngine {
         self.scheduleStatusUpdate(summary: "held")
     }
 
-    /// Registers a process-local gate while launch dispatch remains closed.
-    /// Unknown IDs are tolerated like `hold(itemID:)`; callers re-establish
-    /// gates from durable evidence before dispatch opens after process death.
+    /// Registers a process-local gate after `initialize()` rebuilds in-memory
+    /// state from the spool and before `enableDispatch()`; initialization clears
+    /// process-local gates. Gates are lost on process death, so callers
+    /// re-establish them from durable evidence before dispatch opens. Unknown
+    /// IDs are tolerated like `hold(itemID:)`.
     @discardableResult
     func gateExisting(itemID: UUID) -> TransferGateRegistrationOutcome {
+        guard self.initializedForLaunch else { return .engineNotInitialized }
         guard self.dispatchSuspendedForLaunch else { return .dispatchAlreadyEnabled }
         guard !self.isGateActive(itemID) else { return .alreadyGated }
         let token = TransferGateToken(itemID: itemID, nonce: UUID())
