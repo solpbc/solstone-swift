@@ -132,7 +132,7 @@ final class OmiLaunchCaptureCommitCoordinator {
         let unsettledLinkedGenerationIDs = await self.settleAcknowledgedLinkedHandoffs()
         await self.holdPreRegisteredOwners()
 
-        // Retirement is post-settlement maintenance. A linked owner may need its cursor
+        // Retirement is post-settlement maintenance. A handoff owner may need its cursor
         // as durable acknowledgment evidence until its gate has been released or held.
         for reader in settledReaders where !unsettledLinkedGenerationIDs.contains(reader.generationID) {
             _ = reader.reader.retireIfEligible(activeGenerationID: activeGenerationID)
