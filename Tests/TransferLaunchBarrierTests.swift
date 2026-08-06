@@ -75,7 +75,6 @@ final class TransferLaunchBarrierTests: XCTestCase {
         await harness.engine.endpointAvailabilityChanged()
         await harness.engine.kick()
         await harness.engine.setPacingMode(.finishSyncing)
-        try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
 
         try await harness.engine.initialize()

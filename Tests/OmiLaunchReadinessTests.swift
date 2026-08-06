@@ -38,17 +38,29 @@ final class OmiLaunchReadinessTests: XCTestCase {
 
         manager.enable()
         manager.handleCentralStateUpdate(.poweredOn)
-        manager.handleAudioData(Data())
-        manager.startSegmentWriterIfNeeded()
+        manager.buildOpusDecoder()
+        manager.handleAudioData(Self.audioPacket(0))
+        manager.handleAudioData(Self.audioPacket(1))
         XCTAssertFalse(writer.isRunning)
         XCTAssertEqual(decodedSampleHandoffs, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: self.rootURL.path))
 
         await manager.openLaunchReadiness()
-        manager.startSegmentWriterIfNeeded()
+        manager.handleAudioData(Self.audioPacket(2))
+        XCTAssertGreaterThan(decodedSampleHandoffs, 0)
         XCTAssertTrue(writer.isRunning)
-        manager.startSegmentWriterIfNeeded()
+        await manager.openLaunchReadiness()
+        manager.handleCentralStateUpdate(.poweredOn)
+        manager.handleCentralStateUpdate(.poweredOn)
+        manager.enable()
+        manager.enable()
         XCTAssertTrue(writer.isRunning)
+        let sessions = try FileManager.default.contentsOfDirectory(
+            at: self.rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        XCTAssertEqual(sessions.count, 1)
     }
 
     func testDisableBeforeOpeningReadinessDoesNotResurrectEnabledIntent() async throws {
@@ -61,5 +73,15 @@ final class OmiLaunchReadinessTests: XCTestCase {
 
         XCTAssertFalse(manager.enabled)
         XCTAssertFalse(defaults.bool(forKey: "omiSource.enabled"))
+    }
+
+    private static func audioPacket(_ packetNumber: UInt16) -> Data {
+        var data = Data([
+            UInt8(packetNumber & 0x00FF),
+            UInt8(packetNumber >> 8),
+            0,
+        ])
+        data.append(0xF8)
+        return data
     }
 }

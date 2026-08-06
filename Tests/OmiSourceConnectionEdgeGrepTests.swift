@@ -132,7 +132,8 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
             ("readRSSI", "connectedPeripheral.readRSSI()"),
             ("refreshPendantReadings", "connectedPeripheral.readValue"),
             ("refreshStorageBacklogReading", "connectedPeripheral.readValue"),
-            ("attemptAudioResubscribe", "self.setAudioNotify")
+            ("attemptAudioResubscribe", "self.setAudioNotify"),
+            ("finalizeOpenChunkForBackground", "finalizeOpenChunk()")
         ]
 
         for (method, effect) in guardedEffects {
@@ -150,7 +151,9 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
     private static func functionSlice(named name: String, in text: String) throws -> Substring {
         let start = try XCTUnwrap(text.range(of: "func \(name)"))
         let remaining = text[start.upperBound...]
-        let end = try XCTUnwrap(remaining.range(of: "\n    func "))
-        return text[start.lowerBound..<end.lowerBound]
+        if let end = remaining.range(of: "\n    func ") {
+            return text[start.lowerBound..<end.lowerBound]
+        }
+        return text[start.lowerBound...]
     }
 }

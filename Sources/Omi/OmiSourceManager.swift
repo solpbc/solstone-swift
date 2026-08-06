@@ -411,44 +411,75 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 }
 
 extension OmiSourceManager {
-    var restoreServiceUUIDs: [CBUUID] {
-        [
-            OmiUUIDs.audioService,
-            OmiUUIDs.deviceInformationService,
-            OmiUUIDs.batteryService,
-            OmiUUIDs.storageService
-        ]
-    }
+    func handleAudioData(_ data: Data) {
+        let output = self.reassembler.ingest(data)
 
-    func beginConnect(_ peripheral: CBPeripheral, isReconnect: Bool) {
-        self.cancelInitialConnectTimeout()
-        self.pendingConnectionID = peripheral.identifier
-        self.peripheralsByID[peripheral.identifier] = peripheral
-        peripheral.delegate = self
-        self.connectionState = isReconnect ? .reconnecting : .connecting
-        guard self.isLaunchReady else { return }
-        self.central?.connect(
-            peripheral,
-            options: [CBConnectPeripheralOptionEnableAutoReconnect: true]
-        )
-        self.log.info("omi \(isReconnect ? "reconnecting" : "connecting", privacy: .public)")
-
-        guard !isReconnect else {
-            return
+        for marker in output.markers {
+            let observedAt = self.clock.now()
+            if let lastSeenMarkerEpoch,
+               OmiDiagnosticsLogic.isPendantReboot(
+                   epochBefore: lastSeenMarkerEpoch,
+                   epochAfter: marker.epoch
+               )
+            {
+                self.diagnostics.appendPendantRebootEvent(
+                    observedAt: observedAt,
+                    epochBefore: lastSeenMarkerEpoch,
+                    epochAfter: marker.epoch
+                )
+            }
+            self.lastSeenMarkerEpoch = marker.epoch
+            self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
+            self.log.info("omi audio marker: \(marker.epoch, privacy: .public)")
         }
 
-        let id = peripheral.identifier
-        self.initialConnectTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            guard let self,
-                  !Task.isCancelled,
-                  self.pendingConnectionID == id,
-                  self.connectionState == .connecting
-            else {
-                return
+        guard self.isLaunchReady else { return }
+
+        let sink = self.onDecodedSamples.map { isolatedSink in
+            { samples in
+                MainActor.assumeIsolated {
+                    isolatedSink(samples)
+                }
             }
-            self.connectionState = .needsAttention(.connectFailed("connection timed out"))
-            self.log.error("omi connection timed out")
+        }
+        let deltas = OmiSourceLogic.emitDecodedFrames(
+            output.completedFrames,
+            decode: { frame in
+                MainActor.assumeIsolated {
+                    self.opusDecoder?.decode(frame)
+                }
+            },
+            sink: sink
+        )
+        self.audioDecodeOK += deltas.decodeOK
+        self.audioDecodeErrors += deltas.decodeErrors
+        self.applyAudioCounterSnapshot()
+        self.refreshDiagnosticDecodeCounters(persist: false)
+        if deltas.decodeOK > 0 {
+            self.startSegmentWriterIfNeeded()
+            let now = self.clock.now()
+            self.noteFirstAudioIfNeeded(at: now)
+            self.attributeOpenConnectedSilentGap(at: now)
+            self.lastAudioAt = now
+            self.diagnostics.noteDecodedSamples(at: now)
+            self.lastSilentAttributionAt = nil
+            self.evaluateAudioRecovery(now: now)
+            // this branch guarantees this-connection decode success (per-batch delta, not lifetime)
+            if let recovered = OmiSourceLogic.recoveredConnectionState(
+                current: self.connectionState,
+                audioIsLive: true
+            ) {
+                self.connectionState = recovered
+            }
+        }
+    }
+
+    func buildOpusDecoder() {
+        do {
+            self.opusDecoder = try OmiOpusAudioDecoder()
+        } catch {
+            self.opusDecoder = nil
+            self.log.error("omi opus decoder unavailable: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -489,6 +520,49 @@ extension OmiSourceManager {
         }
         self.connectionState = .needsAttention(attention)
         self.log.error("omi unavailable: \(attention.displayString, privacy: .public)")
+    }
+}
+
+private extension OmiSourceManager {
+    var restoreServiceUUIDs: [CBUUID] {
+        [
+            OmiUUIDs.audioService,
+            OmiUUIDs.deviceInformationService,
+            OmiUUIDs.batteryService,
+            OmiUUIDs.storageService
+        ]
+    }
+
+    func beginConnect(_ peripheral: CBPeripheral, isReconnect: Bool) {
+        self.cancelInitialConnectTimeout()
+        self.pendingConnectionID = peripheral.identifier
+        self.peripheralsByID[peripheral.identifier] = peripheral
+        peripheral.delegate = self
+        self.connectionState = isReconnect ? .reconnecting : .connecting
+        guard self.isLaunchReady else { return }
+        self.central?.connect(
+            peripheral,
+            options: [CBConnectPeripheralOptionEnableAutoReconnect: true]
+        )
+        self.log.info("omi \(isReconnect ? "reconnecting" : "connecting", privacy: .public)")
+
+        guard !isReconnect else {
+            return
+        }
+
+        let id = peripheral.identifier
+        self.initialConnectTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard let self,
+                  !Task.isCancelled,
+                  self.pendingConnectionID == id,
+                  self.connectionState == .connecting
+            else {
+                return
+            }
+            self.connectionState = .needsAttention(.connectFailed("connection timed out"))
+            self.log.error("omi connection timed out")
+        }
     }
 
     var isTryingOrConnected: Bool {
@@ -843,69 +917,6 @@ extension OmiSourceManager {
         self.diagnostics.recordSignal(level: level, at: now)
     }
 
-    func handleAudioData(_ data: Data) {
-        let output = self.reassembler.ingest(data)
-
-        for marker in output.markers {
-            let observedAt = self.clock.now()
-            if let lastSeenMarkerEpoch,
-               OmiDiagnosticsLogic.isPendantReboot(
-                   epochBefore: lastSeenMarkerEpoch,
-                   epochAfter: marker.epoch
-               )
-            {
-                self.diagnostics.appendPendantRebootEvent(
-                    observedAt: observedAt,
-                    epochBefore: lastSeenMarkerEpoch,
-                    epochAfter: marker.epoch
-                )
-            }
-            self.lastSeenMarkerEpoch = marker.epoch
-            self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
-            self.log.info("omi audio marker: \(marker.epoch, privacy: .public)")
-        }
-
-        guard self.isLaunchReady else { return }
-
-        let sink = self.onDecodedSamples.map { isolatedSink in
-            { samples in
-                MainActor.assumeIsolated {
-                    isolatedSink(samples)
-                }
-            }
-        }
-        let deltas = OmiSourceLogic.emitDecodedFrames(
-            output.completedFrames,
-            decode: { frame in
-                MainActor.assumeIsolated {
-                    self.opusDecoder?.decode(frame)
-                }
-            },
-            sink: sink
-        )
-        self.audioDecodeOK += deltas.decodeOK
-        self.audioDecodeErrors += deltas.decodeErrors
-        self.applyAudioCounterSnapshot()
-        self.refreshDiagnosticDecodeCounters(persist: false)
-        if deltas.decodeOK > 0 {
-            self.startSegmentWriterIfNeeded()
-            let now = self.clock.now()
-            self.noteFirstAudioIfNeeded(at: now)
-            self.attributeOpenConnectedSilentGap(at: now)
-            self.lastAudioAt = now
-            self.diagnostics.noteDecodedSamples(at: now)
-            self.lastSilentAttributionAt = nil
-            self.evaluateAudioRecovery(now: now)
-            // this branch guarantees this-connection decode success (per-batch delta, not lifetime)
-            if let recovered = OmiSourceLogic.recoveredConnectionState(
-                current: self.connectionState,
-                audioIsLive: true
-            ) {
-                self.connectionState = recovered
-            }
-        }
-    }
-
     func updateKnownField(_ uuid: CBUUID, data: Data) -> Bool {
         if uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic) {
             let rawByte = Self.byte(data, offset: 0)
@@ -989,15 +1000,6 @@ extension OmiSourceManager {
         }
         guard self.isLaunchReady else { return }
         self.connectedPeripheral?.setNotifyValue(enabled, for: characteristic)
-    }
-
-    func buildOpusDecoder() {
-        do {
-            self.opusDecoder = try OmiOpusAudioDecoder()
-        } catch {
-            self.opusDecoder = nil
-            self.log.error("omi opus decoder unavailable: \(error.localizedDescription, privacy: .public)")
-        }
     }
 
     func readRSSI() {
@@ -1487,6 +1489,7 @@ extension OmiSourceManager {
 
 extension OmiSourceManager {
     func finalizeOpenChunkForBackground() async {
+        guard self.isLaunchReady else { return }
         await self.omiSegmentWriter?.finalizeOpenChunk()
     }
 }

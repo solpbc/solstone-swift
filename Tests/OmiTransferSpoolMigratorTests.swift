@@ -177,6 +177,231 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         XCTAssertEqual(snapshots.count, 0)
     }
 
+    func testEnvelopeLessChunksPersistEnvelopeBeforeCopyForSidecarAndRebuiltShapes() async throws {
+        for shape in LegacyChunkShape.allCases {
+            let appGroupRoot = self.tempDirectory
+                .appendingPathComponent("envelope-before-copy-\(shape.rawValue)", isDirectory: true)
+            let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+            let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            let defaultsName = "\(self.defaultsSuiteName!)-\(shape.rawValue)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+            defer { UserDefaults.standard.removePersistentDomain(forName: defaultsName) }
+            let sessionID = UUID()
+            let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+            let source = try self.seedChunk(
+                rootURL: self.appGroupOmiRoot(appGroupRoot),
+                sessionID: sessionID,
+                directoryName: "pending",
+                chunkID: "\(sessionID.uuidString.lowercased())-0",
+                sidecar: shape == .existingSidecar ? sidecar : nil,
+                startedAtForProbe: shape == .rebuildSidecar ? sidecar.startedAt : nil
+            )
+            let audioByteCount = try Data(contentsOf: source.audioURL).count
+            let envelopeURL = OmiPendingHandoffStore.url(for: source.audioURL)
+            let failingManager = TargetedRemovalFailingFileManager(
+                copyFailureSourceURL: source.audioURL,
+                expectedEnvelopeURL: envelopeURL
+            )
+            await OmiTransferSpoolMigrator.migrate(
+                appGroupRootURL: appGroupRoot,
+                legacyCachesRootURL: nil,
+                transferEnqueuer: harness.enqueuer,
+                diagnosticLog: nil,
+                acknowledgeTokens: { _ in },
+                defaults: defaults,
+                fileManager: failingManager
+            )
+
+            let envelope = try OmiPendingHandoffStore.read(from: envelopeURL)
+            XCTAssertTrue(failingManager.observedEnvelopeBeforeCopyFailure)
+            XCTAssertNil(envelope.metadata)
+            XCTAssertTrue(envelope.frozenTokens.isEmpty)
+            let beforeCopySnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            XCTAssertEqual(beforeCopySnapshots.count, 0)
+            XCTAssertFalse(transferTestPathExists(containing: envelope.itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.stagingDirectoryName, isDirectory: true)))
+            XCTAssertFalse(transferTestPathExists(containing: envelope.itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.salvageDirectoryName, isDirectory: true)))
+
+            await OmiTransferSpoolMigrator.migrate(
+                appGroupRootURL: appGroupRoot,
+                legacyCachesRootURL: nil,
+                transferEnqueuer: harness.enqueuer,
+                diagnosticLog: nil,
+                acknowledgeTokens: { _ in },
+                defaults: defaults
+            )
+            let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            XCTAssertEqual(snapshots.count, 1)
+            let snapshot = try XCTUnwrap(snapshots.first)
+            XCTAssertEqual(snapshot.manifest.itemID, envelope.itemID)
+            var expectedManifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+                itemID: envelope.itemID,
+                sidecar: envelope.sidecar
+            )
+            expectedManifest.payloadParts[0].byteCount = audioByteCount
+            XCTAssertEqual(snapshot.manifest, expectedManifest)
+            let observerIngest = try XCTUnwrap(snapshot.manifest.observerIngest)
+            XCTAssertEqual(
+                observerIngest.startedAt.timeIntervalSince1970,
+                envelope.sidecar.startedAt.timeIntervalSince1970,
+                accuracy: 0.001
+            )
+        }
+    }
+
+    func testEnvelopeLessChunkKeepsOneOwnerAndSendsOnceAcrossRestartAfterCleanupFault() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 204), Data())
+        }
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("stable-envelope", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let sessionID = UUID()
+        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+        let source = try self.seedChunk(
+            rootURL: self.appGroupOmiRoot(appGroupRoot),
+            sessionID: sessionID,
+            directoryName: "pending",
+            chunkID: "\(sessionID.uuidString.lowercased())-0",
+            sidecar: sidecar,
+            includeDerivedFiles: true
+        )
+        let envelopeURL = OmiPendingHandoffStore.url(for: source.audioURL)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
+        let first = makeTransferCutoverHarness(
+            rootURL: transferRoot,
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: AvailableOmiTransferEndpointResolver()
+        )
+        try await first.engine.initialize()
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: first.enqueuer,
+            diagnosticLog: nil,
+            acknowledgeTokens: { _ in },
+            defaults: defaults,
+            fileManager: TargetedRemovalFailingFileManager(failingURL: source.audioURL)
+        )
+
+        let envelope = try OmiPendingHandoffStore.read(from: envelopeURL)
+        let firstOwners = await first.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(firstOwners.filter { $0.manifest.itemID == envelope.itemID }.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+
+        let second = makeTransferCutoverHarness(
+            rootURL: transferRoot,
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: AvailableOmiTransferEndpointResolver()
+        )
+        try await second.engine.initialize()
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: second.enqueuer,
+            diagnosticLog: nil,
+            acknowledgeTokens: { _ in },
+            defaults: defaults
+        )
+        let secondOwners = await second.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(secondOwners.filter { $0.manifest.itemID == envelope.itemID }.count, 1)
+        let expectedManifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: envelope.itemID, sidecar: sidecar)
+        let ownership = try await second.enqueuer.verifyOmiOwnership(
+            itemID: envelope.itemID,
+            sidecar: sidecar,
+            metadata: nil,
+            expectedPayloadSourceURLs: [:]
+        )
+        XCTAssertEqual(ownership, .ownedInQueued)
+        XCTAssertEqual(secondOwners.first { $0.manifest.itemID == envelope.itemID }?.manifest.source, expectedManifest.source)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
+        XCTAssertFalse(transferTestPathExists(containing: envelope.itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.stagingDirectoryName, isDirectory: true)))
+        XCTAssertFalse(transferTestPathExists(containing: envelope.itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.salvageDirectoryName, isDirectory: true)))
+
+        await second.engine.enableDispatch()
+        try await transferTestWaitFor("single stable Omi owner dispatch") {
+            TransferURLProtocol.requests.count == 1
+        }
+        let third = makeTransferCutoverHarness(
+            rootURL: transferRoot,
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: AvailableOmiTransferEndpointResolver()
+        )
+        try await third.engine.initialize()
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: third.enqueuer,
+            diagnosticLog: nil,
+            acknowledgeTokens: { _ in },
+            defaults: defaults
+        )
+        await third.engine.enableDispatch()
+        XCTAssertEqual(TransferURLProtocol.requests.count, 1)
+    }
+
+    func testEnvelopeWriteFailurePreservesLegacyArtifactsThenConverges() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("envelope-write-failure", isDirectory: true)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
+        let diagnosticLog = DiagnosticLog()
+        let sessionID = UUID()
+        let source = try self.seedChunk(
+            rootURL: self.appGroupOmiRoot(appGroupRoot),
+            sessionID: sessionID,
+            directoryName: "failed",
+            chunkID: "\(sessionID.uuidString.lowercased())-0",
+            sidecar: makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date()),
+            includeDerivedFiles: true
+        )
+        let sourceDirectory = source.audioURL.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: sourceDirectory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sourceDirectory.path) }
+
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
+            defaults: defaults
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.sidecarURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.uploadURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.failureURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: OmiPendingHandoffStore.url(for: source.audioURL).path))
+        let failedSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(failedSnapshots.count, 0)
+        XCTAssertFalse(defaults.bool(forKey: OmiTransferSpoolMigrator.flagKey))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.appGroupOmiRoot(appGroupRoot).path))
+        let failures = diagnosticLog.events.filter { $0.detail?.contains("reason=envelope write failed") == true }
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertEqual(failures.first?.detail, "source=\(source.audioURL.path) reason=envelope write failed")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sourceDirectory.path)
+        await OmiTransferSpoolMigrator.migrate(
+            appGroupRootURL: appGroupRoot,
+            legacyCachesRootURL: nil,
+            transferEnqueuer: harness.enqueuer,
+            diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
+            defaults: defaults
+        )
+        let recoveredSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(recoveredSnapshots.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.sidecarURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.uploadURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.failureURL.path))
+    }
+
     func testMigratorPreservesPendingEnvelopeIdentityAndMetadata() async throws {
         let appGroupRoot = self.tempDirectory.appendingPathComponent("app-group-envelope", isDirectory: true)
         let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
@@ -464,6 +689,11 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
 }
 
 private extension OmiTransferSpoolMigratorTests {
+    enum LegacyChunkShape: String, CaseIterable {
+        case existingSidecar = "existing-sidecar"
+        case rebuildSidecar = "rebuild-sidecar"
+    }
+
     enum CleanupRemovalFault: String, CaseIterable {
         case audio
         case sidecar
@@ -997,10 +1227,19 @@ private final class CommitToAttentionTransferFileSystem: TransferFileSystem, @un
 }
 
 private final class TargetedRemovalFailingFileManager: FileManager {
-    private let failingURL: URL
+    private let failingURL: URL?
+    private let copyFailureSourceURL: URL?
+    private let expectedEnvelopeURL: URL?
+    private(set) var observedEnvelopeBeforeCopyFailure = false
 
-    init(failingURL: URL) {
-        self.failingURL = failingURL.standardizedFileURL
+    init(
+        failingURL: URL? = nil,
+        copyFailureSourceURL: URL? = nil,
+        expectedEnvelopeURL: URL? = nil
+    ) {
+        self.failingURL = failingURL?.standardizedFileURL
+        self.copyFailureSourceURL = copyFailureSourceURL?.standardizedFileURL
+        self.expectedEnvelopeURL = expectedEnvelopeURL?.standardizedFileURL
         super.init()
     }
 
@@ -1009,6 +1248,16 @@ private final class TargetedRemovalFailingFileManager: FileManager {
             throw CocoaError(.fileWriteUnknown)
         }
         try super.removeItem(at: url)
+    }
+
+    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        if srcURL.standardizedFileURL == self.copyFailureSourceURL {
+            if let expectedEnvelopeURL {
+                self.observedEnvelopeBeforeCopyFailure = self.fileExists(atPath: expectedEnvelopeURL.path)
+            }
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try super.copyItem(at: srcURL, to: dstURL)
     }
 }
 
