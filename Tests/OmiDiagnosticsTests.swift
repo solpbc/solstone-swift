@@ -694,6 +694,44 @@ nonisolated final class OmiDiagnosticsTests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedOldRevisionAcknowledgmentIsIdempotent() throws {
+        let start = Date(timeIntervalSince1970: 1_713_624_450)
+        let diagnostics = OmiDiagnostics(
+            clock: MockObserverClock(now: start),
+            fileURL: self.tempDirectory.appendingPathComponent("omi-diagnostics.json")
+        )
+        let identity = diagnostics.allocateEventIdentity()
+        _ = diagnostics.recordDisconnected(event: OmiSourceEvent(
+            timestamp: start,
+            reason: "first",
+            appStateAtDrop: "foreground",
+            timeToReconnect: nil,
+            identity: identity
+        ))
+        let oldToken = try XCTUnwrap(diagnostics.frozenSegmentDeltas().tokens.first)
+        diagnostics.recordReconnect(identity: identity, latency: 2)
+
+        diagnostics.acknowledgeSegmentMetadata(tokens: [oldToken])
+        let stateAfterFirstAcknowledgment = diagnostics.payload
+        let retained = try XCTUnwrap(diagnostics.payload.unhandedReconnectEvents?.first)
+        XCTAssertEqual(retained.processID, identity.processID)
+        XCTAssertEqual(retained.sequence, identity.sequence)
+        XCTAssertEqual(retained.revision, 2)
+
+        diagnostics.acknowledgeSegmentMetadata(tokens: [oldToken])
+
+        XCTAssertEqual(diagnostics.payload, stateAfterFirstAcknowledgment)
+        XCTAssertEqual(diagnostics.frozenSegmentDeltas().tokens, [
+            OmiSegmentMetadataToken(
+                kind: .reconnect,
+                processID: identity.processID,
+                sequence: identity.sequence,
+                revision: 2
+            )
+        ])
+    }
+
+    @MainActor
     func testSubscribePendingPersistsConnectedAtForZeroLatencyCompletion() throws {
         let start = Date(timeIntervalSince1970: 1_713_624_500)
         let diagnostics = OmiDiagnostics(

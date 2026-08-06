@@ -51,10 +51,8 @@ enum OmiTransferSpoolMigrator {
 }
 
 enum OmiOwnershipDiagnosticReason {
-    static func forUnownedVerdict(_ verdict: TransferOwnershipVerdict) -> String {
+    static func forUnownedVerdict(_ verdict: OmiUnownedTransferVerdict) -> String {
         switch verdict {
-        case .ownedInQueued, .ownedInAttention:
-            preconditionFailure("owned transfer verdict has no unresolved diagnostic reason")
         case .conflict(let reason):
             switch reason {
             case .ownerConflict: "owner conflict"
@@ -68,6 +66,13 @@ enum OmiOwnershipDiagnosticReason {
         case .notFound: "item not found"
         }
     }
+}
+
+enum OmiUnownedTransferVerdict: Sendable {
+    case conflict(TransferOwnershipConflictReason)
+    case stagingOnly
+    case salvageOnly
+    case notFound
 }
 
 private extension OmiTransferSpoolMigrator {
@@ -112,12 +117,18 @@ private extension OmiTransferSpoolMigrator {
             do {
                 if try self.hasRemainingArtifacts(in: rootURL, fileManager: fileManager) {
                     unresolved += 1
-                } else {
-                    try fileManager.removeItem(at: rootURL)
                 }
             } catch {
                 unresolved += 1
                 self.emit(diagnosticLog, detail: "source=\(rootURL.path) reason=list failed")
+            }
+        }
+        if unresolved == 0 {
+            do {
+                try fileManager.removeItem(at: rootURL)
+            } catch {
+                unresolved += 1
+                self.emit(diagnosticLog, detail: "source=\(rootURL.path) reason=root removal failed")
             }
         }
         return unresolved
@@ -271,17 +282,29 @@ private extension OmiTransferSpoolMigrator {
                         sidecar: sidecar,
                         metadata: envelope.metadata
                     )
-                    let postEnqueue = try await transferEnqueuer.verifyOmiOwnership(
+                } catch {
+                    unresolved += 1
+                    self.emit(diagnosticLog, detail: "source=\(audioURL.path) reason=enqueue failed")
+                    omiTransferMigrationLog.error("omi migration enqueue failed source=\(audioURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+                    continue
+                }
+
+                let postEnqueue: TransferOwnershipVerdict
+                do {
+                    postEnqueue = try await transferEnqueuer.verifyOmiOwnership(
                         itemID: envelope.itemID,
                         sidecar: sidecar,
                         metadata: envelope.metadata,
                         expectedPayloadSourceURLs: ["audio": audioURL]
                     )
-                    guard case .ownedInQueued = postEnqueue else {
-                        unresolved += 1
-                        self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(postEnqueue))")
-                        continue
-                    }
+                } catch {
+                    unresolved += 1
+                    self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=item lookup failed")
+                    continue
+                }
+
+                switch postEnqueue {
+                case .ownedInQueued, .ownedInAttention:
                     if !self.cleanup(
                         audioURL: audioURL,
                         chunkID: chunkID,
@@ -293,14 +316,31 @@ private extension OmiTransferSpoolMigrator {
                     ) {
                         unresolved += 1
                     }
-                } catch {
+                case .conflict(let reason):
                     unresolved += 1
-                    self.emit(diagnosticLog, detail: "source=\(audioURL.path) reason=enqueue failed")
-                    omiTransferMigrationLog.error("omi migration enqueue failed source=\(audioURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+                    self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.conflict(reason)))")
+                case .stagingOnly:
+                    unresolved += 1
+                    self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.stagingOnly))")
+                case .salvageOnly:
+                    unresolved += 1
+                    self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.salvageOnly))")
+                case .notFound:
+                    unresolved += 1
+                    self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.notFound))")
                 }
-            default:
+            case .conflict(let reason):
                 unresolved += 1
-                self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(verdict))")
+                self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.conflict(reason)))")
+            case .stagingOnly:
+                unresolved += 1
+                self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.stagingOnly))")
+            case .salvageOnly:
+                unresolved += 1
+                self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.salvageOnly))")
+            case .notFound:
+                unresolved += 1
+                self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.notFound))")
             }
         }
         return unresolved

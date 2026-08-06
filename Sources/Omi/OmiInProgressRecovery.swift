@@ -199,12 +199,33 @@ enum OmiInProgressRecovery {
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }
-                case let verdict:
+                case .conflict(let reason):
                     result.unresolvedCount += 1
                     self.emitDiagnostic(
                         diagnosticLog: diagnosticLog,
                         message: "needs attention",
-                        detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(verdict))"
+                        detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.conflict(reason)))"
+                    )
+                case .stagingOnly:
+                    result.unresolvedCount += 1
+                    self.emitDiagnostic(
+                        diagnosticLog: diagnosticLog,
+                        message: "needs attention",
+                        detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.stagingOnly))"
+                    )
+                case .salvageOnly:
+                    result.unresolvedCount += 1
+                    self.emitDiagnostic(
+                        diagnosticLog: diagnosticLog,
+                        message: "needs attention",
+                        detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.salvageOnly))"
+                    )
+                case .notFound:
+                    result.unresolvedCount += 1
+                    self.emitDiagnostic(
+                        diagnosticLog: diagnosticLog,
+                        message: "needs attention",
+                        detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.notFound))"
                     )
                 }
             } catch {
