@@ -27,6 +27,11 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
         )
         try FileManager.default.createDirectory(at: launchURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("launch evidence".utf8).write(to: launchURL)
+        let cursorURL = OmiLaunchCaptureCursorFormat.fileURL(
+            rootURL: launchURL.deletingLastPathComponent(),
+            generationID: generation
+        )
+        try Data("cursor evidence".utf8).write(to: cursorURL)
         XCTAssertEqual(launchURL.deletingLastPathComponent().deletingLastPathComponent(), appGroupRoot)
         XCTAssertNotEqual(launchURL.deletingLastPathComponent().lastPathComponent, OmiSegmentWriter.cacheDirectoryName)
 
@@ -56,6 +61,7 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
         )
         XCTAssertEqual(recovery, OmiInProgressRecovery.Result())
         XCTAssertTrue(FileManager.default.fileExists(atPath: launchURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cursorURL.path))
     }
 
     func testLaunchCaptureSourcesHaveNoUnsafeOrSensitiveDiagnostics() throws {

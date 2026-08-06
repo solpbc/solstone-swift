@@ -22,12 +22,12 @@ final class OmiLaunchCaptureRecovery {
         OmiLaunchCaptureFormat.fileURL(rootURL: self.rootURL, generationID: self.generationID)
     }
 
-    func recover() -> OmiLaunchCaptureRecoveryResult {
-        guard FileManager.default.fileExists(atPath: self.fileURL.path) else {
-            return OmiLaunchCaptureRecoveryResult(verifiedRecords: [])
+    func recover() -> OmiLaunchCaptureScanResult {
+        guard (try? self.io.fileExists(at: self.fileURL)) == true else {
+            return OmiLaunchCaptureScanResult()
         }
 
-        let result: OmiLaunchCaptureRecoveryResult
+        let result: OmiLaunchCaptureScanResult
         do {
             let token = try self.io.openForReading(at: self.fileURL)
             defer { try? self.io.close(token) }
@@ -40,36 +40,16 @@ final class OmiLaunchCaptureRecovery {
                 }
             )
         } catch {
-            result = OmiLaunchCaptureRecoveryResult(
-                verifiedRecords: [],
+            result = OmiLaunchCaptureScanResult(
                 boundaryReason: .readFailed,
                 boundaryOffset: 0
             )
         }
 
-        guard let reason = result.boundaryReason, let offset = result.boundaryOffset else {
-            return result
+        if result.boundaryReason != nil {
+            self.emittedBoundaryDiagnosticCount += 1
+            self.log.error("launch capture recovery boundary")
         }
-
-        let quarantineURL = self.rootURL
-            .appendingPathComponent(OmiLaunchCaptureFormat.quarantineDirectoryName, isDirectory: true)
-            .appendingPathComponent(
-                "\(self.fileURL.deletingPathExtension().lastPathComponent)-boundary-\(offset).\(OmiLaunchCaptureFormat.fileExtension)",
-                isDirectory: false
-            )
-        let disposition: OmiLaunchCaptureQuarantineDisposition
-        do {
-            try self.io.moveItem(at: self.fileURL, to: quarantineURL)
-            disposition = .moved
-        } catch {
-            disposition = .retainedInPlace
-        }
-
-        let sequence = result.boundarySequence.map(String.init) ?? "none"
-        self.emittedBoundaryDiagnosticCount += 1
-        self.log.error(
-            "launch capture recovery boundary sequence=\(sequence, privacy: .public) offset=\(offset, privacy: .public) reason=\(reason.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public)"
-        )
-        return result.withQuarantineDisposition(disposition)
+        return result
     }
 }

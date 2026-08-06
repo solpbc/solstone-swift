@@ -6,11 +6,15 @@ import Foundation
 
 nonisolated enum OmiLaunchCaptureInjectedOperation: Equatable, Sendable {
     case open
+    case openForReading
     case write
     case barrier
     case truncate
     case read
     case move
+    case exists
+    case replace
+    case remove
 }
 
 nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @unchecked Sendable {
@@ -23,7 +27,8 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     private var barrierCallCount = 0
     private var failingBarrierCall: Int?
     private var tokenURLs: [Int32: URL] = [:]
-    private var synchronizedPrefixes: [URL: Data] = [:]
+    private var synchronizedState: [URL: Data] = [:]
+    private var trackedURLs: Set<URL> = []
     private var largestReadRequest = 0
     private var ioCallCount = 0
 
@@ -63,15 +68,27 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         }
     }
 
-    func restoreLastSynchronizedPrefix(at url: URL) throws {
-        let prefix = self.lock.withLock { self.synchronizedPrefixes[url] ?? Data() }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try prefix.write(to: url)
+    func restoreLastSynchronizedState() throws {
+        let state = self.lock.withLock { self.synchronizedState }
+        let urls = self.lock.withLock { self.trackedURLs }
+        for url in urls {
+            try? FileManager.default.removeItem(at: url)
+        }
+        for (url, bytes) in state {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try bytes.write(to: url)
+        }
     }
 
     func ensureDirectory(at url: URL) throws {
         self.recordIOCall()
         try self.base.ensureDirectory(at: url)
+    }
+
+    func fileExists(at url: URL) throws -> Bool {
+        self.recordIOCall()
+        try self.throwIfNeeded(.exists)
+        return try self.base.fileExists(at: url)
     }
 
     func openOrCreateAppendFile(at url: URL) throws -> OmiLaunchCaptureFileToken {
@@ -82,8 +99,20 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         return token
     }
 
+    func openNewFileForWriting(at url: URL) throws -> OmiLaunchCaptureFileToken {
+        self.recordIOCall()
+        try self.throwIfNeeded(.open)
+        let token = try self.base.openNewFileForWriting(at: url)
+        self.lock.withLock {
+            self.tokenURLs[token.rawValue] = url
+            self.trackedURLs.insert(url)
+        }
+        return token
+    }
+
     func openForReading(at url: URL) throws -> OmiLaunchCaptureFileToken {
         self.recordIOCall()
+        try self.throwIfNeeded(.openForReading)
         let token = try self.base.openForReading(at: url)
         self.lock.withLock { self.tokenURLs[token.rawValue] = url }
         return token
@@ -121,7 +150,10 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
             throw CocoaError(.fileWriteUnknown)
         }
         let bytes = try Data(contentsOf: url)
-        self.lock.withLock { self.synchronizedPrefixes[url] = bytes }
+        self.lock.withLock {
+            self.synchronizedState[url] = bytes
+            self.trackedURLs.insert(url)
+        }
     }
 
     func truncate(_ file: OmiLaunchCaptureFileToken, to offset: Int) throws {
@@ -154,6 +186,38 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         self.recordIOCall()
         try self.throwIfNeeded(.move)
         try self.base.moveItem(at: source, to: destination)
+        self.lock.withLock {
+            if let bytes = self.synchronizedState.removeValue(forKey: source) {
+                self.synchronizedState[destination] = bytes
+            }
+            self.trackedURLs.insert(source)
+            self.trackedURLs.insert(destination)
+        }
+    }
+
+    func atomicReplaceItem(at source: URL, with destination: URL) throws {
+        self.recordIOCall()
+        try self.throwIfNeeded(.replace)
+        try self.base.atomicReplaceItem(at: source, with: destination)
+        self.lock.withLock {
+            if let bytes = self.synchronizedState.removeValue(forKey: source) {
+                self.synchronizedState[destination] = bytes
+            } else {
+                self.synchronizedState.removeValue(forKey: destination)
+            }
+            self.trackedURLs.insert(source)
+            self.trackedURLs.insert(destination)
+        }
+    }
+
+    func removeItem(at url: URL) throws {
+        self.recordIOCall()
+        try self.throwIfNeeded(.remove)
+        try self.base.removeItem(at: url)
+        self.lock.withLock {
+            self.synchronizedState.removeValue(forKey: url)
+            self.trackedURLs.insert(url)
+        }
     }
 
     private func throwIfNeeded(_ operation: OmiLaunchCaptureInjectedOperation) throws {

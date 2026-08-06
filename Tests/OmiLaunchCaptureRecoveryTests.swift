@@ -25,8 +25,8 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
         io.failNext(.open)
         XCTAssertEqual(writer.append(Data("absent".utf8)), .notRetained(.openFailed))
         let absent = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
-        XCTAssertTrue(absent.verifiedRecords.isEmpty)
         XCTAssertEqual(absent.verifiedPrefixNextSequence, 0)
+        XCTAssertEqual(absent.verifiedPrefixEndOffset, 0)
         XCTAssertNil(absent.boundarySequence)
         XCTAssertNil(absent.boundaryReason)
 
@@ -37,8 +37,8 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
         io.failWrite(onCall: 1, afterBytes: 0)
         XCTAssertEqual(emptyWriter.append(Data("empty".utf8)), .notRetained(.headerWriteFailed))
         let empty = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
-        XCTAssertTrue(empty.verifiedRecords.isEmpty)
         XCTAssertEqual(empty.verifiedPrefixNextSequence, 0)
+        XCTAssertEqual(empty.verifiedPrefixEndOffset, 0)
         XCTAssertNil(empty.boundarySequence)
         XCTAssertNil(empty.boundaryReason)
 
@@ -49,8 +49,8 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
         try Data(repeating: 0, count: OmiLaunchCaptureFormat.headerByteCount - 1).write(to: fileURL)
         let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
         let partial = recovery.recover()
-        XCTAssertTrue(partial.verifiedRecords.isEmpty)
         XCTAssertEqual(partial.verifiedPrefixNextSequence, 0)
+        XCTAssertEqual(partial.verifiedPrefixEndOffset, 0)
         XCTAssertNil(partial.boundarySequence)
         XCTAssertEqual(partial.boundaryReason, .incompleteHeader)
         XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1)
@@ -65,7 +65,7 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
 
         let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
         let result = recovery.recover()
-        XCTAssertTrue(result.verifiedRecords.isEmpty)
+        XCTAssertEqual(result.verifiedPrefixNextSequence, 0)
         XCTAssertEqual(result.boundarySequence, 0)
         XCTAssertEqual(result.boundaryReason, .incompleteReservedRecord)
         XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1)
@@ -102,7 +102,7 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
         let writer = self.writer(generation: generation, io: io)
         io.failBarrier(onCall: 2)
         XCTAssertEqual(writer.append(Data("payload".utf8)), .visibleGap(sequence: 0, .commitBarrierFailed))
-        try io.restoreLastSynchronizedPrefix(at: writer.fileURL)
+        try io.restoreLastSynchronizedState()
 
         let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
         XCTAssertEqual(result.boundarySequence, 0)
@@ -117,7 +117,7 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
         XCTAssertEqual(writer.append(Data("payload".utf8)), .visibleGap(sequence: 0, .commitBarrierFailed))
 
         let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
-        XCTAssertEqual(result.verifiedRecords.map(\.payload), [Data("payload".utf8)])
+        XCTAssertEqual(result.verifiedPrefixNextSequence, 1)
         XCTAssertNil(result.boundaryReason)
     }
 
@@ -161,7 +161,6 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
 
             let recovery = OmiLaunchCaptureRecovery(rootURL: caseRoot, generationID: generation, io: io)
             let result = recovery.recover()
-            XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], mutation.name)
             XCTAssertEqual(result.verifiedPrefixNextSequence, 1, mutation.name)
             XCTAssertEqual(result.boundarySequence, mutation.hasVisibleGap ? 1 : nil, mutation.name)
             XCTAssertEqual(result.boundaryReason, mutation.expectedReason, mutation.name)
@@ -200,7 +199,6 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
             try bytes.write(to: fileURL)
 
             let result = OmiLaunchCaptureRecovery(rootURL: caseRoot, generationID: generation, io: io).recover()
-            XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], mutation.name)
             XCTAssertEqual(result.verifiedPrefixNextSequence, 1, mutation.name)
             XCTAssertNil(result.boundarySequence, mutation.name)
         }
@@ -224,7 +222,6 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
 
         let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
         let result = recovery.recover()
-        XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0])
         XCTAssertEqual(result.verifiedPrefixNextSequence, 1)
         XCTAssertNil(result.boundarySequence)
         XCTAssertEqual(result.boundaryReason, .declaredLengthExceeded)
@@ -267,7 +264,7 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
 
             let recovery = OmiLaunchCaptureRecovery(rootURL: caseRoot, generationID: generation, io: io)
             let result = recovery.recover()
-            XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], mismatch.name)
+            XCTAssertEqual(result.verifiedPrefixNextSequence, 1, mismatch.name)
             XCTAssertEqual(result.boundarySequence, mismatch.sequence, mismatch.name)
             XCTAssertEqual(result.boundaryReason, mismatch.reason, mismatch.name)
             XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1, mismatch.name)
@@ -283,29 +280,27 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
 
         let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
         let result = recovery.recover()
-        XCTAssertTrue(result.verifiedRecords.isEmpty)
+        XCTAssertEqual(result.verifiedPrefixNextSequence, 0)
         XCTAssertNil(result.boundarySequence)
         XCTAssertEqual(result.boundaryReason, .readFailed)
         XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1)
     }
 
-    func testQuarantineFailureRetainsEvidenceInPlace() {
+    func testBoundaryRemainsInPlaceAfterScan() {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let generation = UUID()
         let writer = self.writer(generation: generation, io: io)
         io.failWrite(onCall: 2, afterBytes: 0)
         _ = writer.append(Data("payload".utf8))
         io.clearFaults()
-        io.failNext(.move)
-
         let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
         let result = recovery.recover()
-        XCTAssertEqual(result.quarantineDisposition, .retainedInPlace)
         XCTAssertTrue(FileManager.default.fileExists(atPath: writer.fileURL.path))
+        XCTAssertEqual(result.boundaryReason, .incompleteReservedRecord)
         XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1)
     }
 
-    func testBoundaryMovesWholeGenerationToQuarantine() {
+    func testBoundaryScanDoesNotMoveWholeGenerationToQuarantine() {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let generation = UUID()
         let writer = self.writer(generation: generation, io: io)
@@ -315,12 +310,8 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
 
         let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
         let result = recovery.recover()
-        let quarantineURL = self.rootURL
-            .appendingPathComponent(OmiLaunchCaptureFormat.quarantineDirectoryName, isDirectory: true)
-            .appendingPathComponent("\(writer.fileURL.deletingPathExtension().lastPathComponent)-boundary-0.\(OmiLaunchCaptureFormat.fileExtension)")
-        XCTAssertEqual(result.quarantineDisposition, .moved)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: writer.fileURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: quarantineURL.path))
+        XCTAssertEqual(result.boundaryReason, .incompleteReservedRecord)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: writer.fileURL.path))
     }
 
     private func writer(generation: UUID, io: FaultInjectingOmiLaunchCaptureIO) -> OmiLaunchCaptureWriter {

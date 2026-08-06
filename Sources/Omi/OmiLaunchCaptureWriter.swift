@@ -93,10 +93,10 @@ final class OmiLaunchCaptureWriter {
             self.state = .blocked(reason: reason, offset: offset)
             return
         }
-        let committedEnd = recovery.verifiedRecords.reduce(0) { partial, record in
-            partial + OmiLaunchCaptureFormat.headerByteCount + record.payload.count + OmiLaunchCaptureFormat.recordTagByteCount
-        }
-        self.state = .ready(nextSequence: UInt64(recovery.verifiedRecords.count), lastCommittedRecordEnd: committedEnd)
+        self.state = .ready(
+            nextSequence: recovery.verifiedPrefixNextSequence,
+            lastCommittedRecordEnd: recovery.verifiedPrefixEndOffset
+        )
     }
 
     private func appendNew(

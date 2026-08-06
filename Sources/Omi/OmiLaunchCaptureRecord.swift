@@ -92,46 +92,27 @@ nonisolated enum OmiLaunchCaptureBoundaryReason: String, Error, Equatable, Senda
     case readFailed
 }
 
-nonisolated enum OmiLaunchCaptureQuarantineDisposition: String, Equatable, Sendable {
-    case notNeeded
-    case moved
-    case retainedInPlace
-}
-
-nonisolated struct OmiLaunchCaptureRecoveryResult: Equatable, Sendable {
-    let verifiedRecords: [OmiLaunchCaptureRecord]
+nonisolated struct OmiLaunchCaptureScanResult: Equatable, Sendable {
     /// Derived from the verified prefix length, never read from disk, and never a reservation claim.
     let verifiedPrefixNextSequence: UInt64
+    let verifiedPrefixEndOffset: Int
     /// Non-nil if and only if a checksum-valid durable reservation header exists at the boundary,
     /// which makes that boundary a visible gap.
     let boundarySequence: UInt64?
     let boundaryReason: OmiLaunchCaptureBoundaryReason?
     let boundaryOffset: Int?
-    let quarantineDisposition: OmiLaunchCaptureQuarantineDisposition
-
     init(
-        verifiedRecords: [OmiLaunchCaptureRecord],
+        verifiedPrefixNextSequence: UInt64 = 0,
+        verifiedPrefixEndOffset: Int = 0,
         boundarySequence: UInt64? = nil,
         boundaryReason: OmiLaunchCaptureBoundaryReason? = nil,
-        boundaryOffset: Int? = nil,
-        quarantineDisposition: OmiLaunchCaptureQuarantineDisposition = .notNeeded
+        boundaryOffset: Int? = nil
     ) {
-        self.verifiedRecords = verifiedRecords
-        self.verifiedPrefixNextSequence = UInt64(verifiedRecords.count)
+        self.verifiedPrefixNextSequence = verifiedPrefixNextSequence
+        self.verifiedPrefixEndOffset = verifiedPrefixEndOffset
         self.boundarySequence = boundarySequence
         self.boundaryReason = boundaryReason
         self.boundaryOffset = boundaryOffset
-        self.quarantineDisposition = quarantineDisposition
-    }
-
-    func withQuarantineDisposition(_ disposition: OmiLaunchCaptureQuarantineDisposition) -> Self {
-        Self(
-            verifiedRecords: self.verifiedRecords,
-            boundarySequence: self.boundarySequence,
-            boundaryReason: self.boundaryReason,
-            boundaryOffset: self.boundaryOffset,
-            quarantineDisposition: disposition
-        )
     }
 }
 

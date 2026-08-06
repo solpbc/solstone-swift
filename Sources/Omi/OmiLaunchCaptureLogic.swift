@@ -12,12 +12,11 @@ nonisolated enum OmiLaunchCaptureLogic {
         generationID: UUID,
         fileSize: Int,
         read: (Int, Int) throws -> Data
-    ) -> OmiLaunchCaptureRecoveryResult {
+    ) -> OmiLaunchCaptureScanResult {
         guard fileSize > 0 else {
-            return OmiLaunchCaptureRecoveryResult(verifiedRecords: [])
+            return OmiLaunchCaptureScanResult()
         }
 
-        var records: [OmiLaunchCaptureRecord] = []
         var offset = 0
         var expectedSequence: UInt64 = 0
 
@@ -26,10 +25,10 @@ nonisolated enum OmiLaunchCaptureLogic {
             do {
                 headerData = try read(offset, OmiLaunchCaptureFormat.headerByteCount)
             } catch {
-                return self.boundary(records, sequence: nil, reason: .readFailed, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: nil, reason: .readFailed, offset: offset)
             }
             guard headerData.count == OmiLaunchCaptureFormat.headerByteCount else {
-                return self.boundary(records, sequence: nil, reason: .incompleteHeader, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: nil, reason: .incompleteHeader, offset: offset)
             }
 
             let header: OmiLaunchCaptureHeader
@@ -37,13 +36,13 @@ nonisolated enum OmiLaunchCaptureLogic {
             case .success(let decoded):
                 header = decoded
             case .failure(let reason):
-                return self.boundary(records, sequence: nil, reason: reason, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: nil, reason: reason, offset: offset)
             }
             guard header.generationID == generationID else {
-                return self.boundary(records, sequence: header.sequence, reason: .generationMismatch, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: header.sequence, reason: .generationMismatch, offset: offset)
             }
             guard header.sequence == expectedSequence else {
-                return self.boundary(records, sequence: header.sequence, reason: .sequenceMismatch, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: header.sequence, reason: .sequenceMismatch, offset: offset)
             }
 
             let bodyByteCount = header.declaredPayloadBytes + OmiLaunchCaptureFormat.recordTagByteCount
@@ -51,12 +50,13 @@ nonisolated enum OmiLaunchCaptureLogic {
             do {
                 body = try read(offset + OmiLaunchCaptureFormat.headerByteCount, bodyByteCount)
             } catch {
-                return self.boundary(records, sequence: nil, reason: .readFailed, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: nil, reason: .readFailed, offset: offset)
             }
             // A trusted reservation header makes a short body a visible gap. Never scan past it.
             guard body.count == bodyByteCount else {
                 return self.boundary(
-                    records,
+                    nextSequence: expectedSequence,
+                    endOffset: offset,
                     sequence: header.sequence,
                     reason: .incompleteReservedRecord,
                     offset: offset
@@ -66,30 +66,29 @@ nonisolated enum OmiLaunchCaptureLogic {
             let payload = body.prefix(header.declaredPayloadBytes)
             let storedTag = body.suffix(OmiLaunchCaptureFormat.recordTagByteCount)
             guard OmiLaunchCaptureDigest.recordTag(header: headerData, payload: Data(payload)) == storedTag else {
-                return self.boundary(records, sequence: header.sequence, reason: .recordTagMismatch, offset: offset)
+                return self.boundary(nextSequence: expectedSequence, endOffset: offset, sequence: header.sequence, reason: .recordTagMismatch, offset: offset)
             }
 
-            records.append(OmiLaunchCaptureRecord(
-                generationID: header.generationID,
-                sequence: header.sequence,
-                acquiredAtUnixMicros: header.acquiredAtUnixMicros,
-                payload: Data(payload)
-            ))
             offset += OmiLaunchCaptureFormat.headerByteCount + bodyByteCount
             expectedSequence += 1
         }
 
-        return OmiLaunchCaptureRecoveryResult(verifiedRecords: records)
+        return OmiLaunchCaptureScanResult(
+            verifiedPrefixNextSequence: expectedSequence,
+            verifiedPrefixEndOffset: offset
+        )
     }
 
     private static func boundary(
-        _ records: [OmiLaunchCaptureRecord],
+        nextSequence: UInt64,
+        endOffset: Int,
         sequence: UInt64?,
         reason: OmiLaunchCaptureBoundaryReason,
         offset: Int
-    ) -> OmiLaunchCaptureRecoveryResult {
-        OmiLaunchCaptureRecoveryResult(
-            verifiedRecords: records,
+    ) -> OmiLaunchCaptureScanResult {
+        OmiLaunchCaptureScanResult(
+            verifiedPrefixNextSequence: nextSequence,
+            verifiedPrefixEndOffset: endOffset,
             boundarySequence: sequence,
             boundaryReason: reason,
             boundaryOffset: offset

@@ -40,11 +40,9 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000))
         let writer = OmiLaunchCaptureWriter(rootURL: self.rootURL, generationID: generation, clock: clock, io: io)
         let count = 2_000
-        var expectedMicros: [Int64] = []
 
         for sequence in 0..<count {
             let payload = Data(repeating: UInt8(sequence % Int(UInt8.max)), count: OmiLaunchCaptureFormat.maximumPayloadBytes)
-            expectedMicros.append(OmiLaunchCaptureLogic.unixMicros(clock.now()))
             XCTAssertEqual(writer.append(payload), .retained(sequence: UInt64(sequence), retriedPending: false))
             clock.advance(by: 0.001)
         }
@@ -52,13 +50,8 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
 
         let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
         XCTAssertNil(result.boundaryReason)
-        XCTAssertEqual(result.quarantineDisposition, .notNeeded)
-        XCTAssertEqual(result.verifiedRecords.count, count)
-        for sequence in 0..<count {
-            XCTAssertEqual(result.verifiedRecords[sequence].sequence, UInt64(sequence))
-            XCTAssertEqual(result.verifiedRecords[sequence].payload, Data(repeating: UInt8(sequence % Int(UInt8.max)), count: OmiLaunchCaptureFormat.maximumPayloadBytes))
-            XCTAssertEqual(result.verifiedRecords[sequence].acquiredAtUnixMicros, expectedMicros[sequence])
-        }
+        XCTAssertEqual(result.verifiedPrefixNextSequence, UInt64(count))
+        XCTAssertEqual(result.verifiedPrefixEndOffset, count * (OmiLaunchCaptureFormat.headerByteCount + OmiLaunchCaptureFormat.maximumPayloadBytes + OmiLaunchCaptureFormat.recordTagByteCount))
     }
 
     func testPendingRejectionDoesNotOvertakeOriginalReservation() {
@@ -81,9 +74,8 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         XCTAssertEqual(writer.append(nextPayload), .retained(sequence: 1, retriedPending: true))
         XCTAssertEqual(writer.captureResidentPayloadBytes, 0)
 
-        let records = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover().verifiedRecords
-        XCTAssertEqual(records.map(\.sequence), [0, 1])
-        XCTAssertEqual(records.map(\.payload), [pendingPayload, nextPayload])
+        let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
+        XCTAssertEqual(result.verifiedPrefixNextSequence, 2)
     }
 
     func testAppendsResumeAfterInjectedFaultIsRemoved() {
@@ -127,7 +119,6 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         moveIO.clearFaults()
         moveIO.failNext(.move)
         let moveRecovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: moveGeneration, io: moveIO).recover()
-        XCTAssertEqual(moveRecovery.quarantineDisposition, .retainedInPlace)
         XCTAssertEqual(moveRecovery.boundarySequence, 0)
         XCTAssertLessThanOrEqual(moveWriter.peakCaptureResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
     }
@@ -161,7 +152,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
             let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
             XCTAssertNil(result.boundaryReason, failure.name)
             XCTAssertNil(result.boundarySequence, failure.name)
-            XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], failure.name)
+            XCTAssertEqual(result.verifiedPrefixNextSequence, 1, failure.name)
         }
     }
 
@@ -186,7 +177,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
 
         io.clearFaults()
         let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
-        XCTAssertEqual(result.verifiedRecords.map(\.payload), [committedPayload])
+        XCTAssertEqual(result.verifiedPrefixNextSequence, 1)
         XCTAssertEqual(result.boundaryReason, .incompleteHeader)
         XCTAssertNil(result.boundarySequence)
     }

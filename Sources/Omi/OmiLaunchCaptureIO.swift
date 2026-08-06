@@ -10,7 +10,9 @@ nonisolated struct OmiLaunchCaptureFileToken: Equatable, Sendable {
 
 nonisolated protocol OmiLaunchCaptureIO: Sendable {
     func ensureDirectory(at url: URL) throws
+    func fileExists(at url: URL) throws -> Bool
     func openOrCreateAppendFile(at url: URL) throws -> OmiLaunchCaptureFileToken
+    func openNewFileForWriting(at url: URL) throws -> OmiLaunchCaptureFileToken
     func openForReading(at url: URL) throws -> OmiLaunchCaptureFileToken
     func append(_ bytes: Data, to file: OmiLaunchCaptureFileToken) throws
     func fullSynchronize(_ file: OmiLaunchCaptureFileToken) throws
@@ -19,6 +21,8 @@ nonisolated protocol OmiLaunchCaptureIO: Sendable {
     func fileSize(at url: URL) throws -> Int
     func read(_ file: OmiLaunchCaptureFileToken, offset: Int, count: Int) throws -> Data
     func moveItem(at source: URL, to destination: URL) throws
+    func atomicReplaceItem(at source: URL, with destination: URL) throws
+    func removeItem(at url: URL) throws
 }
 
 nonisolated struct FoundationOmiLaunchCaptureIO: OmiLaunchCaptureIO {
@@ -26,9 +30,20 @@ nonisolated struct FoundationOmiLaunchCaptureIO: OmiLaunchCaptureIO {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
+    func fileExists(at url: URL) throws -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
     func openOrCreateAppendFile(at url: URL) throws -> OmiLaunchCaptureFileToken {
         try self.ensureDirectory(at: url.deletingLastPathComponent())
         let fd = Darwin.open(url.path, O_RDWR | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        return OmiLaunchCaptureFileToken(rawValue: fd)
+    }
+
+    func openNewFileForWriting(at url: URL) throws -> OmiLaunchCaptureFileToken {
+        try self.ensureDirectory(at: url.deletingLastPathComponent())
+        let fd = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         return OmiLaunchCaptureFileToken(rawValue: fd)
     }
@@ -89,5 +104,17 @@ nonisolated struct FoundationOmiLaunchCaptureIO: OmiLaunchCaptureIO {
     func moveItem(at source: URL, to destination: URL) throws {
         try self.ensureDirectory(at: destination.deletingLastPathComponent())
         try FileManager.default.moveItem(at: source, to: destination)
+    }
+
+    func atomicReplaceItem(at source: URL, with destination: URL) throws {
+        guard source.deletingLastPathComponent() == destination.deletingLastPathComponent(),
+              Darwin.rename(source.path, destination.path) == 0
+        else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+    }
+
+    func removeItem(at url: URL) throws {
+        try FileManager.default.removeItem(at: url)
     }
 }
