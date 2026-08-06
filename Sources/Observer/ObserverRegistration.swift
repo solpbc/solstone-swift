@@ -119,19 +119,8 @@ final class ObserverRegistration {
     func refreshRegistration() async throws -> String {
         let cachedKey = try self.loadKey().flatMap { $0.isEmpty ? nil : $0 }
 
-        if let cachedKey {
-            return try await self.runRegistrationTask {
-                do {
-                    return try await self.refreshWithServer(cachedKey: cachedKey)
-                } catch {
-                    self.logRefreshFailure(error)
-                    return cachedKey
-                }
-            }
-        }
-
         return try await self.runRegistrationTask {
-            try await self.refreshWithServer(cachedKey: nil)
+            try await self.refreshWithServer(cachedKey: cachedKey)
         }
     }
 
@@ -184,31 +173,77 @@ final class ObserverRegistration {
             self.state = .registering
         }
 
+        let payload: RegistrationResponse
         do {
-            let payload = try await self.requestRegistration()
-            try self.saveKey(payload.key)
-            guard let committedKey = try self.loadKey(), committedKey == payload.key else {
-                throw ObserverRegistrationError.keyCommitReadBackMismatch
-            }
-
-            // A keychain key that saved and read back is authoritative. The app-group
-            // defaults prefix is a repairable cache, so refresh derives it from that key.
-            let derivedPrefix = String(committedKey.prefix(8))
-            do {
-                try self.savePrefix(derivedPrefix)
-            } catch {
-                log.error("observer registration refresh prefix cache failed")
-            }
-            self.registrationPrefix = derivedPrefix
-            self.state = .registered
-            log.info("observer registration refresh succeeded (key length=\(committedKey.count, privacy: .public))")
-            return committedKey
+            payload = try await self.requestRegistration()
         } catch {
-            if cachedKey == nil {
-                self.failRegistration(error)
-            }
-            throw error
+            return try self.finishRefreshFailure(
+                error,
+                cachedKey: cachedKey,
+                reason: self.failureReason(for: error)
+            )
         }
+
+        do {
+            try self.saveKey(payload.key)
+        } catch {
+            return try self.finishRefreshFailure(
+                error,
+                cachedKey: cachedKey,
+                reason: "key commit save failed"
+            )
+        }
+
+        let committedKey: String?
+        do {
+            committedKey = try self.loadKey()
+        } catch {
+            return try self.finishRefreshFailure(
+                error,
+                cachedKey: cachedKey,
+                reason: "key commit verification failed"
+            )
+        }
+
+        guard let committedKey, !committedKey.isEmpty else {
+            return try self.finishRefreshFailure(
+                ObserverRegistrationError.keyCommitReadBackMismatch,
+                cachedKey: cachedKey,
+                reason: "key commit verification failed"
+            )
+        }
+
+        if committedKey == payload.key {
+            return self.publishRefreshedRegistration(committedKey)
+        }
+
+        if committedKey == cachedKey {
+            return try self.finishRefreshFailure(
+                ObserverRegistrationError.keyCommitReadBackMismatch,
+                cachedKey: cachedKey,
+                reason: "key commit read-back mismatch"
+            )
+        }
+
+        log.error(
+            "observer registration refresh key commit read-back anomaly (key length=\(committedKey.count, privacy: .public))"
+        )
+        return self.publishRefreshedRegistration(committedKey)
+    }
+
+    private func publishRefreshedRegistration(_ committedKey: String) -> String {
+        // A keychain key that saved and read back is authoritative. The app-group
+        // defaults prefix is a repairable cache, so refresh derives it from that key.
+        let derivedPrefix = String(committedKey.prefix(8))
+        do {
+            try self.savePrefix(derivedPrefix)
+        } catch {
+            log.error("observer registration refresh prefix cache failed")
+        }
+        self.registrationPrefix = derivedPrefix
+        self.state = .registered
+        log.info("observer registration refresh succeeded (key length=\(committedKey.count, privacy: .public))")
+        return committedKey
     }
 
     private func requestRegistration() async throws -> RegistrationResponse {
@@ -331,8 +366,20 @@ private extension ObserverRegistration {
         log.error("observer registration failed: \(reason, privacy: .public)")
     }
 
-    func logRefreshFailure(_ error: Error) {
-        let reason = self.failureReason(for: error)
+    func finishRefreshFailure(
+        _ error: Error,
+        cachedKey: String?,
+        reason: String
+    ) throws -> String {
+        if let cachedKey {
+            self.logRefreshFailure(reason: reason)
+            return cachedKey
+        }
+        self.failRegistration(reason: reason)
+        throw error
+    }
+
+    func logRefreshFailure(reason: String) {
         log.error("observer registration refresh failed: \(reason, privacy: .public)")
     }
 

@@ -476,6 +476,105 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshRegistrationReadBackBranchesPublishOnlyVerifiedPrefixes() async throws {
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"refreshed-key-123","prefix":"server_prefix"}"#.utf8)
+            )
+        }
+
+        let cases: [(String, ObserverRegistrationReadBackOutcome, String, String)] = [
+            ("throws", .throwsError, "existing-key", "obs_existing_"),
+            ("nil", .nilValue, "existing-key", "obs_existing_"),
+            ("empty", .emptyValue, "existing-key", "obs_existing_"),
+            ("payload", .payloadKey, "refreshed-key-123", "refreshe"),
+            ("cached", .cachedKey, "existing-key", "obs_existing_"),
+            ("third", .thirdKey, "third-key-456", "third-ke"),
+        ]
+
+        for (name, outcome, expectedHandle, expectedPrefix) in cases {
+            let keyBox = OSAllocatedUnfairLock<String?>(initialState: "existing-key")
+            let prefixBox = OSAllocatedUnfairLock<String?>(initialState: "obs_existing_")
+            let readCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+            let saveCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+            let registration = self.makeRegistration(
+                keyBox: keyBox,
+                prefixBox: prefixBox,
+                retryDelays: [1],
+                loadKey: {
+                    let read = readCount.withLock { count -> Int in
+                        count += 1
+                        return count
+                    }
+                    guard read == 3 else {
+                        return keyBox.withLock { $0 }
+                    }
+
+                    switch outcome {
+                    case .throwsError:
+                        throw ObserverRegistrationTestError.injectedReadBackFailure
+                    case .nilValue:
+                        return nil
+                    case .emptyValue:
+                        return ""
+                    case .payloadKey:
+                        return keyBox.withLock { $0 }
+                    case .cachedKey:
+                        return "existing-key"
+                    case .thirdKey:
+                        keyBox.withLock { $0 = "third-key-456" }
+                        return "third-key-456"
+                    }
+                },
+                saveKey: { key in
+                    saveCount.withLock { $0 += 1 }
+                    if outcome != .cachedKey {
+                        keyBox.withLock { $0 = key }
+                    }
+                }
+            )
+            registration.activeLocalPort = 7071
+
+            let returnedKey = try await registration.refreshRegistration()
+
+            XCTAssertEqual(returnedKey, expectedHandle, name)
+            XCTAssertEqual(registration.registrationPrefix, expectedPrefix, name)
+            XCTAssertEqual(registration.state, .registered, name)
+            switch outcome {
+            case .throwsError, .nilValue, .emptyValue:
+                XCTAssertEqual(saveCount.withLock { $0 }, 1, name)
+            case .payloadKey, .cachedKey, .thirdKey:
+                XCTAssertEqual(registration.registeredHandle(), expectedHandle, name)
+            }
+        }
+    }
+
+    @MainActor
+    func testRefreshRegistrationKeySaveFailureSetsKeyCommitReasonWithoutCachedKey() async throws {
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"name":"solstone-swift","key":"refreshed-key-123","prefix":"server_prefix"}"#.utf8)
+            )
+        }
+        let registration = self.makeRegistration(
+            keyBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+            prefixBox: OSAllocatedUnfairLock<String?>(initialState: nil),
+            retryDelays: [1],
+            saveKey: { (_: String) throws in throw ObserverRegistrationTestError.injectedSaveKeyFailure }
+        )
+        registration.activeLocalPort = 7071
+
+        do {
+            _ = try await registration.refreshRegistration()
+            XCTFail("expected key commit failure")
+        } catch {}
+
+        XCTAssertEqual(registration.state, .failed(reason: "key commit save failed"))
+    }
+
+    @MainActor
     func testRefreshRegistrationSucceedsWhenPrefixSaveSilentlyNoOps() async throws {
         self.storedKeyBox.withLock { $0 = "existing-key" }
         self.storedPrefixBox.withLock { $0 = "obs_existing_" }
@@ -589,11 +688,13 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         prefixBox: OSAllocatedUnfairLock<String?>? = nil,
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
+        loadKey: (@Sendable () throws -> String?)? = nil,
         saveKey: (@Sendable (String) throws -> Void)? = nil,
         savePrefix: (@Sendable (String) throws -> Void)? = nil
     ) -> ObserverRegistration {
         let keyBox = keyBox ?? self.storedKeyBox
         let prefixBox = prefixBox ?? self.storedPrefixBox
+        let loadKey = loadKey ?? { [keyBox] in keyBox.withLock { $0 } }
         let saveKey = saveKey ?? { [keyBox] key in keyBox.withLock { $0 = key } }
         let savePrefix = savePrefix ?? { [prefixBox] prefix in prefixBox.withLock { $0 = prefix } }
         return ObserverRegistration(
@@ -603,7 +704,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
             session: self.session,
             retryDelays: retryDelays,
             sleep: sleep,
-            loadKey: { [keyBox] in keyBox.withLock { $0 } },
+            loadKey: loadKey,
             saveKey: saveKey,
             deleteKey: { [keyBox] in keyBox.withLock { $0 = nil } },
             loadPrefix: { [prefixBox] in prefixBox.withLock { $0 } },
@@ -616,6 +717,16 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
 private enum ObserverRegistrationTestError: Error {
     case injectedSavePrefixFailure
     case injectedSaveKeyFailure
+    case injectedReadBackFailure
+}
+
+private enum ObserverRegistrationReadBackOutcome: Sendable, Equatable {
+    case throwsError
+    case nilValue
+    case emptyValue
+    case payloadKey
+    case cachedKey
+    case thirdKey
 }
 
 private final class ObserverRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
