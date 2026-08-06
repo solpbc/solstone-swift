@@ -582,6 +582,19 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
     }
 
+    func testStartStopsWhenLifetimeCounterIsUnreadable() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        let counterURL = harness.storage.rootURL.appendingPathComponent(WatchCaptureSessionHistoryStore.counterFileName)
+        try harness.storage.fileWriter.atomicReplaceFile(at: counterURL, with: Data("bad counter".utf8))
+
+        await harness.engine.start()
+
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        XCTAssertEqual(history.read(asOf: harness.clock.now()), .available([]))
+    }
+
     func testRouteChangeWithoutSuitableInputTerminatesWithDetectedReason() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
@@ -716,6 +729,12 @@ final class WatchCaptureTests: XCTestCase {
             terminalReason: nil, terminalDisposition: nil, terminalAt: nil, noticeOwed: false
         )
         try harness.storage.writeSessionRecord(active)
+        _ = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: harness.clock.now(),
+            state: .captured,
+            sensors: []
+        )
         let relaunch = WatchCaptureEngine(
             audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted), audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .denied), storage: harness.storage,
@@ -728,6 +747,7 @@ final class WatchCaptureTests: XCTestCase {
         let entry = try XCTUnwrap(reconciled.first { $0.sessionID == "process-death" })
         XCTAssertEqual(entry.terminalReason, .processExitedWhileActive)
         XCTAssertEqual(entry.terminalDisposition, .inferredStoppedItself)
+        XCTAssertEqual(entry.segmentsProduced, 1)
     }
 
     func testDeniedTerminalHistoryRecordsNoticeAttemptFacts() async throws {
@@ -1162,10 +1182,11 @@ final class WatchCaptureTests: XCTestCase {
     }
 
     func testSessionRecordWriteFailureTerminatesAndPublishesPersistenceAdvisory() async throws {
-        let fileWriter = FailingWatchFileWriter(failAppend: false, failAtomicReplace: true)
+        let fileWriter = FailingWatchFileWriter(failAppend: false)
         let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: fileWriter)
 
         await harness.engine.start()
+        fileWriter.failAtomicReplace = true
         await harness.engine.stop()
 
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
@@ -1479,37 +1500,33 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
     }
 
-    func testOwedClearDoesNotLoseEntryAppendedDuringNoticeSubmission() async throws {
+    func testOwedClearKeepsTerminalFactsWithConcurrentStartDuringNoticeSubmission() async throws {
         let harness = try self.makeHarness()
         let terminalAt = harness.clock.now()
         let record = WatchCaptureSessionRecord(
-            sessionID: "intended", startedAt: terminalAt.addingTimeInterval(-30), state: .terminal,
-            terminalReason: .processExitedWhileActive, terminalDisposition: .inferredStoppedItself,
-            terminalAt: terminalAt, noticeOwed: true
+            sessionID: "intended", startedAt: terminalAt.addingTimeInterval(-30), state: .active,
+            terminalReason: nil, terminalDisposition: nil, terminalAt: nil, noticeOwed: false
         )
         try harness.storage.writeSessionRecord(record)
         let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
         harness.notificationScheduler.onAddCallback = {
-            let concurrent = WatchCaptureSessionHistoryEntry(
-                sessionID: "concurrent", startedAt: terminalAt, terminalAt: terminalAt,
-                terminalReason: .audioInterrupted, terminalDisposition: .detectedStoppedItself,
-                startRefusalReason: nil, settingsRoute: nil, noticeOwed: true, noticeDecision: "schedule",
-                noticeDelivered: nil, notificationAuthorizationStatus: .authorized, notificationAlertSetting: .enabled,
-                wristAlertAssurance: .willTap, audioArmed: true, audioSessionIsActive: true, locationArmed: false,
-                segmentsProduced: 0, batteryLevelAtEnd: nil, batteryStateAtEnd: nil, lowPowerModeEnabledAtEnd: nil,
-                thermalStateAtEnd: nil, lastVerifiedAudioAt: nil, lastAudioCurrentTime: nil,
-                zeroAudioCurrentTimeObservationCount: nil, locationAdvisory: nil, persistenceAdvisory: nil
-            )
-            try? history.upsert(concurrent, asOf: terminalAt)
+            await harness.engine.start()
         }
 
         await harness.engine.reconcileOnLaunch()
 
         guard case let .available(entries) = history.read(asOf: terminalAt) else { return XCTFail("history unreadable") }
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.sessionID, $0) })
-        XCTAssertEqual(Set(byID.keys), Set(["intended", "concurrent"]))
+        let concurrentID = try XCTUnwrap(try harness.storage.readSessionRecord()).sessionID
+        XCTAssertEqual(Set(byID.keys), Set(["intended", concurrentID]))
         XCTAssertFalse(try XCTUnwrap(byID["intended"]).noticeOwed)
-        XCTAssertTrue(try XCTUnwrap(byID["concurrent"]).noticeOwed)
+        XCTAssertEqual(try XCTUnwrap(byID["intended"]).noticeDecision, "schedule")
+        XCTAssertEqual(try XCTUnwrap(byID["intended"]).noticeDelivered, true)
+        XCTAssertEqual(try XCTUnwrap(byID["intended"]).notificationAuthorizationStatus, .authorized)
+        XCTAssertEqual(try XCTUnwrap(byID["intended"]).notificationAlertSetting, .enabled)
+        let concurrent = try XCTUnwrap(byID[concurrentID])
+        XCTAssertNil(concurrent.noticeDecision)
+        XCTAssertNil(concurrent.noticeDelivered)
     }
 
     func testFinalizedUnsentSegmentsBecomeQueuedOnRelaunch() async throws {

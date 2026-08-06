@@ -59,6 +59,24 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.read(asOf: now), .unreadable)
     }
 
+    func testReadPrunesExpiredEntriesFromFileWithoutSubsequentUpsert() throws {
+        let storage = try WatchCaptureStorage(rootURL: self.root)
+        let store = WatchCaptureSessionHistoryStore(storage: storage)
+        let now = Date(timeIntervalSince1970: 1_784_073_600)
+        let expired = self.entry(1, at: now.addingTimeInterval(-8 * 24 * 60 * 60))
+        let fresh = self.entry(2, at: now)
+        let encoder = WatchRelayDiagnosticsEnvelope.makeEncoder()
+        let data = try encoder.encode(expired) + Data([0x0A]) + encoder.encode(fresh) + Data([0x0A])
+        let url = storage.rootURL.appendingPathComponent(WatchCaptureSessionHistoryStore.historyFileName)
+        try storage.fileWriter.atomicReplaceFile(at: url, with: data)
+
+        XCTAssertEqual(store.read(asOf: now), .available([fresh]))
+
+        let remaining = String(decoding: try storage.fileWriter.readData(from: url), as: UTF8.self)
+        XCTAssertFalse(remaining.contains(expired.sessionID))
+        XCTAssertTrue(remaining.contains(fresh.sessionID))
+    }
+
     func testHistoryEntryCodingUsesCompactKeys() throws {
         let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(self.entry(1, at: Date()))
         let json = try XCTUnwrap(String(data: data, encoding: .utf8))

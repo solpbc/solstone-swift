@@ -4,7 +4,6 @@
 import Foundation
 
 nonisolated struct WatchCaptureLivenessEvidence: Codable, Equatable, Sendable {
-    let previousAudioCurrentTime: Double?
     let audioCurrentTime: Double?
     let zeroAudioCurrentTimeObservationCount: Int?
 }
@@ -102,12 +101,20 @@ final class WatchCaptureSessionHistoryStore {
         let parsed = self.readParsedEntries()
         guard parsed.fileExists else { return .available([]) }
         let entries = self.pruned(parsed.entries, asOf: asOf)
+        if entries.count != parsed.entries.count {
+            do {
+                try self.write(entries: entries, unreadableLines: parsed.unreadableLines)
+            } catch {
+                return .unreadable
+            }
+        }
         guard !parsed.hadDamage || !entries.isEmpty else { return .unreadable }
         return .available(entries)
     }
 
     func entry(sessionID: String, asOf: Date) -> WatchCaptureSessionHistoryEntry? {
-        self.pruned(self.readParsedEntries().entries, asOf: asOf).first { $0.sessionID == sessionID }
+        guard case let .available(entries) = self.read(asOf: asOf) else { return nil }
+        return entries.first { $0.sessionID == sessionID }
     }
 
     func upsert(_ entry: WatchCaptureSessionHistoryEntry, asOf: Date) throws {
@@ -116,13 +123,30 @@ final class WatchCaptureSessionHistoryStore {
         entriesByID[entry.sessionID] = entry
         let entries = self.pruned(Array(entriesByID.values), asOf: asOf)
             .sorted { $0.startedAt < $1.startedAt }
+        try self.write(entries: entries, unreadableLines: parsed.unreadableLines)
+    }
+
+    func revertLifetimeCounterIncrement(_ incremented: WatchCaptureSessionHistoryCounter) throws {
+        guard let current = self.readCounter(),
+              current.epoch == incremented.epoch,
+              current.lifetimeSessionsStarted == incremented.lifetimeSessionsStarted,
+              current.lifetimeSessionsStarted > 0
+        else { return }
+        let reverted = WatchCaptureSessionHistoryCounter(
+            epoch: current.epoch,
+            lifetimeSessionsStarted: current.lifetimeSessionsStarted - 1
+        )
+        try self.storage.fileWriter.atomicReplaceFile(at: self.counterURL, with: self.encoder.encode(reverted))
+    }
+
+    private func write(entries: [WatchCaptureSessionHistoryEntry], unreadableLines: [Data]) throws {
         var data = Data()
         for entry in entries {
             data.append(try self.encoder.encode(entry))
             data.append(0x0A)
         }
         // Preserve malformed source lines for diagnosis; a damaged tail must never turn into a silent reset.
-        for line in parsed.unreadableLines {
+        for line in unreadableLines {
             data.append(line)
             data.append(0x0A)
         }
