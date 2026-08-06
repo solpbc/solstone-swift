@@ -49,6 +49,7 @@ struct SolstoneSwiftApp: App {
     @State private var pairingHandoff = PairingHandoffState()
     @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
+    @State private var launchCaptureCommitCoordinator: OmiLaunchCaptureCommitCoordinator
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
@@ -122,6 +123,8 @@ struct SolstoneSwiftApp: App {
         cachesRootURL: URL?,
         migrate: (URL, URL?) async throws -> Void,
         reconcile: (URL) async throws -> Void,
+        reconcileLaunchCapture: (URL) async throws -> Void = { _ in },
+        conservativelyGateOmi: () async -> Void = {},
         enableDispatch: () async -> Void,
         openOmiReadiness: () async -> Void,
         reportFailure: (String, (any Error)?) -> Void
@@ -134,22 +137,41 @@ struct SolstoneSwiftApp: App {
             try await initialize()
         } catch {
             reportFailure("start failed", error)
-            await finishBootstrap()
+            await openOmiReadiness()
             return
         }
         let rootURL: URL
         do {
             rootURL = try appGroupRoot()
         } catch {
+            await conservativelyGateOmi()
             reportFailure("app-group unavailable", error)
             await finishBootstrap()
             return
         }
         do {
             try await migrate(rootURL, cachesRootURL)
+        } catch {
+            await conservativelyGateOmi()
+            reportFailure("migration failed", error)
+            await finishBootstrap()
+            return
+        }
+        do {
             try await reconcile(rootURL)
         } catch {
-            reportFailure("migration failed", error)
+            await conservativelyGateOmi()
+            reportFailure("reconciliation failed", error)
+            await finishBootstrap()
+            return
+        }
+        do {
+            try await reconcileLaunchCapture(rootURL)
+        } catch {
+            await conservativelyGateOmi()
+            reportFailure("launch capture reconciliation failed", error)
+            await finishBootstrap()
+            return
         }
         await finishBootstrap()
     }
@@ -504,6 +526,22 @@ struct SolstoneSwiftApp: App {
         )
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
         let omiSource = makeOmiSourceManager(clock: observerClock)
+        let launchCaptureRoot: URL
+        do {
+            launchCaptureRoot = try AppGroupContainer.rootURL()
+                .appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
+        } catch {
+            launchCaptureRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
+        }
+        let launchCaptureCommitCoordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: launchCaptureRoot,
+            engine: transferEngine,
+            sourceManager: omiSource
+        )
+        omiSource.onLaunchCaptureExplicitEnable = { [weak launchCaptureCommitCoordinator] in
+            await launchCaptureCommitCoordinator?.resumeAfterExplicitEnable()
+        }
         let omiHeardTally = omiSource.heardTally
         omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
             omiHeardTally.record(day: day, durationS: durationS, identity: identity)
@@ -676,6 +714,7 @@ struct SolstoneSwiftApp: App {
         self._watchLink = State(initialValue: watchLink)
         self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)
+        self._launchCaptureCommitCoordinator = State(initialValue: launchCaptureCommitCoordinator)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
@@ -1038,6 +1077,13 @@ struct SolstoneSwiftApp: App {
                 if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
                     await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)
                 }
+            },
+            reconcileLaunchCapture: { appGroupRoot in
+                _ = appGroupRoot
+                await self.launchCaptureCommitCoordinator.reconcile()
+            },
+            conservativelyGateOmi: {
+                await self.launchCaptureCommitCoordinator.conservativelyGateOmi()
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()

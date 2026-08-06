@@ -75,6 +75,13 @@ nonisolated enum TransferGateSettlementOutcome: Equatable, Sendable {
     case mismatchedToken
 }
 
+nonisolated enum TransferHeldGateRestorationOutcome: Equatable, Sendable {
+    case gated(TransferGateToken)
+    case notHeld
+    case alreadyGated
+    case engineNotInitialized
+}
+
 nonisolated private enum TransferGateRecordState: Equatable, Sendable {
     case active
     case released
@@ -474,6 +481,20 @@ actor TransferEngine {
         guard self.initializedForLaunch else { return .engineNotInitialized }
         guard self.dispatchSuspendedForLaunch else { return .dispatchAlreadyEnabled }
         guard !self.isGateActive(itemID) else { return .alreadyGated }
+        let token = TransferGateToken(itemID: itemID, nonce: UUID())
+        self.gateRecordsByItemID[itemID] = TransferGateRecord(nonce: token.nonce, state: .active)
+        return .gated(token)
+    }
+
+    /// Atomically replaces a coordinator-owned lifetime hold with a live gate.
+    /// This is intentionally available after dispatch opens: releasing the hold
+    /// before registering a gate would expose the item to eager dispatch.
+    @discardableResult
+    func restoreGateFromHold(itemID: UUID) -> TransferHeldGateRestorationOutcome {
+        guard self.initializedForLaunch else { return .engineNotInitialized }
+        guard self.heldItemIDs.contains(itemID) else { return .notHeld }
+        guard !self.isGateActive(itemID) else { return .alreadyGated }
+        self.heldItemIDs.remove(itemID)
         let token = TransferGateToken(itemID: itemID, nonce: UUID())
         self.gateRecordsByItemID[itemID] = TransferGateRecord(nonce: token.nonce, state: .active)
         return .gated(token)

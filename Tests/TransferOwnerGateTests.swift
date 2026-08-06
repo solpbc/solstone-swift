@@ -106,6 +106,24 @@ final class TransferOwnerGateTests: XCTestCase {
         XCTAssertTrue(convertedEvents.allSatisfy { !$0.shortDetail.contains("/") })
     }
 
+    func testZeroPayloadAttentionSurvivesRestartAndQueuedCopyIsRejected() throws {
+        let spool = TransferSpool(rootURL: self.rootURL)
+        var attentionManifest = self.manifest(itemID: UUID(), chunkIndex: 90)
+        attentionManifest.payloadParts = []
+        let attentionStaged = try spool.stage(manifest: attentionManifest, payloadFileURLs: [:])
+        let attentionCommitted = try spool.commitStagedItem(itemID: attentionStaged.item.manifest.itemID)
+        _ = try spool.moveQueuedItemToAttention(attentionCommitted, reason: "boundary", detail: "reason=boundary", now: Date())
+
+        var queuedManifest = self.manifest(itemID: UUID(), chunkIndex: 91)
+        queuedManifest.payloadParts = []
+        let queuedStaged = try spool.stage(manifest: queuedManifest, payloadFileURLs: [:])
+        _ = try spool.commitStagedItem(itemID: queuedStaged.item.manifest.itemID)
+
+        let snapshot = try spool.initialize()
+        XCTAssertEqual(snapshot.attention.map(\.manifest.itemID), [attentionManifest.itemID])
+        XCTAssertFalse(snapshot.queued.contains { $0.manifest.itemID == queuedManifest.itemID })
+    }
+
     func testGateExistingBlocksRestartedItemUntilReleased() async throws {
         let targetID = UUID()
         let unrelatedID = UUID()

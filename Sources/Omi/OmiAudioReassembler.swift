@@ -26,6 +26,7 @@ nonisolated struct OmiReassembledFrame: Equatable, Sendable {
     let data: Data
     let acquiredAt: Date
     let startSequence: UInt64?
+    let endSequence: UInt64?
 }
 
 nonisolated struct OmiAudioReassembler: Equatable, Sendable {
@@ -43,6 +44,7 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
     private var frameBytes = Data()
     private var frameStartedAt: Date?
     private var frameStartSequence: UInt64?
+    private var frameEndSequence: UInt64?
 
     mutating func ingest(_ payload: Data, acquiredAt: Date, recordSequence: UInt64?) -> OmiReassemblyOutput {
         guard payload.count >= 3 else {
@@ -78,7 +80,7 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
         if index == 0 {
             var completedFrames: [OmiReassembledFrame] = []
             if self.frameStarted, let frameStartedAt {
-                completedFrames.append(OmiReassembledFrame(data: self.frameBytes, acquiredAt: frameStartedAt, startSequence: self.frameStartSequence))
+                completedFrames.append(OmiReassembledFrame(data: self.frameBytes, acquiredAt: frameStartedAt, startSequence: self.frameStartSequence, endSequence: self.frameEndSequence))
                 self.frames += 1
             }
             self.frameStarted = true
@@ -86,6 +88,7 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
             self.frameBytes = Data(fragment)
             self.frameStartedAt = acquiredAt
             self.frameStartSequence = recordSequence
+            self.frameEndSequence = recordSequence
             return OmiReassemblyOutput(completedFrames: completedFrames)
         }
 
@@ -96,6 +99,7 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
         }
 
         self.frameBytes.append(contentsOf: fragment)
+        self.frameEndSequence = recordSequence
         self.expectedNextIndex = self.expectedNextIndex &+ 1
         return OmiReassemblyOutput()
     }
@@ -107,7 +111,7 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
         }
         guard self.frameStarted, let frameStartedAt else { return OmiReassemblyOutput() }
         self.frames += 1
-        return OmiReassemblyOutput(completedFrames: [OmiReassembledFrame(data: self.frameBytes, acquiredAt: frameStartedAt, startSequence: self.frameStartSequence)])
+        return OmiReassemblyOutput(completedFrames: [OmiReassembledFrame(data: self.frameBytes, acquiredAt: frameStartedAt, startSequence: self.frameStartSequence, endSequence: self.frameEndSequence)])
     }
 
     private mutating func updatePacketOrder(_ packetNumber: UInt16) {
@@ -135,5 +139,6 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
         self.frameBytes.removeAll(keepingCapacity: true)
         self.frameStartedAt = nil
         self.frameStartSequence = nil
+        self.frameEndSequence = nil
     }
 }

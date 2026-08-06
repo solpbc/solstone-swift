@@ -60,6 +60,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     @ObservationIgnored var onDecodedSamples: (@MainActor ([Int16]) -> Void)?
     @ObservationIgnored var omiSegmentWriter: OmiSegmentWriter?
+    @ObservationIgnored var onLaunchCaptureExplicitEnable: (@MainActor () async -> Void)?
 
     @ObservationIgnored private let bluetoothPort: any OmiBluetoothPort
     @ObservationIgnored private var peripheralsByID: [UUID: OmiPeripheralDescriptor] = [:]
@@ -91,6 +92,12 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private(set) var deferredReadinessPeripheralID: UUID?
     @ObservationIgnored private let launchCaptureIngress: OmiLaunchCaptureIngress?
     @ObservationIgnored private var captureRequiresExplicitResume: Bool
+    @ObservationIgnored private var audioRoute: AudioRoute = .launchCapture
+
+    private enum AudioRoute {
+        case launchCapture
+        case live
+    }
 
     var hasOpusDecoder: Bool { self.opusDecoder != nil }
 
@@ -140,6 +147,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.enabled = true
         self.persistEnabled(true)
         self.manuallyDisconnected = false
+        self.requestLaunchCaptureRecoveryAfterExplicitEnable()
         guard self.isLaunchReady else { return }
         self.enableBatteryMonitoringIfNeeded()
         self.startPhoneSampleLoop()
@@ -254,6 +262,27 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.diagnostics.acknowledgeSegmentMetadata(tokens: tokens)
     }
 
+    var isLaunchCaptureRecoveryEnabled: Bool {
+        self.defaults.bool(forKey: Self.enabledKey)
+    }
+
+    func completeLaunchCaptureCutover(markers: [OmiLaunchCaptureMarkerObservation]) {
+        guard self.defaults.bool(forKey: Self.enabledKey) else { return }
+        for marker in markers {
+            if let lastSeenMarkerEpoch,
+               OmiDiagnosticsLogic.isPendantReboot(epochBefore: lastSeenMarkerEpoch, epochAfter: marker.epoch) {
+                self.diagnostics.appendReplayedPendantRebootEventIfNeeded(
+                    observedAt: marker.acquiredAt,
+                    epochBefore: lastSeenMarkerEpoch,
+                    epochAfter: marker.epoch
+                )
+            }
+            self.lastSeenMarkerEpoch = marker.epoch
+            self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
+        }
+        self.audioRoute = .live
+    }
+
     func effectiveConnectionState(now: Date) -> OmiSourceState {
         OmiSourceLogic.effectiveConnectionState(
             connectionState: self.connectionState,
@@ -336,7 +365,15 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         if self.isLaunchReady {
             await self.resumeIfEnabled()
         }
+        self.requestLaunchCaptureRecoveryAfterExplicitEnable()
         return true
+    }
+
+    private func requestLaunchCaptureRecoveryAfterExplicitEnable() {
+        guard let onLaunchCaptureExplicitEnable else { return }
+        Task { @MainActor in
+            await onLaunchCaptureExplicitEnable()
+        }
     }
 
     func handleWillRestoreState(restoredCount: Int) {
@@ -470,7 +507,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 extension OmiSourceManager {
     func handleAudioData(_ data: Data, peripheralID: UUID) {
         guard !self.isOmiWorkDisabled else { return }
-        if let launchCaptureIngress {
+        if self.audioRoute == .launchCapture, let launchCaptureIngress {
             switch launchCaptureIngress.ingest(data) {
             case .none:
                 break

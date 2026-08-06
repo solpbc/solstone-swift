@@ -322,6 +322,24 @@ final class OmiDiagnostics {
         self.persist()
     }
 
+    func appendReplayedPendantRebootEventIfNeeded(
+        observedAt: Date,
+        epochBefore: UInt32,
+        epochAfter: UInt32
+    ) {
+        let candidate = OmiDiagnosticsPayload.PendantRebootEvent(
+            observedAt: observedAt,
+            epochBefore: epochBefore,
+            epochAfter: epochAfter
+        )
+        guard !(self.payload.pendantRebootEvents ?? []).contains(candidate) else { return }
+        self.appendPendantRebootEvent(
+            observedAt: observedAt,
+            epochBefore: epochBefore,
+            epochAfter: epochAfter
+        )
+    }
+
     func clearPerConnectionPointReadingsForNewConnection() {
         self.payload.mtuAtSubscribeConfirm = nil
         self.payload.connectToFirstAudioSeconds = nil

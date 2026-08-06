@@ -10,6 +10,7 @@ nonisolated struct OmiLaunchCaptureFileToken: Equatable, Sendable {
 
 nonisolated protocol OmiLaunchCaptureIO: Sendable {
     func ensureDirectory(at url: URL) throws
+    func contentsOfDirectory(at url: URL) throws -> [URL]
     func fileExists(at url: URL) throws -> Bool
     func openOrCreateAppendFile(at url: URL) throws -> OmiLaunchCaptureFileToken
     func openNewFileForWriting(at url: URL) throws -> OmiLaunchCaptureFileToken
@@ -28,6 +29,14 @@ nonisolated protocol OmiLaunchCaptureIO: Sendable {
 nonisolated struct FoundationOmiLaunchCaptureIO: OmiLaunchCaptureIO {
     func ensureDirectory(at url: URL) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
     }
 
     func fileExists(at url: URL) throws -> Bool {

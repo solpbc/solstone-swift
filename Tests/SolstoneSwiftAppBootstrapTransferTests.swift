@@ -43,7 +43,7 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
     }
 
     @MainActor
-    func testEnablesDispatchAfterInitializeFailure() async {
+    func testDoesNotEnableDispatchAfterInitializeFailure() async {
         var events: [String] = []
         var failureCount = 0
 
@@ -74,9 +74,9 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(events, ["initialize", "enable", "omi-readiness"])
+        XCTAssertEqual(events, ["initialize", "omi-readiness"])
         XCTAssertEqual(failureCount, 1)
-        XCTAssertEqual(events.filter { $0 == "enable" }.count, 1)
+        XCTAssertEqual(events.filter { $0 == "enable" }.count, 0)
         XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1)
     }
 

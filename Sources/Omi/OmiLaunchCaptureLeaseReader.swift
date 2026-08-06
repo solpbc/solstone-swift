@@ -31,6 +31,15 @@ final class OmiLaunchCaptureLeaseReader {
         OmiLaunchCaptureCursorFormat.fileURL(rootURL: self.rootURL, generationID: self.generationID)
     }
 
+    func acknowledgedPosition() -> OmiLaunchCaptureReadPosition? {
+        guard let cursor = self.resolvedCursor(from: self.readCursor()) else { return nil }
+        return OmiLaunchCaptureReadPosition(
+            generationID: cursor.generationID,
+            nextSequence: cursor.acknowledgedPrefixNextSequence,
+            offset: cursor.acknowledgedPrefixEndOffset
+        )
+    }
+
     func lease() -> OmiLaunchCaptureLeaseOutcome {
         guard let scan = self.scanCurrent() else { return .unavailable(.captureUnreadable) }
         let cursorRead = self.readCursor()

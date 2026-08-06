@@ -550,7 +550,7 @@ nonisolated struct TransferSpool: Sendable {
             }
             let manifest: TransferManifest
             do {
-                manifest = try self.readManifest(in: url).validatedForScan()
+                manifest = try self.readManifest(in: url).validatedForScan(expectedDiskState: .queued)
                 let item = TransferStoredItem(manifest: manifest, directoryURL: url)
                 if self.firstMissingDeclaredPayload(in: item) != nil {
                     diagnostics.append(try self.salvageDirectory(url, reason: "incomplete_staging", manifest: manifest))
@@ -625,7 +625,7 @@ nonisolated struct TransferSpool: Sendable {
             if let itemID = UUID(uuidString: url.lastPathComponent), conflictedItemIDs.contains(itemID) {
                 continue
             }
-            guard var manifest = try? self.readManifest(in: url).validatedForScan() else { continue }
+            guard var manifest = try? self.readManifest(in: url).validatedForScan(expectedDiskState: state) else { continue }
             if manifest.diskState != state {
                 manifest = manifest.replacingDiskState(state)
                 if state == .queued {

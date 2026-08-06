@@ -30,9 +30,11 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
             encoding: .utf8
         )
         let body = try Self.functionSlice(named: "handleAudioData", in: text)
+        let routePredicate = try XCTUnwrap(body.range(of: "self.audioRoute == .launchCapture"))
         let route = try XCTUnwrap(body.range(of: "launchCaptureIngress.ingest(data)"))
         let captureReturn = try XCTUnwrap(body[route.upperBound...].range(of: "return"))
         let decode = try XCTUnwrap(body.range(of: "self.reassembler.ingest(data, acquiredAt: observedAt, recordSequence: nil)"))
+        XCTAssertLessThan(body.distance(from: body.startIndex, to: routePredicate.lowerBound), body.distance(from: body.startIndex, to: route.lowerBound))
         XCTAssertLessThan(body.distance(from: body.startIndex, to: route.lowerBound), body.distance(from: body.startIndex, to: decode.lowerBound))
         XCTAssertLessThan(body.distance(from: body.startIndex, to: captureReturn.lowerBound), body.distance(from: body.startIndex, to: decode.lowerBound))
     }

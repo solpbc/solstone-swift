@@ -180,7 +180,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("Materialized").appendingPathComponent(generation.uuidString).appendingPathComponent(OmiSegmentWriter.chunkID(sessionID: generation, index: 1)).appendingPathExtension("m4a").path))
     }
 
-    func testRestartReusesClosedPartitionAndRebuildsTrailingRangeWithSameIdentity() throws {
+    func testRestartSealsPersistedTrailingPartitionAndStartsDistinctSuccessor() throws {
         let generation = UUID()
         let clock = MockObserverClock()
         let capture = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: clock)
@@ -198,9 +198,27 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         Self.append(Self.packet(1, index: 0, body: try Self.opusFrame()), to: capture)
         let grownDecoder = try OmiOpusAudioDecoder()
         let grown = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { grownDecoder.decode($0) }).materialize()
-        XCTAssertEqual(grown.partitions.only?.itemID, firstOutput.itemID, "deterministic identity must survive a trailing-range rebuild")
-        let grownEnvelope = try OmiPendingHandoffStore.read(from: try XCTUnwrap(grown.partitions.only?.envelopeURL))
-        XCTAssertEqual(grownEnvelope.sidecar.durationS, 640 / OmiAudioChunkFormat.sampleRate)
+        XCTAssertEqual(grown.partitions.first?.itemID, firstOutput.itemID)
+        XCTAssertEqual(grown.partitions.count, 2)
+        XCTAssertNotEqual(grown.partitions[1].itemID, firstOutput.itemID)
+        let grownEnvelope = try OmiPendingHandoffStore.read(from: grown.partitions[1].envelopeURL)
+        XCTAssertEqual(grownEnvelope.sidecar.durationS, 320 / OmiAudioChunkFormat.sampleRate)
+    }
+
+    func testDurableAcknowledgmentExcludesAcknowledgedSequencesFromNextMaterialization() throws {
+        let generation = UUID()
+        let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: MockObserverClock())
+        Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
+        let firstDecoder = try OmiOpusAudioDecoder()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let firstPartition = try XCTUnwrap(first.partitions.first)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generation)
+        XCTAssertEqual(reader.acknowledge(throughSequence: 0), .advanced)
+
+        let secondDecoder = try OmiOpusAudioDecoder()
+        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+        XCTAssertTrue(second.partitions.isEmpty)
+        XCTAssertFalse(second.partitions.contains { $0.coveredThroughSequence == firstPartition.coveredThroughSequence })
     }
 
     func testMarkerOnlyAppendReusesTrailingFrameWithSameIdentity() throws {

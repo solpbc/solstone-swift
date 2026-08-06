@@ -13,6 +13,7 @@ nonisolated enum OmiLaunchCaptureInjectedOperation: Equatable, Sendable {
     case read
     case move
     case exists
+    case listDirectory
     case replace
     case remove
 }
@@ -83,6 +84,12 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     func ensureDirectory(at url: URL) throws {
         self.recordIOCall()
         try self.base.ensureDirectory(at: url)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        self.recordIOCall()
+        try self.throwIfNeeded(.listDirectory)
+        return try self.base.contentsOfDirectory(at: url)
     }
 
     func fileExists(at url: URL) throws -> Bool {
