@@ -51,6 +51,18 @@ final class OmiLaunchCaptureWriter {
         OmiLaunchCaptureFormat.fileURL(rootURL: self.rootURL, generationID: self.generationID)
     }
 
+    func arm() -> Bool {
+        self.prepareIfNeeded()
+        guard case .ready = self.state else { return false }
+        do {
+            let token = try self.io.openOrCreateAppendFile(at: self.fileURL)
+            try self.io.close(token)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func append(_ payload: Data) -> OmiLaunchCaptureAppendOutcome {
         guard payload.count <= OmiLaunchCaptureFormat.maximumPayloadBytes else {
             return .notRetained(.oversizeActualLength)
@@ -58,7 +70,7 @@ final class OmiLaunchCaptureWriter {
         self.beginInFlightPayload(payload)
         defer { self.clearInFlightPayload() }
         self.prepareIfNeeded()
-        guard case .ready(let nextSequence, let lastCommittedRecordEnd) = self.state else {
+        guard case .ready(_, let lastCommittedRecordEnd) = self.state else {
             return self.blockedOutcome()
         }
 
@@ -83,6 +95,28 @@ final class OmiLaunchCaptureWriter {
             lastCommittedRecordEnd: committedEnd,
             retriedPending: didRetryPending
         )
+    }
+
+    func reserveGap() -> OmiLaunchCaptureAppendOutcome {
+        self.prepareIfNeeded()
+        guard case .ready(_, let lastCommittedRecordEnd) = self.state else {
+            return self.blockedOutcome()
+        }
+
+        if let pending {
+            switch self.retry(pending, lastCommittedRecordEnd: lastCommittedRecordEnd) {
+            case .success(let committedEnd):
+                self.clearPending()
+                self.state = .ready(nextSequence: pending.sequence + 1, lastCommittedRecordEnd: committedEnd)
+            case .failure(let reason):
+                return .rejected(.pendingSlotOccupied(pendingSequence: pending.sequence, retryFailure: reason))
+            }
+        }
+
+        guard case .ready(let sequence, let committedEnd) = self.state else {
+            return self.blockedOutcome()
+        }
+        return self.reserveNewGap(sequence: sequence, lastCommittedRecordEnd: committedEnd)
     }
 
     private func prepareIfNeeded() {
@@ -163,6 +197,56 @@ final class OmiLaunchCaptureWriter {
         case .failure(let reason):
             return .visibleGap(sequence: sequence, reason)
         }
+    }
+
+    private func reserveNewGap(
+        sequence: UInt64,
+        lastCommittedRecordEnd: Int
+    ) -> OmiLaunchCaptureAppendOutcome {
+        let token: OmiLaunchCaptureFileToken
+        do {
+            token = try self.io.openOrCreateAppendFile(at: self.fileURL)
+        } catch {
+            return .notRetained(.openFailed)
+        }
+        defer { try? self.io.close(token) }
+
+        let reservationOffset: Int
+        do {
+            reservationOffset = try self.io.fileSize(at: self.fileURL)
+        } catch {
+            return .notRetained(.openFailed)
+        }
+        let header = OmiLaunchCaptureHeader(
+            generationID: self.generationID,
+            sequence: sequence,
+            acquiredAtUnixMicros: OmiLaunchCaptureLogic.unixMicros(self.clock.now()),
+            declaredPayloadBytes: 0
+        ).encoded()
+        do {
+            try self.io.append(header, to: token)
+        } catch {
+            self.discardPreReservationBytes(
+                token,
+                reservationOffset: reservationOffset,
+                lastCommittedRecordEnd: lastCommittedRecordEnd
+            )
+            return .notRetained(.headerWriteFailed)
+        }
+        do {
+            try self.io.fullSynchronize(token)
+        } catch {
+            self.discardPreReservationBytes(
+                token,
+                reservationOffset: reservationOffset,
+                lastCommittedRecordEnd: lastCommittedRecordEnd
+            )
+            return .notRetained(.reservationBarrierFailed)
+        }
+
+        // The reservation barrier makes this exact offset authoritative after a restart.
+        self.state = .blocked(reason: .incompleteReservedRecord, offset: reservationOffset)
+        return .visibleGap(sequence: sequence, .intentionalGap)
     }
 
     private func retry(

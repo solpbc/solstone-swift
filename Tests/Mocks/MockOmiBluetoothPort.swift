@@ -16,6 +16,7 @@ final class MockOmiBluetoothPort: OmiBluetoothPort {
     var readValueCalls: [(UUID, OmiCharacteristicID)] = []
     var readRSSICalls: [UUID] = []
     var setNotifyCalls: [(UUID, OmiCharacteristicID, Bool)] = []
+    var onStart: (@MainActor (any CBCentralManagerDelegate & CBPeripheralDelegate) -> Void)?
 
     var connectCallCount: Int { self.connectCalls.count }
     var cancelConnectionCallCount: Int { self.cancelCalls.count }
@@ -25,7 +26,10 @@ final class MockOmiBluetoothPort: OmiBluetoothPort {
     var readRSSICallCount: Int { self.readRSSICalls.count }
     var setNotifyCallCount: Int { self.setNotifyCalls.count }
 
-    func start(delegate: any CBCentralManagerDelegate & CBPeripheralDelegate) { self.startCallCount += 1 }
+    func start(delegate: any CBCentralManagerDelegate & CBPeripheralDelegate) {
+        self.startCallCount += 1
+        self.onStart?(delegate)
+    }
 
     func register(_ peripheral: CBPeripheral) -> OmiPeripheralDescriptor {
         self.peripheralsByID[peripheral.identifier] ?? OmiPeripheralDescriptor(

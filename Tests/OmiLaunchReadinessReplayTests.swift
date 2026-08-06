@@ -127,8 +127,6 @@ final class OmiLaunchReadinessReplayTests: XCTestCase {
             let peripheral = Self.peripheral(state: .connected, services: [Self.audioService()])
             port.seed(peripheral)
             let manager = OmiSourceManager(defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
-            var rawIngressCount = 0
-            manager.onRawAudioIngress = { _ in rawIngressCount += 1 }
 
             switch scenario {
             case .coldLaunchDisabled:
@@ -150,7 +148,6 @@ final class OmiLaunchReadinessReplayTests: XCTestCase {
             self.assertEffects(port, cancelAtLeast: 1)
             XCTAssertFalse(manager.hasOpusDecoder)
             XCTAssertFalse(manager.didAttemptWriterStart)
-            XCTAssertEqual(rawIngressCount, 0)
 
             port.resetEffectHistory()
             manager.handleCentralStateUpdate(.poweredOn)
@@ -168,14 +165,21 @@ final class OmiLaunchReadinessReplayTests: XCTestCase {
         let harness = makeTransferCutoverHarness(rootURL: rootURL.appendingPathComponent("Transfers", isDirectory: true))
         let writerRoot = rootURL.appendingPathComponent("Omi", isDirectory: true)
         let writer = OmiSegmentWriter(transferEnqueuer: harness.enqueuer, cacheRootURL: writerRoot, clock: MockObserverClock())
+        let captureIO = FaultInjectingOmiLaunchCaptureIO()
+        let captureGeneration = UUID()
+        let ingress = OmiLaunchCaptureIngress(
+            appGroupRoot: { rootURL }, generationID: captureGeneration,
+            clock: MockObserverClock(), io: captureIO
+        )
         let port = MockOmiBluetoothPort()
         let peripheral = Self.peripheral(state: .connected, services: [Self.audioService(audioNotifying: true)])
         port.seed(peripheral)
-        let manager = OmiSourceManager(defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+        let manager = OmiSourceManager(
+            defaults: defaults, clock: MockObserverClock(), bluetoothPort: port,
+            launchCaptureIngress: ingress
+        )
         manager.omiSegmentWriter = writer
-        var rawIngressCount = 0
         var decodedSampleHandoffs = 0
-        manager.onRawAudioIngress = { _ in rawIngressCount += 1 }
         manager.onDecodedSamples = { _ in decodedSampleHandoffs += 1 }
 
         manager.enable()
@@ -185,17 +189,26 @@ final class OmiLaunchReadinessReplayTests: XCTestCase {
         manager.handleUpdatedValue(peripheral, characteristic: Self.audioCharacteristic(value: Self.audioPacket(0)), error: nil)
         manager.handleUpdatedValue(peripheral, characteristic: Self.audioCharacteristic(value: Self.audioPacket(1)), error: nil)
 
-        XCTAssertEqual(rawIngressCount, 2)
         XCTAssertEqual(decodedSampleHandoffs, 0)
         XCTAssertFalse(manager.hasOpusDecoder)
         XCTAssertFalse(manager.didAttemptWriterStart)
         XCTAssertEqual(port.setNotifyCallCount, 0)
         XCTAssertEqual(port.cancelConnectionCallCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: writerRoot.path))
+        let captureRoot = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
+        XCTAssertEqual(
+            OmiLaunchCaptureRecovery(rootURL: captureRoot, generationID: captureGeneration, io: captureIO)
+                .recover().verifiedPrefixNextSequence,
+            2
+        )
 
         await manager.openLaunchReadiness()
         manager.handleUpdatedValue(peripheral, characteristic: Self.audioCharacteristic(value: Self.audioPacket(2)), error: nil)
-        XCTAssertEqual(rawIngressCount, 3)
+        XCTAssertEqual(
+            OmiLaunchCaptureRecovery(rootURL: captureRoot, generationID: captureGeneration, io: captureIO)
+                .recover().verifiedPrefixNextSequence,
+            3
+        )
     }
 }
 

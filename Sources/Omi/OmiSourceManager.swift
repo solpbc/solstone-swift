@@ -89,7 +89,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var lastSilentAttributionAt: Date?
     @ObservationIgnored private var lastSeenMarkerEpoch: UInt32?
     @ObservationIgnored private(set) var deferredReadinessPeripheralID: UUID?
-    @ObservationIgnored var onRawAudioIngress: (@MainActor (Data) -> Void)?
+    @ObservationIgnored private let launchCaptureIngress: OmiLaunchCaptureIngress?
+    @ObservationIgnored private var captureRequiresExplicitResume: Bool
 
     var hasOpusDecoder: Bool { self.opusDecoder != nil }
 
@@ -102,23 +103,40 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         diagnostics: OmiDiagnostics = OmiDiagnostics(),
         heardTally: OmiHeardTally = OmiHeardTally(),
         clock: any ObserverClock = SystemObserverClock(),
-        bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort()
+        bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort(),
+        launchCaptureIngress: OmiLaunchCaptureIngress? = nil
     ) {
         self.defaults = defaults
         self.diagnostics = diagnostics
         self.heardTally = heardTally
         self.clock = clock
         self.bluetoothPort = bluetoothPort
+        self.launchCaptureIngress = launchCaptureIngress
+        self.captureRequiresExplicitResume = launchCaptureIngress.map {
+            $0.didAttemptInitialArm && !$0.isArmed
+        } ?? false
         self.enabled = defaults.bool(forKey: Self.enabledKey)
         self.lastKnownBattery = diagnostics.payload.pendantBatteryTrend.last.map {
             TimedReading(value: $0.level, at: $0.timestamp)
         }
         self.lastKnownSignal = nil
+        self.writerFaulted = self.captureRequiresExplicitResume
         super.init()
         self.bluetoothPort.start(delegate: self)
     }
 
     func enable() {
+        if self.captureRequiresExplicitResume {
+            self.noteWriterFault()
+            return
+        }
+        if let launchCaptureIngress, !launchCaptureIngress.isArmed {
+            guard launchCaptureIngress.armForFirstEnable() else {
+                self.captureRequiresExplicitResume = true
+                self.noteWriterFault()
+                return
+            }
+        }
         self.enabled = true
         self.persistEnabled(true)
         self.manuallyDisconnected = false
@@ -306,6 +324,21 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
     }
 
+    func resumeLaunchCaptureOnce() async -> Bool {
+        guard self.captureRequiresExplicitResume,
+              let launchCaptureIngress,
+              launchCaptureIngress.resumeOnce()
+        else {
+            return false
+        }
+        self.captureRequiresExplicitResume = false
+        self.writerFaulted = false
+        if self.isLaunchReady {
+            await self.resumeIfEnabled()
+        }
+        return true
+    }
+
     func handleWillRestoreState(restoredCount: Int) {
         self.log.info("omi restore received: \(restoredCount, privacy: .public) peripherals")
     }
@@ -435,9 +468,20 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 }
 
 extension OmiSourceManager {
-    func handleAudioData(_ data: Data) {
+    func handleAudioData(_ data: Data, peripheralID: UUID) {
         guard !self.isOmiWorkDisabled else { return }
-        self.onRawAudioIngress?(data)
+        if let launchCaptureIngress {
+            switch launchCaptureIngress.ingest(data) {
+            case .none:
+                break
+            case .fault(let shouldCancelConnection):
+                self.noteWriterFault()
+                if shouldCancelConnection {
+                    self.bluetoothPort.cancelConnection(peripheralID: peripheralID)
+                }
+            }
+            return
+        }
         let output = self.reassembler.ingest(data)
 
         for marker in output.markers {
@@ -566,6 +610,12 @@ extension OmiSourceManager {
         }
         self.advanceReadiness(for: peripheral)
     }
+
+    func shouldBlockForUnarmedLaunchCapture(peripheralID: UUID) -> Bool {
+        guard self.captureRequiresExplicitResume else { return false }
+        self.bluetoothPort.cancelConnection(peripheralID: peripheralID)
+        return true
+    }
 }
 
 private extension OmiSourceManager {
@@ -655,6 +705,7 @@ extension OmiSourceManager {
             self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
             return
         }
+        guard !self.shouldBlockForUnarmedLaunchCapture(peripheralID: peripheral.id) else { return }
         self.peripheralsByID[peripheral.id] = peripheral
         self.cacheRestoredCharacteristics(in: peripheral)
 
@@ -747,6 +798,7 @@ extension OmiSourceManager {
             self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
             return
         }
+        guard !self.shouldBlockForUnarmedLaunchCapture(peripheralID: peripheral.id) else { return }
         guard self.isLaunchReady else {
             self.deferredReadinessPeripheralID = peripheral.id
             return
@@ -871,6 +923,7 @@ extension OmiSourceManager {
             self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
             return
         }
+        guard !self.shouldBlockForUnarmedLaunchCapture(peripheralID: peripheral.id) else { return }
         guard self.isLaunchReady else {
             self.deferredReadinessPeripheralID = peripheral.id
             return
@@ -899,6 +952,7 @@ extension OmiSourceManager {
             self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
             return
         }
+        guard !self.shouldBlockForUnarmedLaunchCapture(peripheralID: peripheral.id) else { return }
         guard self.isLaunchReady else {
             self.deferredReadinessPeripheralID = peripheral.id
             return
@@ -934,6 +988,7 @@ extension OmiSourceManager {
             self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
             return
         }
+        guard !self.shouldBlockForUnarmedLaunchCapture(peripheralID: peripheral.id) else { return }
         if characteristic.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID) {
             if let error {
                 self.log.error("omi audio stream failed: \(error.localizedDescription, privacy: .public)")
@@ -943,7 +998,7 @@ extension OmiSourceManager {
                 self.log.error("omi audio stream empty")
                 return
             }
-            self.handleAudioData(data)
+            self.handleAudioData(data, peripheralID: peripheral.id)
             return
         }
 
@@ -985,6 +1040,7 @@ extension OmiSourceManager {
             self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
             return
         }
+        guard !self.shouldBlockForUnarmedLaunchCapture(peripheralID: peripheral.id) else { return }
         guard self.isLaunchReady else {
             self.deferredReadinessPeripheralID = peripheral.id
             if characteristic.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID),

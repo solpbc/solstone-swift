@@ -503,7 +503,7 @@ struct SolstoneSwiftApp: App {
             }
         )
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
-        let omiSource = OmiSourceManager()
+        let omiSource = makeOmiSourceManager(clock: observerClock)
         let omiHeardTally = omiSource.heardTally
         omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
             omiHeardTally.record(day: day, durationS: durationS, identity: identity)
@@ -768,6 +768,7 @@ struct SolstoneSwiftApp: App {
 #endif
                 .task {
                     await self.bootstrapTransfer()
+                    _ = await self.omiSourceManager.resumeLaunchCaptureOnce()
                 }
                 .task {
                     self.mobileHealthBeacon.start()

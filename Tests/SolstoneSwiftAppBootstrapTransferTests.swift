@@ -162,9 +162,36 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1, "failure point: \(failurePoint)")
         }
     }
+
+    @MainActor
+    func testSuccessfulInitializationStillDispatchesQueuedItemAfterBootstrapFailures() async {
+        for failurePoint in [BootstrapFailurePoint.appGroup, .migration, .reconciliation] {
+            var events: [String] = []
+            await SolstoneSwiftApp.bootstrapTransfer(
+                initialize: { events.append("initialize") },
+                appGroupRoot: {
+                    if failurePoint == .appGroup { throw BootstrapTransferTestError.expected }
+                    return URL(fileURLWithPath: "/tmp/bootstrap-transfer-root")
+                },
+                cachesRootURL: nil,
+                migrate: { _, _ in
+                    if failurePoint == .migration { throw BootstrapTransferTestError.expected }
+                },
+                reconcile: { _ in
+                    if failurePoint == .reconciliation { throw BootstrapTransferTestError.expected }
+                },
+                enableDispatch: { events.append("queued-item-sent") },
+                openOmiReadiness: { events.append("omi-readiness") },
+                reportFailure: { _, _ in events.append("failure") }
+            )
+            XCTAssertTrue(events.contains("queued-item-sent"), "failure point: \(failurePoint)")
+            XCTAssertTrue(events.contains("omi-readiness"), "failure point: \(failurePoint)")
+        }
+    }
 }
 
 private enum BootstrapFailurePoint: Sendable {
+    case appGroup
     case migration
     case reconciliation
 }

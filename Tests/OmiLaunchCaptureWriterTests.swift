@@ -200,6 +200,79 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         XCTAssertEqual(nextGenerationWriter.append(Data("fresh".utf8)), .retained(sequence: 0, retriedPending: false))
     }
 
+    func testReserveGapRetriesPendingThenLeavesExactBoundary() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        let payload = Data("pending".utf8)
+        io.failBarrier(onCall: 2)
+        XCTAssertEqual(writer.append(payload), .visibleGap(sequence: 0, .commitBarrierFailed))
+
+        io.clearFaults()
+        XCTAssertEqual(writer.reserveGap(), .visibleGap(sequence: 1, .intentionalGap))
+        try io.restoreLastSynchronizedState()
+
+        let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
+        let expectedOffset = OmiLaunchCaptureFormat.headerByteCount
+            + payload.count
+            + OmiLaunchCaptureFormat.recordTagByteCount
+        XCTAssertEqual(recovery.verifiedPrefixNextSequence, 1)
+        XCTAssertEqual(recovery.verifiedPrefixEndOffset, expectedOffset)
+        XCTAssertEqual(recovery.boundarySequence, 1)
+        XCTAssertEqual(recovery.boundaryReason, .incompleteReservedRecord)
+        XCTAssertEqual(recovery.boundaryOffset, expectedOffset)
+
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        guard case .lease(let lease) = reader.lease() else { return XCTFail("expected retained prefix") }
+        XCTAssertEqual(lease.records.map(\.payload), [payload])
+        XCTAssertEqual(reader.acknowledge(throughSequence: 0), .advanced)
+        XCTAssertEqual(reader.acknowledge(throughSequence: 1), .refused(.pastVerifiedPrefix))
+    }
+
+    func testFailedGapReservationDoesNotFabricateBoundary() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        let payload = Data("pending".utf8)
+        io.failBarrier(onCall: 2)
+        XCTAssertEqual(writer.append(payload), .visibleGap(sequence: 0, .commitBarrierFailed))
+
+        io.clearFaults()
+        // Retrying P writes header, body, and tag before the Q reservation header.
+        io.failWrite(onCall: 4, afterBytes: 0)
+        XCTAssertEqual(writer.reserveGap(), .notRetained(.headerWriteFailed))
+        try io.restoreLastSynchronizedState()
+
+        let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
+        XCTAssertEqual(recovery.verifiedPrefixNextSequence, 1)
+        XCTAssertNil(recovery.boundarySequence)
+        XCTAssertNil(recovery.boundaryReason)
+    }
+
+    func testCrashBeforePendingRecordCommitLeavesPendingRecordAsFirstBoundary() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        let payload = Data("P".utf8)
+        io.failWrite(onCall: 2, afterBytes: 0)
+        XCTAssertEqual(writer.append(payload), .visibleGap(sequence: 0, .payloadWriteFailed))
+
+        // Q can never be reserved ahead of P's commit.
+        io.failWrite(onCall: 2, afterBytes: 0)
+        XCTAssertEqual(
+            writer.reserveGap(),
+            .rejected(.pendingSlotOccupied(pendingSequence: 0, retryFailure: .payloadWriteFailed))
+        )
+        try io.restoreLastSynchronizedState()
+
+        let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
+        XCTAssertEqual(recovery.boundarySequence, 0)
+        XCTAssertEqual(recovery.boundaryReason, .incompleteReservedRecord)
+        XCTAssertEqual(recovery.boundaryOffset, 0)
+        XCTAssertEqual(recovery.verifiedPrefixNextSequence, 0)
+        XCTAssertEqual(OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io).lease(), .empty)
+    }
+
     private func writer(
         generation: UUID = UUID(),
         io: FaultInjectingOmiLaunchCaptureIO

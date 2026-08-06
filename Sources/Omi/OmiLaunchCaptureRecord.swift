@@ -64,6 +64,8 @@ nonisolated enum OmiLaunchCaptureGapReason: String, Error, Equatable, Sendable {
     case payloadWriteFailed
     case recordTagWriteFailed
     case commitBarrierFailed
+    // This is representable in pendingSlotOccupied(retryFailure:) but is never produced there.
+    case intentionalGap
 }
 
 nonisolated enum OmiLaunchCaptureRejectionReason: Equatable, Sendable {
