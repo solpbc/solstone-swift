@@ -738,6 +738,10 @@ private final class BlockingMoveTransferFileSystem: TransferFileSystem, @uncheck
     func byteCount(at url: URL) throws -> Int {
         try self.base.byteCount(at: url)
     }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        try self.base.readChunks(at: url, chunkSize: chunkSize, consume)
+    }
 }
 
 private final class HandoffRemovalFailingFileManager: FileManager {

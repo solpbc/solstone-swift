@@ -232,6 +232,8 @@ actor TransferEngine {
     private var deliveredHooks: [String: TransferDeliveredHook] = [:]
     private var workPassScheduled = false
     private var workPassRunning = false
+    private var dispatchSuspendedForLaunch = false
+    private var initializedForLaunch = false
     private var lastEventSummary: String?
     private var lastLoggedDispatchDecision: TransferDispatchLogState?
     private var pendingStatusSnapshot: TransferStatusSnapshot?
@@ -263,7 +265,9 @@ actor TransferEngine {
         self.bodyBuilder = bodyBuilder
     }
 
-    func start() throws {
+    func initialize() throws {
+        guard !self.initializedForLaunch else { return }
+        self.dispatchSuspendedForLaunch = true
         let snapshot = try self.spool.initialize(now: self.clock.wallNow())
         self.queuedItems = Dictionary(uniqueKeysWithValues: snapshot.queued.map { ($0.manifest.itemID, $0) })
         self.attentionItems = Dictionary(uniqueKeysWithValues: snapshot.attention.map { ($0.manifest.itemID, $0) })
@@ -305,7 +309,18 @@ actor TransferEngine {
             self.emitRecoveryDiagnostic(diagnostic)
         }
         self.scheduleStatusUpdate(summary: "queued")
+        self.initializedForLaunch = true
+    }
+
+    func enableDispatch() {
+        guard self.dispatchSuspendedForLaunch else { return }
+        self.dispatchSuspendedForLaunch = false
         self.scheduleWork()
+    }
+
+    func start() throws {
+        try self.initialize()
+        self.enableDispatch()
     }
 
     /// Declare only parts that physically exist at enqueue time. A part that is
@@ -345,8 +360,14 @@ actor TransferEngine {
             .manifest.itemID
     }
 
-    func locateCommittedOrSalvagedItem(itemID: UUID) throws -> TransferSpoolItemLocation? {
-        try self.spool.locateCommittedOrSalvagedItem(itemID: itemID)
+    func verifyOwnership(
+        expectedManifest: TransferManifest,
+        expectedPayloadSourceURLs: [String: URL]
+    ) throws -> TransferOwnershipVerdict {
+        try self.spool.verifyOwnership(
+            expectedManifest: expectedManifest,
+            expectedPayloadSourceURLs: expectedPayloadSourceURLs
+        )
     }
 
     @discardableResult
@@ -609,6 +630,7 @@ actor TransferEngine {
 
     private func scheduleWork() {
         guard !self.paused else { return }
+        guard !self.dispatchSuspendedForLaunch else { return }
         guard !self.workPassScheduled else { return }
         self.workPassScheduled = true
         self.retrySleepTask?.cancel()

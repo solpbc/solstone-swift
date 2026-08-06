@@ -112,11 +112,10 @@ enum OmiInProgressRecovery {
                         sidecar: envelope.sidecar,
                         metadata: envelope.metadata
                     )
-                    if OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
-                        if !envelope.frozenTokens.isEmpty {
-                            acknowledgeTokens(envelope.frozenTokens)
-                        }
-                    } else {
+                    if !envelope.frozenTokens.isEmpty {
+                        acknowledgeTokens(envelope.frozenTokens)
+                    }
+                    if !OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }
@@ -171,8 +170,8 @@ enum OmiInProgressRecovery {
             }
         }
 
-        // TransferEngine.start() precedes this recovery, so staging leftovers have
-        // already been promoted or salvaged; reconciliation intentionally skips staging.
+        // Bootstrap initializes Transfer before reconciliation but leaves dispatch suspended.
+        // Evidence reports staging instead of allowing Omi to promote it.
         for envelopeURL in entries where envelopeURL.pathExtension == OmiPendingHandoffEnvelope.pathExtension {
             let audioURL = envelopeURL.deletingPathExtension().appendingPathExtension("m4a")
             guard !audioURLs.contains(audioURL) else { continue }
@@ -185,30 +184,27 @@ enum OmiInProgressRecovery {
                 continue
             }
             do {
-                switch try await transferEnqueuer.locateOmiTransfer(itemID: envelope.itemID) {
-                case .queued, .attention:
+                switch try await transferEnqueuer.verifyOmiOwnership(
+                    itemID: envelope.itemID,
+                    sidecar: envelope.sidecar,
+                    metadata: envelope.metadata,
+                    expectedPayloadSourceURLs: [:]
+                ) {
+                case .ownedInQueued, .ownedInAttention:
+                    if !envelope.frozenTokens.isEmpty {
+                        acknowledgeTokens(envelope.frozenTokens)
+                    }
                     if OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
-                        if !envelope.frozenTokens.isEmpty {
-                            acknowledgeTokens(envelope.frozenTokens)
-                        }
                     } else {
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }
-                case .salvage:
-                    _ = OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager)
+                case let verdict:
                     result.unresolvedCount += 1
                     self.emitDiagnostic(
                         diagnosticLog: diagnosticLog,
                         message: "needs attention",
-                        detail: "source=\(envelopeURL.path) reason=envelope audio in salvage"
-                    )
-                case nil:
-                    result.unresolvedCount += 1
-                    self.emitDiagnostic(
-                        diagnosticLog: diagnosticLog,
-                        message: "needs attention",
-                        detail: "source=\(envelopeURL.path) reason=envelope audio missing and item unlocatable"
+                        detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(verdict))"
                     )
                 }
             } catch {
@@ -216,7 +212,7 @@ enum OmiInProgressRecovery {
                 self.emitDiagnostic(
                     diagnosticLog: diagnosticLog,
                     message: "needs attention",
-                    detail: "source=\(envelopeURL.path) reason=envelope item lookup failed"
+                    detail: "source=\(envelopeURL.path) reason=item lookup failed"
                 )
                 omiRecoveryLog.error("omi handoff lookup failed source=\(envelopeURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
             }

@@ -2418,6 +2418,15 @@ private final class CountingTransferFileSystem: TransferFileSystem, @unchecked S
         }
         return size.intValue
     }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while true {
+            guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
+            try consume(data)
+        }
+    }
 }
 
 final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Sendable {
@@ -2482,6 +2491,15 @@ final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Senda
         }
         return size.intValue
     }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while true {
+            guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
+            try consume(data)
+        }
+    }
 }
 
 private struct ForcedMoveFailure: Error, CustomStringConvertible, Sendable {
@@ -2543,6 +2561,15 @@ private final class FailingMoveTransferFileSystem: TransferFileSystem, @unchecke
             throw CocoaError(.fileReadUnknown)
         }
         return size.intValue
+    }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while true {
+            guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
+            try consume(data)
+        }
     }
 }
 

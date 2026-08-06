@@ -90,6 +90,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             legacyCachesRootURL: legacyRoot,
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
             defaults: defaults
         )
 
@@ -130,6 +131,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             legacyCachesRootURL: legacyRoot,
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
             defaults: defaults
         )
         let snapshotsAfterSecondRun = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
@@ -159,6 +161,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             legacyCachesRootURL: nil,
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
             defaults: defaults
         )
 
@@ -209,6 +212,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             legacyCachesRootURL: nil,
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
             defaults: defaults
         )
 
@@ -238,6 +242,7 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
             legacyCachesRootURL: nil,
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: diagnosticLog,
+            acknowledgeTokens: { _ in },
             defaults: defaults,
             fileManager: QuarantineMoveFailingFileManager()
         )
@@ -336,6 +341,39 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         let snapshot = try XCTUnwrap(snapshots.first)
         XCTAssertEqual(snapshot.manifest.itemID, itemID)
         XCTAssertEqual(OmiSegmentMetadata.from(meta: snapshot.manifest.meta)?.connectionState, "reconnecting")
+    }
+
+    func testCommittedEnvelopeRestartCleansWithoutSecondEnqueue() async throws {
+        let appGroupRoot = self.tempDirectory.appendingPathComponent("restart", isDirectory: true)
+        let omiRoot = self.appGroupOmiRoot(appGroupRoot)
+        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
+        let sessionID = UUID()
+        let itemID = UUID()
+        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
+        let source = try self.seedChunk(rootURL: omiRoot, sessionID: sessionID, directoryName: "pending", chunkID: "\(sessionID.uuidString.lowercased())-0", sidecar: sidecar, includeDerivedFiles: true)
+        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
+        let envelopeURL = OmiPendingHandoffStore.url(for: source.audioURL)
+        try OmiPendingHandoffStore.write(try OmiPendingHandoffStore.encode(OmiPendingHandoffEnvelope(itemID: itemID, sidecar: sidecar, metadata: nil, frozenTokens: [token])), to: envelopeURL)
+        let first = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await first.engine.start()
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar, metadata: nil)
+        _ = try await first.engine.enqueue(manifest: manifest, payloads: ["audio": Data(contentsOf: source.audioURL)])
+
+        let second = makeTransferCutoverHarness(rootURL: transferRoot)
+        try await second.engine.start()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: self.defaultsSuiteName))
+        var acknowledgements: [[OmiSegmentMetadataToken]] = []
+        await OmiTransferSpoolMigrator.migrate(appGroupRootURL: appGroupRoot, legacyCachesRootURL: nil, transferEnqueuer: second.enqueuer, diagnosticLog: nil, acknowledgeTokens: { acknowledgements.append($0) }, defaults: defaults)
+        let snapshots = await second.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.filter { $0.manifest.itemID == itemID }.count, 1)
+        XCTAssertEqual(acknowledgements, [[token]])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.audioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.sidecarURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.uploadURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.failureURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: envelopeURL.path))
+        XCTAssertFalse(transferTestPathExists(containing: itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.stagingDirectoryName, isDirectory: true)))
+        XCTAssertFalse(transferTestPathExists(containing: itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.salvageDirectoryName, isDirectory: true)))
     }
 }
 

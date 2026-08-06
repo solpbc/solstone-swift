@@ -115,8 +115,17 @@ final class ObserverAudioTransferEnqueuer {
         return try await self.engine.enqueue(manifest: manifest, payloadFileURLs: ["audio": chunkURL])
     }
 
-    func locateOmiTransfer(itemID: UUID) async throws -> TransferSpoolItemLocation? {
-        try await self.engine.locateCommittedOrSalvagedItem(itemID: itemID)
+    func verifyOmiOwnership(
+        itemID: UUID,
+        sidecar: ChunkSidecar,
+        metadata: OmiSegmentMetadata?,
+        expectedPayloadSourceURLs: [String: URL]
+    ) async throws -> TransferOwnershipVerdict {
+        let manifest = Self.makeOmiManifest(itemID: itemID, sidecar: sidecar, metadata: metadata)
+        return try await self.engine.verifyOwnership(
+            expectedManifest: manifest,
+            expectedPayloadSourceURLs: expectedPayloadSourceURLs
+        )
     }
 
     @discardableResult

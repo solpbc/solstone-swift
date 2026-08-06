@@ -299,4 +299,8 @@ private final class MoveFailingTransferFileSystem: TransferFileSystem, @unchecke
     func byteCount(at url: URL) throws -> Int {
         try self.delegate.byteCount(at: url)
     }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        try self.delegate.readChunks(at: url, chunkSize: chunkSize, consume)
+    }
 }

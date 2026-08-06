@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import Crypto
 import Foundation
 
 nonisolated protocol TransferFileSystem: Sendable {
@@ -13,6 +14,7 @@ nonisolated protocol TransferFileSystem: Sendable {
     func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     func data(contentsOf url: URL) throws -> Data
     func byteCount(at url: URL) throws -> Int
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws
 }
 
 nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unchecked Sendable {
@@ -65,6 +67,15 @@ nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unche
         }
         return size.intValue
     }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while true {
+            guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
+            try consume(data)
+        }
+    }
 }
 
 nonisolated struct TransferSpoolSnapshot: Equatable, Sendable {
@@ -105,10 +116,21 @@ nonisolated struct TransferRecoveryDiagnostic: Equatable, Sendable {
     var detail: String
 }
 
-nonisolated enum TransferSpoolItemLocation: Equatable, Sendable {
-    case queued(URL)
-    case attention(URL)
-    case salvage(URL)
+nonisolated enum TransferOwnershipConflictReason: Equatable, Sendable {
+    case ownerConflict
+    case manifestMismatch
+    case manifestUndecodable
+    case payloadMismatch
+    case payloadUnreadable
+}
+
+nonisolated enum TransferOwnershipVerdict: Equatable, Sendable {
+    case ownedInQueued
+    case ownedInAttention
+    case conflict(TransferOwnershipConflictReason)
+    case stagingOnly
+    case salvageOnly
+    case notFound
 }
 
 nonisolated struct TransferSpool: Sendable {
@@ -313,26 +335,44 @@ nonisolated struct TransferSpool: Sendable {
         return try self.moveStagedItemToQueued(sourceURL: sourceURL, destinationURL: destinationURL)
     }
 
-    func locateCommittedOrSalvagedItem(itemID: UUID) throws -> TransferSpoolItemLocation? {
-        let name = itemID.uuidString
+    /// Ownership comparison round-trips both manifests through the spool codec,
+    /// then ignores fields rewritten by spool/engine state transitions: disk state,
+    /// retry deadline, attention, save/start state, app version, and staged byte counts.
+    func verifyOwnership(
+        expectedManifest: TransferManifest,
+        expectedPayloadSourceURLs: [String: URL]
+    ) throws -> TransferOwnershipVerdict {
+        let name = expectedManifest.itemID.uuidString
         let queued = self.queuedDirectoryURL.appendingPathComponent(name, isDirectory: true)
-        if self.fileSystem.fileExists(atPath: queued.path) {
-            return .queued(queued)
-        }
         let attention = self.attentionDirectoryURL.appendingPathComponent(name, isDirectory: true)
-        if self.fileSystem.fileExists(atPath: attention.path) {
-            return .attention(attention)
+        let staging = self.stagingDirectoryURL.appendingPathComponent(name, isDirectory: true)
+        let hasQueued = self.fileSystem.fileExists(atPath: queued.path)
+        let hasAttention = self.fileSystem.fileExists(atPath: attention.path)
+        let hasStaging = self.fileSystem.fileExists(atPath: staging.path)
+        let hasSalvage = try self.hasSalvageItem(named: name)
+
+        if hasQueued && hasAttention {
+            return .conflict(.ownerConflict)
         }
-        guard self.fileSystem.fileExists(atPath: self.salvageDirectoryURL.path) else { return nil }
-        for reason in try self.fileSystem.contentsOfDirectory(at: self.salvageDirectoryURL) {
-            for recovery in try self.fileSystem.contentsOfDirectory(at: reason) {
-                let candidate = recovery.appendingPathComponent(name, isDirectory: true)
-                if self.fileSystem.fileExists(atPath: candidate.path) {
-                    return .salvage(candidate)
-                }
-            }
+        if hasQueued {
+            return self.verifyCommittedCandidate(
+                at: queued,
+                ownedVerdict: .ownedInQueued,
+                expectedManifest: expectedManifest,
+                expectedPayloadSourceURLs: expectedPayloadSourceURLs
+            )
         }
-        return nil
+        if hasAttention {
+            return self.verifyCommittedCandidate(
+                at: attention,
+                ownedVerdict: .ownedInAttention,
+                expectedManifest: expectedManifest,
+                expectedPayloadSourceURLs: expectedPayloadSourceURLs
+            )
+        }
+        if hasStaging { return .stagingOnly }
+        if hasSalvage { return .salvageOnly }
+        return .notFound
     }
 
     func writeManifestAtomically(_ manifest: TransferManifest, in directoryURL: URL) throws {
@@ -605,6 +645,100 @@ nonisolated struct TransferSpool: Sendable {
             return lhs.manifest.itemID.uuidString < rhs.manifest.itemID.uuidString
         }
         return lhs.manifest.createdAt < rhs.manifest.createdAt
+    }
+
+    private func hasSalvageItem(named name: String) throws -> Bool {
+        guard self.fileSystem.fileExists(atPath: self.salvageDirectoryURL.path) else { return false }
+        for reason in try self.fileSystem.contentsOfDirectory(at: self.salvageDirectoryURL) {
+            for recovery in try self.fileSystem.contentsOfDirectory(at: reason) {
+                let candidate = recovery.appendingPathComponent(name, isDirectory: true)
+                if self.fileSystem.fileExists(atPath: candidate.path) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func verifyCommittedCandidate(
+        at directoryURL: URL,
+        ownedVerdict: TransferOwnershipVerdict,
+        expectedManifest: TransferManifest,
+        expectedPayloadSourceURLs: [String: URL]
+    ) -> TransferOwnershipVerdict {
+        let candidate: TransferManifest
+        do {
+            candidate = try self.readManifest(in: directoryURL).validatedForScan()
+        } catch {
+            return .conflict(.manifestUndecodable)
+        }
+        guard candidate.itemID == expectedManifest.itemID,
+              candidate.source == expectedManifest.source,
+              self.manifestsMatchForOwnership(candidate, expectedManifest)
+        else {
+            return .conflict(.manifestMismatch)
+        }
+        for part in candidate.payloadParts {
+            let payloadURL: URL
+            do {
+                payloadURL = try self.payloadURL(for: part, in: directoryURL)
+                guard self.fileSystem.fileExists(atPath: payloadURL.path),
+                      let expectedByteCount = part.byteCount,
+                      try self.fileSystem.byteCount(at: payloadURL) == expectedByteCount
+                else {
+                    return .conflict(.payloadMismatch)
+                }
+            } catch {
+                return .conflict(.payloadUnreadable)
+            }
+            if let sourceURL = expectedPayloadSourceURLs[part.partID] {
+                do {
+                    guard try self.digest(at: sourceURL) == self.digest(at: payloadURL) else {
+                        return .conflict(.payloadMismatch)
+                    }
+                } catch {
+                    return .conflict(.payloadUnreadable)
+                }
+            }
+        }
+        return ownedVerdict
+    }
+
+    private func manifestsMatchForOwnership(_ candidate: TransferManifest, _ expected: TransferManifest) -> Bool {
+        do {
+            let normalizedCandidate = self.normalizedForOwnershipComparison(
+                try Self.decoder().decode(TransferManifest.self, from: Self.encoder().encode(candidate))
+            )
+            let normalizedExpected = self.normalizedForOwnershipComparison(
+                try Self.decoder().decode(TransferManifest.self, from: Self.encoder().encode(expected))
+            )
+            return try Self.encoder().encode(normalizedCandidate) == Self.encoder().encode(normalizedExpected)
+        } catch {
+            return false
+        }
+    }
+
+    private func normalizedForOwnershipComparison(_ manifest: TransferManifest) -> TransferManifest {
+        var normalized = manifest
+        normalized.diskState = .queued
+        normalized.nextAttemptAt = nil
+        normalized.attention = nil
+        normalized.saveThenStart = nil
+        normalized.appVersion = nil
+        normalized.payloadParts = normalized.payloadParts.map { part in
+            var part = part
+            part.byteCount = nil
+            return part
+        }
+        return normalized
+    }
+
+    private func digest(at url: URL) throws -> SHA256.Digest {
+        var hasher = SHA256()
+        try self.fileSystem.readChunks(at: url, chunkSize: 64 * 1024) { data in
+            hasher.update(data: data)
+        }
+        return hasher.finalize()
     }
 
     private func readManifest(in directoryURL: URL) throws -> TransferManifest {

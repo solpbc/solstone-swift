@@ -115,6 +115,40 @@ struct SolstoneSwiftApp: App {
         await requestDrain()
     }
 
+    @MainActor
+    static func bootstrapTransfer(
+        initialize: () async throws -> Void,
+        appGroupRoot: () throws -> URL,
+        cachesRootURL: URL?,
+        migrate: (URL, URL?) async throws -> Void,
+        reconcile: (URL) async throws -> Void,
+        enableDispatch: () async -> Void,
+        reportFailure: (String, (any Error)?) -> Void
+    ) async {
+        do {
+            try await initialize()
+        } catch {
+            reportFailure("start failed", error)
+            await enableDispatch()
+            return
+        }
+        let rootURL: URL
+        do {
+            rootURL = try appGroupRoot()
+        } catch {
+            reportFailure("app-group unavailable", error)
+            await enableDispatch()
+            return
+        }
+        do {
+            try await migrate(rootURL, cachesRootURL)
+            try await reconcile(rootURL)
+        } catch {
+            reportFailure("migration failed", error)
+        }
+        await enableDispatch()
+    }
+
     private static var shouldUseUITestObserverRecorder: Bool {
 #if DEBUG
         ProcessInfo.processInfo.arguments.contains("--ui-test-observer-recorder")
@@ -950,68 +984,71 @@ struct SolstoneSwiftApp: App {
             }
         }
 
-        do {
-            self.transferConditionsSource.start {
-                Task {
-                    await self.transferEngine.kick()
+        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        await Self.bootstrapTransfer(
+            initialize: {
+                self.transferConditionsSource.start {
+                    Task { await self.transferEngine.kick() }
+                }
+                try await self.transferEngine.initialize()
+            },
+            appGroupRoot: {
+                try AppGroupContainer.rootURL()
+            },
+            cachesRootURL: cachesRoot,
+            migrate: { appGroupRoot, cacheRoot in
+                await OmiTransferSpoolMigrator.migrate(
+                    appGroupRootURL: appGroupRoot,
+                    legacyCachesRootURL: cacheRoot?.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
+                    transferEnqueuer: self.transferEnqueuer,
+                    diagnosticLog: self.diagnosticLog,
+                    acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
+                        omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
+                    }
+                )
+                await WatchTransferSpoolMigrator.migrate(
+                    appGroupRootURL: appGroupRoot,
+                    legacyRootURL: (cacheRoot ?? FileManager.default.temporaryDirectory)
+                        .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true),
+                    transferEnqueuer: self.transferEnqueuer,
+                    diagnosticLog: self.diagnosticLog
+                )
+                await MobileSegmentTransferSpoolMigrator.migrate(
+                    appGroupRootURL: appGroupRoot,
+                    observerCacheRootURL: cacheRoot?.appendingPathComponent("Observer", isDirectory: true),
+                    store: self.mobileSegmentUploader.storeForTransferMigration,
+                    diagnosticLog: self.diagnosticLog
+                )
+                await ShareImportTransferSpoolMigrator.migrate(
+                    appGroupRootURL: appGroupRoot,
+                    store: self.shareImportStore,
+                    transferEngine: self.transferEngine,
+                    diagnosticLog: self.diagnosticLog
+                )
+            },
+            reconcile: { appGroupRoot in
+                await self.mobileSegmentUploader.resumeFromDisk()
+                self.shareImportStore.refreshFromDisk()
+                if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
+                    await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)
+                }
+            },
+            enableDispatch: {
+                await self.transferEngine.enableDispatch()
+            },
+            reportFailure: { reason, error in
+                self.diagnosticLog.append(
+                    category: .upload,
+                    severity: .warning,
+                    message: "needs attention",
+                    detail: "source=transfer reason=\(reason)"
+                )
+                if let error {
+                    Logger(subsystem: "app.solstone.swift", category: "transfer")
+                        .error("transfer start failed: \(String(describing: error), privacy: .public)")
                 }
             }
-            // PathMonitor's first value is asynchronous and debounced, so cold launch may still allow
-            // up to ~200ms of 2-lane dispatch on a cellular/constrained path.
-            try await self.transferEngine.start()
-        } catch {
-            self.diagnosticLog.append(
-                category: .upload,
-                severity: .warning,
-                message: "needs attention",
-                detail: "source=transfer reason=start failed"
-            )
-            Logger(subsystem: "app.solstone.swift", category: "transfer")
-                .error("transfer start failed: \(String(describing: error), privacy: .public)")
-        }
-
-        guard let appGroupRoot = try? AppGroupContainer.rootURL() else {
-            self.diagnosticLog.append(
-                category: .upload,
-                severity: .warning,
-                message: "needs attention",
-                detail: "source=transfer reason=app-group unavailable"
-            )
-            return
-        }
-
-        let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-        await OmiTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            legacyCachesRootURL: cachesRoot?.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
-            transferEnqueuer: self.transferEnqueuer,
-            diagnosticLog: self.diagnosticLog
         )
-        await WatchTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            legacyRootURL: (cachesRoot ?? FileManager.default.temporaryDirectory)
-                .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true),
-            transferEnqueuer: self.transferEnqueuer,
-            diagnosticLog: self.diagnosticLog
-        )
-        await MobileSegmentTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            observerCacheRootURL: cachesRoot?.appendingPathComponent("Observer", isDirectory: true),
-            store: self.mobileSegmentUploader.storeForTransferMigration,
-            diagnosticLog: self.diagnosticLog
-        )
-        await ShareImportTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            store: self.shareImportStore,
-            transferEngine: self.transferEngine,
-            diagnosticLog: self.diagnosticLog
-        )
-        await self.mobileSegmentUploader.resumeFromDisk()
-        self.shareImportStore.refreshFromDisk()
-
-        if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
-            await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)
-        }
     }
 
     private func recoverOmiInProgress(appGroupRootURL: URL) async {
