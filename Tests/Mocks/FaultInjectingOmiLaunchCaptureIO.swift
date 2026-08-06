@@ -27,6 +27,8 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     private var failingWriteAfterBytes: Int?
     private var barrierCallCount = 0
     private var failingBarrierCall: Int?
+    private var existsCallCountByURL: [URL: Int] = [:]
+    private var failingExistsFromCall: (url: URL, call: Int)?
     private var tokenURLs: [Int32: URL] = [:]
     private var synchronizedState: [URL: Data] = [:]
     private var trackedURLs: Set<URL> = []
@@ -60,12 +62,20 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         }
     }
 
+    func failExists(at url: URL, fromCall call: Int) {
+        self.lock.withLock {
+            self.failingExistsFromCall = (url, call)
+        }
+    }
+
     func clearFaults() {
         self.lock.withLock {
             self.failingOperations.removeAll()
             self.failingWriteCall = nil
             self.failingWriteAfterBytes = nil
             self.failingBarrierCall = nil
+            self.existsCallCountByURL.removeAll()
+            self.failingExistsFromCall = nil
         }
     }
 
@@ -94,7 +104,16 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
 
     func fileExists(at url: URL) throws -> Bool {
         self.recordIOCall()
-        try self.throwIfNeeded(.exists)
+        let shouldFail = self.lock.withLock { () -> Bool in
+            self.existsCallCountByURL[url, default: 0] += 1
+            if let failure = self.failingExistsFromCall,
+               failure.url == url,
+               self.existsCallCountByURL[url, default: 0] >= failure.call {
+                return true
+            }
+            return self.consumeFailure(.exists)
+        }
+        if shouldFail { throw CocoaError(.fileWriteUnknown) }
         return try self.base.fileExists(at: url)
     }
 

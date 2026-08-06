@@ -63,6 +63,9 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             reconcile: { _ in
                 XCTFail("reconciliation should not run after initialization failure")
             },
+            conservativelyGateOmi: {
+                events.append("gate")
+            },
             enableDispatch: {
                 events.append("enable")
             },
@@ -99,6 +102,9 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             reconcile: { _ in
                 XCTFail("reconciliation should not run without an app-group root")
             },
+            conservativelyGateOmi: {
+                events.append("gate")
+            },
             enableDispatch: {
                 events.append("enable")
             },
@@ -110,7 +116,7 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(events, ["initialize", "enable", "omi-readiness"])
+        XCTAssertEqual(events, ["initialize", "gate", "enable", "omi-readiness"])
         XCTAssertEqual(failureCount, 1)
         XCTAssertEqual(events.filter { $0 == "enable" }.count, 1)
         XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1)
@@ -142,6 +148,9 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
                         throw BootstrapTransferTestError.expected
                     }
                 },
+                conservativelyGateOmi: {
+                    events.append("gate")
+                },
                 enableDispatch: {
                     events.append("enable")
                 },
@@ -154,8 +163,8 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             )
 
             let expectedEvents = failurePoint == .migration
-                ? ["initialize", "migrate", "enable", "omi-readiness"]
-                : ["initialize", "migrate", "reconcile", "enable", "omi-readiness"]
+                ? ["initialize", "migrate", "gate", "enable", "omi-readiness"]
+                : ["initialize", "migrate", "reconcile", "gate", "enable", "omi-readiness"]
             XCTAssertEqual(events, expectedEvents, "failure point: \(failurePoint)")
             XCTAssertEqual(failureCount, 1, "failure point: \(failurePoint)")
             XCTAssertEqual(events.filter { $0 == "enable" }.count, 1, "failure point: \(failurePoint)")
@@ -180,10 +189,17 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
                 reconcile: { _ in
                     if failurePoint == .reconciliation { throw BootstrapTransferTestError.expected }
                 },
+                conservativelyGateOmi: { events.append("gate") },
                 enableDispatch: { events.append("queued-item-sent") },
                 openOmiReadiness: { events.append("omi-readiness") },
                 reportFailure: { _, _ in events.append("failure") }
             )
+            guard let gateIndex = events.firstIndex(of: "gate"),
+                  let dispatchIndex = events.firstIndex(of: "queued-item-sent")
+            else {
+                return XCTFail("failure path did not gate before dispatch")
+            }
+            XCTAssertLessThan(gateIndex, dispatchIndex, "failure point: \(failurePoint)")
             XCTAssertTrue(events.contains("queued-item-sent"), "failure point: \(failurePoint)")
             XCTAssertTrue(events.contains("omi-readiness"), "failure point: \(failurePoint)")
         }

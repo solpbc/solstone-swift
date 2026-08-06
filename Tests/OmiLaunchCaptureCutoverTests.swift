@@ -70,7 +70,48 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         manager.handleAudioData(Self.packet(3, index: 0, body: frame), peripheralID: peripheralID)
         manager.handleAudioData(Self.packet(4, index: 0, body: frame), peripheralID: peripheralID)
         XCTAssertEqual(decodedHandoffs, 1)
+        let capturedCallbackCount: Int
+        switch OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(
+            from: OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: 0, offset: 0)
+        ) {
+        case .lease(let lease):
+            capturedCallbackCount = lease.records.count
+        case .empty, .unavailable:
+            return XCTFail("capture route did not retain its callbacks")
+        }
+        XCTAssertEqual(capturedCallbackCount, 2)
+        XCTAssertEqual(manager.audioPackets, 2)
+        XCTAssertEqual(capturedCallbackCount + manager.audioPackets, 4)
         XCTAssertEqual(OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(), .empty)
+    }
+
+    @MainActor func testCutoverExistenceReadFailureKeepsRouteOnCapture() async throws {
+        let defaults = self.defaults(enabled: true)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let generation = UUID()
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        manager.buildOpusDecoder()
+        await manager.openLaunchReadiness()
+        var decodedHandoffs = 0
+        manager.onDecodedSamples = { _ in decodedHandoffs += 1 }
+
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation, io: io)
+        // The first four capture-file existence reads are recovery and lease checks; the fifth is cutover validation.
+        io.failExists(at: reader.fileURL, fromCall: 5)
+        await OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager, io: io).reconcile()
+
+        let sizeBefore = try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int ?? 0
+        let peripheralID = UUID()
+        let frame = try Self.opusFrame()
+        manager.handleAudioData(Self.packet(0, index: 0, body: frame), peripheralID: peripheralID)
+        manager.handleAudioData(Self.packet(1, index: 0, body: frame), peripheralID: peripheralID)
+        XCTAssertEqual(decodedHandoffs, 0)
+        XCTAssertGreaterThan(try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int ?? 0, sizeBefore)
     }
 
     @MainActor func testReplayDiagnosticsDeduplicatesRebootBeforeLiveMarker() throws {
@@ -200,21 +241,29 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
         try await harness.engine.initialize()
         await harness.engine.enableDispatch()
-        let barrier = CutoverBarrier()
+        let initialBarrier = CutoverBarrier()
+        let resumeBarrier = CutoverBarrier()
+        let resumePasses = CutoverPassCounter()
         let coordinator = OmiLaunchCaptureCommitCoordinator(
             rootURL: self.captureRoot,
             engine: harness.engine,
             sourceManager: manager,
             onReconciliationPhase: { phase in
-                if phase == .afterNewOwnerGated { await barrier.suspend() }
+                switch phase {
+                case .afterNewOwnerGated:
+                    await initialBarrier.suspend()
+                case .afterOwnerRegisteredBeforeAcknowledgment:
+                    await resumePasses.increment()
+                    await resumeBarrier.suspend()
+                }
             }
         )
         manager.onLaunchCaptureExplicitEnable = { await coordinator.resumeAfterExplicitEnable() }
 
         let recovery = Task { @MainActor in await coordinator.reconcile() }
-        try await transferTestWaitFor("gated recovery") { await barrier.waiting() }
+        try await transferTestWaitFor("gated recovery") { await initialBarrier.waiting() }
         manager.disable()
-        await barrier.resume()
+        await initialBarrier.resume()
         await recovery.value
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
         let heldSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
@@ -227,36 +276,18 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(heldSettlement, .settled)
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.captureRoot.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true).path))
 
-        let resumeGeneration = UUID()
-        let resumeWriter = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: resumeGeneration, clock: MockObserverClock())
-        Self.assertRetained(resumeWriter.append(Self.packet(0, index: 0, body: try Self.opusFrame())))
-        let resumeManager = OmiSourceManager(defaults: self.defaults(enabled: true), diagnostics: self.diagnostics(), clock: MockObserverClock(), bluetoothPort: MockOmiBluetoothPort())
-        let resumeHarness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("resume-transfer", isDirectory: true))
-        try await resumeHarness.engine.initialize()
-        await resumeHarness.engine.enableDispatch()
-        let resumePasses = CutoverPassCounter()
-        let resumeBarrier = CutoverBarrier()
-        let resumeCoordinator = OmiLaunchCaptureCommitCoordinator(
-            rootURL: self.captureRoot,
-            engine: resumeHarness.engine,
-            sourceManager: resumeManager,
-            onReconciliationPhase: { phase in
-                if phase == .afterNewOwnerGated {
-                    await resumePasses.increment()
-                    await resumeBarrier.suspend()
-                }
-            }
-        )
-        resumeManager.onLaunchCaptureExplicitEnable = { await resumeCoordinator.resumeAfterExplicitEnable() }
-        let callback = try XCTUnwrap(resumeManager.onLaunchCaptureExplicitEnable)
-        let firstResume = Task { @MainActor in await callback() }
-        try await transferTestWaitFor("first explicit-enable recovery") { await resumeBarrier.waiting() }
+        manager.enable()
+        try await transferTestWaitFor("resumed explicit-enable recovery") { await resumeBarrier.waiting() }
+        let callback = try XCTUnwrap(manager.onLaunchCaptureExplicitEnable)
         let secondResume = Task { @MainActor in await callback() }
         await secondResume.value
         let observedResumePasses = await resumePasses.count()
         XCTAssertEqual(observedResumePasses, 1)
         await resumeBarrier.resume()
-        await firstResume.value
+        try await transferTestWaitFor("held owner dispatched after explicit enable") {
+            TransferURLProtocol.requests.count == 1
+        }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 1)
     }
 }
 

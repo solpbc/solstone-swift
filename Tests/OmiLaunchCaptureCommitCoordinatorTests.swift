@@ -220,7 +220,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             }
         )
         let task = Task { @MainActor in await coordinator.reconcile() }
-        try await transferTestWaitFor("cleanup before acknowledgment") { await barrier.waiting() }
+        try await transferTestWaitFor("owner registration before acknowledgment") { await barrier.waiting() }
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
         await barrier.resume()
         await task.value
@@ -417,6 +417,53 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             try await transferTestWaitFor("unrelated fault-matrix delivery") { TransferURLProtocol.requests.count == 1 }
             XCTAssertEqual(transferTestBoundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.first)), unrelatedID)
         }
+    }
+
+    @MainActor func testNonIOOwnerRegistrationAndGatedEnqueueFailuresStayFailClosed() async throws {
+        let existingCaptureRoot = self.rootURL.appendingPathComponent("existing-capture", isDirectory: true)
+        let existingTransferRoot = self.rootURL.appendingPathComponent("existing-transfer", isDirectory: true)
+        let existingGeneration = try self.seedCapture(rootURL: existingCaptureRoot)
+        let existingPartition = try XCTUnwrap(self.materialize(rootURL: existingCaptureRoot, generation: existingGeneration, io: FoundationOmiLaunchCaptureIO()).partitions.first)
+        let existingEnvelope = try OmiPendingHandoffStore.read(from: existingPartition.envelopeURL)
+        let existingHarness = self.makeHarness(rootURL: existingTransferRoot)
+        try await existingHarness.engine.initialize()
+        _ = try await existingHarness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: existingPartition.itemID, sidecar: existingEnvelope.sidecar),
+            payloads: ["audio": Data(contentsOf: existingPartition.audioURL)]
+        )
+        guard case .gated = await existingHarness.engine.gateExisting(itemID: existingPartition.itemID) else {
+            return XCTFail("expected pre-existing gate")
+        }
+        await existingHarness.engine.hold(itemID: existingPartition.itemID)
+        let existingUnrelatedID = UUID()
+        _ = try await existingHarness.engine.enqueue(manifest: self.unrelatedManifest(itemID: existingUnrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+        await OmiLaunchCaptureCommitCoordinator(rootURL: existingCaptureRoot, engine: existingHarness.engine, sourceManager: self.makeManager()).reconcile()
+        await existingHarness.engine.enableDispatch()
+        try await transferTestWaitFor("unrelated delivery after existing-owner gate conflict") { TransferURLProtocol.requests.count == 1 }
+        XCTAssertEqual(transferTestBoundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.first)), existingUnrelatedID)
+        XCTAssertEqual(TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) == existingPartition.itemID }.count, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: existingPartition.envelopeURL.path))
+
+        TransferURLProtocol.reset()
+        let enqueueCaptureRoot = self.rootURL.appendingPathComponent("enqueue-capture", isDirectory: true)
+        let enqueueTransferRoot = self.rootURL.appendingPathComponent("enqueue-transfer", isDirectory: true)
+        let enqueueGeneration = try self.seedCapture(rootURL: enqueueCaptureRoot)
+        let enqueuePartition = try XCTUnwrap(self.materialize(rootURL: enqueueCaptureRoot, generation: enqueueGeneration, io: FoundationOmiLaunchCaptureIO()).partitions.first)
+        let enqueueHarness = self.makeHarness(rootURL: enqueueTransferRoot)
+        try await enqueueHarness.engine.initialize()
+        guard case .gated = await enqueueHarness.engine.gateExisting(itemID: enqueuePartition.itemID) else {
+            return XCTFail("expected conflicting gate")
+        }
+        let enqueueUnrelatedID = UUID()
+        _ = try await enqueueHarness.engine.enqueue(manifest: self.unrelatedManifest(itemID: enqueueUnrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+        await OmiLaunchCaptureCommitCoordinator(rootURL: enqueueCaptureRoot, engine: enqueueHarness.engine, sourceManager: self.makeManager()).reconcile()
+        await enqueueHarness.engine.enableDispatch()
+        try await transferTestWaitFor("unrelated delivery after gated-enqueue conflict") { TransferURLProtocol.requests.count == 1 }
+        XCTAssertEqual(transferTestBoundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.first)), enqueueUnrelatedID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: enqueuePartition.audioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: enqueuePartition.envelopeURL.path))
+        let enqueueSnapshots = await enqueueHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertTrue(enqueueSnapshots.isEmpty)
     }
 
     @MainActor func testBoundaryAcknowledgesOnlyVerifiedPrefixCreatesOnePayloadFreeAttentionAndRefusesCutover() async throws {

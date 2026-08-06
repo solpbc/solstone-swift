@@ -245,6 +245,16 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     private func registerExistingOwners(_ handoffs: [LinkedHandoff]) async {
         for itemID in Set(handoffs.map(\.itemID)).sorted(by: { $0.uuidString < $1.uuidString }) {
+            if self.isResumingAfterExplicitEnable,
+               self.heldForExplicitResumeIDs.contains(itemID) {
+                switch await self.engine.restoreGateFromHold(itemID: itemID) {
+                case .gated(let token):
+                    self.preRegisteredGateTokens[itemID] = token
+                case .notHeld, .alreadyGated, .engineNotInitialized:
+                    await self.engine.hold(itemID: itemID)
+                }
+                continue
+            }
             switch await self.engine.gateExisting(itemID: itemID) {
             case .gated(let token):
                 self.preRegisteredGateTokens[itemID] = token
@@ -270,11 +280,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         switch ownership {
         case .ownedInQueued, .ownedInAttention:
             if let token = self.preRegisteredGateTokens.removeValue(forKey: partition.itemID) {
-                return token
-            }
-            if self.isResumingAfterExplicitEnable,
-               self.heldForExplicitResumeIDs.contains(partition.itemID),
-               case .gated(let token) = await self.engine.restoreGateFromHold(itemID: partition.itemID) {
                 return token
             }
             await self.engine.hold(itemID: partition.itemID)
@@ -421,13 +426,26 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private func finishCutoverIfCurrent(result: OmiLaunchCaptureMaterializationResult, reader: OmiLaunchCaptureLeaseReader) {
-        let hasCurrentCapture = (try? self.io.fileExists(at: reader.fileURL)) == true
-        guard self.sourceManager.isLaunchCaptureRecoveryEnabled,
-              case .empty = reader.lease(),
-              (!hasCurrentCapture || (try? self.io.fileSize(at: reader.fileURL)) == result.verifiedPrefixEndOffset)
-        else {
+        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
             self.requestReconciliation()
             return
+        }
+        let hasCurrentCapture: Bool
+        do {
+            hasCurrentCapture = try self.io.fileExists(at: reader.fileURL)
+        } catch {
+            self.requestReconciliation()
+            return
+        }
+        guard case .empty = reader.lease() else {
+            self.requestReconciliation()
+            return
+        }
+        if hasCurrentCapture {
+            guard (try? self.io.fileSize(at: reader.fileURL)) == result.verifiedPrefixEndOffset else {
+                self.requestReconciliation()
+                return
+            }
         }
         self.sourceManager.completeLaunchCaptureCutover(markers: self.markersAwaitingCutover)
         self.markersAwaitingCutover.removeAll()
@@ -534,6 +552,8 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private func generationsInCaptureOrder(_ generationIDs: Set<UUID>, rootURL: URL) -> [UUID] {
+        // Acknowledged records never replay markers, so order only the outstanding lease
+        // that can still contribute to this cutover. UUID provides a stable tie-breaker.
         generationIDs.sorted {
             let left = self.captureStartTime(generationID: $0, rootURL: rootURL)
             let right = self.captureStartTime(generationID: $1, rootURL: rootURL)
