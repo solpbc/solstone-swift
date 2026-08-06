@@ -187,11 +187,7 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         try self.throwIfNeeded(.move)
         try self.base.moveItem(at: source, to: destination)
         self.lock.withLock {
-            if let bytes = self.synchronizedState.removeValue(forKey: source) {
-                self.synchronizedState[destination] = bytes
-            }
-            self.trackedURLs.insert(source)
-            self.trackedURLs.insert(destination)
+            self.migrateSynchronizedSnapshot(from: source, to: destination)
         }
     }
 
@@ -200,13 +196,7 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         try self.throwIfNeeded(.replace)
         try self.base.atomicReplaceItem(at: source, with: destination)
         self.lock.withLock {
-            if let bytes = self.synchronizedState.removeValue(forKey: source) {
-                self.synchronizedState[destination] = bytes
-            } else {
-                self.synchronizedState.removeValue(forKey: destination)
-            }
-            self.trackedURLs.insert(source)
-            self.trackedURLs.insert(destination)
+            self.migrateSynchronizedSnapshot(from: source, to: destination)
         }
     }
 
@@ -227,6 +217,16 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
 
     private func recordIOCall() {
         self.lock.withLock { self.ioCallCount += 1 }
+    }
+
+    private func migrateSynchronizedSnapshot(from source: URL, to destination: URL) {
+        if let bytes = self.synchronizedState.removeValue(forKey: source) {
+            self.synchronizedState[destination] = bytes
+        } else {
+            self.synchronizedState.removeValue(forKey: destination)
+        }
+        self.trackedURLs.insert(source)
+        self.trackedURLs.insert(destination)
     }
 
     private func consumeFailure(_ operation: OmiLaunchCaptureInjectedOperation) -> Bool {

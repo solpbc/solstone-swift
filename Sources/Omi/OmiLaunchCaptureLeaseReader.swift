@@ -159,6 +159,9 @@ final class OmiLaunchCaptureLeaseReader {
             return .noOp(.lowerSequence)
         }
         guard let scan = self.scanCurrent() else { return .refused(.cursorUnreadable) }
+        guard cursor.acknowledgedPrefixNextSequence <= scan.verifiedPrefixNextSequence,
+              cursor.acknowledgedPrefixEndOffset <= scan.verifiedPrefixEndOffset
+        else { return .refused(.noncontiguousFutureSequence) }
         guard throughSequence < scan.verifiedPrefixNextSequence else { return .refused(.pastVerifiedPrefix) }
         do {
             let token = try self.io.openForReading(at: self.fileURL)

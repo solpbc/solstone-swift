@@ -89,6 +89,40 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: reader.cursorURL), cursorData)
     }
 
+    func testAcknowledgmentRefusesCursorOffsetPastVerifiedPrefix() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        XCTAssertEqual(writer.append(Data("prefix0".utf8)), .retained(sequence: 0, retriedPending: false))
+        XCTAssertEqual(writer.append(Data("prefix1".utf8)), .retained(sequence: 1, retriedPending: false))
+        io.failWrite(onCall: 2, afterBytes: 0)
+        XCTAssertEqual(writer.append(Data("gap".utf8)), .visibleGap(sequence: 2, .payloadWriteFailed))
+
+        let scan = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
+        let suffixHeader = OmiLaunchCaptureHeader(
+            generationID: generation,
+            sequence: 1,
+            acquiredAtUnixMicros: 1_800_000_000_000_000,
+            declaredPayloadBytes: 0
+        ).encoded()
+        let suffixFile = try FileHandle(forWritingTo: writer.fileURL)
+        try suffixFile.seekToEnd()
+        try suffixFile.write(contentsOf: suffixHeader)
+        try suffixFile.close()
+
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        let suffixCursor = OmiLaunchCaptureCursor(
+            generationID: generation,
+            acknowledgedPrefixNextSequence: 1,
+            acknowledgedPrefixEndOffset: scan.verifiedPrefixEndOffset + OmiLaunchCaptureFormat.headerByteCount
+        )
+        let cursorData = suffixCursor.encoded()
+        try cursorData.write(to: reader.cursorURL)
+
+        XCTAssertEqual(reader.acknowledge(throughSequence: 1), .refused(.noncontiguousFutureSequence))
+        XCTAssertEqual(try Data(contentsOf: reader.cursorURL), cursorData)
+    }
+
     func testCursorFaultsPreserveUnacknowledgedLeaseAndConverge() throws {
         struct Fault {
             let name: String
