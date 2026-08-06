@@ -29,7 +29,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcilesActiveDirectoriesDeterministicallyWithoutDuplicateUpload() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let finalizedWithFile = UUID()
         let finalizedMissingFile = UUID()
         let noArtifact = UUID()
@@ -67,7 +67,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcileAudioUsesReadableContainerDuration() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-3_600)
         let directory = try self.writeActiveSegment(
@@ -88,7 +88,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcileAudioClampsReadableContainerOverCeiling() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-3_600)
         let directory = try self.writeActiveSegment(
@@ -108,7 +108,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcileUnreadableAudioBoundsElapsedFallback() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let hoursOldID = UUID()
         let ninetySecondID = UUID()
         let futureID = UUID()
@@ -139,7 +139,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcileUploadedMetadataUsesBoundedSegmentKey() async throws {
-        let harness = self.makeHarness(connected: true)
+        let harness = try await self.makeHarness(connected: true)
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-3_600)
         let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
@@ -163,7 +163,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcileScreencastBoundsElapsedFallback() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let hoursOldID = UUID()
         let futureID = UUID()
         let hoursOld = self.clock.now().addingTimeInterval(-3_600)
@@ -182,7 +182,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcileLocationCanonicalArtifactBoundsElapsedFallback() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let hoursOldID = UUID()
         let futureID = UUID()
         let hoursOld = self.clock.now().addingTimeInterval(-3_600)
@@ -203,7 +203,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFinalizeActiveSegmentPrefersPersistedAudioDurationForSegmentName() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-3_600)
         let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
@@ -230,7 +230,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcilesUnresolvedScreencastWithScreenFileToPendingBundle() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .screen)
 
@@ -245,7 +245,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeReconcilesScreencastPartOnlyToFinalizeFailureWithoutUpload() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
 
@@ -263,7 +263,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFreshLiveScreencastPartIsNotFailed() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
         try self.writeScreencastLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
@@ -280,7 +280,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testStaleScreencastPartFails() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
         try self.writeScreencastLiveness(
@@ -302,7 +302,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFinalizeActiveSegmentDefersFreshLiveScreencastPart() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
         try self.writeScreencastLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
@@ -318,7 +318,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFinalizeActiveSegmentFailsStaleScreencastPart() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
         try self.writeScreencastLiveness(
@@ -337,7 +337,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFreshLiveLocationPartIsNotFailed() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.liveLocation.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
         try self.liveLocation.writeLocationLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
@@ -355,7 +355,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testStaleLiveLocationPartRecoversToCanonicalArtifact() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         try self.liveLocation.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
         try self.liveLocation.writeLocationLiveness(
@@ -380,7 +380,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFinalizeActiveSegmentDefersFreshLiveLocationPart() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.liveLocation.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
         try self.liveLocation.writeLocationLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
@@ -396,7 +396,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testFinalizeActiveSegmentRecoversStaleLiveLocationPart() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         try self.liveLocation.writeActiveLocationPart(segmentID: segmentID, store: harness.store)
         try self.liveLocation.writeLocationLiveness(
@@ -417,7 +417,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testAudioUploadsWhenUnrecoverableLocationIsRemoved() async throws {
-        let harness = self.makeHarness(connected: true)
+        let harness = try await self.makeHarness(connected: true)
         let segmentID = UUID()
         let directory = try self.liveLocation.writeActiveLocation(segmentID: segmentID, store: harness.store, sources: [.audio, .location])
         try Data("audio-\(segmentID.uuidString)".utf8).write(to: harness.store.audioURL(in: directory), options: .atomic)
@@ -440,7 +440,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testTornTrailingLocationLineRecoversCompleteRecords() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         try self.liveLocation.writeActiveLocationPart(segmentID: segmentID, store: harness.store, appendTornFix: true)
         try self.liveLocation.writeLocationLiveness(
@@ -461,7 +461,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testLocationLiveStateLastWinsTierAccuracy() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-300)
         let directory = try self.liveLocation.writeActiveLocation(segmentID: segmentID, store: harness.store, startedAt: startedAt)
@@ -501,7 +501,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testTwoActiveLocationDirsDeferFreshAndRecoverStaleIndependently() async throws {
-        let harness = self.makeHarness(connected: false)
+        let harness = try await self.makeHarness(connected: false)
         let freshSegmentID = UUID()
         let staleSegmentID = UUID()
         try self.liveLocation.writeActiveLocationPart(segmentID: freshSegmentID, store: harness.store)
@@ -525,7 +525,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testLocationDrainPileRemovesNoLiveLocationAndUnblocksAudio() async throws {
-        let harness = self.makeHarness(connected: true)
+        let harness = try await self.makeHarness(connected: true)
         let unresolvedLocationID = UUID()
         let failedLocationID = UUID()
         let mixedID = UUID()
@@ -568,7 +568,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testDeclaredScreencastDoesNotUploadUntilTerminal() async throws {
-        let harness = self.makeHarness(connected: true)
+        let harness = try await self.makeHarness(connected: true)
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
         try self.writeScreencastLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
@@ -582,7 +582,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeDefersValidLeasedNextScreencastSegment() async throws {
-        let harness = self.makeHarness(connected: true)
+        let harness = try await self.makeHarness(connected: true)
         let fromSegmentID = UUID()
         let nextSegmentID = UUID()
         try self.writeActiveScreencast(segmentID: nextSegmentID, store: harness.store, artifact: .none)
@@ -604,7 +604,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
     }
 
     func testResumeIgnoresUndeclaredStrayScreenFileAndReportsDiagnostic() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         var manifest = MobileSegmentManifest(
             segmentID: segmentID,
@@ -646,7 +646,7 @@ private extension MobileSegmentReconcileTests {
         MobileSegmentLiveLocationTestSupport(clock: self.clock)
     }
 
-    func makeHarness(connected: Bool = true) -> Harness {
+    func makeHarness(connected: Bool = true) async throws -> Harness {
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         if connected {
             let configuration = URLSessionConfiguration.ephemeral
@@ -656,6 +656,7 @@ private extension MobileSegmentReconcileTests {
                 sessionConfiguration: configuration,
                 endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
             )
+            try await transferHarness.engine.start()
             return Harness(
                 uploader: MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock),
                 store: store

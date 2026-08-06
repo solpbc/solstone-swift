@@ -71,6 +71,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var pendingConnectionID: UUID?
     @ObservationIgnored private var manuallyDisconnected = false
     @ObservationIgnored private var didLogPoweredOn = false
+    @ObservationIgnored private var isLaunchReady = false
     @ObservationIgnored private var initialConnectTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var wantsEnableOnPowerOn = false
     @ObservationIgnored private var phoneSampleTask: Task<Void, Never>?
@@ -119,6 +120,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.enabled = true
         self.persistEnabled(true)
         self.manuallyDisconnected = false
+        guard self.isLaunchReady else { return }
         self.enableBatteryMonitoringIfNeeded()
         self.startPhoneSampleLoop()
 
@@ -132,6 +134,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
         self.wantsEnableOnPowerOn = false
         self.cancelInitialConnectTimeout()
+        guard !self.isTryingOrConnected else { return }
 
         let connected = self.central?.retrieveConnectedPeripherals(withServices: [
             OmiUUIDs.audioService,
@@ -158,6 +161,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     func startSegmentWriterIfNeeded() {
+        guard self.isLaunchReady else { return }
         guard !self.didAttemptWriterStart else { return }
         self.didAttemptWriterStart = true
         self.omiSegmentWriter?.start()
@@ -273,6 +277,11 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             return
         }
 
+        guard self.isLaunchReady else {
+            self.enabled = true
+            return
+        }
+
         if self.managerState == .poweredOn {
             self.enable()
         } else {
@@ -281,6 +290,12 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             self.startPhoneSampleLoop()
             self.wantsEnableOnPowerOn = true
         }
+    }
+
+    func openLaunchReadiness() async {
+        guard !self.isLaunchReady else { return }
+        self.isLaunchReady = true
+        await self.resumeIfEnabled()
     }
 
     func handleWillRestoreState(restoredCount: Int) {
@@ -395,7 +410,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 }
 
-private extension OmiSourceManager {
+extension OmiSourceManager {
     var restoreServiceUUIDs: [CBUUID] {
         [
             OmiUUIDs.audioService,
@@ -411,6 +426,7 @@ private extension OmiSourceManager {
         self.peripheralsByID[peripheral.identifier] = peripheral
         peripheral.delegate = self
         self.connectionState = isReconnect ? .reconnecting : .connecting
+        guard self.isLaunchReady else { return }
         self.central?.connect(
             peripheral,
             options: [CBConnectPeripheralOptionEnableAutoReconnect: true]
@@ -449,14 +465,18 @@ private extension OmiSourceManager {
                let peripheral = self.peripheralsByID[pendingConnectionID],
                self.connectedPeripheral == nil
             {
-                self.beginConnect(peripheral, isReconnect: true)
+                if self.isLaunchReady {
+                    self.beginConnect(peripheral, isReconnect: true)
+                }
             }
             if self.wantsEnableOnPowerOn,
                self.pendingConnectionID == nil,
                self.connectedPeripheral == nil
             {
-                self.wantsEnableOnPowerOn = false
-                self.enable()
+                if self.isLaunchReady {
+                    self.wantsEnableOnPowerOn = false
+                    self.enable()
+                }
             }
             return
         }
@@ -500,6 +520,7 @@ private extension OmiSourceManager {
         )
 
         self.log.info("omi restore action: \(String(describing: action), privacy: .public)")
+        guard self.isLaunchReady else { return }
         switch action {
         case .rearmConnect:
             self.beginConnect(peripheral, isReconnect: true)
@@ -596,9 +617,13 @@ private extension OmiSourceManager {
         self.resetReadState()
         self.clearAudioState()
         self.characteristicsByID.removeAll()
-        self.readRSSI()
+        if self.isLaunchReady {
+            self.readRSSI()
+        }
         self.log.info("omi connected")
-        peripheral.discoverServices(nil)
+        if self.isLaunchReady {
+            peripheral.discoverServices(nil)
+        }
     }
 
     func handleFailedToConnect(_ peripheral: CBPeripheral, error: (any Error)?) {
@@ -662,7 +687,9 @@ private extension OmiSourceManager {
             self.connectionState = .reconnecting
         }
 
-        self.omiSegmentWriter?.finalizeOpenChunkForDisconnect()
+        if self.isLaunchReady {
+            self.omiSegmentWriter?.finalizeOpenChunkForDisconnect()
+        }
 
         switch decision {
         case .stayDisconnected:
@@ -673,7 +700,9 @@ private extension OmiSourceManager {
             self.log.info("omi reconnecting through bluetooth")
         case .rearmConnect:
             self.clearTransientConnectionState()
-            self.beginConnect(peripheral, isReconnect: true)
+            if self.isLaunchReady {
+                self.beginConnect(peripheral, isReconnect: true)
+            }
             self.log.info("omi reconnect armed")
         }
     }
@@ -687,8 +716,10 @@ private extension OmiSourceManager {
 
         let services = peripheral.services ?? []
         self.log.info("omi profiles discovered: \(services.count, privacy: .public)")
-        for service in services {
-            peripheral.discoverCharacteristics(nil, for: service)
+        if self.isLaunchReady {
+            for service in services {
+                peripheral.discoverCharacteristics(nil, for: service)
+            }
         }
     }
 
@@ -710,9 +741,11 @@ private extension OmiSourceManager {
         self.markAbsentKnownFieldsUnavailable(for: service, characteristics: characteristics)
         self.log.info("omi characteristics discovered: \(characteristics.count, privacy: .public)")
 
-        for characteristic in characteristics where characteristic.properties.contains(.read) {
-            if self.isAutoReadCharacteristic(characteristic.uuid) {
-                peripheral.readValue(for: characteristic)
+        if self.isLaunchReady {
+            for characteristic in characteristics where characteristic.properties.contains(.read) {
+                if self.isAutoReadCharacteristic(characteristic.uuid) {
+                    peripheral.readValue(for: characteristic)
+                }
             }
         }
     }
@@ -771,7 +804,9 @@ private extension OmiSourceManager {
             self.audioUnsubscribedWhileConnected = false
             self.appendSubscribeLatencyIfNeeded(at: self.clock.now())
             self.resetAudioLiveState()
-            self.buildOpusDecoder()
+            if self.isLaunchReady {
+                self.buildOpusDecoder()
+            }
             self.log.info("omi audio stream enabled")
             if let recovered = OmiSourceLogic.recoveredConnectionState(
                 current: self.connectionState,
@@ -829,6 +864,8 @@ private extension OmiSourceManager {
             self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
             self.log.info("omi audio marker: \(marker.epoch, privacy: .public)")
         }
+
+        guard self.isLaunchReady else { return }
 
         let sink = self.onDecodedSamples.map { isolatedSink in
             { samples in
@@ -935,6 +972,7 @@ private extension OmiSourceManager {
 
     func subscribeAudio() {
         self.didAttemptWriterStart = false
+        guard self.isLaunchReady else { return }
         guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristic) else {
             self.connectionState = .needsAttention(.audioUnavailable)
             self.log.error("omi audio unavailable")
@@ -949,6 +987,7 @@ private extension OmiSourceManager {
             self.log.error("omi audio notify unavailable")
             return
         }
+        guard self.isLaunchReady else { return }
         self.connectedPeripheral?.setNotifyValue(enabled, for: characteristic)
     }
 
@@ -962,7 +1001,8 @@ private extension OmiSourceManager {
     }
 
     func readRSSI() {
-        guard self.connectionState == .connected,
+        guard self.isLaunchReady,
+              self.connectionState == .connected,
               let connectedPeripheral
         else {
             return
@@ -1236,7 +1276,8 @@ private extension OmiSourceManager {
         let characteristic = self.characteristic(for: OmiUUIDs.batteryLevelCharacteristic)
         let connected = self.connectionState == .connected && self.connectedPeripheral != nil
         let hasCachedReadableCharacteristic = characteristic?.properties.contains(.read) == true
-        guard OmiSourceLogic.shouldReReadBattery(
+        guard self.isLaunchReady,
+              OmiSourceLogic.shouldReReadBattery(
             connected: connected,
             hasCachedReadableCharacteristic: hasCachedReadableCharacteristic
         ),
@@ -1251,7 +1292,8 @@ private extension OmiSourceManager {
 
     func refreshStorageBacklogReading() {
         let characteristic = self.characteristic(for: OmiUUIDs.storageControlCharacteristic)
-        guard self.connectionState == .connected,
+        guard self.isLaunchReady,
+              self.connectionState == .connected,
               let connectedPeripheral,
               let characteristic,
               characteristic.properties.contains(.read)
@@ -1288,6 +1330,7 @@ private extension OmiSourceManager {
     }
 
     func attemptAudioResubscribe() {
+        guard self.isLaunchReady else { return }
         guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristic) else {
             self.log.notice("omi audio recovery skipped: audio unavailable")
             return

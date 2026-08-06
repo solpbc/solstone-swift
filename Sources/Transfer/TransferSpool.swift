@@ -83,6 +83,7 @@ nonisolated struct TransferSpoolSnapshot: Equatable, Sendable {
     var attention: [TransferStoredItem]
     var recoveryMoves: [TransferRecoveryMove]
     var recoveryDiagnostics: [TransferRecoveryDiagnostic]
+    var conflictedItemIDs: Set<UUID>
 }
 
 nonisolated struct TransferRecoveryMove: Equatable, Sendable {
@@ -184,15 +185,16 @@ nonisolated struct TransferSpool: Sendable {
     }
 
     func initialize(now: Date = Date()) throws -> TransferSpoolSnapshot {
+        let conflictedItemIDs = self.conflictedItemIDs()
         try self.ensureRootDirectories()
         try? self.fileSystem.removeItem(at: self.deleteSinkDirectoryURL)
         try self.fileSystem.createDirectory(at: self.deleteSinkDirectoryURL, withIntermediateDirectories: true)
 
-        var attention = try self.scan(state: .attention)
+        var attention = try self.scan(state: .attention, excluding: conflictedItemIDs)
         var queued: [TransferStoredItem] = []
         var recoveryMoves: [TransferRecoveryMove] = []
         var recoveryDiagnostics: [TransferRecoveryDiagnostic] = []
-        for item in try self.scan(state: .queued) {
+        for item in try self.scan(state: .queued, excluding: conflictedItemIDs) {
             if let missing = self.firstMissingRequiredPayload(in: item) {
                 let moved = try self.moveQueuedItemToAttention(
                     item,
@@ -212,15 +214,29 @@ nonisolated struct TransferSpool: Sendable {
             }
         }
         let committedItemIDs = Set((queued + attention).map(\.manifest.itemID))
-        let stagedRecovery = try self.recoverStagedItems(knownCommittedItemIDs: committedItemIDs)
+        let stagedRecovery = try self.recoverStagedItems(
+            knownCommittedItemIDs: committedItemIDs,
+            excluding: conflictedItemIDs
+        )
         queued.append(contentsOf: stagedRecovery.promoted)
+        recoveryDiagnostics.append(contentsOf: conflictedItemIDs.sorted { $0.uuidString < $1.uuidString }.map {
+            TransferRecoveryDiagnostic(
+                source: self.rootURL.path,
+                itemID: $0,
+                previousState: .held,
+                nextState: .held,
+                outcome: .needsAttention,
+                detail: "reason=owner conflict"
+            )
+        })
         recoveryDiagnostics.append(contentsOf: stagedRecovery.diagnostics)
         queued.sort(by: self.itemSort)
         return TransferSpoolSnapshot(
             queued: queued,
             attention: attention,
             recoveryMoves: recoveryMoves,
-            recoveryDiagnostics: recoveryDiagnostics
+            recoveryDiagnostics: recoveryDiagnostics,
+            conflictedItemIDs: conflictedItemIDs
         )
     }
 
@@ -518,7 +534,10 @@ nonisolated struct TransferSpool: Sendable {
         return PreparedStagingDirectory(directoryURL: itemDirectory, diagnostics: [diagnostic])
     }
 
-    private func recoverStagedItems(knownCommittedItemIDs: Set<UUID>) throws -> StagedRecoveryResult {
+    private func recoverStagedItems(
+        knownCommittedItemIDs: Set<UUID>,
+        excluding conflictedItemIDs: Set<UUID>
+    ) throws -> StagedRecoveryResult {
         guard self.fileSystem.fileExists(atPath: self.stagingDirectoryURL.path) else {
             return StagedRecoveryResult(promoted: [], diagnostics: [])
         }
@@ -526,6 +545,9 @@ nonisolated struct TransferSpool: Sendable {
         var diagnostics: [TransferRecoveryDiagnostic] = []
         var committedItemIDs = knownCommittedItemIDs
         for url in try self.fileSystem.contentsOfDirectory(at: self.stagingDirectoryURL) {
+            if let itemID = UUID(uuidString: url.lastPathComponent), conflictedItemIDs.contains(itemID) {
+                continue
+            }
             let manifest: TransferManifest
             do {
                 manifest = try self.readManifest(in: url).validatedForScan()
@@ -595,11 +617,14 @@ nonisolated struct TransferSpool: Sendable {
         return updated
     }
 
-    private func scan(state: TransferDiskState) throws -> [TransferStoredItem] {
+    private func scan(state: TransferDiskState, excluding conflictedItemIDs: Set<UUID>) throws -> [TransferStoredItem] {
         let directory = state == .queued ? self.queuedDirectoryURL : self.attentionDirectoryURL
         guard self.fileSystem.fileExists(atPath: directory.path) else { return [] }
         var items: [TransferStoredItem] = []
         for url in try self.fileSystem.contentsOfDirectory(at: directory) {
+            if let itemID = UUID(uuidString: url.lastPathComponent), conflictedItemIDs.contains(itemID) {
+                continue
+            }
             guard var manifest = try? self.readManifest(in: url).validatedForScan() else { continue }
             if manifest.diskState != state {
                 manifest = manifest.replacingDiskState(state)
@@ -616,6 +641,19 @@ nonisolated struct TransferSpool: Sendable {
             }
             return $0.manifest.createdAt < $1.manifest.createdAt
         }
+    }
+
+    private func conflictedItemIDs() -> Set<UUID> {
+        let queued = self.itemIDs(in: self.queuedDirectoryURL)
+        let attention = self.itemIDs(in: self.attentionDirectoryURL)
+        return queued.intersection(attention)
+    }
+
+    private func itemIDs(in directoryURL: URL) -> Set<UUID> {
+        guard let children = try? self.fileSystem.contentsOfDirectory(at: directoryURL) else {
+            return []
+        }
+        return Set(children.compactMap { UUID(uuidString: $0.lastPathComponent) })
     }
 
     private func firstMissingDeclaredPayload(in item: TransferStoredItem) -> String? {

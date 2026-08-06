@@ -111,6 +111,42 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
         XCTAssertFalse(text.contains("didMigrateObserverRootToAppGroupV1"))
     }
 
+    func testPeripheralAndWriterEffectsAreGuardedByLaunchReadiness() throws {
+        let managerURL = StringLiteralGrepSupport.worktreeRoot()
+            .appendingPathComponent("Sources/Omi/OmiSourceManager.swift")
+        let text = try String(contentsOf: managerURL, encoding: .utf8)
+        let guardedEffects = [
+            ("enable", "omiSegmentWriter?.start()"),
+            ("startSegmentWriterIfNeeded", "omiSegmentWriter?.start()"),
+            ("beginConnect", "central?.connect("),
+            ("handleCentralStateUpdate", "self.beginConnect("),
+            ("handleRestoredPeripheral", "peripheral.discoverServices"),
+            ("handleConnected", "peripheral.discoverServices(nil)"),
+            ("handleDisconnected", "finalizeOpenChunkForDisconnect()"),
+            ("handleDiscoveredServices", "peripheral.discoverCharacteristics"),
+            ("handleDiscoveredCharacteristics", "peripheral.readValue"),
+            ("handleUpdatedNotificationState", "self.buildOpusDecoder()"),
+            ("handleAudioData", "self.onDecodedSamples"),
+            ("subscribeAudio", "self.setAudioNotify"),
+            ("setAudioNotify", "setNotifyValue"),
+            ("readRSSI", "connectedPeripheral.readRSSI()"),
+            ("refreshPendantReadings", "connectedPeripheral.readValue"),
+            ("refreshStorageBacklogReading", "connectedPeripheral.readValue"),
+            ("attemptAudioResubscribe", "self.setAudioNotify")
+        ]
+
+        for (method, effect) in guardedEffects {
+            let body = try Self.functionSlice(named: method, in: text)
+            let readiness = try XCTUnwrap(body.range(of: "isLaunchReady"), "missing readiness gate in \(method)")
+            let call = try XCTUnwrap(body.range(of: effect), "missing effect in \(method)")
+            XCTAssertLessThan(
+                body.distance(from: body.startIndex, to: readiness.lowerBound),
+                body.distance(from: body.startIndex, to: call.lowerBound),
+                "\(method) performs \(effect) before launch readiness"
+            )
+        }
+    }
+
     private static func functionSlice(named name: String, in text: String) throws -> Substring {
         let start = try XCTUnwrap(text.range(of: "func \(name)"))
         let remaining = text[start.upperBound...]

@@ -123,13 +123,18 @@ struct SolstoneSwiftApp: App {
         migrate: (URL, URL?) async throws -> Void,
         reconcile: (URL) async throws -> Void,
         enableDispatch: () async -> Void,
+        openOmiReadiness: () async -> Void,
         reportFailure: (String, (any Error)?) -> Void
     ) async {
+        func finishBootstrap() async {
+            await enableDispatch()
+            await openOmiReadiness()
+        }
         do {
             try await initialize()
         } catch {
             reportFailure("start failed", error)
-            await enableDispatch()
+            await finishBootstrap()
             return
         }
         let rootURL: URL
@@ -137,7 +142,7 @@ struct SolstoneSwiftApp: App {
             rootURL = try appGroupRoot()
         } catch {
             reportFailure("app-group unavailable", error)
-            await enableDispatch()
+            await finishBootstrap()
             return
         }
         do {
@@ -146,7 +151,7 @@ struct SolstoneSwiftApp: App {
         } catch {
             reportFailure("migration failed", error)
         }
-        await enableDispatch()
+        await finishBootstrap()
     }
 
     private static var shouldUseUITestObserverRecorder: Bool {
@@ -778,9 +783,6 @@ struct SolstoneSwiftApp: App {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {
-                    await self.omiSourceManager.resumeIfEnabled()
-                }
-                .task {
                     // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value.
                     // Revalidate the existing epoch before foreground drain; failed validation drives
                     // reconnect, and the connected-edge handler drains after recovery.
@@ -1035,6 +1037,9 @@ struct SolstoneSwiftApp: App {
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()
+            },
+            openOmiReadiness: {
+                await self.omiSourceManager.openLaunchReadiness()
             },
             reportFailure: { reason, error in
                 self.diagnosticLog.append(

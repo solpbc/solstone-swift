@@ -57,6 +57,34 @@ final class TransferLaunchBarrierTests: XCTestCase {
         XCTAssertEqual(TransferURLProtocol.requests.count, 1)
     }
 
+    @MainActor func testConstructionDefersEveryDispatchTriggerUntilInitializeAndEnable() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 204), Data())
+        }
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.rootURL,
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: AvailableTransferEndpointResolver()
+        )
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+            itemID: UUID(),
+            sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
+        )
+
+        _ = try await harness.engine.enqueue(manifest: manifest, payloads: ["audio": Data("audio".utf8)])
+        await harness.engine.endpointAvailabilityChanged()
+        await harness.engine.kick()
+        await harness.engine.setPacingMode(.finishSyncing)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+
+        try await harness.engine.initialize()
+        await harness.engine.enableDispatch()
+        try await transferTestWaitFor("construction barrier dispatch") {
+            TransferURLProtocol.requests.count == 1
+        }
+    }
+
     @MainActor func testOmiReconciliationCompletesBeforeLaunchDispatchAndRestartSendsOnce() async throws {
         TransferURLProtocol.handler = { request, _ in
             (transferTestResponse(for: request, statusCode: 204), Data())

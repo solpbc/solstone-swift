@@ -28,7 +28,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedAudioSurvivorDeadLocationRequeuesAudioOnly() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let failedDirectory = try self.writeBundle(
             segmentID: segmentID,
@@ -60,7 +60,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testUnrecoverableLocationOnlyWritesLostDataEmptyTombstone() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let failedDirectory = try self.writeBundle(
             segmentID: segmentID,
@@ -81,7 +81,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedAudioPresentReadableContainerPromotesWithoutLostDataTombstone() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-3_600)
         let failedDirectory = try self.writeBundle(
@@ -107,7 +107,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedAudioPresentUnprobeablePromotesUsingElapsedFallback() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-120)
         let failedDirectory = try self.writeBundle(
@@ -134,7 +134,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedLiveLocationPartialCorruptPartSalvagesLocationAndRequeuesBoth() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-300)
         let failedDirectory = try self.writeBundle(
@@ -177,7 +177,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedLiveLocationMissingStateRemovesLocationRequeuesAudio() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-300)
         let failedDirectory = try self.writeBundle(
@@ -212,7 +212,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testUnrecoverableCorruptLocationOnlyTombstones() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-300)
         let failedDirectory = try self.writeBundle(
@@ -237,7 +237,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedLiveLocationPartRecoversBeforeDiscarding() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-300)
         let failedDirectory = try self.writeBundle(
@@ -283,7 +283,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testScheduleUploadResolvesPendingFinalizeFailureInPlaceWithoutRecursing() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let pendingDirectory = try self.writeBundle(
             segmentID: segmentID,
@@ -307,7 +307,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFinalizeFailureResolverIsIdempotentAcrossRepeatedPilePasses() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let survivorID = UUID()
         let retiredID = UUID()
         _ = try self.writeBundle(
@@ -346,7 +346,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFinalizeFailurePileKeepsPoisonFailedAndStillDrainsRecoverableSegment() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let poisonID = UUID()
         let recoverableID = UUID()
         let poisonDirectory = try self.writeBundle(
@@ -382,7 +382,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testResolveFinalizeFailurePileStrictlyDecreasesRecoverableFinalizeFailurePile() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let audioSurvivorID = UUID()
         let recoveredLocationID = UUID()
         let locationSurvivorID = UUID()
@@ -435,7 +435,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testFailedLocationSurvivorDeadAudioRequeuesLocationOnly() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let failedDirectory = try self.writeBundle(
             segmentID: segmentID,
@@ -466,7 +466,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
     }
 
     func testDeadScreencastFacetIsRemovedWithoutTombstoneWhileSurvivorRemains() async throws {
-        let harness = self.makeHarness()
+        let harness = try await self.makeHarness()
         let segmentID = UUID()
         let failedDirectory = try self.writeBundle(
             segmentID: segmentID,
@@ -512,7 +512,7 @@ private extension MobileSegmentFinalizeResolverTests {
         MobileSegmentLiveLocationTestSupport(clock: self.clock)
     }
 
-    func makeHarness(connected: Bool = true, maxAttempts: Int = 1) -> Harness {
+    func makeHarness(connected: Bool = true, maxAttempts: Int = 1) async throws -> Harness {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentFinalizeResolverURLProtocol.self]
         _ = maxAttempts
@@ -523,6 +523,7 @@ private extension MobileSegmentFinalizeResolverTests {
                 ? TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
                 : TransferCutoverEndpointResolver()
         )
+        try await transferHarness.engine.start()
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         let uploader = MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock)
         return Harness(

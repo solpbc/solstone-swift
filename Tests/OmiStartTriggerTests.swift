@@ -23,7 +23,7 @@ nonisolated final class OmiStartTriggerTests: XCTestCase {
     }
 
     @MainActor
-    func testFailedWriterStartDoesNotChurnThenResetsOnTransition() throws {
+    func testFailedWriterStartDoesNotChurnThenResetsOnTransition() async throws {
         let clock = MockObserverClock()
         let failingUploader = try self.makeFailingUploader()
         let failingWriter = OmiSegmentWriter(
@@ -41,6 +41,7 @@ nonisolated final class OmiStartTriggerTests: XCTestCase {
             clock: MockObserverClock()
         )
         manager.omiSegmentWriter = failingWriter
+        await manager.openLaunchReadiness()
 
         for _ in 0..<5 {
             manager.startSegmentWriterIfNeeded()

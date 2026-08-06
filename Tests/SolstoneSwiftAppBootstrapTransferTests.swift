@@ -28,14 +28,18 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             enableDispatch: {
                 events.append("enable")
             },
+            openOmiReadiness: {
+                events.append("omi-readiness")
+            },
             reportFailure: { _, _ in
                 failureCount += 1
             }
         )
 
-        XCTAssertEqual(events, ["initialize", "migrate", "reconcile", "enable"])
+        XCTAssertEqual(events, ["initialize", "migrate", "reconcile", "enable", "omi-readiness"])
         XCTAssertEqual(failureCount, 0)
         XCTAssertEqual(events.filter { $0 == "enable" }.count, 1)
+        XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1)
     }
 
     @MainActor
@@ -62,14 +66,18 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             enableDispatch: {
                 events.append("enable")
             },
+            openOmiReadiness: {
+                events.append("omi-readiness")
+            },
             reportFailure: { _, _ in
                 failureCount += 1
             }
         )
 
-        XCTAssertEqual(events, ["initialize", "enable"])
+        XCTAssertEqual(events, ["initialize", "enable", "omi-readiness"])
         XCTAssertEqual(failureCount, 1)
         XCTAssertEqual(events.filter { $0 == "enable" }.count, 1)
+        XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1)
     }
 
     @MainActor
@@ -94,14 +102,18 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             enableDispatch: {
                 events.append("enable")
             },
+            openOmiReadiness: {
+                events.append("omi-readiness")
+            },
             reportFailure: { _, _ in
                 failureCount += 1
             }
         )
 
-        XCTAssertEqual(events, ["initialize", "enable"])
+        XCTAssertEqual(events, ["initialize", "enable", "omi-readiness"])
         XCTAssertEqual(failureCount, 1)
         XCTAssertEqual(events.filter { $0 == "enable" }.count, 1)
+        XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1)
     }
 
     @MainActor
@@ -133,17 +145,21 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
                 enableDispatch: {
                     events.append("enable")
                 },
+                openOmiReadiness: {
+                    events.append("omi-readiness")
+                },
                 reportFailure: { _, _ in
                     failureCount += 1
                 }
             )
 
             let expectedEvents = failurePoint == .migration
-                ? ["initialize", "migrate", "enable"]
-                : ["initialize", "migrate", "reconcile", "enable"]
+                ? ["initialize", "migrate", "enable", "omi-readiness"]
+                : ["initialize", "migrate", "reconcile", "enable", "omi-readiness"]
             XCTAssertEqual(events, expectedEvents, "failure point: \(failurePoint)")
             XCTAssertEqual(failureCount, 1, "failure point: \(failurePoint)")
             XCTAssertEqual(events.filter { $0 == "enable" }.count, 1, "failure point: \(failurePoint)")
+            XCTAssertEqual(events.filter { $0 == "omi-readiness" }.count, 1, "failure point: \(failurePoint)")
         }
     }
 }

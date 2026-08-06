@@ -166,6 +166,10 @@ final class OmiTransferSpoolMigratorTests: XCTestCase {
         )
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
+        let envelopeURL = OmiPendingHandoffStore.url(for: source.audioURL)
+        let envelope = try OmiPendingHandoffStore.read(from: envelopeURL)
+        XCTAssertNil(envelope.metadata)
+        XCTAssertTrue(envelope.frozenTokens.isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.appGroupOmiRoot(appGroupRoot).path))
         XCTAssertFalse(defaults.bool(forKey: OmiTransferSpoolMigrator.flagKey))
         XCTAssertTrue(diagnosticLog.events.contains { $0.detail?.contains(source.audioURL.path) == true })

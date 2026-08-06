@@ -171,13 +171,13 @@ private extension OmiTransferSpoolMigrator {
             let sidecarURL = directoryURL.appendingPathComponent("\(chunkID).json", isDirectory: false)
             let hasAudio = fileManager.fileExists(atPath: audioURL.path)
             let hasEnvelope = fileManager.fileExists(atPath: envelopeURL.path)
-            let envelope = OmiInProgressRecovery.loadEnvelope(
+            let loadedEnvelope = OmiInProgressRecovery.loadEnvelope(
                 at: envelopeURL,
                 diagnosticLog: diagnosticLog,
                 fileManager: fileManager
             )
 
-            if hasEnvelope && envelope == nil {
+            if hasEnvelope && loadedEnvelope == nil {
                 unresolved += 1
                 continue
             }
@@ -187,7 +187,7 @@ private extension OmiTransferSpoolMigrator {
                 continue
             }
 
-            let sidecar = envelope?.sidecar
+            let sidecar = loadedEnvelope?.sidecar
                 ?? self.loadSidecar(sidecarURL, fileManager: fileManager)
                 ?? (hasAudio ? OmiInProgressRecovery.rebuildSidecar(
                     audioURL: audioURL,
@@ -218,31 +218,30 @@ private extension OmiTransferSpoolMigrator {
                 continue
             }
 
-            guard let envelope else {
-                guard hasAudio else {
-                    unresolved += 1
-                    continue
-                }
+            let envelope: OmiPendingHandoffEnvelope
+            if let loadedEnvelope {
+                envelope = loadedEnvelope
+            } else {
                 do {
-                    let tempURL = try self.copyToTemp(audioURL, fileManager: fileManager)
-                    _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(chunkURL: tempURL, sidecar: sidecar)
-                    if !self.cleanup(
-                        audioURL: audioURL,
-                        chunkID: chunkID,
-                        envelopeURL: envelopeURL,
-                        envelope: nil,
-                        acknowledgeTokens: acknowledgeTokens,
-                        diagnosticLog: diagnosticLog,
-                        fileManager: fileManager
-                    ) {
-                        unresolved += 1
-                    }
+                    let createdEnvelope = OmiPendingHandoffEnvelope(
+                        itemID: UUID(),
+                        sidecar: sidecar,
+                        metadata: nil,
+                        frozenTokens: []
+                    )
+                    try OmiPendingHandoffStore.write(
+                        OmiPendingHandoffStore.encode(createdEnvelope),
+                        to: envelopeURL
+                    )
+                    envelope = createdEnvelope
                 } catch {
                     unresolved += 1
-                    self.emit(diagnosticLog, detail: "source=\(audioURL.path) reason=enqueue failed")
-                    omiTransferMigrationLog.error("omi migration enqueue failed source=\(audioURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
+                    self.emit(
+                        diagnosticLog,
+                        detail: "source=\(audioURL.path) reason=envelope write failed"
+                    )
+                    continue
                 }
-                continue
             }
 
             let sourceURLs = hasAudio ? ["audio": audioURL] : [:]

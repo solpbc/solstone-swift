@@ -219,6 +219,7 @@ actor TransferEngine {
     private var inFlight: Set<UUID> = []
     private var inFlightSourceKeys: [UUID: String] = [:]
     private var droppedItemIDs: Set<UUID> = []
+    private var conflictedItemIDs: Set<UUID> = []
     private var attemptCountByItemID: [UUID: Int] = [:]
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
@@ -232,7 +233,7 @@ actor TransferEngine {
     private var deliveredHooks: [String: TransferDeliveredHook] = [:]
     private var workPassScheduled = false
     private var workPassRunning = false
-    private var dispatchSuspendedForLaunch = false
+    private var dispatchSuspendedForLaunch = true
     private var initializedForLaunch = false
     private var lastEventSummary: String?
     private var lastLoggedDispatchDecision: TransferDispatchLogState?
@@ -267,13 +268,13 @@ actor TransferEngine {
 
     func initialize() throws {
         guard !self.initializedForLaunch else { return }
-        self.dispatchSuspendedForLaunch = true
         let snapshot = try self.spool.initialize(now: self.clock.wallNow())
         self.queuedItems = Dictionary(uniqueKeysWithValues: snapshot.queued.map { ($0.manifest.itemID, $0) })
         self.attentionItems = Dictionary(uniqueKeysWithValues: snapshot.attention.map { ($0.manifest.itemID, $0) })
         self.inFlight = []
         self.inFlightSourceKeys = [:]
         self.droppedItemIDs = []
+        self.conflictedItemIDs = snapshot.conflictedItemIDs
         self.attemptCountByItemID = [:]
         self.aggregateByteWindow = TransferByteWindow()
         self.counters = TransferCounters(
@@ -364,10 +365,14 @@ actor TransferEngine {
         expectedManifest: TransferManifest,
         expectedPayloadSourceURLs: [String: URL]
     ) throws -> TransferOwnershipVerdict {
-        try self.spool.verifyOwnership(
+        let verdict = try self.spool.verifyOwnership(
             expectedManifest: expectedManifest,
             expectedPayloadSourceURLs: expectedPayloadSourceURLs
         )
+        if case .conflict(.ownerConflict) = verdict {
+            self.conflictedItemIDs.insert(expectedManifest.itemID)
+        }
+        return verdict
     }
 
     @discardableResult
@@ -486,6 +491,7 @@ actor TransferEngine {
 
     func retryAttention(source: String? = nil) throws {
         let items = self.attentionItems.values
+            .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
             .filter { source == nil || $0.manifest.sourceKey == source }
             .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
         try self.moveAttentionItemsToQueued(items)
@@ -495,6 +501,7 @@ actor TransferEngine {
     /// and clears its persisted retry deadline. Missing item IDs are treated as
     /// a no-op that still kicks the engine.
     func retryAttention(itemID: UUID) throws {
+        guard !self.conflictedItemIDs.contains(itemID) else { return }
         guard let item = self.attentionItems[itemID] else {
             self.scheduleStatusUpdate(summary: self.lastEventSummary)
             self.scheduleWork()
@@ -505,6 +512,7 @@ actor TransferEngine {
 
     private func moveAttentionItemsToQueued(_ items: [TransferStoredItem]) throws {
         for item in items {
+            guard !self.conflictedItemIDs.contains(item.manifest.itemID) else { continue }
             let moved = try self.spool.moveAttentionItemToQueued(item)
             self.attentionItems.removeValue(forKey: item.manifest.itemID)
             self.queuedItems[moved.manifest.itemID] = moved
@@ -532,6 +540,7 @@ actor TransferEngine {
     }
 
     func drop(itemID: UUID) {
+        guard !self.conflictedItemIDs.contains(itemID) else { return }
         self.droppedItemIDs.insert(itemID)
         if let item = self.queuedItems.removeValue(forKey: itemID) {
             self.counters.queuedCount -= 1
@@ -688,6 +697,7 @@ actor TransferEngine {
                 .filter { self.band(for: $0.manifest, wallNow: wallNow) == band }
                 .filter { !self.inFlight.contains($0.manifest.itemID) }
                 .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
+                .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
                 .filter {
                     TransferClockMath.retryEligible(
                         nextAttemptAt: $0.manifest.nextAttemptAt,
