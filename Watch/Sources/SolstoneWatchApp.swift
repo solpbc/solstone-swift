@@ -16,16 +16,18 @@ struct SolstoneWatchApp: App {
         let session = LiveWatchConnectivitySession()
         self.notificationScheduler = LiveWatchNotificationScheduler()
         UNUserNotificationCenter.current().delegate = self.notificationScheduler
-        let diagnosticsStore: WatchRelayDiagnosticsStore?
+            let diagnosticsStore: WatchRelayDiagnosticsStore?
         do {
             let storage = try WatchCaptureStorage()
             let store = WatchRelayDiagnosticsStore(storage: storage)
             diagnosticsStore = store
             let relaySender = WatchRelaySender(storage: storage, session: session, diagnosticsStore: store)
+            let environmentProvider = LiveWatchRelayDiagnosticsEnvironmentProvider()
             let diagnosticsCollector = WatchRelayDiagnosticsCollector(
                 storage: storage,
                 diagnosticsStore: store,
-                session: session
+                session: session,
+                environmentProvider: environmentProvider
             )
             let sessionModel = WatchSessionModel(session: session, relaySender: relaySender)
             let captureModel = WatchCaptureModel(
@@ -33,7 +35,8 @@ struct SolstoneWatchApp: App {
                 relaySender: relaySender,
                 session: session,
                 diagnosticsCollector: diagnosticsCollector,
-                notificationScheduler: self.notificationScheduler
+                notificationScheduler: self.notificationScheduler,
+                environmentProvider: environmentProvider
             )
             sessionModel.onReachableRepublish = { [weak captureModel] in captureModel?.republishStatusOnReconnect() }
             self._sessionModel = State(initialValue: sessionModel)

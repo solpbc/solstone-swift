@@ -98,18 +98,18 @@ nonisolated enum WatchMicrophonePermission: Equatable, Sendable {
     case notDetermined
 }
 
-nonisolated enum WatchNotificationAuthorizationStatus: Equatable, Sendable {
-    case notDetermined
+nonisolated enum WatchNotificationAuthorizationStatus: String, Codable, Equatable, Sendable {
+    case notDetermined = "not-determined"
     case authorized
     case denied
     case provisional
     case ephemeral
 }
 
-nonisolated enum WatchNotificationAlertSetting: Equatable, Sendable {
+nonisolated enum WatchNotificationAlertSetting: String, Codable, Equatable, Sendable {
     case enabled
     case disabled
-    case notSupported
+    case notSupported = "not-supported"
 }
 
 nonisolated enum WatchNotificationPresentationOption: Hashable, Sendable {
@@ -121,9 +121,9 @@ nonisolated func watchNoticePresentationOptions() -> Set<WatchNotificationPresen
     [.banner, .list]
 }
 
-nonisolated enum WatchWristAlertAssurance: Equatable, Sendable {
-    case willTap
-    case alertsOff
+nonisolated enum WatchWristAlertAssurance: String, Codable, Equatable, Sendable {
+    case willTap = "will-tap"
+    case alertsOff = "alerts-off"
 
     var line: String {
         switch self {
@@ -195,6 +195,13 @@ nonisolated enum WatchCaptureTerminalReason: String, Codable, Equatable, Sendabl
             .unavailable(reason: SourceVocabulary.watchAudioStoppedItself)
         }
     }
+
+    func observerError(disposition: WatchCaptureTerminalDisposition?) -> ObserverError {
+        if disposition == .inferredStoppedItself {
+            return .unavailable(reason: SourceVocabulary.watchNoticeAudioCouldNotBeConfirmedTitle)
+        }
+        return self.observerError
+    }
 }
 
 nonisolated enum WatchCaptureTerminalDisposition: String, Codable, Equatable, Sendable {
@@ -230,10 +237,10 @@ nonisolated enum WatchCaptureLocationAdvisory: String, Codable, Equatable, Senda
     }
 }
 
-nonisolated enum WatchCaptureSettingsRoute: Equatable, Sendable {
+nonisolated enum WatchCaptureSettingsRoute: String, Codable, Equatable, Sendable {
     case microphone
-    case notificationGrant
-    case notificationSettings
+    case notificationGrant = "notification-grant"
+    case notificationSettings = "notification-settings"
 }
 
 nonisolated enum WatchNoticeCopy: Equatable, Sendable, CaseIterable {
@@ -340,6 +347,21 @@ nonisolated enum WatchNoticeDecision: Equatable, Sendable {
     case cannotSchedule(settingsRoute: WatchCaptureSettingsRoute)
 }
 
+nonisolated extension WatchNoticeDecision {
+    var historyRawValue: String {
+        switch self {
+        case .none:
+            "none"
+        case .cancelLease:
+            "cancel-lease"
+        case .schedule:
+            "schedule"
+        case .cannotSchedule:
+            "cannot-schedule"
+        }
+    }
+}
+
 nonisolated func watchNoticeDecision(
     authorizationStatus: WatchNotificationAuthorizationStatus,
     alertSetting: WatchNotificationAlertSetting,
@@ -374,6 +396,7 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
     var terminalDisposition: WatchCaptureTerminalDisposition?
     var terminalAt: Date?
     var noticeOwed: Bool
+    var segmentsProduced: Int
 
     enum CodingKeys: String, CodingKey {
         case sessionID
@@ -383,6 +406,39 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
         case terminalDisposition
         case terminalAt
         case noticeOwed
+        case segmentsProduced
+    }
+
+    init(
+        sessionID: String,
+        startedAt: Date,
+        state: WatchCaptureSessionRecordState,
+        terminalReason: WatchCaptureTerminalReason?,
+        terminalDisposition: WatchCaptureTerminalDisposition?,
+        terminalAt: Date?,
+        noticeOwed: Bool,
+        segmentsProduced: Int = 0
+    ) {
+        self.sessionID = sessionID
+        self.startedAt = startedAt
+        self.state = state
+        self.terminalReason = terminalReason
+        self.terminalDisposition = terminalDisposition
+        self.terminalAt = terminalAt
+        self.noticeOwed = noticeOwed
+        self.segmentsProduced = segmentsProduced
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionID = try container.decode(String.self, forKey: .sessionID)
+        self.startedAt = try container.decode(Date.self, forKey: .startedAt)
+        self.state = try container.decode(WatchCaptureSessionRecordState.self, forKey: .state)
+        self.terminalReason = try container.decodeIfPresent(WatchCaptureTerminalReason.self, forKey: .terminalReason)
+        self.terminalDisposition = try container.decodeIfPresent(WatchCaptureTerminalDisposition.self, forKey: .terminalDisposition)
+        self.terminalAt = try container.decodeIfPresent(Date.self, forKey: .terminalAt)
+        self.noticeOwed = try container.decode(Bool.self, forKey: .noticeOwed)
+        self.segmentsProduced = try container.decodeIfPresent(Int.self, forKey: .segmentsProduced) ?? 0
     }
 }
 

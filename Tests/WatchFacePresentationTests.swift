@@ -249,4 +249,18 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             }
         }
     }
+
+    func testInferredTerminalNeverClaimsDetectionForAnyReason() {
+        for reason in WatchCaptureTerminalReason.allCases {
+            XCTAssertEqual(
+                reason.observerError(disposition: .inferredStoppedItself).message,
+                SourceVocabulary.watchNoticeAudioCouldNotBeConfirmedTitle
+            )
+            XCTAssertNotEqual(
+                reason.observerError(disposition: .detectedStoppedItself).message,
+                SourceVocabulary.watchNoticeAudioCouldNotBeConfirmedTitle,
+                "detected disposition must retain its existing mapping for \(reason.rawValue)"
+            )
+        }
+    }
 }

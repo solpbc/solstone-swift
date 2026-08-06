@@ -92,6 +92,7 @@ nonisolated enum WatchRelayDiagnosticsEnvelopeReason {
     static let publicationFailed = "diagnostic envelope publication failed"
     static let encodeFailed = "diagnostic envelope encode failed"
     static let historyUnavailable = "diagnostic history unavailable"
+    static let sessionHistoryUnreadable = "watch capture session history unreadable"
     static let notReportedByThisWatchBuild = "not reported by this watch build"
 
     static func bounded(_ reason: String) -> String {
@@ -229,6 +230,120 @@ nonisolated struct WatchRelayDiagnosticsPayload: Codable, Equatable, Sendable {
     let lastFacts: DiagnosticAvailability<WatchRelayLastFactsSummary>
     let observedFileTransfers: [WatchRelayTransferObservation]
     let omittedObservationCount: Int
+    let sessionHistoryWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]>
+    let lifetimeSessionsStarted: DiagnosticAvailability<Int>
+    let sessionHistoryCounterEpoch: DiagnosticAvailability<String>
+    let sessionHistoryDepth: Int
+
+    init(
+        watchAppMarketingVersion: DiagnosticAvailability<String>,
+        watchAppBuild: DiagnosticAvailability<String>,
+        watchOSVersion: DiagnosticAvailability<String>,
+        activationState: String,
+        isCompanionAppInstalled: DiagnosticAvailability<Bool>,
+        isReachable: Bool,
+        iOSDeviceNeedsUnlockAfterRebootForReachability: DiagnosticAvailability<Bool>,
+        hasContentPending: Bool,
+        watchBatteryLevel: DiagnosticAvailability<Double>,
+        watchBatteryState: DiagnosticAvailability<String>,
+        watchLowPowerModeEnabled: DiagnosticAvailability<Bool>,
+        watchThermalState: DiagnosticAvailability<String>,
+        manifestSummary: DiagnosticAvailability<WatchRelayManifestSummary>,
+        appleQueue: DiagnosticAvailability<WatchRelayAppleQueueSnapshot>,
+        lastFacts: DiagnosticAvailability<WatchRelayLastFactsSummary>,
+        observedFileTransfers: [WatchRelayTransferObservation],
+        omittedObservationCount: Int,
+        sessionHistoryWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]> = .unavailable(
+            reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild
+        ),
+        lifetimeSessionsStarted: DiagnosticAvailability<Int> = .unavailable(
+            reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild
+        ),
+        sessionHistoryCounterEpoch: DiagnosticAvailability<String> = .unavailable(
+            reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild
+        ),
+        sessionHistoryDepth: Int = 0
+    ) {
+        self.watchAppMarketingVersion = watchAppMarketingVersion
+        self.watchAppBuild = watchAppBuild
+        self.watchOSVersion = watchOSVersion
+        self.activationState = activationState
+        self.isCompanionAppInstalled = isCompanionAppInstalled
+        self.isReachable = isReachable
+        self.iOSDeviceNeedsUnlockAfterRebootForReachability = iOSDeviceNeedsUnlockAfterRebootForReachability
+        self.hasContentPending = hasContentPending
+        self.watchBatteryLevel = watchBatteryLevel
+        self.watchBatteryState = watchBatteryState
+        self.watchLowPowerModeEnabled = watchLowPowerModeEnabled
+        self.watchThermalState = watchThermalState
+        self.manifestSummary = manifestSummary
+        self.appleQueue = appleQueue
+        self.lastFacts = lastFacts
+        self.observedFileTransfers = observedFileTransfers
+        self.omittedObservationCount = omittedObservationCount
+        self.sessionHistoryWindow = sessionHistoryWindow
+        self.lifetimeSessionsStarted = lifetimeSessionsStarted
+        self.sessionHistoryCounterEpoch = sessionHistoryCounterEpoch
+        self.sessionHistoryDepth = sessionHistoryDepth
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case watchAppMarketingVersion, watchAppBuild, watchOSVersion, activationState
+        case isCompanionAppInstalled, isReachable, iOSDeviceNeedsUnlockAfterRebootForReachability
+        case hasContentPending, watchBatteryLevel, watchBatteryState, watchLowPowerModeEnabled, watchThermalState
+        case manifestSummary, appleQueue, lastFacts, observedFileTransfers, omittedObservationCount
+        case sessionHistoryWindow, lifetimeSessionsStarted, sessionHistoryCounterEpoch, sessionHistoryDepth
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.watchAppMarketingVersion = try c.decode(DiagnosticAvailability<String>.self, forKey: .watchAppMarketingVersion)
+        self.watchAppBuild = try c.decode(DiagnosticAvailability<String>.self, forKey: .watchAppBuild)
+        self.watchOSVersion = try c.decode(DiagnosticAvailability<String>.self, forKey: .watchOSVersion)
+        self.activationState = try c.decode(String.self, forKey: .activationState)
+        self.isCompanionAppInstalled = try c.decode(DiagnosticAvailability<Bool>.self, forKey: .isCompanionAppInstalled)
+        self.isReachable = try c.decode(Bool.self, forKey: .isReachable)
+        self.iOSDeviceNeedsUnlockAfterRebootForReachability = try c.decode(DiagnosticAvailability<Bool>.self, forKey: .iOSDeviceNeedsUnlockAfterRebootForReachability)
+        self.hasContentPending = try c.decode(Bool.self, forKey: .hasContentPending)
+        self.watchBatteryLevel = try c.decode(DiagnosticAvailability<Double>.self, forKey: .watchBatteryLevel)
+        self.watchBatteryState = try c.decode(DiagnosticAvailability<String>.self, forKey: .watchBatteryState)
+        self.watchLowPowerModeEnabled = try c.decode(DiagnosticAvailability<Bool>.self, forKey: .watchLowPowerModeEnabled)
+        self.watchThermalState = try c.decode(DiagnosticAvailability<String>.self, forKey: .watchThermalState)
+        self.manifestSummary = try c.decode(DiagnosticAvailability<WatchRelayManifestSummary>.self, forKey: .manifestSummary)
+        self.appleQueue = try c.decode(DiagnosticAvailability<WatchRelayAppleQueueSnapshot>.self, forKey: .appleQueue)
+        self.lastFacts = try c.decode(DiagnosticAvailability<WatchRelayLastFactsSummary>.self, forKey: .lastFacts)
+        self.observedFileTransfers = try c.decode([WatchRelayTransferObservation].self, forKey: .observedFileTransfers)
+        self.omittedObservationCount = try c.decode(Int.self, forKey: .omittedObservationCount)
+        self.sessionHistoryWindow = try c.decodeIfPresent(DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]>.self, forKey: .sessionHistoryWindow) ?? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        self.lifetimeSessionsStarted = try c.decodeIfPresent(DiagnosticAvailability<Int>.self, forKey: .lifetimeSessionsStarted) ?? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        self.sessionHistoryCounterEpoch = try c.decodeIfPresent(DiagnosticAvailability<String>.self, forKey: .sessionHistoryCounterEpoch) ?? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
+        self.sessionHistoryDepth = try c.decodeIfPresent(Int.self, forKey: .sessionHistoryDepth) ?? 0
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(self.watchAppMarketingVersion, forKey: .watchAppMarketingVersion)
+        try c.encode(self.watchAppBuild, forKey: .watchAppBuild)
+        try c.encode(self.watchOSVersion, forKey: .watchOSVersion)
+        try c.encode(self.activationState, forKey: .activationState)
+        try c.encode(self.isCompanionAppInstalled, forKey: .isCompanionAppInstalled)
+        try c.encode(self.isReachable, forKey: .isReachable)
+        try c.encode(self.iOSDeviceNeedsUnlockAfterRebootForReachability, forKey: .iOSDeviceNeedsUnlockAfterRebootForReachability)
+        try c.encode(self.hasContentPending, forKey: .hasContentPending)
+        try c.encode(self.watchBatteryLevel, forKey: .watchBatteryLevel)
+        try c.encode(self.watchBatteryState, forKey: .watchBatteryState)
+        try c.encode(self.watchLowPowerModeEnabled, forKey: .watchLowPowerModeEnabled)
+        try c.encode(self.watchThermalState, forKey: .watchThermalState)
+        try c.encode(self.manifestSummary, forKey: .manifestSummary)
+        try c.encode(self.appleQueue, forKey: .appleQueue)
+        try c.encode(self.lastFacts, forKey: .lastFacts)
+        try c.encode(self.observedFileTransfers, forKey: .observedFileTransfers)
+        try c.encode(self.omittedObservationCount, forKey: .omittedObservationCount)
+        try c.encode(self.sessionHistoryWindow, forKey: .sessionHistoryWindow)
+        try c.encode(self.lifetimeSessionsStarted, forKey: .lifetimeSessionsStarted)
+        try c.encode(self.sessionHistoryCounterEpoch, forKey: .sessionHistoryCounterEpoch)
+        try c.encode(self.sessionHistoryDepth, forKey: .sessionHistoryDepth)
+    }
 }
 
 nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {

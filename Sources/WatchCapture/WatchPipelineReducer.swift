@@ -507,6 +507,11 @@ private extension WatchPipelineReducer {
             to: &lines
         )
         self.appendExportSection(
+            "watch session history",
+            rows: self.sessionHistoryRows(input: input),
+            to: &lines
+        )
+        self.appendExportSection(
             SourceVocabulary.watchDiagnosticsStageRetentionAppleQueue,
             rows: self.watchRetentionRows(input: input),
             to: &lines
@@ -588,6 +593,62 @@ private extension WatchPipelineReducer {
             ])
         }
         return rows
+    }
+
+    nonisolated static func sessionHistoryRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
+        guard let payload = input.watchDiagnostics.payload else {
+            return [WatchDiagnosticsExportRow(
+                label: "session history",
+                value: input.watchDiagnostics.unavailableReason ?? SourceVocabulary.watchDiagnosticsUnavailable
+            )]
+        }
+        guard case let .available(entries) = payload.sessionHistoryWindow else {
+            return [WatchDiagnosticsExportRow(
+                label: "session history",
+                value: self.availabilityReason(payload.sessionHistoryWindow)
+            )]
+        }
+        var rows = [
+            WatchDiagnosticsExportRow(label: "sessions in this report", value: "\(entries.count)"),
+            WatchDiagnosticsExportRow(
+                label: "sessions on the watch not in this report",
+                value: "\(max(0, payload.sessionHistoryDepth - entries.count))"
+            ),
+            WatchDiagnosticsExportRow(
+                label: "sessions started since install",
+                value: self.intAvailabilityText(payload.lifetimeSessionsStarted)
+            )
+        ]
+        for (offset, entry) in entries.enumerated() {
+            rows.append(contentsOf: self.sessionHistoryRows(entry: entry, index: offset + 1, total: entries.count, now: input.now))
+        }
+        return rows
+    }
+
+    nonisolated static func sessionHistoryRows(
+        entry: WatchCaptureSessionHistoryEntry,
+        index: Int,
+        total: Int,
+        now: Date
+    ) -> [WatchDiagnosticsExportRow] {
+        [
+            WatchDiagnosticsExportRow(label: "session", value: "\(index) of \(total)"),
+            WatchDiagnosticsExportRow(label: "started", value: self.dateWithAgeText(entry.startedAt, now: now)),
+            WatchDiagnosticsExportRow(label: "ended", value: self.optionalDateWithAgeText(entry.terminalAt, now: now)),
+            WatchDiagnosticsExportRow(label: "outcome", value: "\(entry.terminalReason?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided) / \(entry.terminalDisposition?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
+            WatchDiagnosticsExportRow(label: "start refusal", value: entry.startRefusalReason?.rawValue ?? "none"),
+            WatchDiagnosticsExportRow(label: "wrist alert", value: "\(entry.noticeDecision ?? "none") / delivered \(self.optionalBooleanText(entry.noticeDelivered))"),
+            WatchDiagnosticsExportRow(label: "wrist alert authorization", value: "\(entry.notificationAuthorizationStatus?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided) / alerts \(entry.notificationAlertSetting?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
+            WatchDiagnosticsExportRow(label: "notice owed cleared", value: self.booleanText(!entry.noticeOwed)),
+            WatchDiagnosticsExportRow(label: "battery at end", value: "\(self.optionalPercentText(entry.batteryLevelAtEnd)) / \(entry.batteryStateAtEnd ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
+            WatchDiagnosticsExportRow(label: "low power at end", value: self.optionalBooleanText(entry.lowPowerModeEnabledAtEnd)),
+            WatchDiagnosticsExportRow(label: "thermal at end", value: entry.thermalStateAtEnd ?? SourceVocabulary.watchDiagnosticsNotProvided),
+            WatchDiagnosticsExportRow(label: "audio clock at end", value: entry.lastAudioCurrentTime.map { self.secondsText($0) } ?? SourceVocabulary.watchDiagnosticsNotProvided),
+            WatchDiagnosticsExportRow(label: "zero-clock observations at end", value: entry.zeroAudioCurrentTimeObservationCount.map(String.init) ?? SourceVocabulary.watchDiagnosticsNotProvided),
+            WatchDiagnosticsExportRow(label: "segments produced", value: "\(entry.segmentsProduced)"),
+            WatchDiagnosticsExportRow(label: "persistence advisory", value: entry.persistenceAdvisory?.rawValue ?? "none"),
+            WatchDiagnosticsExportRow(label: "location advisory", value: entry.locationAdvisory?.rawValue ?? "none")
+        ]
     }
 
     nonisolated static func watchRetentionRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
@@ -1105,6 +1166,30 @@ private extension WatchPipelineReducer {
         case let .unavailable(reason):
             return "\(SourceVocabulary.watchDiagnosticsUnavailable) (\(WatchTransferFailureFormatter.redactedDescription(reason)))"
         }
+    }
+
+    nonisolated static func availabilityReason<Value>(_ availability: DiagnosticAvailability<Value>) -> String where Value: Codable & Equatable & Sendable {
+        switch availability {
+        case .available:
+            SourceVocabulary.watchDiagnosticsNotProvided
+        case let .unavailable(reason):
+            self.unavailableText(reason)
+        }
+    }
+
+    nonisolated static func optionalDateWithAgeText(_ date: Date?, now: Date) -> String {
+        guard let date else { return SourceVocabulary.watchDiagnosticsNotProvided }
+        return self.dateWithAgeText(date, now: now)
+    }
+
+    nonisolated static func optionalBooleanText(_ value: Bool?) -> String {
+        guard let value else { return SourceVocabulary.watchDiagnosticsNotProvided }
+        return self.booleanText(value)
+    }
+
+    nonisolated static func optionalPercentText(_ value: Double?) -> String {
+        guard let value else { return SourceVocabulary.watchDiagnosticsNotProvided }
+        return self.percentAvailabilityText(.available(value))
     }
 
     nonisolated static func boolAvailabilityText(_ availability: DiagnosticAvailability<Bool>) -> String {

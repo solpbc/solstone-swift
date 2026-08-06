@@ -696,6 +696,57 @@ final class WatchCaptureTests: XCTestCase {
 
         XCTAssertEqual(statuses.last?.audioTerminalReason, .audioClockStalled)
         XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        guard case let .available(entries) = history.read(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
+        XCTAssertGreaterThan(try XCTUnwrap(entries.first?.zeroAudioCurrentTimeObservationCount), 0)
+    }
+
+    func testTerminalHistorySurvivesRelaunchAndReconcileWritesProcessDeathEntry() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        await harness.engine.start()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        await harness.engine.stop()
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        guard case let .available(stopped) = history.read(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
+        XCTAssertEqual(stopped.count, 1)
+        XCTAssertTrue(try XCTUnwrap(stopped.first).isComplete)
+
+        let active = WatchCaptureSessionRecord(
+            sessionID: "process-death", startedAt: harness.clock.now(), state: .active,
+            terminalReason: nil, terminalDisposition: nil, terminalAt: nil, noticeOwed: false
+        )
+        try harness.storage.writeSessionRecord(active)
+        let relaunch = WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted), audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .denied), storage: harness.storage,
+            clock: harness.clock, audioProbe: MockWatchAudioProbe(),
+            notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(), notificationCenter: NotificationCenter()
+        )
+        await relaunch.reconcileOnLaunch()
+        guard case let .available(reconciled) = history.read(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
+        let entry = try XCTUnwrap(reconciled.first { $0.sessionID == "process-death" })
+        XCTAssertEqual(entry.terminalReason, .processExitedWhileActive)
+        XCTAssertEqual(entry.terminalDisposition, .inferredStoppedItself)
+    }
+
+    func testDeniedTerminalHistoryRecordsNoticeAttemptFacts() async throws {
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied, notificationAuthorizationStatus: .denied, notificationAlertSetting: .disabled
+        )
+        await harness.engine.start()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        harness.notificationCenter.post(name: AVAudioSession.interruptionNotification, object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+        await self.drain(until: { harness.engine.ownerPresentation.terminalReason == .audioInterrupted })
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        guard case let .available(entries) = history.read(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.noticeDecision, "cannot-schedule")
+        XCTAssertEqual(entry.noticeDelivered, false)
+        XCTAssertEqual(entry.notificationAuthorizationStatus, .denied)
+        XCTAssertEqual(entry.notificationAlertSetting, .disabled)
+        XCTAssertEqual(entry.settingsRoute, .notificationSettings)
     }
 
     func testLeaseRenewsOnlyForPositiveDecodableFinalizedAudio() async throws {
@@ -1428,6 +1479,39 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
     }
 
+    func testOwedClearDoesNotLoseEntryAppendedDuringNoticeSubmission() async throws {
+        let harness = try self.makeHarness()
+        let terminalAt = harness.clock.now()
+        let record = WatchCaptureSessionRecord(
+            sessionID: "intended", startedAt: terminalAt.addingTimeInterval(-30), state: .terminal,
+            terminalReason: .processExitedWhileActive, terminalDisposition: .inferredStoppedItself,
+            terminalAt: terminalAt, noticeOwed: true
+        )
+        try harness.storage.writeSessionRecord(record)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        harness.notificationScheduler.onAddCallback = {
+            let concurrent = WatchCaptureSessionHistoryEntry(
+                sessionID: "concurrent", startedAt: terminalAt, terminalAt: terminalAt,
+                terminalReason: .audioInterrupted, terminalDisposition: .detectedStoppedItself,
+                startRefusalReason: nil, settingsRoute: nil, noticeOwed: true, noticeDecision: "schedule",
+                noticeDelivered: nil, notificationAuthorizationStatus: .authorized, notificationAlertSetting: .enabled,
+                wristAlertAssurance: .willTap, audioArmed: true, audioSessionIsActive: true, locationArmed: false,
+                segmentsProduced: 0, batteryLevelAtEnd: nil, batteryStateAtEnd: nil, lowPowerModeEnabledAtEnd: nil,
+                thermalStateAtEnd: nil, lastVerifiedAudioAt: nil, lastAudioCurrentTime: nil,
+                zeroAudioCurrentTimeObservationCount: nil, locationAdvisory: nil, persistenceAdvisory: nil
+            )
+            try? history.upsert(concurrent, asOf: terminalAt)
+        }
+
+        await harness.engine.reconcileOnLaunch()
+
+        guard case let .available(entries) = history.read(asOf: terminalAt) else { return XCTFail("history unreadable") }
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.sessionID, $0) })
+        XCTAssertEqual(Set(byID.keys), Set(["intended", "concurrent"]))
+        XCTAssertFalse(try XCTUnwrap(byID["intended"]).noticeOwed)
+        XCTAssertTrue(try XCTUnwrap(byID["concurrent"]).noticeOwed)
+    }
+
     func testFinalizedUnsentSegmentsBecomeQueuedOnRelaunch() async throws {
         let harness = try self.makeHarness()
         _ = try self.writeManifest(
@@ -1594,7 +1678,8 @@ private extension WatchCaptureTests {
         locationAuthorization: WatchLocationAuthorization = .authorized,
         notificationAuthorizationStatus: WatchNotificationAuthorizationStatus = .authorized,
         notificationAlertSetting: WatchNotificationAlertSetting = .enabled,
-        fileWriter: (any WatchFileWriting)? = nil
+        fileWriter: (any WatchFileWriting)? = nil,
+        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = MockWatchRelayDiagnosticsEnvironmentProvider()
     ) throws -> Harness {
         let recorder = MockWatchAudioRecorder(
             microphonePermission: microphonePermission ?? (audioPermission ? .granted : .denied)
@@ -1620,6 +1705,7 @@ private extension WatchCaptureTests {
             clock: clock,
             audioProbe: audioProbe,
             notificationScheduler: notificationScheduler,
+            environmentProvider: environmentProvider,
             notificationCenter: notificationCenter
         )
         return Harness(
@@ -1732,6 +1818,7 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
     var alertSettingValue: WatchNotificationAlertSetting
     var requestAuthorizationResult: WatchNotificationAuthorizationStatus
     var addError: (any Error)?
+    var onAddCallback: (@MainActor () async -> Void)?
     var calls: [Call] = []
     var pendingRequests: [String: PendingRequest] = [:]
     var submittedRequests: [PendingRequest] = []
@@ -1765,6 +1852,9 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
         self.calls.append(.add(identifier: identifier, title: title, body: body, triggerDate: triggerDate))
         if let addError {
             throw addError
+        }
+        if let onAddCallback {
+            await onAddCallback()
         }
         let request = PendingRequest(
             identifier: identifier,

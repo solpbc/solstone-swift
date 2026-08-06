@@ -1111,6 +1111,35 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(export.contains("apple relation duplicate"))
         XCTAssertTrue(export.contains("relation matched; id "))
     }
+
+    func testSessionHistoryExportRendersNewestFirstRawReasonsAndUnavailableDistinctly() {
+        let older = Self.sessionEntry("older", reason: .audioClockStalled, at: Self.now.addingTimeInterval(-20))
+        let newer = Self.sessionEntry("newer", reason: .audioRecorderStopped, at: Self.now.addingTimeInterval(-10))
+        let payload = Self.payload(
+            activeBacklogCount: 0, observations: [],
+            sessionHistoryWindow: .available([newer, older]), sessionHistoryDepth: 7,
+            lifetimeSessionsStarted: .available(42)
+        )
+        let rendered = WatchPipelineReducer.reduce(Self.input(
+            now: Self.now, watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil)
+        )).diagnosticsExportText
+        XCTAssertTrue(rendered.contains("watch session history\nsessions in this report: 2\nsessions on the watch not in this report: 5\nsessions started since install: 42"))
+        XCTAssertTrue(rendered.contains("outcome: audio-recorder-stopped / detected-stopped-itself"))
+        XCTAssertTrue(rendered.contains("outcome: audio-clock-stalled / detected-stopped-itself"))
+        XCTAssertLessThan(try! XCTUnwrap(rendered.range(of: "session: 1 of 2")).lowerBound, try! XCTUnwrap(rendered.range(of: "session: 2 of 2")).lowerBound)
+        XCTAssertLessThan(try! XCTUnwrap(rendered.range(of: "audio-recorder-stopped")).lowerBound, try! XCTUnwrap(rendered.range(of: "audio-clock-stalled")).lowerBound)
+
+        let empty = WatchPipelineReducer.reduce(Self.input(
+            now: Self.now, watchDiagnostics: .available(Self.payload(activeBacklogCount: 0, observations: []), rawEnvelopeByteCount: nil)
+        )).diagnosticsExportText
+        let unavailablePayload = Self.payload(activeBacklogCount: 0, observations: [], sessionHistoryWindow: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable))
+        let unavailable = WatchPipelineReducer.reduce(Self.input(
+            now: Self.now, watchDiagnostics: .available(unavailablePayload, rawEnvelopeByteCount: nil)
+        )).diagnosticsExportText
+        XCTAssertTrue(empty.contains("sessions in this report: 0"))
+        XCTAssertFalse(unavailable.contains("sessions in this report: 0"))
+        XCTAssertTrue(unavailable.contains(WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable))
+    }
 }
 
 private extension WatchPipelineReducerTests {
@@ -1268,6 +1297,9 @@ private extension WatchPipelineReducerTests {
         activeBacklogCount: Int,
         observations: [WatchRelayTransferObservation],
         omittedObservationCount: Int = 0,
+        sessionHistoryWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]> = .available([]),
+        sessionHistoryDepth: Int = 0,
+        lifetimeSessionsStarted: DiagnosticAvailability<Int> = .available(0),
         originalAudioFileCounts: DiagnosticAvailability<WatchRelayOriginalFileStateCounts> = .unavailable(
             reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild
         )
@@ -1310,8 +1342,23 @@ private extension WatchPipelineReducerTests {
                 lastBackgroundWakeDeadline: nil
             )),
             observedFileTransfers: observations,
-            omittedObservationCount: omittedObservationCount
+            omittedObservationCount: omittedObservationCount,
+            sessionHistoryWindow: sessionHistoryWindow,
+            lifetimeSessionsStarted: lifetimeSessionsStarted,
+            sessionHistoryCounterEpoch: .available("epoch"),
+            sessionHistoryDepth: sessionHistoryDepth
         )
+    }
+
+    static func sessionEntry(_ id: String, reason: WatchCaptureTerminalReason, at: Date) -> WatchCaptureSessionHistoryEntry {
+        WatchCaptureSessionHistoryEntry(sessionID: id, startedAt: at.addingTimeInterval(-30), terminalAt: at,
+            terminalReason: reason, terminalDisposition: .detectedStoppedItself, startRefusalReason: nil,
+            settingsRoute: nil, noticeOwed: false, noticeDecision: "schedule", noticeDelivered: true,
+            notificationAuthorizationStatus: .authorized, notificationAlertSetting: .enabled, wristAlertAssurance: .willTap,
+            audioArmed: true, audioSessionIsActive: true, locationArmed: false, segmentsProduced: 2,
+            batteryLevelAtEnd: 0.75, batteryStateAtEnd: "unplugged", lowPowerModeEnabledAtEnd: false,
+            thermalStateAtEnd: "nominal", lastVerifiedAudioAt: at, lastAudioCurrentTime: 12.5,
+            zeroAudioCurrentTimeObservationCount: 3, locationAdvisory: nil, persistenceAdvisory: nil)
     }
 
     static func observation(

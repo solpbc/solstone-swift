@@ -26,7 +26,8 @@ final class WatchCaptureModel {
         relaySender: WatchRelaySender,
         session: any WatchConnectivitySession,
         diagnosticsCollector: WatchRelayDiagnosticsCollector,
-        notificationScheduler: any WatchNotificationScheduling
+        notificationScheduler: any WatchNotificationScheduling,
+        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     ) {
         self.diagnosticsCollector = diagnosticsCollector
         let engine = WatchCaptureEngine(
@@ -35,7 +36,8 @@ final class WatchCaptureModel {
             locationProvider: LiveWatchLocationProvider(),
             storage: storage,
             audioProbe: LiveWatchAudioProbe(),
-            notificationScheduler: notificationScheduler
+            notificationScheduler: notificationScheduler,
+            environmentProvider: environmentProvider
         )
         engine.onPresentationChanged = { [weak self] presentation in
             self?.presentation = presentation

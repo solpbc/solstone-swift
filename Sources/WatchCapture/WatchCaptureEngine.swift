@@ -22,6 +22,8 @@ final class WatchCaptureEngine {
     private let audioProbe: any WatchAudioProbing
     private let notificationScheduler: any WatchNotificationScheduling
     private let notificationCenter: NotificationCenter
+    private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
+    private let sessionHistoryStore: WatchCaptureSessionHistoryStore
 
     private var activeSegment: ActiveSegment?
     private var segmentationTask: Task<Void, Never>?
@@ -53,6 +55,9 @@ final class WatchCaptureEngine {
     private var confirmingCount = 0
     private var handedOffCount = 0
     private var zeroAudioCurrentTimeObservationCount = 0
+    private var terminalEnvironmentSnapshot: WatchRelayDiagnosticsEnvironmentSnapshot?
+    private var terminalNoticeDecision: String?
+    private var terminalNoticeDelivered: Bool?
 
     init(
         audioRecorder: any WatchAudioRecording,
@@ -62,6 +67,7 @@ final class WatchCaptureEngine {
         clock: any ObserverClock = SystemObserverClock(),
         audioProbe: any WatchAudioProbing,
         notificationScheduler: any WatchNotificationScheduling,
+        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         notificationCenter: NotificationCenter = .default
     ) {
         self.audioRecorder = audioRecorder
@@ -71,6 +77,8 @@ final class WatchCaptureEngine {
         self.clock = clock
         self.audioProbe = audioProbe
         self.notificationScheduler = notificationScheduler
+        self.environmentProvider = environmentProvider
+        self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
         self.notificationCenter = notificationCenter
 
         self.audioRecorder.eventSink = self
@@ -153,6 +161,7 @@ final class WatchCaptureEngine {
     func start() async {
         guard self.activeSegment == nil else { return }
         self.clearTransientStateForStart()
+        self.mintSessionIdentity(startedAt: self.clock.now())
         self.status = .enrolling
         self.notifyPresentationChanged()
         await self.refreshWristAlertState(requestIfNotDetermined: true)
@@ -175,7 +184,7 @@ final class WatchCaptureEngine {
         }
 
         do {
-            let startedAt = self.clock.now()
+            let startedAt = self.sessionStartedAt ?? self.clock.now()
             self.beginStatusSession(startedAt: startedAt)
             try self.openSegment(startedAt: startedAt)
             guard let segment = self.activeSegment else {
@@ -289,12 +298,17 @@ private extension WatchCaptureEngine {
     }
 
     func clearTransientStateForStart() {
+        self.currentSessionID = nil
+        self.sessionStartedAt = nil
         self.startRefusalReason = nil
         self.settingsRoute = nil
         self.terminalReason = nil
         self.terminalDisposition = nil
         self.noticeRecordToClear = nil
         self.persistenceAdvisory = nil
+        self.terminalEnvironmentSnapshot = nil
+        self.terminalNoticeDecision = nil
+        self.terminalNoticeDelivered = nil
         self.lastAudioCurrentTime = nil
         self.zeroAudioCurrentTimeObservationCount = 0
     }
@@ -330,6 +344,8 @@ private extension WatchCaptureEngine {
         error: ObserverError,
         settingsRoute: WatchCaptureSettingsRoute? = nil
     ) {
+        let sessionID = self.currentSessionID
+        let startedAt = self.sessionStartedAt
         self.startRefusalReason = reason
         self.settingsRoute = settingsRoute
         self.status = .needsAttention(error)
@@ -343,6 +359,16 @@ private extension WatchCaptureEngine {
         if self.audioSessionIsActive {
             try? self.audioSession.setActive(false, options: [])
             self.audioSessionIsActive = false
+        }
+        if let sessionID, let startedAt {
+            self.upsertSessionHistory(
+                sessionID: sessionID,
+                startedAt: startedAt,
+                terminalAt: nil,
+                noticeOwed: false,
+                liveness: nil,
+                environment: nil
+            )
         }
     }
 
@@ -511,7 +537,9 @@ private extension WatchCaptureEngine {
                 self.audioSessionIsActive = false
             }
             await self.finalize(segment: segment, audioDuration: audioDuration, end: end, renewLease: false)
-            self.status = .needsAttention(rolloverTerminalReason.observerError)
+            self.status = .needsAttention(
+                rolloverTerminalReason.observerError(disposition: .detectedStoppedItself)
+            )
             self.lastAudioCurrentTime = nil
             self.zeroAudioCurrentTimeObservationCount = 0
             self.publishStatus(.idle)
@@ -606,6 +634,11 @@ private extension WatchCaptureEngine {
                 )
             }
             self.queuedCount += 1
+            if var record = try? self.storage.readSessionRecord() {
+                record.segmentsProduced += 1
+                try self.storage.writeSessionRecord(record)
+                self.upsertSessionHistory(record: record, liveness: nil, environment: nil)
+            }
             self.requestRelayDrain()
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
@@ -827,9 +860,22 @@ private extension WatchCaptureEngine {
         self.onRelayDrainRequested?()
     }
 
-    func beginStatusSession(startedAt: Date) {
+    func mintSessionIdentity(startedAt: Date) {
+        guard self.currentSessionID == nil || self.sessionStartedAt == nil else { return }
         self.currentSessionID = UUID().uuidString
         self.sessionStartedAt = startedAt
+        do {
+            guard try self.sessionHistoryStore.incrementLifetimeCounter() != nil else {
+                watchCaptureLog.error("watch session counter unreadable")
+                return
+            }
+        } catch {
+            watchCaptureLog.error("watch session counter write failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    func beginStatusSession(startedAt: Date) {
+        self.mintSessionIdentity(startedAt: startedAt)
     }
 
     func publishStatus(_ phase: WatchStatusContext.Phase) {
@@ -854,10 +900,14 @@ private extension WatchCaptureEngine {
     }
 
     func clearNoticeOwedAfterConfirmedSubmission() {
-        guard var record = self.noticeRecordToClear else { return }
+        guard let owedRecord = self.noticeRecordToClear,
+              var record = try? self.storage.readSessionRecord(),
+              record.sessionID == owedRecord.sessionID
+        else { return }
         record.noticeOwed = false
         do {
             try self.storage.writeSessionRecord(record)
+            self.upsertSessionHistory(record: record, liveness: nil, environment: nil)
             self.noticeRecordToClear = nil
         } catch {
             watchCaptureLog.error("watch notice clear failed: \(String(describing: error), privacy: .public)")
@@ -890,6 +940,63 @@ private extension WatchCaptureEngine {
     func setSettingsRouteIfVacant(_ route: WatchCaptureSettingsRoute) {
         if self.settingsRoute == nil {
             self.settingsRoute = route
+        }
+    }
+
+    func upsertTerminalNoticeFacts(decision: WatchNoticeDecision, delivered: Bool) {
+        self.terminalNoticeDecision = decision.historyRawValue
+        self.terminalNoticeDelivered = delivered
+        guard let record = try? self.storage.readSessionRecord(), record.state == .terminal else { return }
+        self.upsertSessionHistory(record: record, liveness: nil, environment: nil)
+    }
+
+    func upsertSessionHistory(
+        record: WatchCaptureSessionRecord? = nil,
+        sessionID: String? = nil,
+        startedAt: Date? = nil,
+        terminalAt: Date? = nil,
+        noticeOwed: Bool? = nil,
+        liveness: WatchCaptureLivenessEvidence?,
+        environment: WatchRelayDiagnosticsEnvironmentSnapshot?
+    ) {
+        let id = record?.sessionID ?? sessionID ?? self.currentSessionID
+        let start = record?.startedAt ?? startedAt ?? self.sessionStartedAt
+        guard let id, let start else { return }
+        let prior = self.sessionHistoryStore.entry(sessionID: id, asOf: self.clock.now())
+        let terminalSnapshotExists = prior?.terminalAt != nil
+        let terminalEnvironment = environment ?? self.terminalEnvironmentSnapshot
+        let entry = WatchCaptureSessionHistoryEntry(
+            sessionID: id,
+            startedAt: start,
+            terminalAt: record?.terminalAt ?? terminalAt ?? prior?.terminalAt,
+            terminalReason: record?.terminalReason ?? self.terminalReason ?? prior?.terminalReason,
+            terminalDisposition: record?.terminalDisposition ?? self.terminalDisposition ?? prior?.terminalDisposition,
+            startRefusalReason: self.startRefusalReason ?? prior?.startRefusalReason,
+            settingsRoute: self.settingsRoute ?? prior?.settingsRoute,
+            noticeOwed: record?.noticeOwed ?? noticeOwed ?? prior?.noticeOwed ?? false,
+            noticeDecision: self.terminalNoticeDecision ?? prior?.noticeDecision,
+            noticeDelivered: self.terminalNoticeDelivered ?? prior?.noticeDelivered,
+            notificationAuthorizationStatus: self.notificationAuthorizationStatus ?? prior?.notificationAuthorizationStatus,
+            notificationAlertSetting: self.notificationAlertSetting ?? prior?.notificationAlertSetting,
+            wristAlertAssurance: self.wristAlertAssurance ?? prior?.wristAlertAssurance,
+            audioArmed: terminalSnapshotExists ? prior?.audioArmed ?? false : self.audioArmed,
+            audioSessionIsActive: terminalSnapshotExists ? prior?.audioSessionIsActive ?? false : self.audioSessionIsActive,
+            locationArmed: terminalSnapshotExists ? prior?.locationArmed ?? false : self.locationArmed,
+            segmentsProduced: record?.segmentsProduced ?? prior?.segmentsProduced ?? 0,
+            batteryLevelAtEnd: terminalEnvironment?.watchBatteryLevel.value ?? prior?.batteryLevelAtEnd,
+            batteryStateAtEnd: terminalEnvironment?.watchBatteryState.value ?? prior?.batteryStateAtEnd,
+            lowPowerModeEnabledAtEnd: terminalEnvironment?.watchLowPowerModeEnabled.value ?? prior?.lowPowerModeEnabledAtEnd,
+            thermalStateAtEnd: terminalEnvironment?.watchThermalState.value ?? prior?.thermalStateAtEnd,
+            lastVerifiedAudioAt: terminalSnapshotExists ? prior?.lastVerifiedAudioAt : self.lastVerifiedAudioAt,
+            lastAudioCurrentTime: liveness?.audioCurrentTime ?? (terminalSnapshotExists ? prior?.lastAudioCurrentTime : self.lastAudioCurrentTime),
+            zeroAudioCurrentTimeObservationCount: liveness?.zeroAudioCurrentTimeObservationCount ?? (terminalSnapshotExists ? prior?.zeroAudioCurrentTimeObservationCount : self.zeroAudioCurrentTimeObservationCount),
+            locationAdvisory: self.locationAdvisory ?? prior?.locationAdvisory,
+            persistenceAdvisory: self.persistenceAdvisory ?? prior?.persistenceAdvisory
+        )
+        do {
+            try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
+        } catch {
+            watchCaptureLog.error("watch session history write failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -962,11 +1069,13 @@ private extension WatchCaptureEngine {
         )
         switch decision {
         case let .schedule(copy):
-            if await self.addWatchNotification(
+            let delivered = await self.addWatchNotification(
                 identifier: WatchNoticeIdentifiers.notice,
                 copy: copy,
                 triggerDate: nil
-            ) {
+            )
+            self.upsertTerminalNoticeFacts(decision: decision, delivered: delivered)
+            if delivered {
                 self.clearNoticeOwedAfterConfirmedSubmission()
             }
         case let .cannotSchedule(route):
@@ -975,9 +1084,12 @@ private extension WatchCaptureEngine {
             } else {
                 self.setSettingsRouteIfVacant(route)
             }
+            self.upsertTerminalNoticeFacts(decision: decision, delivered: false)
         case .cancelLease:
             self.removeAudioTruthLease()
+            self.upsertTerminalNoticeFacts(decision: decision, delivered: false)
         case .none:
+            self.upsertTerminalNoticeFacts(decision: decision, delivered: false)
             break
         }
     }
@@ -1013,10 +1125,12 @@ private extension WatchCaptureEngine {
             terminalReason: nil,
             terminalDisposition: nil,
             terminalAt: nil,
-            noticeOwed: false
+            noticeOwed: false,
+            segmentsProduced: 0
         )
         do {
             try self.storage.writeSessionRecord(record)
+            self.upsertSessionHistory(record: record, liveness: nil, environment: nil)
         } catch {
             watchCaptureLog.error("watch active session record write failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
@@ -1026,7 +1140,8 @@ private extension WatchCaptureEngine {
     func recordTerminalFact(
         reason: WatchCaptureTerminalReason,
         disposition: WatchCaptureTerminalDisposition,
-        at date: Date
+        at date: Date,
+        liveness: WatchCaptureLivenessEvidence? = nil
     ) async {
         self.terminalReason = reason
         self.terminalDisposition = disposition
@@ -1038,6 +1153,7 @@ private extension WatchCaptureEngine {
             await self.submitTerminalNotice(reason: reason, disposition: disposition)
             return
         }
+        let priorRecord = try? self.storage.readSessionRecord()
         let record = WatchCaptureSessionRecord(
             sessionID: currentSessionID,
             startedAt: sessionStartedAt,
@@ -1045,10 +1161,18 @@ private extension WatchCaptureEngine {
             terminalReason: reason,
             terminalDisposition: disposition,
             terminalAt: date,
-            noticeOwed: disposition != .ownerStopped
+            noticeOwed: disposition != .ownerStopped,
+            segmentsProduced: priorRecord?.segmentsProduced ?? 0
         )
         do {
             try self.storage.writeSessionRecord(record)
+            let environment = self.environmentProvider.snapshot()
+            self.terminalEnvironmentSnapshot = environment
+            self.upsertSessionHistory(
+                record: record,
+                liveness: liveness,
+                environment: environment
+            )
             if record.noticeOwed {
                 self.noticeRecordToClear = record
             }
@@ -1071,7 +1195,7 @@ private extension WatchCaptureEngine {
                 let terminalAt = self.clock.now()
                 self.terminalReason = .processExitedWhileActive
                 self.terminalDisposition = .inferredStoppedItself
-                self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError)
+                self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
                 self.removeAudioTruthLease()
                 record.state = .terminal
                 record.terminalReason = .processExitedWhileActive
@@ -1080,6 +1204,13 @@ private extension WatchCaptureEngine {
                 record.noticeOwed = true
                 do {
                     try self.storage.writeSessionRecord(record)
+                    let environment = self.environmentProvider.snapshot()
+                    self.terminalEnvironmentSnapshot = environment
+                    self.upsertSessionHistory(
+                        record: record,
+                        liveness: nil,
+                        environment: environment
+                    )
                     self.noticeRecordToClear = record
                 } catch {
                     watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
@@ -1100,7 +1231,7 @@ private extension WatchCaptureEngine {
                     self.terminalReason = record.terminalReason
                     self.terminalDisposition = record.terminalDisposition
                     self.status = .needsAttention(
-                        reason.observerError
+                        reason.observerError(disposition: disposition)
                     )
                     self.noticeRecordToClear = record
                     await self.submitTerminalNotice(reason: reason, disposition: disposition)
@@ -1111,11 +1242,10 @@ private extension WatchCaptureEngine {
             self.persistenceAdvisory = .sessionRecordUnreadable
             self.terminalReason = .processExitedWhileActive
             self.terminalDisposition = .inferredStoppedItself
-            self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError)
+            self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
             self.removeAudioTruthLease()
             let now = self.clock.now()
-            self.currentSessionID = self.currentSessionID ?? UUID().uuidString
-            self.sessionStartedAt = self.sessionStartedAt ?? now
+            self.mintSessionIdentity(startedAt: now)
             let record = WatchCaptureSessionRecord(
                 sessionID: self.currentSessionID ?? UUID().uuidString,
                 startedAt: self.sessionStartedAt ?? now,
@@ -1127,6 +1257,13 @@ private extension WatchCaptureEngine {
             )
             do {
                 try self.storage.writeSessionRecord(record)
+                let environment = self.environmentProvider.snapshot()
+                self.terminalEnvironmentSnapshot = environment
+                self.upsertSessionHistory(
+                    record: record,
+                    liveness: nil,
+                    environment: environment
+                )
                 self.noticeRecordToClear = record
             } catch {
                 watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
@@ -1146,11 +1283,17 @@ private extension WatchCaptureEngine {
             return true
         }
         guard self.audioRecorder.isRecording else {
+            let liveness = WatchCaptureLivenessEvidence(
+                previousAudioCurrentTime: self.lastAudioCurrentTime,
+                audioCurrentTime: nil,
+                zeroAudioCurrentTimeObservationCount: self.zeroAudioCurrentTimeObservationCount
+            )
             self.zeroAudioCurrentTimeObservationCount = 0
             await self.terminateCurrentSession(
                 reason: .audioRecorderStopped,
                 disposition: .detectedStoppedItself,
-                at: self.clock.now()
+                at: self.clock.now(),
+                liveness: liveness
             )
             return false
         }
@@ -1174,11 +1317,17 @@ private extension WatchCaptureEngine {
                 return true
             }
         }
+        let liveness = WatchCaptureLivenessEvidence(
+            previousAudioCurrentTime: lastAudioCurrentTime,
+            audioCurrentTime: currentTime,
+            zeroAudioCurrentTimeObservationCount: self.zeroAudioCurrentTimeObservationCount
+        )
         self.zeroAudioCurrentTimeObservationCount = 0
         await self.terminateCurrentSession(
             reason: .audioClockStalled,
             disposition: .detectedStoppedItself,
-            at: self.clock.now()
+            at: self.clock.now(),
+            liveness: liveness
         )
         return false
     }
@@ -1186,10 +1335,11 @@ private extension WatchCaptureEngine {
     func terminateCurrentSession(
         reason: WatchCaptureTerminalReason,
         disposition: WatchCaptureTerminalDisposition,
-        at date: Date
+        at date: Date,
+        liveness: WatchCaptureLivenessEvidence? = nil
     ) async {
         guard self.activeSegment != nil || self.audioArmed || self.locationArmed else { return }
-        await self.recordTerminalFact(reason: reason, disposition: disposition, at: date)
+        await self.recordTerminalFact(reason: reason, disposition: disposition, at: date, liveness: liveness)
         self.cancelHeartbeatTask()
         self.segmentationTask?.cancel()
         self.segmentationTask = nil
@@ -1230,7 +1380,7 @@ private extension WatchCaptureEngine {
         case .ownerStopped:
             self.status = .off
         case .detectedStoppedItself, .inferredStoppedItself:
-            self.status = .needsAttention(reason.observerError)
+            self.status = .needsAttention(reason.observerError(disposition: disposition))
         }
         self.publishStatus(.idle)
         self.notifyPresentationChanged()

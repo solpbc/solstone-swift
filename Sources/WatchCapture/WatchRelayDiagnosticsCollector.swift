@@ -75,6 +75,7 @@ final class WatchRelayDiagnosticsCollector {
     private let diagnosticsStore: WatchRelayDiagnosticsStore
     private let session: any WatchConnectivitySession
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
+    private let sessionHistoryStore: WatchCaptureSessionHistoryStore
 
     init(
         storage: WatchCaptureStorage,
@@ -86,6 +87,7 @@ final class WatchRelayDiagnosticsCollector {
         self.diagnosticsStore = diagnosticsStore
         self.session = session
         self.environmentProvider = environmentProvider
+        self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
     }
 
     func makeEnvelopeData(asOf: Date) -> Data? {
@@ -220,6 +222,18 @@ private extension WatchRelayDiagnosticsCollector {
         case .failure:
             manifestSummary = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
         }
+        let historyResult = self.sessionHistoryStore.read(asOf: asOf)
+        let historyWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]>
+        let historyDepth: Int
+        switch historyResult {
+        case let .available(entries):
+            historyDepth = entries.count
+            historyWindow = .available(Array(entries.filter(\.isComplete).prefix(10)))
+        case .unreadable:
+            historyDepth = 0
+            historyWindow = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable)
+        }
+        let counter = self.sessionHistoryStore.readCounter()
 
         return WatchRelayDiagnosticsPayload(
             watchAppMarketingVersion: environment.watchAppMarketingVersion,
@@ -248,7 +262,13 @@ private extension WatchRelayDiagnosticsCollector {
                 activeFacts: activeFacts,
                 failureSegmentID: failureSegmentID
             ),
-            omittedObservationCount: 0
+            omittedObservationCount: 0,
+            sessionHistoryWindow: historyWindow,
+            lifetimeSessionsStarted: counter.map { .available($0.lifetimeSessionsStarted) }
+                ?? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild),
+            sessionHistoryCounterEpoch: counter.map { .available($0.epoch) }
+                ?? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild),
+            sessionHistoryDepth: historyDepth
         )
     }
 
@@ -1017,7 +1037,11 @@ private extension WatchRelayDiagnosticsCollector {
             appleQueue: payload.appleQueue,
             lastFacts: payload.lastFacts,
             observedFileTransfers: observations,
-            omittedObservationCount: omittedObservationCount
+            omittedObservationCount: omittedObservationCount,
+            sessionHistoryWindow: payload.sessionHistoryWindow,
+            lifetimeSessionsStarted: payload.lifetimeSessionsStarted,
+            sessionHistoryCounterEpoch: payload.sessionHistoryCounterEpoch,
+            sessionHistoryDepth: payload.sessionHistoryDepth
         )
     }
 

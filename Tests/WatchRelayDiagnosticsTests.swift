@@ -380,6 +380,8 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
         )
         let data = try XCTUnwrap(collector.makeEnvelopeData(asOf: now))
+        // Budget baseline: a real orphan observation is 966 B and a maximal compact history entry is 554 B.
+        // With the ten-entry window, the 26-observation floor remains below the 32 KiB envelope limit.
         XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
         let queue = try XCTUnwrap(payload.appleQueue.value)
@@ -399,6 +401,68 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             diagnostics: .available(plusOnePayload)
         ))
         XCTAssertGreaterThan(plusOneData.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
+    }
+
+    func testHistoryBudgetBackwardDecodeAndCompactionFidelity() throws {
+        let now = Self.now
+        let entries = (0..<10).map { Self.historyEntry($0, at: now) }
+        let observations = (0..<26).map { Self.orphanObservation(id: Self.uuid(9_000 + $0)) }
+        let storage = try self.storage("history-compaction")
+        let history = WatchCaptureSessionHistoryStore(storage: storage)
+        for entry in entries {
+            try history.upsert(entry, asOf: now)
+            _ = try history.incrementLifetimeCounter()
+        }
+        let session = MockWatchConnectivitySession()
+        for index in 0..<800 {
+            session.seedOutstandingTransfer(id: Self.uuid(10_000 + index))
+        }
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: WatchRelayDiagnosticsStore(storage: storage),
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let compacted = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(
+            from: collector.makeEnvelopeData(asOf: now)
+        ).payload)
+        XCTAssertGreaterThan(compacted.omittedObservationCount, 0)
+        XCTAssertEqual(Set(compacted.sessionHistoryWindow.value?.map(\.sessionID) ?? []), Set(entries.map(\.sessionID)))
+        XCTAssertEqual(compacted.sessionHistoryDepth, 10)
+        XCTAssertEqual(compacted.lifetimeSessionsStarted.value, 10)
+        XCTAssertEqual(compacted.sessionHistoryCounterEpoch.value?.isEmpty, false)
+
+        let payload = Self.withHistory(Self.payload(generatedAt: now, observations: observations), entries: entries, depth: 10)
+        let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
+            generatedAt: now, diagnostics: .available(payload)
+        ))
+        // Budget baseline: a real orphan observation is 966 B and a maximal compact history entry is 554 B.
+        XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
+        let maxEntryBytes = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(Self.historyEntry(99, at: now)).count
+        XCTAssertLessThanOrEqual(10 * maxEntryBytes, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount - 20 * 1024)
+        let decoded = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
+        XCTAssertEqual(decoded.sessionHistoryWindow.value, entries)
+        XCTAssertEqual(decoded.sessionHistoryDepth, 10)
+        XCTAssertEqual(decoded.lifetimeSessionsStarted.value, 10)
+
+        let oldData = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
+            generatedAt: now, diagnostics: .available(Self.payload(generatedAt: now))
+        ))
+        let oldJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: oldData) as? [String: Any])
+        var diagnostics = try XCTUnwrap(oldJSON["diagnostics"] as? [String: Any])
+        var oldPayload = try XCTUnwrap(diagnostics["value"] as? [String: Any])
+        oldPayload.removeValue(forKey: "sessionHistoryWindow")
+        oldPayload.removeValue(forKey: "lifetimeSessionsStarted")
+        oldPayload.removeValue(forKey: "sessionHistoryCounterEpoch")
+        oldPayload.removeValue(forKey: "sessionHistoryDepth")
+        diagnostics["value"] = oldPayload
+        var oldEnvelope = oldJSON
+        oldEnvelope["diagnostics"] = diagnostics
+        let backward = try JSONSerialization.data(withJSONObject: oldEnvelope, options: [.sortedKeys])
+        let backwardPayload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: backward).payload)
+        XCTAssertEqual(WatchRelayDiagnosticsEnvelope.currentVersion, 1)
+        XCTAssertEqual(backwardPayload.watchAppBuild, .available("55"))
+        XCTAssertEqual(backwardPayload.sessionHistoryWindow.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
     }
 
     func testCompactionRetentionOrderOldestActiveThenRecentFailureThenUUIDOrder() throws {
@@ -2041,23 +2105,33 @@ private final class MockWatchBatteryDevice: WatchBatteryDevice {
     }
 }
 
-@MainActor
-private final class MockWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsEnvironmentProviding {
-    func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot {
-        WatchRelayDiagnosticsEnvironmentSnapshot(
-            watchAppMarketingVersion: .available("0.1.0"),
-            watchAppBuild: .available("55"),
-            watchOSVersion: .available("26.0"),
-            watchBatteryLevel: .available(0.75),
-            watchBatteryState: .available("unplugged"),
-            watchLowPowerModeEnabled: .available(false),
-            watchThermalState: .available("nominal")
-        )
-    }
-}
-
 private extension WatchRelayDiagnosticsCollectorTests {
     nonisolated static let now = Date(timeIntervalSince1970: 1_784_073_600)
+
+    static func historyEntry(_ index: Int, at date: Date) -> WatchCaptureSessionHistoryEntry {
+        WatchCaptureSessionHistoryEntry(sessionID: "history-\(index)", startedAt: date.addingTimeInterval(-60), terminalAt: date,
+            terminalReason: .processExitedWhileActive, terminalDisposition: .inferredStoppedItself,
+            startRefusalReason: .microphonePermissionNotDetermined, settingsRoute: .notificationSettings,
+            noticeOwed: true, noticeDecision: "cannot-schedule", noticeDelivered: false,
+            notificationAuthorizationStatus: .denied, notificationAlertSetting: .notSupported, wristAlertAssurance: .alertsOff,
+            audioArmed: true, audioSessionIsActive: true, locationArmed: true, segmentsProduced: 99,
+            batteryLevelAtEnd: 0.987654321, batteryStateAtEnd: "charging", lowPowerModeEnabledAtEnd: true,
+            thermalStateAtEnd: "critical", lastVerifiedAudioAt: date, lastAudioCurrentTime: 123456.789012345,
+            zeroAudioCurrentTimeObservationCount: 999, locationAdvisory: .providerFailed, persistenceAdvisory: .sessionRecordWriteFailed)
+    }
+
+    static func withHistory(_ payload: WatchRelayDiagnosticsPayload, entries: [WatchCaptureSessionHistoryEntry], depth: Int) -> WatchRelayDiagnosticsPayload {
+        WatchRelayDiagnosticsPayload(watchAppMarketingVersion: payload.watchAppMarketingVersion, watchAppBuild: payload.watchAppBuild,
+            watchOSVersion: payload.watchOSVersion, activationState: payload.activationState,
+            isCompanionAppInstalled: payload.isCompanionAppInstalled, isReachable: payload.isReachable,
+            iOSDeviceNeedsUnlockAfterRebootForReachability: payload.iOSDeviceNeedsUnlockAfterRebootForReachability,
+            hasContentPending: payload.hasContentPending, watchBatteryLevel: payload.watchBatteryLevel,
+            watchBatteryState: payload.watchBatteryState, watchLowPowerModeEnabled: payload.watchLowPowerModeEnabled,
+            watchThermalState: payload.watchThermalState, manifestSummary: payload.manifestSummary,
+            appleQueue: payload.appleQueue, lastFacts: payload.lastFacts, observedFileTransfers: payload.observedFileTransfers,
+            omittedObservationCount: payload.omittedObservationCount, sessionHistoryWindow: .available(entries),
+            lifetimeSessionsStarted: .available(10), sessionHistoryCounterEpoch: .available("epoch"), sessionHistoryDepth: depth)
+    }
 
     nonisolated static func uuid(_ index: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index))!
