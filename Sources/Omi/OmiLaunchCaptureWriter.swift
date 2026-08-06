@@ -24,6 +24,8 @@ final class OmiLaunchCaptureWriter {
     private let io: any OmiLaunchCaptureIO
     private var state: State = .unprepared
     private var pending: PendingRecord?
+    private var inFlightPayloadBytes = 0
+    private var pendingPayloadBytes = 0
 
     private(set) var captureResidentPayloadBytes = 0
     private(set) var peakCaptureResidentPayloadBytes = 0
@@ -53,6 +55,8 @@ final class OmiLaunchCaptureWriter {
         guard payload.count <= OmiLaunchCaptureFormat.maximumPayloadBytes else {
             return .notRetained(.oversizeActualLength)
         }
+        self.beginInFlightPayload(payload)
+        defer { self.clearInFlightPayload() }
         self.prepareIfNeeded()
         guard case .ready(let nextSequence, let lastCommittedRecordEnd) = self.state else {
             return self.blockedOutcome()
@@ -239,14 +243,31 @@ final class OmiLaunchCaptureWriter {
     }
 
     private func setPending(_ pending: PendingRecord) {
+        self.inFlightPayloadBytes = 0
         self.pending = pending
-        self.captureResidentPayloadBytes = pending.payload.count
-        self.peakCaptureResidentPayloadBytes = max(self.peakCaptureResidentPayloadBytes, self.captureResidentPayloadBytes)
+        self.pendingPayloadBytes = pending.payload.count
+        self.updateCaptureResidentPayloadBytes()
     }
 
     private func clearPending() {
         self.pending = nil
-        self.captureResidentPayloadBytes = 0
+        self.pendingPayloadBytes = 0
+        self.updateCaptureResidentPayloadBytes()
+    }
+
+    private func beginInFlightPayload(_ payload: Data) {
+        self.inFlightPayloadBytes = payload.count
+        self.updateCaptureResidentPayloadBytes()
+    }
+
+    private func clearInFlightPayload() {
+        self.inFlightPayloadBytes = 0
+        self.updateCaptureResidentPayloadBytes()
+    }
+
+    private func updateCaptureResidentPayloadBytes() {
+        self.captureResidentPayloadBytes = self.inFlightPayloadBytes + self.pendingPayloadBytes
+        self.peakCaptureResidentPayloadBytes = max(self.peakCaptureResidentPayloadBytes, self.captureResidentPayloadBytes)
     }
 
     private func blockedOutcome() -> OmiLaunchCaptureAppendOutcome {

@@ -52,6 +52,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
 
         let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
         XCTAssertNil(result.boundaryReason)
+        XCTAssertEqual(result.quarantineDisposition, .notNeeded)
         XCTAssertEqual(result.verifiedRecords.count, count)
         for sequence in 0..<count {
             XCTAssertEqual(result.verifiedRecords[sequence].sequence, UInt64(sequence))
@@ -64,20 +65,25 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let generation = UUID()
         let writer = self.writer(generation: generation, io: io)
+        let pendingPayload = Data(repeating: 0x70, count: OmiLaunchCaptureFormat.maximumPayloadBytes)
+        let nextPayload = Data(repeating: 0x71, count: OmiLaunchCaptureFormat.maximumPayloadBytes)
         io.failBarrier(onCall: 2)
-        XCTAssertEqual(writer.append(Data("p".utf8)), .visibleGap(sequence: 0, .commitBarrierFailed))
+        XCTAssertEqual(writer.append(pendingPayload), .visibleGap(sequence: 0, .commitBarrierFailed))
 
         io.failWrite(onCall: 2, afterBytes: 0)
         XCTAssertEqual(
-            writer.append(Data("q".utf8)),
+            writer.append(nextPayload),
             .rejected(.pendingSlotOccupied(pendingSequence: 0, retryFailure: .payloadWriteFailed))
         )
+        XCTAssertEqual(writer.peakCaptureResidentPayloadBytes, pendingPayload.count + nextPayload.count)
+        XCTAssertLessThanOrEqual(writer.peakCaptureResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
         io.clearFaults()
-        XCTAssertEqual(writer.append(Data("q".utf8)), .retained(sequence: 1, retriedPending: true))
+        XCTAssertEqual(writer.append(nextPayload), .retained(sequence: 1, retriedPending: true))
+        XCTAssertEqual(writer.captureResidentPayloadBytes, 0)
 
         let records = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover().verifiedRecords
         XCTAssertEqual(records.map(\.sequence), [0, 1])
-        XCTAssertEqual(records.map(\.payload), [Data("p".utf8), Data("q".utf8)])
+        XCTAssertEqual(records.map(\.payload), [pendingPayload, nextPayload])
     }
 
     func testAppendsResumeAfterInjectedFaultIsRemoved() {
@@ -86,6 +92,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         let openWriter = self.writer(generation: openGeneration, io: openIO)
         openIO.failNext(.open)
         XCTAssertEqual(openWriter.append(Data("open".utf8)), .notRetained(.openFailed))
+        XCTAssertEqual(openWriter.captureResidentPayloadBytes, 0)
         openIO.clearFaults()
         XCTAssertEqual(openWriter.append(Data("open".utf8)), .retained(sequence: 0, retriedPending: false))
         XCTAssertNil(OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: openGeneration, io: openIO).recover().boundaryReason)
@@ -98,6 +105,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         XCTAssertLessThanOrEqual(writeWriter.peakCaptureResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
         writeIO.clearFaults()
         XCTAssertEqual(writeWriter.append(Data("next".utf8)), .retained(sequence: 1, retriedPending: true))
+        XCTAssertEqual(writeWriter.captureResidentPayloadBytes, 0)
         XCTAssertNil(OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: writeGeneration, io: writeIO).recover().boundaryReason)
 
         let barrierIO = FaultInjectingOmiLaunchCaptureIO()
@@ -107,6 +115,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
         XCTAssertEqual(barrierWriter.append(Data("barrier".utf8)), .visibleGap(sequence: 0, .commitBarrierFailed))
         barrierIO.clearFaults()
         XCTAssertEqual(barrierWriter.append(Data("next".utf8)), .retained(sequence: 1, retriedPending: true))
+        XCTAssertEqual(barrierWriter.captureResidentPayloadBytes, 0)
         XCTAssertLessThanOrEqual(barrierWriter.peakCaptureResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
         XCTAssertNil(OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: barrierIO).recover().boundaryReason)
 
@@ -144,6 +153,7 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
             let writer = self.writer(generation: generation, io: io)
             failure.inject(io)
             XCTAssertEqual(writer.append(Data("fault".utf8)), .notRetained(failure.outcome), failure.name)
+            XCTAssertEqual(writer.captureResidentPayloadBytes, 0, failure.name)
             XCTAssertLessThanOrEqual(writer.peakCaptureResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes, failure.name)
             io.clearFaults()
             XCTAssertEqual(writer.append(Data("retry".utf8)), .retained(sequence: 0, retriedPending: false), failure.name)
@@ -153,6 +163,32 @@ final class OmiLaunchCaptureWriterTests: XCTestCase {
             XCTAssertNil(result.boundarySequence, failure.name)
             XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], failure.name)
         }
+    }
+
+    func testFailedPreReservationCleanupBlocksWithoutDestroyingCommittedEvidence() {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        let committedPayload = Data("committed".utf8)
+        XCTAssertEqual(writer.append(committedPayload), .retained(sequence: 0, retriedPending: false))
+        let committedEnd = OmiLaunchCaptureFormat.headerByteCount
+            + committedPayload.count
+            + OmiLaunchCaptureFormat.recordTagByteCount
+
+        io.failWrite(onCall: 1, afterBytes: OmiLaunchCaptureFormat.headerByteCount - 1)
+        io.failNext(.truncate)
+        XCTAssertEqual(writer.append(Data("fault".utf8)), .notRetained(.headerWriteFailed))
+        XCTAssertEqual(writer.captureResidentPayloadBytes, 0)
+        XCTAssertEqual(
+            writer.append(Data("blocked".utf8)),
+            .rejected(.recoveryBoundary(reason: .preReservationCleanupFailed, offset: committedEnd))
+        )
+
+        io.clearFaults()
+        let result = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io).recover()
+        XCTAssertEqual(result.verifiedRecords.map(\.payload), [committedPayload])
+        XCTAssertEqual(result.boundaryReason, .incompleteHeader)
+        XCTAssertNil(result.boundarySequence)
     }
 
     func testWriterBlocksAfterRealRecoveryBoundary() {

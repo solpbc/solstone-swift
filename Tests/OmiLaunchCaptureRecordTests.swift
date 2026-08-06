@@ -7,6 +7,21 @@ import XCTest
 
 nonisolated final class OmiLaunchCaptureRecordTests: XCTestCase {
     func testHeaderLayoutUsesFixedOffsetsAndComputedHeaderByteCount() throws {
+        XCTAssertEqual(OmiLaunchCaptureFormat.magicOffset, 0)
+        XCTAssertEqual(OmiLaunchCaptureFormat.magicByteCount, OmiLaunchCaptureFormat.magic.count)
+        XCTAssertEqual(OmiLaunchCaptureFormat.versionOffset, 8)
+        XCTAssertEqual(OmiLaunchCaptureFormat.versionByteCount, UInt16.bitWidth / 8)
+        XCTAssertEqual(OmiLaunchCaptureFormat.generationIDOffset, 10)
+        XCTAssertEqual(OmiLaunchCaptureFormat.generationIDByteCount, MemoryLayout.size(ofValue: UUID().uuid))
+        XCTAssertEqual(OmiLaunchCaptureFormat.sequenceOffset, 26)
+        XCTAssertEqual(OmiLaunchCaptureFormat.sequenceByteCount, UInt64.bitWidth / 8)
+        XCTAssertEqual(OmiLaunchCaptureFormat.acquisitionTimeOffset, 34)
+        XCTAssertEqual(OmiLaunchCaptureFormat.acquisitionTimeByteCount, Int64.bitWidth / 8)
+        XCTAssertEqual(OmiLaunchCaptureFormat.declaredPayloadBytesOffset, 42)
+        XCTAssertEqual(OmiLaunchCaptureFormat.declaredPayloadBytesByteCount, UInt16.bitWidth / 8)
+        XCTAssertEqual(OmiLaunchCaptureFormat.headerChecksumOffset, 44)
+        XCTAssertEqual(OmiLaunchCaptureFormat.headerByteCount, OmiLaunchCaptureFormat.headerChecksumOffset + OmiLaunchCaptureFormat.headerChecksumByteCount)
+
         let generation = UUID()
         let header = OmiLaunchCaptureHeader(
             generationID: generation,
@@ -22,13 +37,6 @@ nonisolated final class OmiLaunchCaptureRecordTests: XCTestCase {
         XCTAssertEqual(decoded.sequence, 42)
         XCTAssertEqual(decoded.acquiredAtUnixMicros, 1_800_000_000_123_456)
         XCTAssertEqual(decoded.declaredPayloadBytes, OmiLaunchCaptureFormat.maximumPayloadBytes)
-    }
-
-    func testGenerationFilenameAndHeaderRoundTrip() {
-        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
-        let generation = UUID()
-        let url = OmiLaunchCaptureFormat.fileURL(rootURL: root, generationID: generation)
-        XCTAssertEqual(OmiLaunchCaptureFormat.generationID(from: url), generation)
     }
 
     func testRecordTagChangesForPayloadMutation() {

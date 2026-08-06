@@ -68,19 +68,61 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
         XCTAssertFalse(files.isEmpty)
 
         for file in files {
-            let text = try String(contentsOf: file, encoding: .utf8)
-            XCTAssertFalse(text.contains("print("), file.lastPathComponent)
-            XCTAssertFalse(text.contains("NSLog"), file.lastPathComponent)
-            XCTAssertFalse(text.contains("nonisolated(unsafe)"), file.lastPathComponent)
-        }
+            let sourceText = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertFalse(sourceText.contains("print("), file.lastPathComponent)
+            XCTAssertFalse(sourceText.contains("NSLog"), file.lastPathComponent)
+            XCTAssertFalse(sourceText.contains("nonisolated(unsafe)"), file.lastPathComponent)
 
-        let recoveryText = try String(
-            contentsOf: root.appendingPathComponent("OmiLaunchCaptureRecovery.swift"),
-            encoding: .utf8
-        )
-        let logLine = try XCTUnwrap(recoveryText.split(separator: "\n").first { $0.contains("launch capture recovery boundary") })
-        XCTAssertFalse(logLine.contains("fileURL"))
-        XCTAssertFalse(logLine.contains("path"))
-        XCTAssertFalse(logLine.contains("payload"))
+            for call in Self.logOrDiagnosticCallBodies(in: sourceText) {
+                for sensitive in Self.sensitiveInterpolationTokens {
+                    XCTAssertFalse(
+                        call.contains("\\(") && call.localizedCaseInsensitiveContains(sensitive),
+                        "sensitive diagnostic interpolation \(sensitive) in \(file.lastPathComponent)"
+                    )
+                }
+            }
+        }
+    }
+
+    private static let sensitiveInterpolationTokens = [
+        "url", "path", "payload", "header", "hash", "error", "bytes",
+    ]
+
+    private static let logOrDiagnosticPrefixes = [
+        ".debug(", ".info(", ".notice(", ".error(", "emitDiagnostic(",
+    ]
+
+    private static func logOrDiagnosticCallBodies(in source: String) -> [String] {
+        self.logOrDiagnosticPrefixes.flatMap { prefix in
+            var calls: [String] = []
+            var searchRange = source.startIndex..<source.endIndex
+            while let match = source.range(of: prefix, range: searchRange) {
+                if let body = self.parenthesizedBody(in: source, openingParenthesis: source.index(before: match.upperBound)) {
+                    calls.append(body)
+                }
+                searchRange = match.upperBound..<source.endIndex
+            }
+            return calls
+        }
+    }
+
+    private static func parenthesizedBody(in source: String, openingParenthesis: String.Index) -> String? {
+        var depth = 0
+        var index = openingParenthesis
+        while index < source.endIndex {
+            switch source[index] {
+            case "(":
+                depth += 1
+            case ")":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openingParenthesis...index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 }

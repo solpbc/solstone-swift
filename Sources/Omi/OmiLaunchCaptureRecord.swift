@@ -13,29 +13,36 @@ nonisolated enum OmiLaunchCaptureFormat {
     static let version: UInt16 = 1
     static let maximumPayloadBytes = 512
     static let maximumResidentPayloadBytes = 1_024
-    static let headerChecksumByteCount = 16
-    static let recordTagByteCount = 16
-    static let headerChecksumOffset = 44
-    static let headerByteCount = 60
+    static let truncatedDigestByteCount = 16
+    static let headerChecksumByteCount = truncatedDigestByteCount
+    static let recordTagByteCount = truncatedDigestByteCount
 
-    // Fixed scratch bounds: header encode/read = 60 B, SHA-256 output = 32 B,
-    // and the reader body buffer = 512 B payload + 16 B record tag.
+    static let magicOffset = 0
+    static let magicByteCount = magic.count
+    static let versionOffset = magicOffset + magicByteCount
+    static let versionByteCount = UInt16.bitWidth / 8
+    static let generationIDOffset = versionOffset + versionByteCount
+    static let generationIDByteCount = 16
+    static let sequenceOffset = generationIDOffset + generationIDByteCount
+    static let sequenceByteCount = UInt64.bitWidth / 8
+    static let acquisitionTimeOffset = sequenceOffset + sequenceByteCount
+    static let acquisitionTimeByteCount = Int64.bitWidth / 8
+    static let declaredPayloadBytesOffset = acquisitionTimeOffset + acquisitionTimeByteCount
+    static let declaredPayloadBytesByteCount = UInt16.bitWidth / 8
+    static let headerChecksumOffset = declaredPayloadBytesOffset + declaredPayloadBytesByteCount
+    static let headerByteCount = headerChecksumOffset + headerChecksumByteCount
+
+    // Fixed scratch bounds: header encode/read = headerByteCount B, SHA-256 output =
+    // sha256OutputByteCount B, and the reader body buffer = maximumPayloadBytes B payload
+    // + recordTagByteCount B record tag.
     static let sha256OutputByteCount = 32
     static let readerBodyBufferByteCount = maximumPayloadBytes + recordTagByteCount
-    static let maximumRecordByteCount = headerByteCount + readerBodyBufferByteCount
 
     static func fileURL(rootURL: URL, generationID: UUID) -> URL {
         rootURL.appendingPathComponent(
             "\(Self.filePrefix)\(generationID.uuidString.lowercased()).\(Self.fileExtension)",
             isDirectory: false
         )
-    }
-
-    static func generationID(from fileURL: URL) -> UUID? {
-        guard fileURL.pathExtension == Self.fileExtension else { return nil }
-        let name = fileURL.deletingPathExtension().lastPathComponent
-        guard name.hasPrefix(Self.filePrefix) else { return nil }
-        return UUID(uuidString: String(name.dropFirst(Self.filePrefix.count)))
     }
 }
 
@@ -44,10 +51,6 @@ nonisolated struct OmiLaunchCaptureRecord: Equatable, Sendable {
     let sequence: UInt64
     let acquiredAtUnixMicros: Int64
     let payload: Data
-
-    var acquiredAt: Date {
-        Date(timeIntervalSince1970: Double(self.acquiredAtUnixMicros) / 1_000_000)
-    }
 }
 
 nonisolated enum OmiLaunchCaptureNotRetainedReason: String, Equatable, Sendable {
@@ -86,7 +89,6 @@ nonisolated enum OmiLaunchCaptureBoundaryReason: String, Error, Equatable, Senda
     case declaredLengthExceeded
     case incompleteReservedRecord
     case recordTagMismatch
-    case fileNameInvalid
     case readFailed
 }
 
@@ -141,13 +143,21 @@ nonisolated struct OmiLaunchCaptureHeader: Equatable, Sendable {
 
     func encoded() -> Data {
         var data = Data(capacity: OmiLaunchCaptureFormat.headerByteCount)
+        precondition(data.count == OmiLaunchCaptureFormat.magicOffset)
         data.append(OmiLaunchCaptureFormat.magic)
+        precondition(data.count == OmiLaunchCaptureFormat.versionOffset)
         data.appendLittleEndian(OmiLaunchCaptureFormat.version)
+        precondition(data.count == OmiLaunchCaptureFormat.generationIDOffset)
         data.append(uuidBytes: self.generationID)
+        precondition(data.count == OmiLaunchCaptureFormat.sequenceOffset)
         data.appendLittleEndian(self.sequence)
+        precondition(data.count == OmiLaunchCaptureFormat.acquisitionTimeOffset)
         data.appendLittleEndian(self.acquiredAtUnixMicros)
+        precondition(data.count == OmiLaunchCaptureFormat.declaredPayloadBytesOffset)
         data.appendLittleEndian(UInt16(self.declaredPayloadBytes))
+        precondition(data.count == OmiLaunchCaptureFormat.headerChecksumOffset)
         data.append(OmiLaunchCaptureDigest.truncated(data))
+        precondition(data.count == OmiLaunchCaptureFormat.headerByteCount)
         return data
     }
 
@@ -155,10 +165,10 @@ nonisolated struct OmiLaunchCaptureHeader: Equatable, Sendable {
         guard data.count == OmiLaunchCaptureFormat.headerByteCount else {
             return .failure(.incompleteHeader)
         }
-        guard data.prefix(OmiLaunchCaptureFormat.magic.count) == OmiLaunchCaptureFormat.magic else {
+        guard data.prefix(OmiLaunchCaptureFormat.magicByteCount) == OmiLaunchCaptureFormat.magic else {
             return .failure(.invalidMagic)
         }
-        guard data.uint16LE(at: 8) == OmiLaunchCaptureFormat.version else {
+        guard data.uint16LE(at: OmiLaunchCaptureFormat.versionOffset) == OmiLaunchCaptureFormat.version else {
             return .failure(.unsupportedVersion)
         }
         guard OmiLaunchCaptureDigest.truncated(data.prefix(OmiLaunchCaptureFormat.headerChecksumOffset))
@@ -166,17 +176,17 @@ nonisolated struct OmiLaunchCaptureHeader: Equatable, Sendable {
         else {
             return .failure(.headerChecksumMismatch)
         }
-        guard let generationID = data.uuid(at: 10) else {
+        guard let generationID = data.uuid(at: OmiLaunchCaptureFormat.generationIDOffset) else {
             return .failure(.headerChecksumMismatch)
         }
-        let declaredPayloadBytes = Int(data.uint16LE(at: 42))
+        let declaredPayloadBytes = Int(data.uint16LE(at: OmiLaunchCaptureFormat.declaredPayloadBytesOffset))
         guard declaredPayloadBytes <= OmiLaunchCaptureFormat.maximumPayloadBytes else {
             return .failure(.declaredLengthExceeded)
         }
         return .success(Self(
             generationID: generationID,
-            sequence: data.uint64LE(at: 26),
-            acquiredAtUnixMicros: data.int64LE(at: 34),
+            sequence: data.uint64LE(at: OmiLaunchCaptureFormat.sequenceOffset),
+            acquiredAtUnixMicros: data.int64LE(at: OmiLaunchCaptureFormat.acquisitionTimeOffset),
             declaredPayloadBytes: declaredPayloadBytes
         ))
     }
@@ -234,8 +244,8 @@ nonisolated extension Data {
     }
 
     func uuid(at offset: Int) -> UUID? {
-        guard self.count >= offset + 16 else { return nil }
-        let bytes = (0..<16).map { self[self.startIndex + offset + $0] }
+        guard self.count >= offset + OmiLaunchCaptureFormat.generationIDByteCount else { return nil }
+        let bytes = (0..<OmiLaunchCaptureFormat.generationIDByteCount).map { self[self.startIndex + offset + $0] }
         return UUID(uuid: (
             bytes[0], bytes[1], bytes[2], bytes[3],
             bytes[4], bytes[5], bytes[6], bytes[7],

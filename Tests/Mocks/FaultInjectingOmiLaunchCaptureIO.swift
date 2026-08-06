@@ -8,6 +8,8 @@ nonisolated enum OmiLaunchCaptureInjectedOperation: Equatable, Sendable {
     case open
     case write
     case barrier
+    case truncate
+    case read
     case move
 }
 
@@ -124,6 +126,7 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
 
     func truncate(_ file: OmiLaunchCaptureFileToken, to offset: Int) throws {
         self.recordIOCall()
+        try self.throwIfNeeded(.truncate)
         try self.base.truncate(file, to: offset)
     }
 
@@ -143,6 +146,7 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
             self.ioCallCount += 1
             self.largestReadRequest = max(self.largestReadRequest, count)
         }
+        try self.throwIfNeeded(.read)
         return try self.base.read(file, offset: offset, count: count)
     }
 

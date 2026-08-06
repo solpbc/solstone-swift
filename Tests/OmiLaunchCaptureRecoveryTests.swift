@@ -125,19 +125,22 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
         struct Mutation {
             let name: String
             let hasVisibleGap: Bool
+            let expectedReason: OmiLaunchCaptureBoundaryReason
             let mutate: (inout Data, Int, Int) -> Void
         }
+        // These offsets intentionally encode the external wire format so the test can catch a
+        // product-side layout drift instead of inheriting it through shared constants.
         let mutations: [Mutation] = [
-            Mutation(name: "magic", hasVisibleGap: false) { data, offset, _ in data[offset] ^= 0x01 },
-            Mutation(name: "version", hasVisibleGap: false) { data, offset, _ in data[offset + 8] ^= 0x01 },
-            Mutation(name: "generation", hasVisibleGap: false) { data, offset, _ in data[offset + 10] ^= 0x01 },
-            Mutation(name: "sequence", hasVisibleGap: false) { data, offset, _ in data[offset + 26] ^= 0x01 },
-            Mutation(name: "declared-length", hasVisibleGap: false) { data, offset, _ in data[offset + 42] = 0xFF; data[offset + 43] = 0xFF },
-            Mutation(name: "acquisition-time", hasVisibleGap: false) { data, offset, _ in data[offset + 34] ^= 0x01 },
-            Mutation(name: "record-tag", hasVisibleGap: true) { data, offset, payloadBytes in data[offset + OmiLaunchCaptureFormat.headerByteCount + payloadBytes] ^= 0x01 },
-            Mutation(name: "payload", hasVisibleGap: true) { data, offset, _ in data[offset + OmiLaunchCaptureFormat.headerByteCount] ^= 0x01 },
-            Mutation(name: "tail-truncation", hasVisibleGap: true) { data, offset, _ in data.removeSubrange((offset + OmiLaunchCaptureFormat.headerByteCount + 1)..<data.count) },
-            Mutation(name: "middle-framing", hasVisibleGap: false) { data, offset, _ in data.insert(0xFF, at: offset) },
+            Mutation(name: "magic", hasVisibleGap: false, expectedReason: .invalidMagic) { data, offset, _ in data[offset] ^= 0x01 },
+            Mutation(name: "version", hasVisibleGap: false, expectedReason: .unsupportedVersion) { data, offset, _ in data[offset + 8] ^= 0x01 },
+            Mutation(name: "generation", hasVisibleGap: false, expectedReason: .headerChecksumMismatch) { data, offset, _ in data[offset + 10] ^= 0x01 },
+            Mutation(name: "sequence", hasVisibleGap: false, expectedReason: .headerChecksumMismatch) { data, offset, _ in data[offset + 26] ^= 0x01 },
+            Mutation(name: "declared-length", hasVisibleGap: false, expectedReason: .headerChecksumMismatch) { data, offset, _ in data[offset + 42] = 0xFF; data[offset + 43] = 0xFF },
+            Mutation(name: "acquisition-time", hasVisibleGap: false, expectedReason: .headerChecksumMismatch) { data, offset, _ in data[offset + 34] ^= 0x01 },
+            Mutation(name: "record-tag", hasVisibleGap: true, expectedReason: .recordTagMismatch) { data, offset, payloadBytes in data[offset + OmiLaunchCaptureFormat.headerByteCount + payloadBytes] ^= 0x01 },
+            Mutation(name: "payload", hasVisibleGap: true, expectedReason: .recordTagMismatch) { data, offset, _ in data[offset + OmiLaunchCaptureFormat.headerByteCount] ^= 0x01 },
+            Mutation(name: "tail-truncation", hasVisibleGap: true, expectedReason: .incompleteReservedRecord) { data, offset, _ in data.removeSubrange((offset + OmiLaunchCaptureFormat.headerByteCount + 1)..<data.count) },
+            Mutation(name: "middle-framing", hasVisibleGap: false, expectedReason: .invalidMagic) { data, offset, _ in data.insert(0xFF, at: offset) },
         ]
 
         for mutation in mutations {
@@ -161,7 +164,7 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
             XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], mutation.name)
             XCTAssertEqual(result.verifiedPrefixNextSequence, 1, mutation.name)
             XCTAssertEqual(result.boundarySequence, mutation.hasVisibleGap ? 1 : nil, mutation.name)
-            XCTAssertNotNil(result.boundaryReason, mutation.name)
+            XCTAssertEqual(result.boundaryReason, mutation.expectedReason, mutation.name)
             XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1, mutation.name)
             XCTAssertLessThanOrEqual(io.largestSingleReadCount, OmiLaunchCaptureFormat.readerBodyBufferByteCount, mutation.name)
         }
@@ -201,6 +204,89 @@ final class OmiLaunchCaptureRecoveryTests: XCTestCase {
             XCTAssertEqual(result.verifiedPrefixNextSequence, 1, mutation.name)
             XCTAssertNil(result.boundarySequence, mutation.name)
         }
+    }
+
+    func testChecksumValidOversizeDeclaredLengthStopsBeforeBodyRead() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        XCTAssertEqual(writer.append(Data("first".utf8)), .retained(sequence: 0, retriedPending: false))
+
+        let hostileHeader = OmiLaunchCaptureHeader(
+            generationID: generation,
+            sequence: 1,
+            acquiredAtUnixMicros: 1,
+            declaredPayloadBytes: OmiLaunchCaptureFormat.maximumPayloadBytes + 1
+        ).encoded()
+        var bytes = try Data(contentsOf: writer.fileURL)
+        bytes.append(hostileHeader)
+        try bytes.write(to: writer.fileURL)
+
+        let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
+        let result = recovery.recover()
+        XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0])
+        XCTAssertEqual(result.verifiedPrefixNextSequence, 1)
+        XCTAssertNil(result.boundarySequence)
+        XCTAssertEqual(result.boundaryReason, .declaredLengthExceeded)
+        XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1)
+        XCTAssertLessThanOrEqual(io.largestSingleReadCount, OmiLaunchCaptureFormat.readerBodyBufferByteCount)
+    }
+
+    func testChecksumValidGenerationAndSequenceMismatchesAreVisibleGaps() throws {
+        struct Mismatch {
+            let name: String
+            let header: (UUID) -> OmiLaunchCaptureHeader
+            let reason: OmiLaunchCaptureBoundaryReason
+            let sequence: UInt64
+        }
+        let mismatches: [Mismatch] = [
+            Mismatch(
+                name: "generation",
+                header: { _ in OmiLaunchCaptureHeader(generationID: UUID(), sequence: 1, acquiredAtUnixMicros: 1, declaredPayloadBytes: 0) },
+                reason: .generationMismatch,
+                sequence: 1
+            ),
+            Mismatch(
+                name: "sequence",
+                header: { generation in OmiLaunchCaptureHeader(generationID: generation, sequence: 2, acquiredAtUnixMicros: 1, declaredPayloadBytes: 0) },
+                reason: .sequenceMismatch,
+                sequence: 2
+            ),
+        ]
+
+        for mismatch in mismatches {
+            let caseRoot = self.rootURL.appendingPathComponent(mismatch.name, isDirectory: true)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let generation = UUID()
+            let writer = OmiLaunchCaptureWriter(rootURL: caseRoot, generationID: generation, clock: MockObserverClock(), io: io)
+            XCTAssertEqual(writer.append(Data("first".utf8)), .retained(sequence: 0, retriedPending: false), mismatch.name)
+
+            var bytes = try Data(contentsOf: writer.fileURL)
+            bytes.append(mismatch.header(generation).encoded())
+            try bytes.write(to: writer.fileURL)
+
+            let recovery = OmiLaunchCaptureRecovery(rootURL: caseRoot, generationID: generation, io: io)
+            let result = recovery.recover()
+            XCTAssertEqual(result.verifiedRecords.map(\.sequence), [0], mismatch.name)
+            XCTAssertEqual(result.boundarySequence, mismatch.sequence, mismatch.name)
+            XCTAssertEqual(result.boundaryReason, mismatch.reason, mismatch.name)
+            XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1, mismatch.name)
+        }
+    }
+
+    func testReadFailureReportsTypedBoundary() {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        XCTAssertEqual(writer.append(Data("record".utf8)), .retained(sequence: 0, retriedPending: false))
+        io.failNext(.read)
+
+        let recovery = OmiLaunchCaptureRecovery(rootURL: self.rootURL, generationID: generation, io: io)
+        let result = recovery.recover()
+        XCTAssertTrue(result.verifiedRecords.isEmpty)
+        XCTAssertNil(result.boundarySequence)
+        XCTAssertEqual(result.boundaryReason, .readFailed)
+        XCTAssertEqual(recovery.emittedBoundaryDiagnosticCount, 1)
     }
 
     func testQuarantineFailureRetainsEvidenceInPlace() {
