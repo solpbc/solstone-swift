@@ -1112,7 +1112,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(export.contains("relation matched; id "))
     }
 
-    func testSessionHistoryExportRendersNewestFirstRawReasonsAndUnavailableDistinctly() {
+    func testSessionHistoryExportRendersPhoneRetentionRowsNewestFirstRawReasonsAndUnavailableDistinctly() {
         let older = Self.sessionEntry("older", reason: .audioClockStalled, at: Self.now.addingTimeInterval(-20))
         let newer = Self.sessionEntry("newer", reason: .audioRecorderStopped, at: Self.now.addingTimeInterval(-10))
         let payload = Self.payload(
@@ -1121,23 +1121,29 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             lifetimeSessionsStarted: .available(42)
         )
         let rendered = WatchPipelineReducer.reduce(Self.input(
-            now: Self.now, watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil)
+            now: Self.now,
+            watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil),
+            phoneSessionHistory: Self.phoneHistory(entries: [newer, older], retained: 2, dropped: 3, notReceived: .available(5))
         )).diagnosticsExportText
-        XCTAssertTrue(rendered.contains("watch session history\nsessions in this report: 2\nsessions on the watch not in this report: 5\nsessions started since install: 42"))
+        XCTAssertTrue(rendered.contains("watch session history\nsessions retained on this iphone: 2\nretention window: 7 days\nsessions dropped as older than the retention window: 3\nsessions this iphone has not received: 5"))
         XCTAssertTrue(rendered.contains("outcome: audio-recorder-stopped / detected-stopped-itself"))
         XCTAssertTrue(rendered.contains("outcome: audio-clock-stalled / detected-stopped-itself"))
         XCTAssertLessThan(try! XCTUnwrap(rendered.range(of: "session: 1 of 2")).lowerBound, try! XCTUnwrap(rendered.range(of: "session: 2 of 2")).lowerBound)
         XCTAssertLessThan(try! XCTUnwrap(rendered.range(of: "audio-recorder-stopped")).lowerBound, try! XCTUnwrap(rendered.range(of: "audio-clock-stalled")).lowerBound)
 
         let empty = WatchPipelineReducer.reduce(Self.input(
-            now: Self.now, watchDiagnostics: .available(Self.payload(activeBacklogCount: 0, observations: []), rawEnvelopeByteCount: nil)
+            now: Self.now,
+            watchDiagnostics: .available(Self.payload(activeBacklogCount: 0, observations: []), rawEnvelopeByteCount: nil),
+            phoneSessionHistory: Self.phoneHistory(entries: [], retained: 0, dropped: 0, notReceived: .available(0))
         )).diagnosticsExportText
-        let unavailablePayload = Self.payload(activeBacklogCount: 0, observations: [], sessionHistoryWindow: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable))
+        let unavailablePayload = Self.payload(activeBacklogCount: 0, observations: [])
         let unavailable = WatchPipelineReducer.reduce(Self.input(
-            now: Self.now, watchDiagnostics: .available(unavailablePayload, rawEnvelopeByteCount: nil)
+            now: Self.now,
+            watchDiagnostics: .available(unavailablePayload, rawEnvelopeByteCount: nil),
+            phoneSessionHistory: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable)
         )).diagnosticsExportText
-        XCTAssertTrue(empty.contains("sessions in this report: 0"))
-        XCTAssertFalse(unavailable.contains("sessions in this report: 0"))
+        XCTAssertTrue(empty.contains("sessions retained on this iphone: 0"))
+        XCTAssertFalse(unavailable.contains("sessions retained on this iphone: 0"))
         XCTAssertTrue(unavailable.contains(WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable))
     }
 }
@@ -1190,7 +1196,8 @@ private extension WatchPipelineReducerTests {
         isReachable: Bool = false,
         watchDiagnostics: WatchRelayDiagnosticsEnvelopeResult = .absent,
         phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
-        iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot()
+        iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot(),
+        phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput> = .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided)
     ) -> WatchPipelineInput {
         WatchPipelineInput(
             now: now,
@@ -1215,7 +1222,8 @@ private extension WatchPipelineReducerTests {
             isJournalReachable: isJournalReachable,
             watchDiagnostics: watchDiagnostics,
             phoneLedgerSnapshot: phoneLedgerSnapshot,
-            iphoneACKQueueSnapshot: iphoneACKQueueSnapshot
+            iphoneACKQueueSnapshot: iphoneACKQueueSnapshot,
+            phoneSessionHistory: phoneSessionHistory
         )
     }
 
@@ -1348,6 +1356,21 @@ private extension WatchPipelineReducerTests {
             sessionHistoryCounterEpoch: .available("epoch"),
             sessionHistoryDepth: sessionHistoryDepth
         )
+    }
+
+    static func phoneHistory(
+        entries: [WatchCaptureSessionHistoryEntry],
+        retained: Int,
+        dropped: Int,
+        notReceived: DiagnosticAvailability<Int>
+    ) -> DiagnosticAvailability<WatchPhoneSessionHistoryInput> {
+        .available(WatchPhoneSessionHistoryInput(
+            entries: entries,
+            retainedCount: retained,
+            retentionDays: 7,
+            droppedAsOlderThanRetentionWindow: dropped,
+            sessionsNotReceived: notReceived
+        ))
     }
 
     static func sessionEntry(_ id: String, reason: WatchCaptureTerminalReason, at: Date) -> WatchCaptureSessionHistoryEntry {

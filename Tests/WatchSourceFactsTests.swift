@@ -103,7 +103,13 @@ final class WatchSourceFactsTests: XCTestCase {
         defer { defaults.defaults.removePersistentDomain(forName: defaults.name) }
         let facts = WatchSourceFacts(defaults: defaults.defaults)
         let session = MockWatchConnectivitySession()
-        let link = WatchLink(session: session, receiver: nil, facts: facts)
+        let historyStore = WatchPhoneSessionHistoryStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                .appendingPathComponent(WatchPhoneSessionHistoryStore.historyFileName),
+            clock: Date.init
+        )
+        let link = WatchLink(session: session, receiver: nil, facts: facts, phoneSessionHistoryStore: historyStore)
 
         session.deliverApplicationContext(Self.status(seq: 1).applicationContext())
         try await Task.sleep(for: .milliseconds(20))

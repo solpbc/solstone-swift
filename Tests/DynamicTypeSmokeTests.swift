@@ -52,6 +52,10 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .appendingPathComponent("DynamicTypeSmokeTests-WatchLedger-\(UUID().uuidString).json", isDirectory: false)
         defer { try? FileManager.default.removeItem(at: watchLedgerURL) }
         let watchSegmentLedger = WatchSegmentLedger(fileURL: watchLedgerURL)
+        let phoneHistoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-WatchHistory-\(UUID().uuidString).jsonl", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: phoneHistoryURL) }
+        let phoneSessionHistoryStore = WatchPhoneSessionHistoryStore(fileURL: phoneHistoryURL)
         let watchFactsDefaultsName = "DynamicTypeSmokeTests-WatchFacts-\(UUID().uuidString)"
         let watchFactsDefaults = try XCTUnwrap(UserDefaults(suiteName: watchFactsDefaultsName))
         defer { watchFactsDefaults.removePersistentDomain(forName: watchFactsDefaultsName) }
@@ -62,7 +66,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             stagingRootURL: watchRelayRoot,
             facts: watchSourceFacts
         )
-        let watchLink = WatchLink(session: watchSession, receiver: watchRelayReceiver, facts: watchSourceFacts)
+        let watchLink = WatchLink(
+            session: watchSession,
+            receiver: watchRelayReceiver,
+            facts: watchSourceFacts,
+            phoneSessionHistoryStore: phoneSessionHistoryStore
+        )
         let observerManager = ObserverManager(
             recorder: MockObserverRecorder(),
             mobileSegmentEngine: mobileSegmentEngine
@@ -198,6 +207,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
                 .environment(watchSegmentLedger)
+                .environment(phoneSessionHistoryStore)
                 .environment(connectionSyncModel)
         }
         let locationSourceDetailView = NavigationStack {
@@ -221,6 +231,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchRelayReceiver)
                 .environment(watchUploaderHolder)
                 .environment(watchSegmentLedger)
+                .environment(phoneSessionHistoryStore)
                 .environment(connectionSyncModel)
         }
         let activeLocationSourceDetailView = NavigationStack {

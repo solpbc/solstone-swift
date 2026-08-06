@@ -10,6 +10,7 @@ struct WatchPhonePipeline {
     let watchSegmentDrain: WatchSegmentDrain?
     let watchRelayReceiver: WatchRelayReceiver?
     let watchSegmentLedger: WatchSegmentLedger
+    let phoneSessionHistoryStore: WatchPhoneSessionHistoryStore
     let watchLink: WatchLink
 }
 
@@ -26,6 +27,7 @@ func makeWatchPhonePipeline(
     receiverStagingRootURL: URL? = nil
 ) -> WatchPhonePipeline {
     let ledger = WatchSegmentLedger(fileURL: ledgerFileURL, clock: ledgerClock)
+    let phoneSessionHistoryStore = WatchPhoneSessionHistoryStore()
     let holder = WatchUploaderHolder(transferEngine: transferEngine, mirror: transferStatusMirror)
 
     let drain: WatchSegmentDrain?
@@ -79,7 +81,12 @@ func makeWatchPhonePipeline(
         }
     }
 
-    let link = WatchLink(session: watchConnectivitySession, receiver: receiver, facts: watchSourceFacts)
+    let link = WatchLink(
+        session: watchConnectivitySession,
+        receiver: receiver,
+        facts: watchSourceFacts,
+        phoneSessionHistoryStore: phoneSessionHistoryStore
+    )
     link.activate()
 
     return WatchPhonePipeline(
@@ -87,6 +94,7 @@ func makeWatchPhonePipeline(
         watchSegmentDrain: drain,
         watchRelayReceiver: receiver,
         watchSegmentLedger: ledger,
+        phoneSessionHistoryStore: phoneSessionHistoryStore,
         watchLink: link
     )
 }

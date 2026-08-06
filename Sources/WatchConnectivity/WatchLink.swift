@@ -87,6 +87,7 @@ final class WatchLink {
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
     @ObservationIgnored private let facts: WatchSourceFacts
+    @ObservationIgnored private let phoneSessionHistoryStore: WatchPhoneSessionHistoryStore
 
     var lastReceivedAt: Date? {
         self.receiver?.lastReceivedAt
@@ -96,10 +97,16 @@ final class WatchLink {
         WatchRelayACKQueueSnapshot(userInfoTransfers: self.session.outstandingUserInfoTransferSnapshots)
     }
 
-    init(session: any WatchConnectivitySession, receiver: WatchRelayReceiver?, facts: WatchSourceFacts) {
+    init(
+        session: any WatchConnectivitySession,
+        receiver: WatchRelayReceiver?,
+        facts: WatchSourceFacts,
+        phoneSessionHistoryStore: WatchPhoneSessionHistoryStore
+    ) {
         self.session = session
         self.receiver = receiver
         self.facts = facts
+        self.phoneSessionHistoryStore = phoneSessionHistoryStore
         self.isSupported = session.isSupported
         self.isReachable = session.isReachable
         self.isPaired = session.isPaired
@@ -163,9 +170,11 @@ private extension WatchLink {
         if status != nil {
             self.facts.noteStatusContextCheckedIn()
         }
-        self.watchDiagnosticsEnvelopeResult = WatchRelayDiagnosticsEnvelope.decodeResult(
+        let diagnostics = WatchRelayDiagnosticsEnvelope.decodeResult(
             from: status?.diagnosticsEnvelope
         )
+        self.watchDiagnosticsEnvelopeResult = diagnostics
+        _ = self.phoneSessionHistoryStore.merge(diagnostics: diagnostics, status: status)
     }
 
     func handleActivationChanged(_ didActivate: Bool) {

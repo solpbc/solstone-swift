@@ -37,6 +37,7 @@ nonisolated final class WatchPipelineReducerIsolationGrepTests: XCTestCase {
         "WatchUploaderHolder",
         "WatchRelayReceiver",
         "WatchSegmentLedger",
+        "WatchPhoneSessionHistoryStore",
         "ConnectionSyncModel",
         "canOpenURL",
     ]

@@ -35,6 +35,7 @@ struct WatchPipelineInputReader: DynamicProperty {
     @Environment(WatchRelayReceiver.self) private var receiver: WatchRelayReceiver?
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(WatchSegmentLedger.self) private var watchSegmentLedger
+    @Environment(WatchPhoneSessionHistoryStore.self) private var phoneSessionHistoryStore
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(WatchSourceFacts.self) private var watchSourceFacts
 
@@ -87,7 +88,8 @@ struct WatchPipelineInputReader: DynamicProperty {
             iphoneLowPowerModeEnabled: iphoneEnvironment.lowPowerModeEnabled,
             iphoneThermalState: iphoneEnvironment.thermalState,
             phoneLedgerSnapshot: self.watchSegmentLedger.readSnapshot(asOf: now),
-            iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot
+            iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot,
+            phoneSessionHistory: Self.phoneSessionHistoryInput(from: self.phoneSessionHistoryStore.readSnapshot(asOf: now))
         )
         let recordingStatus = watchRecordingStatus(
             context: input.watchStatus,
@@ -109,6 +111,46 @@ struct WatchPipelineInputReader: DynamicProperty {
             waiting: waiting,
             steadyVerdict: steadyVerdict
         )
+    }
+
+    nonisolated static func phoneSessionHistoryInput(
+        from snapshot: DiagnosticAvailability<WatchPhoneSessionHistorySnapshot>
+    ) -> DiagnosticAvailability<WatchPhoneSessionHistoryInput> {
+        guard case let .available(rawSnapshot) = snapshot else {
+            return .unavailable(reason: snapshot.unavailableReason ?? SourceVocabulary.watchDiagnosticsUnavailable)
+        }
+
+        let sessionsNotReceived: DiagnosticAvailability<Int>
+        switch (rawSnapshot.adjustedWatchStarted, rawSnapshot.counterEpoch) {
+        case let (.available(adjustedWatchStarted), .available(counterEpoch)):
+            guard rawSnapshot.baselineEpoch == counterEpoch,
+                  let baselineAdjustedWatchStarted = rawSnapshot.baselineAdjustedWatchStarted,
+                  let baselineDistinctMerged = rawSnapshot.baselineDistinctMerged
+            else {
+                sessionsNotReceived = .unavailable(reason: SourceVocabulary.watchDiagnosticsUnavailable)
+                break
+            }
+            let watchDelta = adjustedWatchStarted - baselineAdjustedWatchStarted
+            let mergedDelta = rawSnapshot.distinctMergedTotal - baselineDistinctMerged
+            guard watchDelta >= 0, mergedDelta >= 0 else {
+                sessionsNotReceived = .unavailable(reason: SourceVocabulary.watchDiagnosticsUnavailable)
+                break
+            }
+            let value = watchDelta - mergedDelta
+            sessionsNotReceived = value >= 0
+                ? .available(value)
+                : .unavailable(reason: SourceVocabulary.watchDiagnosticsUnavailable)
+        case let (.unavailable(reason), _), let (_, .unavailable(reason)):
+            sessionsNotReceived = .unavailable(reason: reason)
+        }
+
+        return .available(WatchPhoneSessionHistoryInput(
+            entries: rawSnapshot.entries,
+            retainedCount: rawSnapshot.retainedCount,
+            retentionDays: rawSnapshot.retentionDays,
+            droppedAsOlderThanRetentionWindow: rawSnapshot.prunedForAgeTotal,
+            sessionsNotReceived: sessionsNotReceived
+        ))
     }
     // KILL-LIST-EXEMPT:END
 }

@@ -888,7 +888,8 @@ private extension WatchRelayTests {
             isWatchAppInstalled: true,
             activationState: .activated,
             isReachable: false,
-            isJournalReachable: true
+            isJournalReachable: true,
+            phoneSessionHistory: .unavailable(reason: "not provided")
         )
     }
 

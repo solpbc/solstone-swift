@@ -37,6 +37,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var watchSegmentLedger: WatchSegmentLedger
+    @State private var phoneSessionHistoryStore: WatchPhoneSessionHistoryStore
     @State private var mobileSegmentUploader: MobileSegmentUploader
     @State private var mobileSegmentEngine: MobileSegmentEngine
     @State private var locationManager: LocationManager
@@ -380,6 +381,7 @@ struct SolstoneSwiftApp: App {
         let watchSegmentDrain = watchPipeline.watchSegmentDrain
         let watchRelayReceiver = watchPipeline.watchRelayReceiver
         let watchSegmentLedger = watchPipeline.watchSegmentLedger
+        let phoneSessionHistoryStore = watchPipeline.phoneSessionHistoryStore
         let watchLink = watchPipeline.watchLink
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
@@ -618,6 +620,7 @@ struct SolstoneSwiftApp: App {
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._watchSegmentLedger = State(initialValue: watchSegmentLedger)
+        self._phoneSessionHistoryStore = State(initialValue: phoneSessionHistoryStore)
         self._mobileSegmentUploader = State(initialValue: mobileSegmentUploader)
         self._mobileSegmentEngine = State(initialValue: mobileSegmentEngine)
         self._locationManager = State(initialValue: locationManager)
@@ -675,6 +678,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.watchLink)
                 .environment(self.watchRelayReceiver)
                 .environment(self.watchSegmentLedger)
+                .environment(self.phoneSessionHistoryStore)
                 .environment(self.shareImportStore)
                 .environment(self.shareTransferHolder)
                 .environment(self.mobileSegmentUploader)

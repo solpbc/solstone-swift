@@ -4,6 +4,14 @@
 import Foundation
 import WatchConnectivity
 
+nonisolated struct WatchPhoneSessionHistoryInput: Codable, Equatable, Sendable {
+    let entries: [WatchCaptureSessionHistoryEntry]
+    let retainedCount: Int
+    let retentionDays: Int
+    let droppedAsOlderThanRetentionWindow: Int
+    let sessionsNotReceived: DiagnosticAvailability<Int>
+}
+
 nonisolated struct WatchPipelineInput: Sendable {
     let now: Date
     let watchStatus: WatchStatusContext?
@@ -35,6 +43,7 @@ nonisolated struct WatchPipelineInput: Sendable {
     let iphoneThermalState: DiagnosticAvailability<String>
     let phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot>
     let iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot
+    let phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput>
 
     init(
         now: Date,
@@ -66,7 +75,8 @@ nonisolated struct WatchPipelineInput: Sendable {
         iphoneLowPowerModeEnabled: DiagnosticAvailability<Bool> = .unavailable(reason: "not provided"),
         iphoneThermalState: DiagnosticAvailability<String> = .unavailable(reason: "not provided"),
         phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
-        iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot()
+        iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot(),
+        phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput>
     ) {
         self.now = now
         self.watchStatus = watchStatus
@@ -98,6 +108,7 @@ nonisolated struct WatchPipelineInput: Sendable {
         self.iphoneThermalState = iphoneThermalState
         self.phoneLedgerSnapshot = phoneLedgerSnapshot
         self.iphoneACKQueueSnapshot = iphoneACKQueueSnapshot
+        self.phoneSessionHistory = phoneSessionHistory
     }
 }
 
@@ -596,31 +607,23 @@ private extension WatchPipelineReducer {
     }
 
     nonisolated static func sessionHistoryRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
-        guard let payload = input.watchDiagnostics.payload else {
-            return [WatchDiagnosticsExportRow(
-                label: "session history",
-                value: input.watchDiagnostics.unavailableReason ?? SourceVocabulary.watchDiagnosticsUnavailable
-            )]
-        }
-        guard case let .available(entries) = payload.sessionHistoryWindow else {
-            return [WatchDiagnosticsExportRow(
-                label: "session history",
-                value: self.availabilityReason(payload.sessionHistoryWindow)
-            )]
+        guard case let .available(history) = input.phoneSessionHistory else {
+            let reason = self.availabilityReason(input.phoneSessionHistory)
+            return [
+                WatchDiagnosticsExportRow(label: "sessions retained on this iphone", value: reason),
+                WatchDiagnosticsExportRow(label: "retention window", value: reason),
+                WatchDiagnosticsExportRow(label: "sessions dropped as older than the retention window", value: reason),
+                WatchDiagnosticsExportRow(label: "sessions this iphone has not received", value: reason),
+            ]
         }
         var rows = [
-            WatchDiagnosticsExportRow(label: "sessions in this report", value: "\(entries.count)"),
-            WatchDiagnosticsExportRow(
-                label: "sessions on the watch not in this report",
-                value: "\(max(0, payload.sessionHistoryDepth - entries.count))"
-            ),
-            WatchDiagnosticsExportRow(
-                label: "sessions started since install",
-                value: self.intAvailabilityText(payload.lifetimeSessionsStarted)
-            )
+            WatchDiagnosticsExportRow(label: "sessions retained on this iphone", value: "\(history.retainedCount)"),
+            WatchDiagnosticsExportRow(label: "retention window", value: "\(history.retentionDays) days"),
+            WatchDiagnosticsExportRow(label: "sessions dropped as older than the retention window", value: "\(history.droppedAsOlderThanRetentionWindow)"),
+            WatchDiagnosticsExportRow(label: "sessions this iphone has not received", value: self.intAvailabilityText(history.sessionsNotReceived)),
         ]
-        for (offset, entry) in entries.enumerated() {
-            rows.append(contentsOf: self.sessionHistoryRows(entry: entry, index: offset + 1, total: entries.count, now: input.now))
+        for (offset, entry) in history.entries.enumerated() {
+            rows.append(contentsOf: self.sessionHistoryRows(entry: entry, index: offset + 1, total: history.entries.count, now: input.now))
         }
         return rows
     }

@@ -465,6 +465,89 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(backwardPayload.sessionHistoryWindow.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
     }
 
+    func testObservationCompactionKeepsTheFullHistoryWindowAvailable() throws {
+        let now = Self.now
+        let entries = (0..<10).map {
+            Self.historyEntry($0, at: now.addingTimeInterval(TimeInterval($0 - 10)))
+        }
+        let storage = try self.storage("history-survives-observation-compaction")
+        let history = WatchCaptureSessionHistoryStore(storage: storage)
+        for entry in entries {
+            try history.upsert(entry, asOf: now)
+            _ = try history.incrementLifetimeCounter()
+        }
+        let session = MockWatchConnectivitySession()
+        for index in 0..<800 {
+            session.seedOutstandingTransfer(id: Self.uuid(20_000 + index))
+        }
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: WatchRelayDiagnosticsStore(storage: storage),
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+
+        let data = try XCTUnwrap(collector.makeEnvelopeData(asOf: now))
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
+        XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
+        XCTAssertGreaterThan(payload.omittedObservationCount, 0)
+        XCTAssertEqual(
+            payload.sessionHistoryWindow.value?.map(\.sessionID),
+            entries.sorted { $0.startedAt > $1.startedAt }.map(\.sessionID)
+        )
+        XCTAssertEqual(payload.sessionHistoryWindow.value?.count, 10)
+    }
+
+    func testHistoryWindowContainsExactlyTheNewestTenSessionIdentities() throws {
+        let now = Self.now
+        let entries = (0..<11).map {
+            Self.historyEntry($0, at: now.addingTimeInterval(TimeInterval($0 - 11) * 60))
+        }
+        let storage = try self.storage("history-window-identity-order")
+        let history = WatchCaptureSessionHistoryStore(storage: storage)
+        for entry in entries {
+            try history.upsert(entry, asOf: now)
+            _ = try history.incrementLifetimeCounter()
+        }
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: WatchRelayDiagnosticsStore(storage: storage),
+            session: MockWatchConnectivitySession(),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(
+            from: collector.makeEnvelopeData(asOf: now)
+        ).payload)
+        XCTAssertEqual(
+            payload.sessionHistoryWindow.value?.map(\.sessionID),
+            entries.sorted { $0.startedAt > $1.startedAt }.prefix(10).map(\.sessionID)
+        )
+        XCTAssertEqual(payload.sessionHistoryDepth, 11)
+    }
+
+    func testFloorHistoryWithoutObservationsStaysPublishableUnderTheEnvelopeCap() throws {
+        let now = Self.now
+        let storage = try self.storage("history-floor-under-cap")
+        let history = WatchCaptureSessionHistoryStore(storage: storage)
+        for index in 0..<10 {
+            try history.upsert(Self.historyEntry(index, at: now.addingTimeInterval(TimeInterval(index - 10))), asOf: now)
+            _ = try history.incrementLifetimeCounter()
+        }
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: WatchRelayDiagnosticsStore(storage: storage),
+            session: MockWatchConnectivitySession(),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+
+        let data = try XCTUnwrap(collector.makeEnvelopeData(asOf: now))
+        XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
+        XCTAssertEqual(payload.observedFileTransfers, [])
+        XCTAssertEqual(payload.sessionHistoryWindow.value?.count, 10)
+    }
+
     func testCompactionRetentionOrderOldestActiveThenRecentFailureThenUUIDOrder() throws {
         let now = Self.now
         let storage = try self.storage("compaction-priority")
@@ -2326,7 +2409,8 @@ private extension WatchRelayDiagnosticsCollectorTests {
             iphoneLowPowerModeEnabled: .available(false),
             iphoneThermalState: .available("nominal"),
             phoneLedgerSnapshot: phoneLedgerSnapshot,
-            iphoneACKQueueSnapshot: Self.ackSnapshot(total: iphoneACKCount)
+            iphoneACKQueueSnapshot: Self.ackSnapshot(total: iphoneACKCount),
+            phoneSessionHistory: .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided)
         )
     }
 
