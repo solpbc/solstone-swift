@@ -33,6 +33,11 @@ final class OmiLaunchCaptureMaterializer {
         var samples: [Int16]
     }
 
+    private struct ExistingOutput {
+        let hasAudio: Bool
+        let hasEnvelope: Bool
+    }
+
     private let rootURL: URL
     private let generationID: UUID
     private let io: any OmiLaunchCaptureIO
@@ -70,19 +75,20 @@ final class OmiLaunchCaptureMaterializer {
             self.peakLeaseResidentPayloadBytes = max(self.peakLeaseResidentPayloadBytes, reader.peakLeaseResidentPayloadBytes)
             for record in lease.records {
                 let acquiredAt = Date(timeIntervalSince1970: Double(record.acquiredAtUnixMicros) / 1_000_000)
-                let output = reassembler.ingest(record.payload, acquiredAt: acquiredAt)
+                let output = reassembler.ingest(record.payload, acquiredAt: acquiredAt, recordSequence: record.sequence)
                 markers.append(contentsOf: output.markers.map { OmiLaunchCaptureMarkerObservation(epoch: $0.epoch, acquiredAt: acquiredAt) })
-                self.consume(output.completedFrames, sequence: record.sequence, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs)
+                self.consume(output.completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs)
             }
             position = OmiLaunchCaptureReadPosition(generationID: generationID, nextSequence: lease.throughSequence + 1, offset: lease.endOffset)
         }
-        self.consume(reassembler.flushFinalFrame().completedFrames, sequence: position.nextSequence, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs)
+        self.consume(reassembler.flushFinalFrame().completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs)
         if let current, !current.samples.isEmpty, let output = self.persist(current) { outputs.append(output) }
         return OmiLaunchCaptureMaterializationResult(partitions: outputs, markers: markers, rebootEvents: OmiDiagnosticsLogic.pendantRebootEvents(from: markers.map { (observedAt: $0.acquiredAt, epoch: $0.epoch) }))
     }
 
-    private func consume(_ frames: [OmiReassembledFrame], sequence: UInt64, current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, decodeFailures: inout Set<Int>, outputs: inout [OmiLaunchCaptureMaterializedPartition]) {
+    private func consume(_ frames: [OmiReassembledFrame], current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, decodeFailures: inout Set<Int>, outputs: inout [OmiLaunchCaptureMaterializedPartition]) {
         for frame in frames {
+            guard let startSequence = frame.startSequence else { continue }
             guard let decoded = decode(frame.data), !decoded.isEmpty else {
                 let ordinal = current?.ordinal ?? nextOrdinal
                 if decodeFailures.insert(ordinal).inserted { self.noteAttention(ordinal, reason: "decode") }
@@ -97,8 +103,11 @@ final class OmiLaunchCaptureMaterializer {
             let alreadyWritten = current?.samples.count ?? 0
             let slices = OmiSamplePartitioner.partitions(samples: decoded, alreadyWritten: alreadyWritten, sampleLimit: OmiAudioChunkFormat.sampleLimit)
             for slice in slices {
+                if let currentPartition = current, currentPartition.samples.isEmpty {
+                    current = Partition(ordinal: currentPartition.ordinal, startSequence: startSequence, startSampleOffset: currentPartition.startSampleOffset, startedAt: currentPartition.startedAt, samples: [])
+                }
                 if current == nil {
-                    current = Partition(ordinal: nextOrdinal, startSequence: sequence, startSampleOffset: sampleOffset, startedAt: frame.acquiredAt, samples: [])
+                    current = Partition(ordinal: nextOrdinal, startSequence: startSequence, startSampleOffset: sampleOffset, startedAt: frame.acquiredAt, samples: [])
                     nextOrdinal += 1
                 }
                 current!.samples.append(contentsOf: slice)
@@ -108,7 +117,7 @@ final class OmiLaunchCaptureMaterializer {
                     let finished = current!
                     if let output = persist(finished) { outputs.append(output) }
                     let successor = finished.startedAt.addingTimeInterval(Double(finished.samples.count) / OmiAudioChunkFormat.sampleRate)
-                    current = Partition(ordinal: nextOrdinal, startSequence: sequence, startSampleOffset: sampleOffset, startedAt: successor, samples: [])
+                    current = Partition(ordinal: nextOrdinal, startSequence: finished.startSequence, startSampleOffset: sampleOffset, startedAt: successor, samples: [])
                     nextOrdinal += 1
                 }
             }
@@ -122,10 +131,17 @@ final class OmiLaunchCaptureMaterializer {
         let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
         let sidecar = self.sidecar(for: partition)
-        if self.isReusable(audioURL: audioURL, envelopeURL: envelopeURL, itemID: itemID, sidecar: sidecar) {
+        let existingOutput: ExistingOutput
+        do {
+            existingOutput = try self.existingOutput(audioURL: audioURL, envelopeURL: envelopeURL)
+        } catch {
+            self.noteAttention(partition.ordinal, reason: "exists")
+            return nil
+        }
+        if self.isReusable(existingOutput: existingOutput, envelopeURL: envelopeURL, itemID: itemID, sidecar: sidecar) {
             return OmiLaunchCaptureMaterializedPartition(itemID: itemID, ordinal: partition.ordinal, audioURL: audioURL, envelopeURL: envelopeURL)
         }
-        guard self.quarantineExistingOutput(audioURL: audioURL, envelopeURL: envelopeURL) else {
+        guard self.quarantineExistingOutput(audioURL: audioURL, envelopeURL: envelopeURL, existingOutput: existingOutput) else {
             self.noteAttention(partition.ordinal, reason: "quarantine")
             return nil
         }
@@ -154,7 +170,14 @@ final class OmiLaunchCaptureMaterializer {
             let envelope = OmiPendingHandoffEnvelope(itemID: itemID, sidecar: sidecar, metadata: nil, frozenTokens: [])
             try OmiPendingHandoffStore.write(try OmiPendingHandoffStore.encode(envelope), to: envelopeURL, io: io)
         } catch {
-            if self.quarantineExistingOutput(audioURL: audioURL, envelopeURL: envelopeURL) {
+            let existingOutput: ExistingOutput
+            do {
+                existingOutput = try self.existingOutput(audioURL: audioURL, envelopeURL: envelopeURL)
+            } catch {
+                self.noteAttention(partition.ordinal, reason: "exists")
+                return nil
+            }
+            if self.quarantineExistingOutput(audioURL: audioURL, envelopeURL: envelopeURL, existingOutput: existingOutput) {
                 self.noteAttention(partition.ordinal, reason: "envelope")
             } else {
                 self.noteAttention(partition.ordinal, reason: "quarantine")
@@ -169,18 +192,22 @@ final class OmiLaunchCaptureMaterializer {
         return ChunkSidecar(segment: ObserverSegmentNaming.segmentString(for: partition.startedAt, durationSeconds: duration), day: ObserverSegmentNaming.dayString(for: partition.startedAt), chunkIndex: partition.ordinal, startedAt: partition.startedAt, durationS: duration, sessionID: generationID, mode: .meeting, locationJSONL: nil)
     }
 
-    private func isReusable(audioURL: URL, envelopeURL: URL, itemID: UUID, sidecar: ChunkSidecar) -> Bool {
-        guard (try? io.fileExists(at: audioURL)) == true, (try? io.fileExists(at: envelopeURL)) == true else { return false }
+    private func existingOutput(audioURL: URL, envelopeURL: URL) throws -> ExistingOutput {
+        ExistingOutput(hasAudio: try io.fileExists(at: audioURL), hasEnvelope: try io.fileExists(at: envelopeURL))
+    }
+
+    private func isReusable(existingOutput: ExistingOutput, envelopeURL: URL, itemID: UUID, sidecar: ChunkSidecar) -> Bool {
+        guard existingOutput.hasAudio, existingOutput.hasEnvelope else { return false }
         guard let envelope = try? OmiPendingHandoffStore.read(from: envelopeURL) else { return false }
-        return envelope.isSupported && envelope.itemID == itemID && envelope.sidecar.chunkIndex == sidecar.chunkIndex && envelope.sidecar.startedAt == sidecar.startedAt && envelope.sidecar.durationS == sidecar.durationS
+        return envelope.isSupported && envelope.itemID == itemID && envelope.sidecar.chunkIndex == sidecar.chunkIndex && envelope.sidecar.durationS == sidecar.durationS
     }
 
-    private func quarantineExistingOutput(audioURL: URL, envelopeURL: URL) -> Bool {
-        self.quarantineIfPresent(audioURL) && self.quarantineIfPresent(envelopeURL)
+    private func quarantineExistingOutput(audioURL: URL, envelopeURL: URL, existingOutput: ExistingOutput) -> Bool {
+        self.quarantineIfPresent(audioURL, isPresent: existingOutput.hasAudio) && self.quarantineIfPresent(envelopeURL, isPresent: existingOutput.hasEnvelope)
     }
 
-    private func quarantineIfPresent(_ url: URL) -> Bool {
-        guard (try? io.fileExists(at: url)) == true else { return true }
+    private func quarantineIfPresent(_ url: URL, isPresent: Bool) -> Bool {
+        guard isPresent else { return true }
         let root = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.quarantineDirectoryName, isDirectory: true).appendingPathComponent(Self.materializedDirectoryName, isDirectory: true)
         let destination = root.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
         do {

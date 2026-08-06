@@ -42,6 +42,27 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         XCTAssertEqual(file.length, 320)
     }
 
+    func testFractionalAcquisitionTimeReusesArtifactByteForByteWithoutQuarantine() throws {
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000.123_456))
+        let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: clock)
+        Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
+
+        let firstDecoder = try OmiOpusAudioDecoder()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let firstOutput = try XCTUnwrap(first.partitions.only)
+        let audioBytes = try Data(contentsOf: firstOutput.audioURL)
+        let envelopeBytes = try Data(contentsOf: firstOutput.envelopeURL)
+
+        let secondDecoder = try OmiOpusAudioDecoder()
+        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+
+        XCTAssertEqual(second.partitions.only?.itemID, firstOutput.itemID)
+        XCTAssertEqual(try Data(contentsOf: firstOutput.audioURL), audioBytes)
+        XCTAssertEqual(try Data(contentsOf: firstOutput.envelopeURL), envelopeBytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent(OmiLaunchCaptureFormat.quarantineDirectoryName).path))
+    }
+
     func testSampleCapRuleProducesMidFramePartitionsWithoutDroppedOrRepeatedSamples() {
         let generation = UUID()
         let clock = MockObserverClock()
@@ -53,6 +74,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             clock.advance(by: 1)
         }
         let store = MaterializedSamples()
+        // Synthetic PCM is required here because a tractable fixture must split a decoded frame across the sample cap.
         let decoder = PositionDerivedSamples(samplesPerFrame: samplesPerFrame)
         let materializer = OmiLaunchCaptureMaterializer(
             rootURL: rootURL,
@@ -88,6 +110,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             clock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
         }
         let store = MaterializedSamples()
+        // Synthetic PCM keeps this sparse acquisition-time fixture focused on rotation rather than Opus frame sizing.
         let result = OmiLaunchCaptureMaterializer(
             rootURL: rootURL,
             generationID: generation,
@@ -161,21 +184,78 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let generation = UUID()
         let clock = MockObserverClock()
         let capture = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: clock)
-        Self.append(Self.packet(0, index: 0, body: Data([1])), to: capture)
-        let firstStore = MaterializedSamples()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: firstStore) }, decode: { _ in [1] }).materialize()
+        Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: capture)
+        let firstDecoder = try OmiOpusAudioDecoder()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
         let firstOutput = try XCTUnwrap(first.partitions.only)
         let originalEnvelope = try Data(contentsOf: firstOutput.envelopeURL)
-        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in [1] }).materialize()
+        let repeatedDecoder = try OmiOpusAudioDecoder()
+        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { repeatedDecoder.decode($0) }).materialize()
         XCTAssertEqual(repeated.partitions.only?.itemID, firstOutput.itemID)
         XCTAssertEqual(try Data(contentsOf: firstOutput.envelopeURL), originalEnvelope)
 
         clock.advance(by: 1)
-        Self.append(Self.packet(1, index: 0, body: Data([2])), to: capture)
-        let grown = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { frame in [Int16(frame.first ?? 0)] }).materialize()
+        Self.append(Self.packet(1, index: 0, body: try Self.opusFrame()), to: capture)
+        let grownDecoder = try OmiOpusAudioDecoder()
+        let grown = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { grownDecoder.decode($0) }).materialize()
         XCTAssertEqual(grown.partitions.only?.itemID, firstOutput.itemID, "deterministic identity must survive a trailing-range rebuild")
         let grownEnvelope = try OmiPendingHandoffStore.read(from: try XCTUnwrap(grown.partitions.only?.envelopeURL))
-        XCTAssertEqual(grownEnvelope.sidecar.durationS, 2 / OmiAudioChunkFormat.sampleRate)
+        XCTAssertEqual(grownEnvelope.sidecar.durationS, 640 / OmiAudioChunkFormat.sampleRate)
+    }
+
+    func testMarkerOnlyAppendReusesTrailingFrameWithSameIdentity() throws {
+        let generation = UUID()
+        let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: MockObserverClock())
+        Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
+
+        let firstDecoder = try OmiOpusAudioDecoder()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let firstOutput = try XCTUnwrap(first.partitions.only)
+        let audioBytes = try Data(contentsOf: firstOutput.audioURL)
+        let envelopeBytes = try Data(contentsOf: firstOutput.envelopeURL)
+
+        Self.append(Self.marker(packet: 1, epoch: 1_700_000_000), to: writer)
+        let secondDecoder = try OmiOpusAudioDecoder()
+        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+
+        XCTAssertEqual(second.partitions.only?.itemID, firstOutput.itemID)
+        XCTAssertEqual(try Data(contentsOf: firstOutput.audioURL), audioBytes)
+        XCTAssertEqual(try Data(contentsOf: firstOutput.envelopeURL), envelopeBytes)
+    }
+
+    func testExistsFaultLeavesCompleteArtifactUntouched() throws {
+        let generation = UUID()
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: MockObserverClock(), io: io)
+        Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
+
+        let firstDecoder = try OmiOpusAudioDecoder()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { firstDecoder.decode($0) }).materialize()
+        let firstOutput = try XCTUnwrap(first.partitions.only)
+        let audioBytes = try Data(contentsOf: firstOutput.audioURL)
+        let envelopeBytes = try Data(contentsOf: firstOutput.envelopeURL)
+
+        var didScheduleExistsFault = false
+        let diagnosticLog = DiagnosticLog()
+        let secondDecoder = try OmiOpusAudioDecoder()
+        let result = OmiLaunchCaptureMaterializer(
+            rootURL: rootURL,
+            generationID: generation,
+            io: io,
+            decode: { frame in
+                if !didScheduleExistsFault {
+                    io.failNext(.exists)
+                    didScheduleExistsFault = true
+                }
+                return secondDecoder.decode(frame)
+            },
+            diagnosticLog: diagnosticLog
+        ).materialize()
+
+        XCTAssertTrue(result.partitions.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: firstOutput.audioURL), audioBytes)
+        XCTAssertEqual(try Data(contentsOf: firstOutput.envelopeURL), envelopeBytes)
+        XCTAssertEqual(diagnosticLog.events.only?.detail, "generation=\(generation.uuidString.lowercased()) partition=0 reason=exists")
     }
 
     func testFlushFinalFrameProducesStableTrailingAACAndEnvelope() throws {
@@ -268,18 +348,16 @@ private final class MaterializedSamples {
 @MainActor
 private final class RecordingOmiAACChunkWriter: OmiAACChunkWriting {
     private let store: MaterializedSamples
-    private var url: URL?
 
     init(store: MaterializedSamples) { self.store = store }
 
     func open(at url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data([0]).write(to: url)
-        self.url = url
     }
 
     func write(samples: ArraySlice<Int16>) throws { self.store.append(samples) }
-    func close() throws { self.url = nil }
+    func close() throws {}
     func synchronize(at url: URL) throws {}
 }
 

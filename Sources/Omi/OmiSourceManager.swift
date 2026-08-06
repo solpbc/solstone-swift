@@ -483,7 +483,7 @@ extension OmiSourceManager {
             return
         }
         let observedAt = self.clock.now()
-        let output = self.reassembler.ingest(data, acquiredAt: observedAt)
+        let output = self.reassembler.ingest(data, acquiredAt: observedAt, recordSequence: nil)
 
         for marker in output.markers {
             if let lastSeenMarkerEpoch,

@@ -9,8 +9,8 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
     func testSingleFragmentFrameEmitsOnNextStart() {
         var reassembler = OmiAudioReassembler()
 
-        let first = reassembler.ingest(Self.packet(0, index: 0, payload: Data("one".utf8)), acquiredAt: .distantPast)
-        let second = reassembler.ingest(Self.packet(1, index: 0, payload: Data("two".utf8)), acquiredAt: .distantFuture)
+        let first = reassembler.ingest(Self.packet(0, index: 0, payload: Data("one".utf8)), acquiredAt: .distantPast, recordSequence: nil)
+        let second = reassembler.ingest(Self.packet(1, index: 0, payload: Data("two".utf8)), acquiredAt: .distantFuture, recordSequence: nil)
 
         XCTAssertTrue(first.completedFrames.isEmpty)
         XCTAssertEqual(second.completedFrames.map(\.data), [Data("one".utf8)])
@@ -23,10 +23,10 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
     func testMultiFragmentFrameUsesIncrementingPacketNumbers() {
         var reassembler = OmiAudioReassembler()
 
-        XCTAssertTrue(reassembler.ingest(Self.packet(0, index: 0, payload: Data([0xAA])), acquiredAt: .distantPast).completedFrames.isEmpty)
-        XCTAssertTrue(reassembler.ingest(Self.packet(1, index: 1, payload: Data([0xBB, 0xCC])), acquiredAt: .distantPast).completedFrames.isEmpty)
-        XCTAssertTrue(reassembler.ingest(Self.packet(2, index: 2, payload: Data([0xDD])), acquiredAt: .distantPast).completedFrames.isEmpty)
-        let output = reassembler.ingest(Self.packet(3, index: 0, payload: Data([0xEE])), acquiredAt: .distantFuture)
+        XCTAssertTrue(reassembler.ingest(Self.packet(0, index: 0, payload: Data([0xAA])), acquiredAt: .distantPast, recordSequence: nil).completedFrames.isEmpty)
+        XCTAssertTrue(reassembler.ingest(Self.packet(1, index: 1, payload: Data([0xBB, 0xCC])), acquiredAt: .distantPast, recordSequence: nil).completedFrames.isEmpty)
+        XCTAssertTrue(reassembler.ingest(Self.packet(2, index: 2, payload: Data([0xDD])), acquiredAt: .distantPast, recordSequence: nil).completedFrames.isEmpty)
+        let output = reassembler.ingest(Self.packet(3, index: 0, payload: Data([0xEE])), acquiredAt: .distantFuture, recordSequence: nil)
 
         XCTAssertEqual(output.completedFrames.map(\.data), [Data([0xAA, 0xBB, 0xCC, 0xDD])])
         XCTAssertEqual(reassembler.gaps, 0)
@@ -37,9 +37,9 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
     func testDroppedPacketCountsGapAndDropsInProgress() {
         var reassembler = OmiAudioReassembler()
 
-        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("lost".utf8)), acquiredAt: .distantPast)
-        let gapOutput = reassembler.ingest(Self.packet(2, index: 0, payload: Data("fresh".utf8)), acquiredAt: .distantPast)
-        let flushOutput = reassembler.ingest(Self.packet(3, index: 0, payload: Data("next".utf8)), acquiredAt: .distantFuture)
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("lost".utf8)), acquiredAt: .distantPast, recordSequence: nil)
+        let gapOutput = reassembler.ingest(Self.packet(2, index: 0, payload: Data("fresh".utf8)), acquiredAt: .distantPast, recordSequence: nil)
+        let flushOutput = reassembler.ingest(Self.packet(3, index: 0, payload: Data("next".utf8)), acquiredAt: .distantFuture, recordSequence: nil)
 
         XCTAssertTrue(gapOutput.completedFrames.isEmpty)
         XCTAssertEqual(flushOutput.completedFrames.map(\.data), [Data("fresh".utf8)])
@@ -49,12 +49,12 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
 
     func testBackwardOrDuplicatePacketCountsOutOfOrder() {
         var duplicateReassembler = OmiAudioReassembler()
-        _ = duplicateReassembler.ingest(Self.packet(5, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast)
-        _ = duplicateReassembler.ingest(Self.packet(5, index: 0, payload: Data("duplicate".utf8)), acquiredAt: .distantFuture)
+        _ = duplicateReassembler.ingest(Self.packet(5, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast, recordSequence: nil)
+        _ = duplicateReassembler.ingest(Self.packet(5, index: 0, payload: Data("duplicate".utf8)), acquiredAt: .distantFuture, recordSequence: nil)
 
         var backwardReassembler = OmiAudioReassembler()
-        _ = backwardReassembler.ingest(Self.packet(5, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast)
-        _ = backwardReassembler.ingest(Self.packet(4, index: 0, payload: Data("back".utf8)), acquiredAt: .distantFuture)
+        _ = backwardReassembler.ingest(Self.packet(5, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast, recordSequence: nil)
+        _ = backwardReassembler.ingest(Self.packet(4, index: 0, payload: Data("back".utf8)), acquiredAt: .distantFuture, recordSequence: nil)
 
         XCTAssertGreaterThanOrEqual(duplicateReassembler.outOfOrder, 1)
         XCTAssertGreaterThanOrEqual(backwardReassembler.outOfOrder, 1)
@@ -63,7 +63,7 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
     func testMalformedShortPayloadIsCountedAndIgnored() {
         var reassembler = OmiAudioReassembler()
 
-        let output = reassembler.ingest(Data([0x01, 0x00]), acquiredAt: .distantPast)
+        let output = reassembler.ingest(Data([0x01, 0x00]), acquiredAt: .distantPast, recordSequence: nil)
 
         XCTAssertEqual(output, OmiReassemblyOutput())
         XCTAssertEqual(reassembler.malformed, 1)
