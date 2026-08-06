@@ -140,10 +140,12 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(manager.diagnostics.payload.pendantRebootEvents?.count, 1)
     }
 
-    @MainActor func testPersistedDisabledPreservesExistingOwnerEvidence() async throws {
+    @MainActor func testPersistedDisabledLeavesCaptureEffectsInertAndPreservesExistingOwnerEvidence() async throws {
         let generation = UUID()
-        let writer = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: generation, clock: MockObserverClock())
-        Self.assertRetained(writer.append(Self.packet(0, index: 0, body: try Self.opusFrame())))
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let writer = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: generation, clock: clock)
+        Self.assertRetained(writer.append(Self.marker(packet: 0, epoch: 2_000)))
+        Self.assertRetained(writer.append(Self.packet(1, index: 0, body: try Self.opusFrame())))
         let decoder = try OmiOpusAudioDecoder()
         let partition = try XCTUnwrap(OmiLaunchCaptureMaterializer(rootURL: self.captureRoot, generationID: generation, decode: { decoder.decode($0) }).materialize().partitions.first)
 
@@ -152,17 +154,44 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
         _ = try await harness.engine.enqueue(manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: partition.itemID, sidecar: envelope.sidecar), payloads: ["audio": Data(contentsOf: partition.audioURL)])
         let defaults = self.defaults(enabled: false)
-        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: MockObserverClock())
-        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: MockObserverClock(), bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
+        XCTAssertTrue(ingress.arm())
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        var decodedHandoffs = 0
+        manager.onDecodedSamples = { _ in decodedHandoffs += 1 }
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation)
+        let sourceSizeBefore = try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int
+        let materializedBefore = try FileManager.default.contentsOfDirectory(
+            at: partition.envelopeURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).map(\.lastPathComponent).sorted()
+        let snapshotsBefore = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         await OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager).reconcile()
 
         let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-        XCTAssertEqual(snapshots.map(\.itemID), [partition.itemID])
-        XCTAssertNotEqual(OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(), .empty)
+        XCTAssertEqual(snapshots, snapshotsBefore)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reader.cursorURL.path))
         XCTAssertNil(manager.lastMarkerDate)
+        manager.handleAudioData(Self.marker(packet: 2, epoch: 1_000), peripheralID: UUID())
+        manager.handleAudioData(Self.packet(3, index: 0, body: try Self.opusFrame()), peripheralID: UUID())
+        XCTAssertEqual(decodedHandoffs, 0)
+        XCTAssertNil(manager.lastMarkerDate)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int, sourceSizeBefore)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: partition.envelopeURL.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            ).map(\.lastPathComponent).sorted(),
+            materializedBefore
+        )
+
+        manager.enable()
+        manager.handleAudioData(Self.packet(4, index: 0, body: try Self.opusFrame()), peripheralID: UUID())
+        XCTAssertGreaterThan(try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int ?? 0, sourceSizeBefore ?? 0)
+        XCTAssertEqual(decodedHandoffs, 0)
     }
 
-    @MainActor func testDisableDuringRecoveryHoldsOwnerAndIngressResumeIsOneShot() async throws {
+    @MainActor func testDisableDuringRecoveryHoldsOwnerAndExplicitEnableCallbackCoalesces() async throws {
         let generation = UUID()
         let writer = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: generation, clock: MockObserverClock())
         Self.assertRetained(writer.append(Self.packet(0, index: 0, body: try Self.opusFrame())))
@@ -201,38 +230,33 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         let resumeGeneration = UUID()
         let resumeWriter = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: resumeGeneration, clock: MockObserverClock())
         Self.assertRetained(resumeWriter.append(Self.packet(0, index: 0, body: try Self.opusFrame())))
-        var rootAvailable = false
-        let resumeIngress = OmiLaunchCaptureIngress(
-            appGroupRoot: {
-                guard rootAvailable else { throw CocoaError(.fileNoSuchFile) }
-                return self.rootURL
-            },
-            generationID: resumeGeneration,
-            clock: MockObserverClock()
-        )
-        XCTAssertFalse(resumeIngress.arm())
-        let resumeManager = OmiSourceManager(defaults: self.defaults(enabled: true), diagnostics: self.diagnostics(), clock: MockObserverClock(), bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: resumeIngress)
+        let resumeManager = OmiSourceManager(defaults: self.defaults(enabled: true), diagnostics: self.diagnostics(), clock: MockObserverClock(), bluetoothPort: MockOmiBluetoothPort())
         let resumeHarness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("resume-transfer", isDirectory: true))
         try await resumeHarness.engine.initialize()
         await resumeHarness.engine.enableDispatch()
         let resumePasses = CutoverPassCounter()
+        let resumeBarrier = CutoverBarrier()
         let resumeCoordinator = OmiLaunchCaptureCommitCoordinator(
             rootURL: self.captureRoot,
             engine: resumeHarness.engine,
             sourceManager: resumeManager,
             onReconciliationPhase: { phase in
-                if phase == .afterNewOwnerGated { await resumePasses.increment() }
+                if phase == .afterNewOwnerGated {
+                    await resumePasses.increment()
+                    await resumeBarrier.suspend()
+                }
             }
         )
         resumeManager.onLaunchCaptureExplicitEnable = { await resumeCoordinator.resumeAfterExplicitEnable() }
-        rootAvailable = true
-        let firstResume = await resumeManager.resumeLaunchCaptureOnce()
-        let secondResume = await resumeManager.resumeLaunchCaptureOnce()
-        XCTAssertTrue(firstResume)
-        XCTAssertFalse(secondResume)
-        try await transferTestWaitFor("single resumed recovery") { await resumePasses.count() == 1 }
+        let callback = try XCTUnwrap(resumeManager.onLaunchCaptureExplicitEnable)
+        let firstResume = Task { @MainActor in await callback() }
+        try await transferTestWaitFor("first explicit-enable recovery") { await resumeBarrier.waiting() }
+        let secondResume = Task { @MainActor in await callback() }
+        await secondResume.value
         let observedResumePasses = await resumePasses.count()
         XCTAssertEqual(observedResumePasses, 1)
+        await resumeBarrier.resume()
+        await firstResume.value
     }
 }
 
