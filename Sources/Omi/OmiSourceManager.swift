@@ -22,10 +22,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private nonisolated let log = Logger(subsystem: "app.solstone.swift", category: "omi")
 
     var enabled: Bool
-    var managerState: CBManagerState = .unknown
+    var managerState: OmiBluetoothManagerState = .unknown
     var connectionState: OmiSourceState = .disconnected
     var connectedPeripheralName: String?
-    var connectedPeripheralID: String?
+    var connectedPeripheralID: UUID?
     var connectedRSSI: Int?
     var lastKnownBattery: TimedReading<Int>?
     var lastKnownSignal: TimedReading<Int>?
@@ -61,10 +61,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored var onDecodedSamples: (@MainActor ([Int16]) -> Void)?
     @ObservationIgnored var omiSegmentWriter: OmiSegmentWriter?
 
-    @ObservationIgnored private var central: CBCentralManager?
-    @ObservationIgnored private var connectedPeripheral: CBPeripheral?
-    @ObservationIgnored private var peripheralsByID: [UUID: CBPeripheral] = [:]
-    @ObservationIgnored private var characteristicsByID: [String: CBCharacteristic] = [:]
+    @ObservationIgnored private let bluetoothPort: any OmiBluetoothPort
+    @ObservationIgnored private var peripheralsByID: [UUID: OmiPeripheralDescriptor] = [:]
+    @ObservationIgnored private var characteristicsByID: [OmiCharacteristicID: OmiCharacteristicDescriptor] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var reassembler = OmiAudioReassembler()
     @ObservationIgnored private var opusDecoder: OmiOpusAudioDecoder?
@@ -89,31 +88,34 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var currentConnectionConnectToFirstAudioSeconds: TimeInterval?
     @ObservationIgnored private var lastSilentAttributionAt: Date?
     @ObservationIgnored private var lastSeenMarkerEpoch: UInt32?
+    @ObservationIgnored private(set) var deferredReadinessPeripheralID: UUID?
+    @ObservationIgnored var onRawAudioIngress: (@MainActor (Data) -> Void)?
+
+    var hasOpusDecoder: Bool { self.opusDecoder != nil }
+
+    private var isOmiWorkDisabled: Bool {
+        OmiSourceLogic.isDisabled(enabled: self.enabled, manuallyDisconnected: self.manuallyDisconnected)
+    }
 
     init(
         defaults: UserDefaults = .standard,
         diagnostics: OmiDiagnostics = OmiDiagnostics(),
         heardTally: OmiHeardTally = OmiHeardTally(),
-        clock: any ObserverClock = SystemObserverClock()
+        clock: any ObserverClock = SystemObserverClock(),
+        bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort()
     ) {
         self.defaults = defaults
         self.diagnostics = diagnostics
         self.heardTally = heardTally
         self.clock = clock
+        self.bluetoothPort = bluetoothPort
         self.enabled = defaults.bool(forKey: Self.enabledKey)
         self.lastKnownBattery = diagnostics.payload.pendantBatteryTrend.last.map {
             TimedReading(value: $0.level, at: $0.timestamp)
         }
         self.lastKnownSignal = nil
         super.init()
-        self.central = CBCentralManager(
-            delegate: self,
-            queue: nil,
-            options: [
-                CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier,
-                CBCentralManagerOptionShowPowerAlertKey: false
-            ]
-        )
+        self.bluetoothPort.start(delegate: self)
     }
 
     func enable() {
@@ -136,32 +138,29 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.cancelInitialConnectTimeout()
         guard !self.isTryingOrConnected else { return }
 
-        let connected = self.central?.retrieveConnectedPeripherals(withServices: [
-            OmiUUIDs.audioService,
-            OmiUUIDs.storageService
+        let connected = self.bluetoothPort.retrieveConnectedPeripherals(serviceIDs: [
+            OmiUUIDs.audioServiceID,
+            OmiUUIDs.storageServiceID
         ]).first
 
         let persistedID = OmiSourceLogic.persistedPeripheralID(
             from: self.defaults.string(forKey: Self.lastConnectedPeripheralIDKey)
         )
-        let persisted = persistedID.flatMap { id in
-            self.central?.retrievePeripherals(withIdentifiers: [id]).first
-        }
+        let persisted = persistedID.flatMap { id in self.bluetoothPort.retrievePeripherals(identifiers: [id]).first }
 
-        guard let peripheral = connected ?? persisted else {
+        guard let descriptor = connected ?? persisted else {
             self.connectionState = .needsAttention(.pendantNotFound)
             self.log.error("omi pendant not found")
             return
         }
 
-        self.peripheralsByID[peripheral.identifier] = peripheral
-        peripheral.delegate = self
         self.omiSegmentWriter?.start()
-        self.beginConnect(peripheral, isReconnect: false)
+        self.beginConnect(peripheralID: descriptor.id, isReconnect: false)
     }
 
     func startSegmentWriterIfNeeded() {
         guard self.isLaunchReady else { return }
+        guard !self.isOmiWorkDisabled else { return }
         guard !self.didAttemptWriterStart else { return }
         self.didAttemptWriterStart = true
         self.omiSegmentWriter?.start()
@@ -258,9 +257,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.restoreBatteryMonitoringIfNeeded()
         self.manuallyDisconnected = true
         self.cancelInitialConnectTimeout()
-        let pendingPeripheral = self.pendingConnectionID.flatMap { self.peripheralsByID[$0] }
-        if let peripheral = self.connectedPeripheral ?? pendingPeripheral {
-            self.central?.cancelPeripheralConnection(peripheral)
+        let pendingPeripheralID = self.pendingConnectionID ?? self.connectedPeripheralID
+        if let pendingPeripheralID {
+            self.bluetoothPort.cancelConnection(peripheralID: pendingPeripheralID)
         }
         self.omiSegmentWriter?.stop()
         self.clearConnectionArtifacts()
@@ -274,6 +273,11 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func resumeIfEnabled() async {
         guard self.defaults.bool(forKey: Self.enabledKey) else {
             self.enabled = false
+            let ids = Set(self.peripheralsByID.keys).union([self.pendingConnectionID, self.connectedPeripheralID, self.deferredReadinessPeripheralID].compactMap { $0 })
+            for id in ids {
+                self.bluetoothPort.cancelConnection(peripheralID: id)
+            }
+            self.clearConnectionArtifacts()
             return
         }
 
@@ -295,7 +299,11 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func openLaunchReadiness() async {
         guard !self.isLaunchReady else { return }
         self.isLaunchReady = true
-        await self.resumeIfEnabled()
+        if self.deferredReadinessPeripheralID != nil {
+            self.replayReadinessState()
+        } else {
+            await self.resumeIfEnabled()
+        }
     }
 
     func handleWillRestoreState(restoredCount: Int) {
@@ -303,8 +311,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        let state = LiveOmiBluetoothPort.managerStateDescriptor(for: central.state)
         MainActor.assumeIsolated {
-            self.handleCentralStateUpdate(central.state)
+            self.handleCentralStateUpdate(state)
         }
     }
 
@@ -314,12 +323,15 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     ) {
         let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
         let restoredCount = peripherals.count
+        let descriptors = peripherals.map { peripheral in
+            MainActor.assumeIsolated { self.bluetoothPort.register(peripheral) }
+        }
         MainActor.assumeIsolated {
             self.handleWillRestoreState(restoredCount: restoredCount)
         }
-        for peripheral in peripherals {
+        for descriptor in descriptors {
             MainActor.assumeIsolated {
-                self.handleRestoredPeripheral(peripheral)
+                self.handleRestoredPeripheral(descriptor)
             }
         }
     }
@@ -329,7 +341,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         didConnect peripheral: CBPeripheral
     ) {
         MainActor.assumeIsolated {
-            self.handleConnected(peripheral)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            self.handleConnected(descriptor)
         }
     }
 
@@ -339,7 +352,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         error: (any Error)?
     ) {
         MainActor.assumeIsolated {
-            self.handleFailedToConnect(peripheral, error: error)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            self.handleFailedToConnect(descriptor, error: error)
         }
     }
 
@@ -351,8 +365,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         error: (any Error)?
     ) {
         Task { @MainActor [weak self] in
-            await self?.handleDisconnected(
-                peripheral,
+            guard let self else { return }
+            let descriptor = self.bluetoothPort.register(peripheral)
+            await self.handleDisconnected(
+                descriptor,
                 timestamp: timestamp,
                 isReconnecting: isReconnecting,
                 error: error
@@ -365,7 +381,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         didDiscoverServices error: (any Error)?
     ) {
         MainActor.assumeIsolated {
-            self.handleDiscoveredServices(peripheral, error: error)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            self.handleDiscoveredServices(descriptor, error: error)
         }
     }
 
@@ -375,7 +392,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         error: (any Error)?
     ) {
         MainActor.assumeIsolated {
-            self.handleDiscoveredCharacteristics(peripheral, service: service, error: error)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            let serviceDescriptor = LiveOmiBluetoothPort.serviceDescriptor(for: service)
+            self.handleDiscoveredCharacteristics(descriptor, service: serviceDescriptor, error: error)
         }
     }
 
@@ -385,7 +404,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         error: (any Error)?
     ) {
         MainActor.assumeIsolated {
-            self.handleUpdatedValue(peripheral, characteristic: characteristic, error: error)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            let characteristicDescriptor = LiveOmiBluetoothPort.characteristicDescriptor(for: characteristic)
+            self.handleUpdatedValue(descriptor, characteristic: characteristicDescriptor, error: error)
         }
     }
 
@@ -395,7 +416,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         error: (any Error)?
     ) {
         MainActor.assumeIsolated {
-            self.handleUpdatedNotificationState(characteristic, error: error)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            let characteristicDescriptor = LiveOmiBluetoothPort.characteristicDescriptor(for: characteristic)
+            self.handleUpdatedNotificationState(descriptor, characteristic: characteristicDescriptor, error: error)
         }
     }
 
@@ -405,13 +428,16 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         error: (any Error)?
     ) {
         MainActor.assumeIsolated {
-            self.handleDidReadRSSI(peripheral, rssi: RSSI, error: error)
+            let descriptor = self.bluetoothPort.register(peripheral)
+            self.handleDidReadRSSI(descriptor, rssi: RSSI, error: error)
         }
     }
 }
 
 extension OmiSourceManager {
     func handleAudioData(_ data: Data) {
+        guard !self.isOmiWorkDisabled else { return }
+        self.onRawAudioIngress?(data)
         let output = self.reassembler.ingest(data)
 
         for marker in output.markers {
@@ -483,8 +509,15 @@ extension OmiSourceManager {
         }
     }
 
-    func handleCentralStateUpdate(_ state: CBManagerState) {
+    func handleCentralStateUpdate(_ state: OmiBluetoothManagerState) {
         self.managerState = state
+
+        guard !self.isOmiWorkDisabled else {
+            if let pendingConnectionID {
+                self.bluetoothPort.cancelConnection(peripheralID: pendingConnectionID)
+            }
+            return
+        }
 
         if state == .poweredOn {
             if !self.didLogPoweredOn {
@@ -494,7 +527,7 @@ extension OmiSourceManager {
             if !self.manuallyDisconnected,
                let pendingConnectionID,
                let peripheral = self.peripheralsByID[pendingConnectionID],
-               self.connectedPeripheral == nil
+               self.connectedPeripheralID == nil
             {
                 if self.isLaunchReady {
                     self.beginConnect(peripheral, isReconnect: true)
@@ -502,7 +535,7 @@ extension OmiSourceManager {
             }
             if self.wantsEnableOnPowerOn,
                self.pendingConnectionID == nil,
-               self.connectedPeripheral == nil
+               self.connectedPeripheralID == nil
             {
                 if self.isLaunchReady {
                     self.wantsEnableOnPowerOn = false
@@ -521,36 +554,50 @@ extension OmiSourceManager {
         self.connectionState = .needsAttention(attention)
         self.log.error("omi unavailable: \(attention.displayString, privacy: .public)")
     }
+
+    func replayReadinessState() {
+        guard self.isLaunchReady,
+              !self.isOmiWorkDisabled,
+              let peripheralID = self.deferredReadinessPeripheralID
+        else {
+            return
+        }
+        self.deferredReadinessPeripheralID = nil
+        guard let peripheral = self.bluetoothPort.descriptor(peripheralID: peripheralID) else {
+            return
+        }
+        self.advanceReadiness(for: peripheral)
+    }
 }
 
 private extension OmiSourceManager {
-    var restoreServiceUUIDs: [CBUUID] {
+    var restoreServiceIDs: [String] {
         [
-            OmiUUIDs.audioService,
-            OmiUUIDs.deviceInformationService,
-            OmiUUIDs.batteryService,
-            OmiUUIDs.storageService
+            OmiUUIDs.audioServiceID,
+            OmiUUIDs.deviceInformationServiceID,
+            OmiUUIDs.batteryServiceID,
+            OmiUUIDs.storageServiceID
         ]
     }
 
-    func beginConnect(_ peripheral: CBPeripheral, isReconnect: Bool) {
+    func beginConnect(_ peripheral: OmiPeripheralDescriptor, isReconnect: Bool) {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
         self.cancelInitialConnectTimeout()
-        self.pendingConnectionID = peripheral.identifier
-        self.peripheralsByID[peripheral.identifier] = peripheral
-        peripheral.delegate = self
+        self.pendingConnectionID = peripheral.id
+        self.peripheralsByID[peripheral.id] = peripheral
         self.connectionState = isReconnect ? .reconnecting : .connecting
         guard self.isLaunchReady else { return }
-        self.central?.connect(
-            peripheral,
-            options: [CBConnectPeripheralOptionEnableAutoReconnect: true]
-        )
+        self.bluetoothPort.connect(peripheralID: peripheral.id, enablesAutoReconnect: true)
         self.log.info("omi \(isReconnect ? "reconnecting" : "connecting", privacy: .public)")
 
         guard !isReconnect else {
             return
         }
 
-        let id = peripheral.identifier
+        let id = peripheral.id
         self.initialConnectTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(10))
             guard let self,
@@ -565,9 +612,25 @@ private extension OmiSourceManager {
         }
     }
 
+    func beginConnect(peripheralID: UUID, isReconnect: Bool) {
+        guard let peripheral = self.bluetoothPort.descriptor(peripheralID: peripheralID) ?? self.peripheralsByID[peripheralID] else {
+            self.pendingConnectionID = peripheralID
+            self.connectionState = isReconnect ? .reconnecting : .connecting
+            guard self.isLaunchReady, !self.isOmiWorkDisabled else { return }
+            self.bluetoothPort.connect(peripheralID: peripheralID, enablesAutoReconnect: true)
+            return
+        }
+        self.beginConnect(peripheral, isReconnect: isReconnect)
+    }
+
     var isTryingOrConnected: Bool {
-        if self.pendingConnectionID != nil || self.connectedPeripheral != nil {
+        if self.pendingConnectionID != nil {
             return true
+        }
+        if let connectedPeripheralID,
+           let peripheral = self.bluetoothPort.descriptor(peripheralID: connectedPeripheralID)
+        {
+            return peripheral.state != .disconnected
         }
         switch self.connectionState {
         case .connecting, .connected, .reconnecting:
@@ -577,16 +640,29 @@ private extension OmiSourceManager {
         }
     }
 
-    func handleRestoredPeripheral(_ peripheral: CBPeripheral) {
-        self.peripheralsByID[peripheral.identifier] = peripheral
-        peripheral.delegate = self
+    var currentConnectedPeripheral: OmiPeripheralDescriptor? {
+        guard let connectedPeripheralID else { return nil }
+        return self.bluetoothPort.descriptor(peripheralID: connectedPeripheralID)
+    }
+
+}
+
+extension OmiSourceManager {
+    func handleRestoredPeripheral(_ peripheral: OmiPeripheralDescriptor) {
+        self.advanceReadiness(for: peripheral)
+    }
+
+    func advanceReadiness(for peripheral: OmiPeripheralDescriptor) {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
+        self.peripheralsByID[peripheral.id] = peripheral
         self.cacheRestoredCharacteristics(in: peripheral)
 
         let audioCharacteristic = self.audioCharacteristic(in: peripheral)
-        let hasAudioService = peripheral.services?.contains {
-            uuidMatches($0.uuid, OmiUUIDs.audioService)
-        } ?? false
-        let action = OmiSourceLogic.restoreAction(
+        let hasAudioService = peripheral.services.contains { $0.id.matches(OmiUUIDs.audioServiceID) }
+        let action = OmiSourceLogic.readinessAction(
             peripheralState: peripheral.state,
             hasAudioService: hasAudioService,
             isAudioNotifying: audioCharacteristic?.isNotifying == true,
@@ -594,62 +670,73 @@ private extension OmiSourceManager {
         )
 
         self.log.info("omi restore action: \(String(describing: action), privacy: .public)")
-        guard self.isLaunchReady else { return }
+        guard self.isLaunchReady else {
+            self.deferredReadinessPeripheralID = peripheral.id
+            return
+        }
         switch action {
         case .rearmConnect:
             self.beginConnect(peripheral, isReconnect: true)
         case .discoverServices:
-            self.adoptConnectedPeripheral(peripheral)
+            let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            self.beginConnectionInstrumentation(
-                now: self.clock.now(),
-                expectsSubscribeConfirm: true
-            )
-            peripheral.discoverServices(self.restoreServiceUUIDs)
+            if didAdopt {
+                self.beginConnectionInstrumentation(
+                    now: self.clock.now(),
+                    expectsSubscribeConfirm: true
+                )
+            }
+            self.bluetoothPort.discoverServices(peripheralID: peripheral.id, serviceIDs: self.restoreServiceIDs)
         case .readCodec:
-            self.adoptConnectedPeripheral(peripheral)
+            let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            self.beginConnectionInstrumentation(
-                now: self.clock.now(),
-                expectsSubscribeConfirm: true
-            )
-            if let codecCharacteristic = self.characteristic(for: OmiUUIDs.codecCharacteristic),
+            if didAdopt {
+                self.beginConnectionInstrumentation(
+                    now: self.clock.now(),
+                    expectsSubscribeConfirm: true
+                )
+            }
+            if let codecCharacteristic = self.characteristic(for: OmiUUIDs.codecCharacteristicID),
                codecCharacteristic.properties.contains(.read)
             {
-                peripheral.readValue(for: codecCharacteristic)
-            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, OmiUUIDs.audioService) }) {
-                peripheral.discoverCharacteristics(nil, for: audioService)
+                self.bluetoothPort.readValue(peripheralID: peripheral.id, characteristicID: codecCharacteristic.id)
+            } else if let audioService = peripheral.services.first(where: { $0.id.matches(OmiUUIDs.audioServiceID) }) {
+                self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: audioService.id)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
                 self.log.error("omi audio unavailable after restore")
             }
         case .needsAttention(let attention):
-            self.adoptConnectedPeripheral(peripheral)
+            _ = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .needsAttention(attention)
             self.log.error("omi restore needs attention: \(attention.displayString, privacy: .public)")
         case .subscribeAudio:
-            self.adoptConnectedPeripheral(peripheral)
+            let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            self.beginConnectionInstrumentation(
-                now: self.clock.now(),
-                expectsSubscribeConfirm: true
-            )
+            if didAdopt {
+                self.beginConnectionInstrumentation(
+                    now: self.clock.now(),
+                    expectsSubscribeConfirm: true
+                )
+            }
             if let audioCharacteristic {
                 self.setAudioNotify(enabled: true, characteristic: audioCharacteristic)
-            } else if let audioService = peripheral.services?.first(where: { uuidMatches($0.uuid, OmiUUIDs.audioService) }) {
-                peripheral.discoverCharacteristics(nil, for: audioService)
+            } else if let audioService = peripheral.services.first(where: { $0.id.matches(OmiUUIDs.audioServiceID) }) {
+                self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: audioService.id)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
                 self.log.error("omi audio unavailable after restore")
             }
         case .alreadyLive:
-            self.adoptConnectedPeripheral(peripheral)
+            let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            self.beginConnectionInstrumentation(
-                now: self.clock.now(),
-                expectsSubscribeConfirm: false,
-                appendAdoptedLatency: true
-            )
+            if didAdopt {
+                self.beginConnectionInstrumentation(
+                    now: self.clock.now(),
+                    expectsSubscribeConfirm: false,
+                    appendAdoptedLatency: true
+                )
+            }
             self.isAudioSubscribed = true
             if self.opusDecoder == nil {
                 self.buildOpusDecoder()
@@ -657,7 +744,15 @@ private extension OmiSourceManager {
         }
     }
 
-    func handleConnected(_ peripheral: CBPeripheral) {
+    func handleConnected(_ peripheral: OmiPeripheralDescriptor) {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
+        guard self.isLaunchReady else {
+            self.deferredReadinessPeripheralID = peripheral.id
+            return
+        }
         self.cancelInitialConnectTimeout()
         self.pendingConnectionID = nil
         self.adoptConnectedPeripheral(peripheral)
@@ -696,11 +791,12 @@ private extension OmiSourceManager {
         }
         self.log.info("omi connected")
         if self.isLaunchReady {
-            peripheral.discoverServices(nil)
+            self.bluetoothPort.discoverServices(peripheralID: peripheral.id, serviceIDs: nil)
         }
     }
 
-    func handleFailedToConnect(_ peripheral: CBPeripheral, error: (any Error)?) {
+    func handleFailedToConnect(_ peripheral: OmiPeripheralDescriptor, error: (any Error)?) {
+        guard !self.isOmiWorkDisabled else { return }
         self.cancelInitialConnectTimeout()
         self.pendingConnectionID = nil
         let reason = error?.localizedDescription ?? "unknown error"
@@ -710,11 +806,12 @@ private extension OmiSourceManager {
     }
 
     func handleDisconnected(
-        _ peripheral: CBPeripheral,
+        _ peripheral: OmiPeripheralDescriptor,
         timestamp: CFAbsoluteTime,
         isReconnecting: Bool,
         error: (any Error)?
     ) async {
+        guard !self.isOmiWorkDisabled else { return }
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
         self.lastDisconnectedAt = disconnectedAt
         self.uptime.noteDisconnected(at: disconnectedAt)
@@ -781,35 +878,51 @@ private extension OmiSourceManager {
         }
     }
 
-    func handleDiscoveredServices(_ peripheral: CBPeripheral, error: (any Error)?) {
+    func handleDiscoveredServices(_ peripheral: OmiPeripheralDescriptor, error: (any Error)?) {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
+        guard self.isLaunchReady else {
+            self.deferredReadinessPeripheralID = peripheral.id
+            return
+        }
         if let error {
             self.connectionState = .needsAttention(.connectFailed(error.localizedDescription))
             self.log.error("omi profile discovery failed: \(error.localizedDescription, privacy: .public)")
             return
         }
 
-        let services = peripheral.services ?? []
+        let services = peripheral.services
         self.log.info("omi profiles discovered: \(services.count, privacy: .public)")
         if self.isLaunchReady {
             for service in services {
-                peripheral.discoverCharacteristics(nil, for: service)
+                self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: service.id)
             }
         }
     }
 
     func handleDiscoveredCharacteristics(
-        _ peripheral: CBPeripheral,
-        service: CBService,
+        _ peripheral: OmiPeripheralDescriptor,
+        service: OmiServiceDescriptor,
         error: (any Error)?
     ) {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
+        guard self.isLaunchReady else {
+            self.deferredReadinessPeripheralID = peripheral.id
+            return
+        }
         if let error {
             self.log.error("omi characteristic discovery failed: \(error.localizedDescription, privacy: .public)")
             return
         }
 
-        let characteristics = service.characteristics ?? []
+        let characteristics = service.characteristics
         for characteristic in characteristics {
-            self.characteristicsByID[self.characteristicID(characteristic)] = characteristic
+            self.characteristicsByID[characteristic.id] = characteristic
         }
 
         self.markAbsentKnownFieldsUnavailable(for: service, characteristics: characteristics)
@@ -817,19 +930,23 @@ private extension OmiSourceManager {
 
         if self.isLaunchReady {
             for characteristic in characteristics where characteristic.properties.contains(.read) {
-                if self.isAutoReadCharacteristic(characteristic.uuid) {
-                    peripheral.readValue(for: characteristic)
+                if self.isAutoReadCharacteristic(characteristic.id.characteristicID) {
+                    self.bluetoothPort.readValue(peripheralID: peripheral.id, characteristicID: characteristic.id)
                 }
             }
         }
     }
 
     func handleUpdatedValue(
-        _ peripheral: CBPeripheral,
-        characteristic: CBCharacteristic,
+        _ peripheral: OmiPeripheralDescriptor,
+        characteristic: OmiCharacteristicDescriptor,
         error: (any Error)?
     ) {
-        if uuidMatches(characteristic.uuid, OmiUUIDs.audioDataCharacteristic) {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
+        if characteristic.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID) {
             if let error {
                 self.log.error("omi audio stream failed: \(error.localizedDescription, privacy: .public)")
                 return
@@ -842,28 +959,55 @@ private extension OmiSourceManager {
             return
         }
 
+        guard self.isLaunchReady else {
+            self.deferredReadinessPeripheralID = peripheral.id
+            if error != nil {
+                self.markKnownFieldUnavailable(for: characteristic.id.characteristicID)
+            } else if let data = characteristic.value, !data.isEmpty,
+                      characteristic.id.characteristicID.matches(OmiUUIDs.codecCharacteristicID)
+            {
+                _ = self.updateKnownField(characteristic.id.characteristicID, data: data)
+            }
+            return
+        }
+
         if let error {
-            self.markKnownFieldUnavailable(for: characteristic.uuid)
+            self.markKnownFieldUnavailable(for: characteristic.id.characteristicID)
             self.log.error("omi value read failed: \(error.localizedDescription, privacy: .public)")
             return
         }
 
         guard let data = characteristic.value, !data.isEmpty else {
-            self.markKnownFieldUnavailable(for: characteristic.uuid)
+            self.markKnownFieldUnavailable(for: characteristic.id.characteristicID)
             self.log.error("omi value empty")
             return
         }
 
-        if self.updateKnownField(characteristic.uuid, data: data) {
+        if self.updateKnownField(characteristic.id.characteristicID, data: data) {
             return
         }
     }
 
     func handleUpdatedNotificationState(
-        _ characteristic: CBCharacteristic,
+        _ peripheral: OmiPeripheralDescriptor,
+        characteristic: OmiCharacteristicDescriptor,
         error: (any Error)?
     ) {
-        guard uuidMatches(characteristic.uuid, OmiUUIDs.audioDataCharacteristic) else {
+        guard !self.isOmiWorkDisabled else {
+            self.bluetoothPort.cancelConnection(peripheralID: peripheral.id)
+            return
+        }
+        guard self.isLaunchReady else {
+            self.deferredReadinessPeripheralID = peripheral.id
+            if characteristic.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID),
+               error == nil,
+               characteristic.isNotifying
+            {
+                self.isAudioSubscribed = true
+            }
+            return
+        }
+        guard characteristic.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID) else {
             return
         }
 
@@ -902,10 +1046,11 @@ private extension OmiSourceManager {
     }
 
     func handleDidReadRSSI(
-        _ peripheral: CBPeripheral,
+        _ peripheral: OmiPeripheralDescriptor,
         rssi RSSI: NSNumber,
         error: (any Error)?
     ) {
+        guard !self.isOmiWorkDisabled else { return }
         if let error {
             self.log.info("omi rssi read failed: \(error.localizedDescription, privacy: .public)")
             return
@@ -917,8 +1062,11 @@ private extension OmiSourceManager {
         self.diagnostics.recordSignal(level: level, at: now)
     }
 
-    func updateKnownField(_ uuid: CBUUID, data: Data) -> Bool {
-        if uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic) {
+}
+
+private extension OmiSourceManager {
+    func updateKnownField(_ characteristicID: String, data: Data) -> Bool {
+        if characteristicID.matches(OmiUUIDs.batteryLevelCharacteristicID) {
             let rawByte = Self.byte(data, offset: 0)
             let level = Int(rawByte)
             let now = self.clock.now()
@@ -929,7 +1077,7 @@ private extension OmiSourceManager {
             return true
         }
 
-        if uuidMatches(uuid, OmiUUIDs.storageControlCharacteristic) {
+        if characteristicID.matches(OmiUUIDs.storageControlCharacteristicID) {
             guard data.count >= 4 else {
                 self.log.error("omi storage backlog read too short: \(data.count, privacy: .public) bytes")
                 return true
@@ -947,7 +1095,7 @@ private extension OmiSourceManager {
             return true
         }
 
-        if uuidMatches(uuid, OmiUUIDs.codecCharacteristic) {
+        if characteristicID.matches(OmiUUIDs.codecCharacteristicID) {
             guard let byte = data.first else {
                 self.codec = .unavailable
                 self.log.error("omi codec unavailable")
@@ -968,12 +1116,12 @@ private extension OmiSourceManager {
         }
 
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
-            self.markKnownFieldUnavailable(for: uuid)
-            return self.isDeviceInfoCharacteristic(uuid)
+            self.markKnownFieldUnavailable(for: characteristicID)
+            return self.isDeviceInfoCharacteristic(characteristicID)
         }
 
-        if self.isDeviceInfoCharacteristic(uuid) {
-            self.setStringField(uuid, state: .value(text))
+        if self.isDeviceInfoCharacteristic(characteristicID) {
+            self.setStringField(characteristicID, state: .value(text))
             self.log.info("omi device info read")
             return true
         }
@@ -984,7 +1132,8 @@ private extension OmiSourceManager {
     func subscribeAudio() {
         self.didAttemptWriterStart = false
         guard self.isLaunchReady else { return }
-        guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristic) else {
+        guard !self.isOmiWorkDisabled else { return }
+        guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristicID) else {
             self.connectionState = .needsAttention(.audioUnavailable)
             self.log.error("omi audio unavailable")
             return
@@ -992,36 +1141,45 @@ private extension OmiSourceManager {
         self.setAudioNotify(enabled: true, characteristic: characteristic)
     }
 
-    func setAudioNotify(enabled: Bool, characteristic: CBCharacteristic) {
+    func setAudioNotify(enabled: Bool, characteristic: OmiCharacteristicDescriptor) {
         guard characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) else {
             self.connectionState = .needsAttention(.audioUnavailable)
             self.log.error("omi audio notify unavailable")
             return
         }
         guard self.isLaunchReady else { return }
-        self.connectedPeripheral?.setNotifyValue(enabled, for: characteristic)
+        guard !self.isOmiWorkDisabled else { return }
+        if let connectedPeripheralID { self.bluetoothPort.setNotify(peripheralID: connectedPeripheralID, characteristicID: characteristic.id, enabled: enabled) }
     }
 
     func readRSSI() {
         guard self.isLaunchReady,
+              !self.isOmiWorkDisabled,
               self.connectionState == .connected,
-              let connectedPeripheral
+              let connectedPeripheral = self.currentConnectedPeripheral
         else {
             return
         }
-        connectedPeripheral.readRSSI()
+        self.bluetoothPort.readRSSI(peripheralID: connectedPeripheral.id)
     }
 
-    func adoptConnectedPeripheral(_ peripheral: CBPeripheral) {
-        self.connectedPeripheral = peripheral
-        self.connectedPeripheralName = peripheral.name ?? self.displayName(for: peripheral.identifier)
-        self.connectedPeripheralID = peripheral.identifier.uuidString
-        self.peripheralsByID[peripheral.identifier] = peripheral
+    func adoptConnectedPeripheral(_ peripheral: OmiPeripheralDescriptor) {
+        self.connectedPeripheralName = peripheral.name ?? self.displayName(for: peripheral.id)
+        self.connectedPeripheralID = peripheral.id
+        self.peripheralsByID[peripheral.id] = peripheral
         self.defaults.set(
-            OmiSourceLogic.storedPeripheralIDValue(for: peripheral.identifier),
+            OmiSourceLogic.storedPeripheralIDValue(for: peripheral.id),
             forKey: Self.lastConnectedPeripheralIDKey
         )
-        peripheral.delegate = self
+    }
+
+    func adoptConnectedPeripheralIfNeeded(_ peripheral: OmiPeripheralDescriptor) -> Bool {
+        guard self.connectedPeripheralID != peripheral.id else {
+            self.peripheralsByID[peripheral.id] = peripheral
+            return false
+        }
+        self.adoptConnectedPeripheral(peripheral)
+        return true
     }
 
     func beginConnectionInstrumentation(
@@ -1047,7 +1205,7 @@ private extension OmiSourceManager {
         } else {
             self.pendingSubscribe = nil
         }
-        self.currentConnectionMTUAtConnect = self.connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
+        self.currentConnectionMTUAtConnect = self.currentConnectedPeripheral?.maximumWriteValueLength
         self.diagnostics.clearPerConnectionPointReadingsForNewConnection()
         self.diagnostics.setMTUAtConnect(self.currentConnectionMTUAtConnect)
 
@@ -1068,7 +1226,7 @@ private extension OmiSourceManager {
             latencySeconds: date.timeIntervalSince(pendingSubscribe.connectedAt),
             appState: self.currentAppStateString
         )
-        self.currentConnectionMTUAtSubscribeConfirm = self.connectedPeripheral?.maximumWriteValueLength(for: .withoutResponse)
+        self.currentConnectionMTUAtSubscribeConfirm = self.currentConnectedPeripheral?.maximumWriteValueLength
         self.diagnostics.setMTUAtSubscribeConfirm(self.currentConnectionMTUAtSubscribeConfirm)
         self.pendingSubscribe = nil
     }
@@ -1119,7 +1277,6 @@ private extension OmiSourceManager {
 
     func clearConnectionArtifacts() {
         self.connectedRSSI = nil
-        self.connectedPeripheral = nil
         self.connectedPeripheralName = nil
         self.connectedPeripheralID = nil
         self.characteristicsByID.removeAll()
@@ -1134,6 +1291,7 @@ private extension OmiSourceManager {
         self.resetReadState()
         self.clearAudioState()
         self.clearPerConnectionInstrumentationState()
+        self.deferredReadinessPeripheralID = nil
     }
 
     func clearTransientConnectionState() {
@@ -1275,10 +1433,12 @@ private extension OmiSourceManager {
     func refreshPendantReadings() {
         self.readRSSI()
 
-        let characteristic = self.characteristic(for: OmiUUIDs.batteryLevelCharacteristic)
-        let connected = self.connectionState == .connected && self.connectedPeripheral != nil
+        let characteristic = self.characteristic(for: OmiUUIDs.batteryLevelCharacteristicID)
+        let connectedPeripheral = self.currentConnectedPeripheral
+        let connected = self.connectionState == .connected && connectedPeripheral?.state == .connected
         let hasCachedReadableCharacteristic = characteristic?.properties.contains(.read) == true
         guard self.isLaunchReady,
+              !self.isOmiWorkDisabled,
               OmiSourceLogic.shouldReReadBattery(
             connected: connected,
             hasCachedReadableCharacteristic: hasCachedReadableCharacteristic
@@ -1289,21 +1449,24 @@ private extension OmiSourceManager {
             return
         }
 
-        connectedPeripheral.readValue(for: characteristic)
+        self.bluetoothPort.readValue(peripheralID: connectedPeripheral.id, characteristicID: characteristic.id)
     }
 
     func refreshStorageBacklogReading() {
-        let characteristic = self.characteristic(for: OmiUUIDs.storageControlCharacteristic)
+        let characteristic = self.characteristic(for: OmiUUIDs.storageControlCharacteristicID)
+        let connectedPeripheral = self.currentConnectedPeripheral
         guard self.isLaunchReady,
+              !self.isOmiWorkDisabled,
               self.connectionState == .connected,
               let connectedPeripheral,
+              connectedPeripheral.state == .connected,
               let characteristic,
               characteristic.properties.contains(.read)
         else {
             return
         }
 
-        connectedPeripheral.readValue(for: characteristic)
+        self.bluetoothPort.readValue(peripheralID: connectedPeripheral.id, characteristicID: characteristic.id)
     }
 
     func evaluateAudioRecovery(now: Date) {
@@ -1333,7 +1496,8 @@ private extension OmiSourceManager {
 
     func attemptAudioResubscribe() {
         guard self.isLaunchReady else { return }
-        guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristic) else {
+        guard !self.isOmiWorkDisabled else { return }
+        guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristicID) else {
             self.log.notice("omi audio recovery skipped: audio unavailable")
             return
         }
@@ -1367,91 +1531,84 @@ private extension OmiSourceManager {
         self.initialConnectTimeoutTask = nil
     }
 
-    func markAbsentKnownFieldsUnavailable(for service: CBService, characteristics: [CBCharacteristic]) {
-        if uuidMatches(service.uuid, OmiUUIDs.deviceInformationService) {
-            for uuid in [
-                OmiUUIDs.firmwareRevisionCharacteristic,
-                OmiUUIDs.manufacturerNameCharacteristic,
-                OmiUUIDs.modelNumberCharacteristic,
-                OmiUUIDs.hardwareRevisionCharacteristic
-            ] where !self.containsCharacteristic(uuid, in: characteristics) {
-                self.setStringField(uuid, state: .unavailable)
+    func markAbsentKnownFieldsUnavailable(for service: OmiServiceDescriptor, characteristics: [OmiCharacteristicDescriptor]) {
+        if service.id.matches(OmiUUIDs.deviceInformationServiceID) {
+            for characteristicID in [
+                OmiUUIDs.firmwareRevisionCharacteristicID,
+                OmiUUIDs.manufacturerNameCharacteristicID,
+                OmiUUIDs.modelNumberCharacteristicID,
+                OmiUUIDs.hardwareRevisionCharacteristicID
+            ] where !self.containsCharacteristic(characteristicID, in: characteristics) {
+                self.setStringField(characteristicID, state: .unavailable)
             }
-        } else if uuidMatches(service.uuid, OmiUUIDs.batteryService),
-                  !self.containsCharacteristic(OmiUUIDs.batteryLevelCharacteristic, in: characteristics)
+        } else if service.id.matches(OmiUUIDs.batteryServiceID),
+                  !self.containsCharacteristic(OmiUUIDs.batteryLevelCharacteristicID, in: characteristics)
         {
             self.battery = .unavailable
-        } else if uuidMatches(service.uuid, OmiUUIDs.audioService) {
-            if !self.containsCharacteristic(OmiUUIDs.codecCharacteristic, in: characteristics) {
+        } else if service.id.matches(OmiUUIDs.audioServiceID) {
+            if !self.containsCharacteristic(OmiUUIDs.codecCharacteristicID, in: characteristics) {
                 self.codec = .unavailable
             }
-            if !self.containsCharacteristic(OmiUUIDs.audioDataCharacteristic, in: characteristics) {
+            if !self.containsCharacteristic(OmiUUIDs.audioDataCharacteristicID, in: characteristics) {
                 self.connectionState = .needsAttention(.audioUnavailable)
                 self.log.error("omi audio characteristic unavailable")
             }
         }
     }
 
-    func containsCharacteristic(_ uuid: CBUUID, in characteristics: [CBCharacteristic]) -> Bool {
-        characteristics.contains { uuidMatches($0.uuid, uuid) }
+    func containsCharacteristic(_ characteristicID: String, in characteristics: [OmiCharacteristicDescriptor]) -> Bool {
+        characteristics.contains { $0.id.characteristicID.matches(characteristicID) }
     }
 
-    func markKnownFieldUnavailable(for uuid: CBUUID) {
-        if uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic) {
+    func markKnownFieldUnavailable(for characteristicID: String) {
+        if characteristicID.matches(OmiUUIDs.batteryLevelCharacteristicID) {
             self.battery = .unavailable
-        } else if uuidMatches(uuid, OmiUUIDs.codecCharacteristic) {
+        } else if characteristicID.matches(OmiUUIDs.codecCharacteristicID) {
             self.codec = .unavailable
-        } else if self.isDeviceInfoCharacteristic(uuid) {
-            self.setStringField(uuid, state: .unavailable)
+        } else if self.isDeviceInfoCharacteristic(characteristicID) {
+            self.setStringField(characteristicID, state: .unavailable)
         }
     }
 
-    func setStringField(_ uuid: CBUUID, state: OmiReadState<String>) {
-        if uuidMatches(uuid, OmiUUIDs.firmwareRevisionCharacteristic) {
+    func setStringField(_ characteristicID: String, state: OmiReadState<String>) {
+        if characteristicID.matches(OmiUUIDs.firmwareRevisionCharacteristicID) {
             self.firmware = state
-        } else if uuidMatches(uuid, OmiUUIDs.manufacturerNameCharacteristic) {
+        } else if characteristicID.matches(OmiUUIDs.manufacturerNameCharacteristicID) {
             self.manufacturer = state
-        } else if uuidMatches(uuid, OmiUUIDs.modelNumberCharacteristic) {
+        } else if characteristicID.matches(OmiUUIDs.modelNumberCharacteristicID) {
             self.model = state
-        } else if uuidMatches(uuid, OmiUUIDs.hardwareRevisionCharacteristic) {
+        } else if characteristicID.matches(OmiUUIDs.hardwareRevisionCharacteristicID) {
             self.hardwareRevision = state
         }
     }
 
-    func isAutoReadCharacteristic(_ uuid: CBUUID) -> Bool {
-        self.isDeviceInfoCharacteristic(uuid)
-            || uuidMatches(uuid, OmiUUIDs.batteryLevelCharacteristic)
-            || uuidMatches(uuid, OmiUUIDs.codecCharacteristic)
+    func isAutoReadCharacteristic(_ characteristicID: String) -> Bool {
+        self.isDeviceInfoCharacteristic(characteristicID)
+            || characteristicID.matches(OmiUUIDs.batteryLevelCharacteristicID)
+            || characteristicID.matches(OmiUUIDs.codecCharacteristicID)
     }
 
-    func isDeviceInfoCharacteristic(_ uuid: CBUUID) -> Bool {
-        uuidMatches(uuid, OmiUUIDs.firmwareRevisionCharacteristic)
-            || uuidMatches(uuid, OmiUUIDs.manufacturerNameCharacteristic)
-            || uuidMatches(uuid, OmiUUIDs.modelNumberCharacteristic)
-            || uuidMatches(uuid, OmiUUIDs.hardwareRevisionCharacteristic)
+    func isDeviceInfoCharacteristic(_ characteristicID: String) -> Bool {
+        characteristicID.matches(OmiUUIDs.firmwareRevisionCharacteristicID)
+            || characteristicID.matches(OmiUUIDs.manufacturerNameCharacteristicID)
+            || characteristicID.matches(OmiUUIDs.modelNumberCharacteristicID)
+            || characteristicID.matches(OmiUUIDs.hardwareRevisionCharacteristicID)
     }
 
-    func characteristic(for uuid: CBUUID) -> CBCharacteristic? {
-        self.characteristicsByID.values.first { uuidMatches($0.uuid, uuid) }
+    func characteristic(for characteristicID: String) -> OmiCharacteristicDescriptor? {
+        self.characteristicsByID.values.first { $0.id.characteristicID.matches(characteristicID) }
     }
 
-    func characteristicID(_ characteristic: CBCharacteristic) -> String {
-        if let service = characteristic.service {
-            return "\(service.uuid.uuidString)|\(characteristic.uuid.uuidString)"
-        }
-        return characteristic.uuid.uuidString
+    func audioCharacteristic(in peripheral: OmiPeripheralDescriptor) -> OmiCharacteristicDescriptor? {
+        peripheral.services
+            .flatMap(\.characteristics)
+            .first { $0.id.characteristicID.matches(OmiUUIDs.audioDataCharacteristicID) }
     }
 
-    func audioCharacteristic(in peripheral: CBPeripheral) -> CBCharacteristic? {
-        peripheral.services?
-            .flatMap { $0.characteristics ?? [] }
-            .first { uuidMatches($0.uuid, OmiUUIDs.audioDataCharacteristic) }
-    }
-
-    func cacheRestoredCharacteristics(in peripheral: CBPeripheral) {
-        for service in peripheral.services ?? [] {
-            for characteristic in service.characteristics ?? [] {
-                self.characteristicsByID[self.characteristicID(characteristic)] = characteristic
+    func cacheRestoredCharacteristics(in peripheral: OmiPeripheralDescriptor) {
+        for service in peripheral.services {
+            for characteristic in service.characteristics {
+                self.characteristicsByID[characteristic.id] = characteristic
             }
         }
     }
@@ -1485,15 +1642,19 @@ private extension OmiSourceManager {
     func displayName(for id: UUID) -> String {
         String(id.uuidString.prefix(8)).lowercased()
     }
+
 }
 
 extension OmiSourceManager {
     func finalizeOpenChunkForBackground() async {
         guard self.isLaunchReady else { return }
+        guard !self.isOmiWorkDisabled else { return }
         await self.omiSegmentWriter?.finalizeOpenChunk()
     }
 }
 
-private func uuidMatches(_ lhs: CBUUID, _ rhs: CBUUID) -> Bool {
-    lhs.uuidString.caseInsensitiveCompare(rhs.uuidString) == .orderedSame
+private extension String {
+    func matches(_ other: String) -> Bool {
+        self.caseInsensitiveCompare(other) == .orderedSame
+    }
 }

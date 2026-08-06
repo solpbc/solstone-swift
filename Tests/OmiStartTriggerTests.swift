@@ -34,6 +34,7 @@ nonisolated final class OmiStartTriggerTests: XCTestCase {
         let defaultsName = "OmiStartTriggerTests-Omi-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: "omiSource.enabled")
         let diagnosticsURL = self.tempDirectory.appendingPathComponent("omi-diagnostics.json", isDirectory: false)
         let manager = OmiSourceManager(
             defaults: defaults,
@@ -55,7 +56,7 @@ nonisolated final class OmiStartTriggerTests: XCTestCase {
         XCTAssertFalse(manager.didAttemptWriterStart)
 
         manager.startSegmentWriterIfNeeded()
-        XCTAssertTrue(manager.didAttemptWriterStart)
+        XCTAssertFalse(manager.didAttemptWriterStart)
         XCTAssertFalse(failingWriter.isRunning)
         XCTAssertEqual(failingUploader.pendingCount, 0)
     }

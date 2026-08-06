@@ -2,13 +2,12 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
-@preconcurrency import CoreBluetooth
 import XCTest
 
 nonisolated final class OmiSourceRestoreTests: XCTestCase {
     func testRestoreActionDisconnectedRearmsConnect() {
         XCTAssertEqual(
-                OmiSourceLogic.restoreAction(
+                OmiSourceLogic.readinessAction(
                     peripheralState: .disconnected,
                     hasAudioService: false,
                     isAudioNotifying: false,
@@ -17,7 +16,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
                 .rearmConnect
         )
         XCTAssertEqual(
-                OmiSourceLogic.restoreAction(
+                OmiSourceLogic.readinessAction(
                     peripheralState: .connecting,
                     hasAudioService: true,
                     isAudioNotifying: true,
@@ -29,7 +28,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
 
     func testRestoreActionConnectedWithoutAudioServiceDiscoversServices() {
         XCTAssertEqual(
-                OmiSourceLogic.restoreAction(
+                OmiSourceLogic.readinessAction(
                     peripheralState: .connected,
                     hasAudioService: false,
                     isAudioNotifying: false,
@@ -41,7 +40,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
 
     func testRestoreActionConnectedWithAudioServiceReadsCodecWhenUnknown() {
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
+            OmiSourceLogic.readinessAction(
                 peripheralState: .connected,
                 hasAudioService: true,
                 isAudioNotifying: false,
@@ -53,7 +52,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
 
     func testRestoreActionConnectedWithConfirmedOpusSubscribesWhenNotNotifying() {
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
+            OmiSourceLogic.readinessAction(
                 peripheralState: .connected,
                 hasAudioService: true,
                 isAudioNotifying: false,
@@ -65,7 +64,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
 
     func testRestoreActionConnectedAndConfirmedOpusNotifyingIsAlreadyLive() {
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
+            OmiSourceLogic.readinessAction(
                 peripheralState: .connected,
                 hasAudioService: true,
                 isAudioNotifying: true,
@@ -77,7 +76,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
 
     func testRestoreActionConnectedWithUnsupportedCodecNeedsAttention() {
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
+            OmiSourceLogic.readinessAction(
                 peripheralState: .connected,
                 hasAudioService: true,
                 isAudioNotifying: false,
@@ -86,7 +85,7 @@ nonisolated final class OmiSourceRestoreTests: XCTestCase {
             .needsAttention(.codecNotOpus)
         )
         XCTAssertEqual(
-            OmiSourceLogic.restoreAction(
+            OmiSourceLogic.readinessAction(
                 peripheralState: .connected,
                 hasAudioService: true,
                 isAudioNotifying: false,

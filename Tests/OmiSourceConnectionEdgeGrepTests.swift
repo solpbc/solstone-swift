@@ -30,10 +30,12 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
             .appendingPathComponent("Sources/Omi/OmiSourceManager.swift")
         let text = try String(contentsOf: managerURL, encoding: .utf8)
         let restoreBody = try Self.functionSlice(named: "handleRestoredPeripheral", in: text)
+        let advanceBody = try Self.functionSlice(named: "advanceReadiness", in: text)
 
-        XCTAssertTrue(restoreBody.contains("cacheRestoredCharacteristics"))
-        XCTAssertTrue(restoreBody.contains("codec: self.codec"))
-        XCTAssertTrue(restoreBody.contains("case .readCodec"))
+        XCTAssertTrue(restoreBody.contains("self.advanceReadiness(for: peripheral)"))
+        XCTAssertTrue(advanceBody.contains("cacheRestoredCharacteristics"))
+        XCTAssertTrue(advanceBody.contains("codec: self.codec"))
+        XCTAssertTrue(advanceBody.contains("case .readCodec"))
     }
 
     func testWriterFaultEscalationIsWiredThroughDerivedState() throws {
@@ -112,26 +114,35 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
     }
 
     func testPeripheralAndWriterEffectsAreGuardedByLaunchReadiness() throws {
-        let managerURL = StringLiteralGrepSupport.worktreeRoot()
+        let root = StringLiteralGrepSupport.worktreeRoot()
+        let managerURL = root
             .appendingPathComponent("Sources/Omi/OmiSourceManager.swift")
         let text = try String(contentsOf: managerURL, encoding: .utf8)
+        let portText = try String(
+            contentsOf: root.appendingPathComponent("Sources/Omi/OmiBluetoothPort.swift"),
+            encoding: .utf8
+        )
         let guardedEffects = [
-            ("enable", "omiSegmentWriter?.start()"),
             ("startSegmentWriterIfNeeded", "omiSegmentWriter?.start()"),
-            ("beginConnect", "central?.connect("),
+            ("beginConnect", "bluetoothPort.connect("),
             ("handleCentralStateUpdate", "self.beginConnect("),
-            ("handleRestoredPeripheral", "peripheral.discoverServices"),
-            ("handleConnected", "peripheral.discoverServices(nil)"),
+            ("advanceReadiness", "bluetoothPort.discoverServices("),
+            ("advanceReadiness", "bluetoothPort.readValue("),
+            ("advanceReadiness", "bluetoothPort.discoverCharacteristics("),
+            ("advanceReadiness", "self.buildOpusDecoder()"),
+            ("handleConnected", "self.readRSSI()"),
+            ("handleConnected", "self.bluetoothPort.discoverServices("),
             ("handleDisconnected", "finalizeOpenChunkForDisconnect()"),
-            ("handleDiscoveredServices", "peripheral.discoverCharacteristics"),
-            ("handleDiscoveredCharacteristics", "peripheral.readValue"),
+            ("handleDisconnected", "self.beginConnect("),
+            ("handleDiscoveredServices", "self.bluetoothPort.discoverCharacteristics("),
+            ("handleDiscoveredCharacteristics", "self.bluetoothPort.readValue("),
             ("handleUpdatedNotificationState", "self.buildOpusDecoder()"),
             ("handleAudioData", "self.onDecodedSamples"),
             ("subscribeAudio", "self.setAudioNotify"),
-            ("setAudioNotify", "setNotifyValue"),
-            ("readRSSI", "connectedPeripheral.readRSSI()"),
-            ("refreshPendantReadings", "connectedPeripheral.readValue"),
-            ("refreshStorageBacklogReading", "connectedPeripheral.readValue"),
+            ("setAudioNotify", "self.bluetoothPort.setNotify("),
+            ("readRSSI", "self.bluetoothPort.readRSSI("),
+            ("refreshPendantReadings", "self.bluetoothPort.readValue("),
+            ("refreshStorageBacklogReading", "self.bluetoothPort.readValue("),
             ("attemptAudioResubscribe", "self.setAudioNotify"),
             ("finalizeOpenChunkForBackground", "finalizeOpenChunk()")
         ]
@@ -139,12 +150,48 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
         for (method, effect) in guardedEffects {
             let body = try Self.functionSlice(named: method, in: text)
             let readiness = try XCTUnwrap(body.range(of: "isLaunchReady"), "missing readiness gate in \(method)")
+            let disabled = try XCTUnwrap(body.range(of: "isOmiWorkDisabled"), "missing disabled gate in \(method)")
             let call = try XCTUnwrap(body.range(of: effect), "missing effect in \(method)")
             XCTAssertLessThan(
                 body.distance(from: body.startIndex, to: readiness.lowerBound),
                 body.distance(from: body.startIndex, to: call.lowerBound),
                 "\(method) performs \(effect) before launch readiness"
             )
+            XCTAssertLessThan(
+                body.distance(from: body.startIndex, to: disabled.lowerBound),
+                body.distance(from: body.startIndex, to: call.lowerBound),
+                "\(method) performs \(effect) before checking disabled intent"
+            )
+        }
+
+        for directCoreBluetoothSelector in [
+            "CBCentralManager(",
+            "cancelPeripheralConnection(",
+            "peripheral.discoverServices(",
+            "peripheral.discoverCharacteristics(",
+            "peripheral.readValue(for:",
+            "peripheral.readRSSI()",
+            "peripheral.setNotifyValue("
+        ] {
+            XCTAssertFalse(text.contains(directCoreBluetoothSelector), "manager core directly performs \(directCoreBluetoothSelector)")
+        }
+
+        let livePortSelectors = [
+            ("start", "CBCentralManager("),
+            ("register", "peripheral.delegate ="),
+            ("retrieveConnectedPeripherals", "retrieveConnectedPeripherals(withServices:"),
+            ("retrievePeripherals", "retrievePeripherals(withIdentifiers:"),
+            ("connect", "central?.connect("),
+            ("cancelConnection", "cancelPeripheralConnection("),
+            ("discoverServices", "discoverServices("),
+            ("discoverCharacteristics", "discoverCharacteristics("),
+            ("readValue", "readValue(for:"),
+            ("readRSSI", "readRSSI()"),
+            ("setNotify", "setNotifyValue(")
+        ]
+        for (method, selector) in livePortSelectors {
+            let body = try Self.livePortFunctionSlice(named: method, in: portText)
+            XCTAssertTrue(body.contains(selector), "live port \(method) is missing \(selector)")
         }
     }
 
@@ -155,5 +202,10 @@ nonisolated final class OmiSourceConnectionEdgeGrepTests: XCTestCase {
             return text[start.lowerBound..<end.lowerBound]
         }
         return text[start.lowerBound...]
+    }
+
+    private static func livePortFunctionSlice(named name: String, in text: String) throws -> Substring {
+        let livePort = try XCTUnwrap(text.range(of: "final class LiveOmiBluetoothPort"))
+        return try Self.functionSlice(named: name, in: String(text[livePort.lowerBound...]))
     }
 }

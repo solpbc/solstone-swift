@@ -18,4 +18,17 @@ nonisolated enum OmiUUIDs {
     static var manufacturerNameCharacteristic: CBUUID { CBUUID(string: "2A29") }
     static var modelNumberCharacteristic: CBUUID { CBUUID(string: "2A24") }
     static var hardwareRevisionCharacteristic: CBUUID { CBUUID(string: "2A27") }
+
+    static var audioServiceID: String { audioService.uuidString }
+    static var audioDataCharacteristicID: String { audioDataCharacteristic.uuidString }
+    static var codecCharacteristicID: String { codecCharacteristic.uuidString }
+    static var storageServiceID: String { storageService.uuidString }
+    static var storageControlCharacteristicID: String { storageControlCharacteristic.uuidString }
+    static var batteryServiceID: String { batteryService.uuidString }
+    static var batteryLevelCharacteristicID: String { batteryLevelCharacteristic.uuidString }
+    static var deviceInformationServiceID: String { deviceInformationService.uuidString }
+    static var firmwareRevisionCharacteristicID: String { firmwareRevisionCharacteristic.uuidString }
+    static var manufacturerNameCharacteristicID: String { manufacturerNameCharacteristic.uuidString }
+    static var modelNumberCharacteristicID: String { modelNumberCharacteristic.uuidString }
+    static var hardwareRevisionCharacteristicID: String { hardwareRevisionCharacteristic.uuidString }
 }

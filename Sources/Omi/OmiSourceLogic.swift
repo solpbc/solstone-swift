@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-@preconcurrency import CoreBluetooth
 import Foundation
 
 nonisolated enum OmiSourceState: Equatable, Sendable {
@@ -62,7 +61,7 @@ nonisolated enum OmiReconnectDecision: Equatable, Sendable {
     case rearmConnect
 }
 
-nonisolated enum OmiRestoreAction: Equatable, Sendable {
+nonisolated enum OmiReadinessAction: Equatable, Sendable {
     case rearmConnect
     case discoverServices
     case readCodec
@@ -208,6 +207,10 @@ nonisolated enum OmiAudioHealth: Equatable, Sendable {
 }
 
 nonisolated enum OmiSourceLogic {
+    static func isDisabled(enabled: Bool, manuallyDisconnected: Bool) -> Bool {
+        !enabled || manuallyDisconnected
+    }
+
     static func segmentConnectionState(_ state: OmiSourceState) -> String {
         switch state {
         case .connected:
@@ -236,7 +239,7 @@ nonisolated enum OmiSourceLogic {
         return .rearmConnect
     }
 
-    static func attention(for managerState: CBManagerState) -> OmiAttention? {
+    static func attention(for managerState: OmiBluetoothManagerState) -> OmiAttention? {
         switch managerState {
         case .poweredOn:
             nil
@@ -253,12 +256,12 @@ nonisolated enum OmiSourceLogic {
         }
     }
 
-    static func restoreAction(
-        peripheralState: CBPeripheralState,
+    static func readinessAction(
+        peripheralState: OmiPeripheralConnectionState,
         hasAudioService: Bool,
         isAudioNotifying: Bool,
         codec: OmiReadState<OmiAudioCodecInfo>
-    ) -> OmiRestoreAction {
+    ) -> OmiReadinessAction {
         guard peripheralState == .connected else {
             return .rearmConnect
         }
