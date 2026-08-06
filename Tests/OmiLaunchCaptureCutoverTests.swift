@@ -27,7 +27,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         try? FileManager.default.removeItem(at: self.rootURL)
     }
 
-    @MainActor func testVerifiedPrefixReplayPrecedesLiveSamplesAndEachCallbackUsesOneRoute() async throws {
+    @MainActor func testCoordinatorCutoverRoutesSubsequentAudioToLiveDecode() async throws {
         let defaults = self.defaults(enabled: true)
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
         let generation = UUID()
@@ -73,7 +73,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(), .empty)
     }
 
-    @MainActor func testReplayMarkersPrecedeLiveMarkerWithoutDuplicateRebootAcrossRestart() throws {
+    @MainActor func testReplayDiagnosticsDeduplicatesRebootBeforeLiveMarker() throws {
         let fileURL = self.rootURL.appendingPathComponent("diagnostics.json")
         let defaults = self.defaults(enabled: true)
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 200))
@@ -92,21 +92,23 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(restarted.lastMarkerDate, Date(timeIntervalSince1970: 1_001))
     }
 
-    @MainActor func testCutoverWaitsForAllGenerationsAndRetiresOnlyInactiveCapture() async throws {
+    @MainActor func testCutoverWaitsForAllGenerationsAndRetiresInactiveCaptureInCaptureOrder() async throws {
         let defaults = self.defaults(enabled: true)
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
-        let activeGeneration = UUID()
-        let inactiveGeneration = UUID()
+        let activeGeneration = try XCTUnwrap(UUID(uuidString: "00000000-0000-4000-8000-000000000001"))
+        let inactiveGeneration = try XCTUnwrap(UUID(uuidString: "ffffffff-ffff-4fff-8fff-ffffffffffff"))
         let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: activeGeneration, clock: clock)
         let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
         manager.enable()
 
         let frame = try Self.opusFrame()
-        let peripheralID = UUID()
-        manager.handleAudioData(Self.marker(packet: 0, epoch: 2_000), peripheralID: peripheralID)
-        manager.handleAudioData(Self.packet(1, index: 0, body: frame), peripheralID: peripheralID)
         let inactiveWriter = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: inactiveGeneration, clock: clock)
-        Self.assertRetained(inactiveWriter.append(Self.packet(0, index: 0, body: frame)))
+        Self.assertRetained(inactiveWriter.append(Self.marker(packet: 0, epoch: 2_000)))
+        Self.assertRetained(inactiveWriter.append(Self.packet(1, index: 0, body: frame)))
+        clock.advance(by: 1)
+        let peripheralID = UUID()
+        manager.handleAudioData(Self.marker(packet: 0, epoch: 1_000), peripheralID: peripheralID)
+        manager.handleAudioData(Self.packet(1, index: 0, body: frame), peripheralID: peripheralID)
 
         let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
         try await harness.engine.initialize()
@@ -130,13 +132,15 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         await barrier.resume()
         await recovery.value
         try await transferTestWaitFor("all-generation cutover") {
-            await MainActor.run { manager.lastMarkerDate == Date(timeIntervalSince1970: 2_000) }
+            await MainActor.run { manager.lastMarkerDate != nil }
         }
+        XCTAssertEqual(manager.lastMarkerDate, Date(timeIntervalSince1970: 1_000))
         XCTAssertFalse(FileManager.default.fileExists(atPath: inactiveWriter.fileURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: OmiLaunchCaptureFormat.fileURL(rootURL: self.captureRoot, generationID: activeGeneration).path))
+        XCTAssertEqual(manager.diagnostics.payload.pendantRebootEvents?.count, 1)
     }
 
-    @MainActor func testPersistedDisabledLeavesCaptureAndLiveEffectsInertButPreservesOwners() async throws {
+    @MainActor func testPersistedDisabledPreservesExistingOwnerEvidence() async throws {
         let generation = UUID()
         let writer = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: generation, clock: MockObserverClock())
         Self.assertRetained(writer.append(Self.packet(0, index: 0, body: try Self.opusFrame())))
@@ -158,7 +162,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertNil(manager.lastMarkerDate)
     }
 
-    @MainActor func testDisableDuringRecoveryThenExplicitReenableResumesExactlyOnce() async throws {
+    @MainActor func testDisableDuringRecoveryHoldsOwnerAndIngressResumeIsOneShot() async throws {
         let generation = UUID()
         let writer = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: generation, clock: MockObserverClock())
         Self.assertRetained(writer.append(Self.packet(0, index: 0, body: try Self.opusFrame())))

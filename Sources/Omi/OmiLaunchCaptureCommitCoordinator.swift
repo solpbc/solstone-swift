@@ -72,7 +72,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             self.rootURL = rootURL
         }
         guard !self.isReconciling, !self.didCutOver else { return }
-        guard self.rootURL != nil else {
+        guard let rootURL = self.rootURL else {
             await self.conservativelyGateOmi()
             return
         }
@@ -107,15 +107,15 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
 
         var activeResult: (result: OmiLaunchCaptureMaterializationResult, reader: OmiLaunchCaptureLeaseReader)?
-        var settledReaders: [OmiLaunchCaptureLeaseReader] = []
+        var settledReaders: [(generationID: UUID, reader: OmiLaunchCaptureLeaseReader)] = []
         var shouldRetry = false
         var sawBoundary = false
         var failed = false
-        for generationID in generationIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
+        for generationID in self.generationsInCaptureOrder(generationIDs, rootURL: rootURL) {
             switch await self.reconcile(generationID: generationID) {
             case .settled(let result, let reader):
                 self.appendReplayMarkers(result.markers)
-                settledReaders.append(reader)
+                settledReaders.append((generationID, reader))
                 if generationID == activeGenerationID {
                     activeResult = (result, reader)
                 }
@@ -129,13 +129,13 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
         }
 
-        await self.settleAcknowledgedLinkedHandoffs()
+        let unsettledLinkedGenerationIDs = await self.settleAcknowledgedLinkedHandoffs()
         await self.holdPreRegisteredOwners()
 
         // Retirement is post-settlement maintenance. A linked owner may need its cursor
         // as durable acknowledgment evidence until its gate has been released or held.
-        for reader in settledReaders {
-            _ = reader.retireIfEligible(activeGenerationID: activeGenerationID)
+        for reader in settledReaders where !unsettledLinkedGenerationIDs.contains(reader.generationID) {
+            _ = reader.reader.retireIfEligible(activeGenerationID: activeGenerationID)
         }
 
         guard !failed, !sawBoundary else { return }
@@ -272,24 +272,13 @@ final class OmiLaunchCaptureCommitCoordinator {
             if let token = self.preRegisteredGateTokens.removeValue(forKey: partition.itemID) {
                 return token
             }
-            switch await self.engine.gateExisting(itemID: partition.itemID) {
-            case .gated(let token): return token
-            case .alreadyGated:
-                await self.engine.hold(itemID: partition.itemID)
-                return nil
-            case .dispatchAlreadyEnabled:
-                if self.isResumingAfterExplicitEnable,
-                   self.heldForExplicitResumeIDs.contains(partition.itemID),
-                   case .gated(let token) = await self.engine.restoreGateFromHold(itemID: partition.itemID) {
-                    return token
-                }
-                await self.engine.hold(itemID: partition.itemID)
-                return nil
-            case .engineNotInitialized:
-                self.log.error("launch capture gate unavailable")
-                await self.engine.hold(itemID: partition.itemID)
-                return nil
+            if self.isResumingAfterExplicitEnable,
+               self.heldForExplicitResumeIDs.contains(partition.itemID),
+               case .gated(let token) = await self.engine.restoreGateFromHold(itemID: partition.itemID) {
+                return token
             }
+            await self.engine.hold(itemID: partition.itemID)
+            return nil
         case .notFound:
             guard !partition.isExistingOwner else {
                 await self.engine.hold(itemID: partition.itemID)
@@ -377,8 +366,9 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private func settleAcknowledgedLinkedHandoffs() async {
-        guard let rootURL else { return }
+    private func settleAcknowledgedLinkedHandoffs() async -> Set<UUID> {
+        guard let rootURL else { return Set(self.enumeratedHandoffs.map(\.generationID)) }
+        var unsettledGenerationIDs: Set<UUID> = []
         for (itemID, token) in self.preRegisteredGateTokens {
             let handoffs = self.enumeratedHandoffs.filter { $0.itemID == itemID }
             guard !handoffs.isEmpty else { continue }
@@ -407,10 +397,13 @@ final class OmiLaunchCaptureCommitCoordinator {
                     break
                 }
             }
-            guard settled else { continue }
-            guard await self.release(token, itemID: itemID) else { continue }
+            guard settled, await self.release(token, itemID: itemID) else {
+                unsettledGenerationIDs.formUnion(handoffs.map(\.generationID))
+                continue
+            }
             self.preRegisteredGateTokens.removeValue(forKey: itemID)
         }
+        return unsettledGenerationIDs
     }
 
     private func holdPreRegisteredOwners() async {
@@ -538,6 +531,22 @@ final class OmiLaunchCaptureCommitCoordinator {
             else { return nil }
             return UUID(uuidString: String(url.deletingPathExtension().lastPathComponent.dropFirst(prefix.count)))
         })
+    }
+
+    private func generationsInCaptureOrder(_ generationIDs: Set<UUID>, rootURL: URL) -> [UUID] {
+        generationIDs.sorted {
+            let left = self.captureStartTime(generationID: $0, rootURL: rootURL)
+            let right = self.captureStartTime(generationID: $1, rootURL: rootURL)
+            return left == right ? $0.uuidString < $1.uuidString : left < right
+        }
+    }
+
+    private func captureStartTime(generationID: UUID, rootURL: URL) -> Int64 {
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generationID, io: self.io)
+        guard case .lease(let lease) = reader.lease(), let first = lease.records.first else {
+            return Int64.max
+        }
+        return first.acquiredAtUnixMicros
     }
 
     private static func boundaryItemID(generationID: UUID, sequence: UInt64, offset: Int) -> UUID {
