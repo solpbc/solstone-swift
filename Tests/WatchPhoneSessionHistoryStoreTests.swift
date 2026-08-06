@@ -92,14 +92,18 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.retainedCount + snapshot.prunedForAgeTotal, snapshot.distinctMergedTotal)
     }
 
-    func testFutureTimestampAnchorsAtReceiptTime() throws {
+    func testFutureTimestampUsesFirstReceiptTimeAndIdenticalReapplyIsANoOp() throws {
         let fileURL = self.fileURL("future")
         let future = self.entry("future", terminal: self.now.addingTimeInterval(365 * 24 * 60 * 60), reason: .audioClockStalled, noticeDelivered: true)
+        let diagnostics = self.diagnostics([future])
         let store = WatchPhoneSessionHistoryStore(fileURL: fileURL, clock: { self.now })
-        _ = store.merge(diagnostics: self.diagnostics([future]), status: nil)
-        XCTAssertEqual(store.readSnapshot(asOf: self.now.addingTimeInterval(60)).value?.retainedCount, 1)
-        let later = self.now.addingTimeInterval(8 * 24 * 60 * 60)
-        XCTAssertEqual(store.readSnapshot(asOf: later).value?.retainedCount, 0)
+        XCTAssertTrue(store.merge(diagnostics: diagnostics, status: nil))
+        let retainedAtSixDays = try XCTUnwrap(store.readSnapshot(asOf: self.now.addingTimeInterval(6 * 24 * 60 * 60)).value)
+
+        self.now = self.now.addingTimeInterval(24 * 60 * 60)
+        XCTAssertFalse(store.merge(diagnostics: diagnostics, status: nil))
+        XCTAssertEqual(store.readSnapshot(asOf: self.now.addingTimeInterval(5 * 24 * 60 * 60)).value, retainedAtSixDays)
+        XCTAssertEqual(store.readSnapshot(asOf: self.now.addingTimeInterval(7 * 24 * 60 * 60)).value?.retainedCount, 0)
     }
 
     func testDamagedTailIsUnavailableButPreservesRecoverableRecordsAndMergesResume() throws {
@@ -117,6 +121,51 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         let persisted = try XCTUnwrap(String(data: Data(contentsOf: fileURL), encoding: .utf8))
         XCTAssertTrue(persisted.contains("recoverable"))
         XCTAssertTrue(persisted.contains("later"))
+    }
+
+    func testDamagedMetadataPersistsNewSessionsAndRebasesWhenCountersReturn() throws {
+        let fileURL = self.fileURL("damaged-metadata")
+        let store = WatchPhoneSessionHistoryStore(fileURL: fileURL, clock: { self.now })
+        _ = store.merge(diagnostics: self.diagnostics([self.entry("recoverable")]), status: nil)
+
+        let damagedMetadata = Data("damaged metadata".utf8)
+        let originalData = try Data(contentsOf: fileURL)
+        let originalLines: [Data] = originalData.split(separator: 0x0A, omittingEmptySubsequences: true).map { Data($0) }
+        try self.write(lines: [damagedMetadata] + Array(originalLines.dropFirst()), to: fileURL)
+
+        let damaged = WatchPhoneSessionHistoryStore(fileURL: fileURL, clock: { self.now })
+        XCTAssertEqual(
+            WatchPipelineInputReader.phoneSessionHistoryInput(from: damaged.readSnapshot(asOf: self.now)).unavailableReason,
+            WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable
+        )
+        XCTAssertTrue(damaged.merge(diagnostics: self.diagnosticsWithUnavailableCounters([self.entry("later")]), status: nil))
+
+        let afterUnavailableCounters = try XCTUnwrap(String(data: Data(contentsOf: fileURL), encoding: .utf8))
+        XCTAssertTrue(afterUnavailableCounters.contains("damaged metadata"))
+        XCTAssertTrue(afterUnavailableCounters.contains("recoverable"))
+        XCTAssertTrue(afterUnavailableCounters.contains("later"))
+
+        let reloaded = WatchPhoneSessionHistoryStore(fileURL: fileURL, clock: { self.now })
+        XCTAssertTrue(reloaded.merge(
+            diagnostics: self.diagnostics([self.entry("rebased")], lifetime: 100),
+            status: nil
+        ))
+        let persisted = try XCTUnwrap(String(data: Data(contentsOf: fileURL), encoding: .utf8))
+        XCTAssertTrue(persisted.contains("later"))
+        XCTAssertTrue(persisted.contains("rebased"))
+
+        let persistedData = try Data(contentsOf: fileURL)
+        let repairedLines: [Data] = persistedData
+            .split(separator: 0x0A, omittingEmptySubsequences: true)
+            .map { Data($0) }
+            .filter { $0 != damagedMetadata }
+        try self.write(lines: repairedLines, to: fileURL)
+        let recovered = WatchPhoneSessionHistoryStore(fileURL: fileURL, clock: { self.now })
+        let snapshot = try XCTUnwrap(recovered.readSnapshot(asOf: self.now).value)
+        XCTAssertEqual(
+            WatchPipelineInputReader.phoneSessionHistoryInput(from: .available(snapshot)).value?.sessionsNotReceived,
+            .available(0)
+        )
     }
 
     func testLiveUnmergedSessionIsExcludedFromAdjustedWatchStartedAndHonestyRow() throws {
@@ -212,6 +261,18 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         .available(self.payload(entries, lifetime: lifetime ?? entries.count, epoch: epoch), rawEnvelopeByteCount: nil)
     }
 
+    private func diagnosticsWithUnavailableCounters(
+        _ entries: [WatchCaptureSessionHistoryEntry]
+    ) -> WatchRelayDiagnosticsEnvelopeResult {
+        .available(self.payload(
+            entries,
+            lifetime: entries.count,
+            epoch: "epoch",
+            lifetimeSessionsStarted: .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided),
+            sessionHistoryCounterEpoch: .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided)
+        ), rawEnvelopeByteCount: nil)
+    }
+
     private func status(phase: WatchStatusContext.Phase, sessionID: String?) -> WatchStatusContext {
         WatchStatusContext(
             phase: phase,
@@ -293,7 +354,9 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
     private func payload(
         _ entries: [WatchCaptureSessionHistoryEntry],
         lifetime: Int,
-        epoch: String
+        epoch: String,
+        lifetimeSessionsStarted: DiagnosticAvailability<Int>? = nil,
+        sessionHistoryCounterEpoch: DiagnosticAvailability<String>? = nil
     ) -> WatchRelayDiagnosticsPayload {
         WatchRelayDiagnosticsPayload(
             watchAppMarketingVersion: .available("0.1"),
@@ -314,9 +377,18 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
             observedFileTransfers: [],
             omittedObservationCount: 0,
             sessionHistoryWindow: .available(entries),
-            lifetimeSessionsStarted: .available(lifetime),
-            sessionHistoryCounterEpoch: .available(epoch),
+            lifetimeSessionsStarted: lifetimeSessionsStarted ?? .available(lifetime),
+            sessionHistoryCounterEpoch: sessionHistoryCounterEpoch ?? .available(epoch),
             sessionHistoryDepth: entries.count
         )
+    }
+
+    private func write(lines: [Data], to fileURL: URL) throws {
+        var data = Data()
+        for line in lines {
+            data.append(line)
+            data.append(0x0A)
+        }
+        try data.write(to: fileURL, options: .atomic)
     }
 }

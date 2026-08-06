@@ -29,6 +29,54 @@ nonisolated private struct WatchPhoneSessionHistoryMetadata: Codable, Equatable,
     var baselineDistinctMerged: Int?
     var distinctMergedTotal: Int
     var prunedForAgeTotal: Int
+    var requiresBaseline: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case counterEpoch
+        case adjustedWatchStarted
+        case counterUnavailableReason
+        case baselineEpoch
+        case baselineAdjustedWatchStarted
+        case baselineDistinctMerged
+        case distinctMergedTotal
+        case prunedForAgeTotal
+        case requiresBaseline
+    }
+
+    init(
+        counterEpoch: String?,
+        adjustedWatchStarted: Int?,
+        counterUnavailableReason: String?,
+        baselineEpoch: String?,
+        baselineAdjustedWatchStarted: Int?,
+        baselineDistinctMerged: Int?,
+        distinctMergedTotal: Int,
+        prunedForAgeTotal: Int,
+        requiresBaseline: Bool
+    ) {
+        self.counterEpoch = counterEpoch
+        self.adjustedWatchStarted = adjustedWatchStarted
+        self.counterUnavailableReason = counterUnavailableReason
+        self.baselineEpoch = baselineEpoch
+        self.baselineAdjustedWatchStarted = baselineAdjustedWatchStarted
+        self.baselineDistinctMerged = baselineDistinctMerged
+        self.distinctMergedTotal = distinctMergedTotal
+        self.prunedForAgeTotal = prunedForAgeTotal
+        self.requiresBaseline = requiresBaseline
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.counterEpoch = try container.decodeIfPresent(String.self, forKey: .counterEpoch)
+        self.adjustedWatchStarted = try container.decodeIfPresent(Int.self, forKey: .adjustedWatchStarted)
+        self.counterUnavailableReason = try container.decodeIfPresent(String.self, forKey: .counterUnavailableReason)
+        self.baselineEpoch = try container.decodeIfPresent(String.self, forKey: .baselineEpoch)
+        self.baselineAdjustedWatchStarted = try container.decodeIfPresent(Int.self, forKey: .baselineAdjustedWatchStarted)
+        self.baselineDistinctMerged = try container.decodeIfPresent(Int.self, forKey: .baselineDistinctMerged)
+        self.distinctMergedTotal = try container.decode(Int.self, forKey: .distinctMergedTotal)
+        self.prunedForAgeTotal = try container.decode(Int.self, forKey: .prunedForAgeTotal)
+        self.requiresBaseline = try container.decodeIfPresent(Bool.self, forKey: .requiresBaseline) ?? false
+    }
 
     static let empty = Self(
         counterEpoch: nil,
@@ -38,13 +86,46 @@ nonisolated private struct WatchPhoneSessionHistoryMetadata: Codable, Equatable,
         baselineAdjustedWatchStarted: nil,
         baselineDistinctMerged: nil,
         distinctMergedTotal: 0,
-        prunedForAgeTotal: 0
+        prunedForAgeTotal: 0,
+        requiresBaseline: false
+    )
+
+    static let unreadable = Self(
+        counterEpoch: nil,
+        adjustedWatchStarted: nil,
+        counterUnavailableReason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable,
+        baselineEpoch: nil,
+        baselineAdjustedWatchStarted: nil,
+        baselineDistinctMerged: nil,
+        distinctMergedTotal: 0,
+        prunedForAgeTotal: 0,
+        requiresBaseline: true
     )
 }
 
 nonisolated private struct WatchPhoneSessionHistoryRecord: Codable, Equatable, Sendable {
     var entry: WatchCaptureSessionHistoryEntry
+    let firstSeenAt: Date
     var retentionAnchorAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case entry
+        case firstSeenAt
+        case retentionAnchorAt
+    }
+
+    init(entry: WatchCaptureSessionHistoryEntry, firstSeenAt: Date, retentionAnchorAt: Date) {
+        self.entry = entry
+        self.firstSeenAt = firstSeenAt
+        self.retentionAnchorAt = retentionAnchorAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.entry = try container.decode(WatchCaptureSessionHistoryEntry.self, forKey: .entry)
+        self.retentionAnchorAt = try container.decode(Date.self, forKey: .retentionAnchorAt)
+        self.firstSeenAt = try container.decodeIfPresent(Date.self, forKey: .firstSeenAt) ?? self.retentionAnchorAt
+    }
 }
 
 nonisolated private enum WatchPhoneSessionHistoryFileLine: Codable, Equatable, Sendable {
@@ -185,7 +266,7 @@ final class WatchPhoneSessionHistoryStore {
             }
         }
 
-        self.metadata = parsedMetadata ?? .empty
+        self.metadata = parsedMetadata ?? .unreadable
         self.metadataReadable = parsedMetadata != nil
         self.recordsByID = parsedRecords
         self.unreadableLines = parsedUnreadableLines
@@ -194,14 +275,11 @@ final class WatchPhoneSessionHistoryStore {
     }
 
     func pruneAndPersist(force: Bool = false) {
-        guard self.metadataReadable else {
-            watchPhoneSessionHistoryLog.error("watch phone history metadata is unreadable; preserving existing file")
-            return
-        }
         let dropped = self.prune(asOf: self.clock())
         guard dropped > 0 || force else { return }
         do {
             try self.persist()
+            self.metadataReadable = true
         } catch {
             watchPhoneSessionHistoryLog.error("watch phone history persist failed: \(String(describing: error), privacy: .public)")
         }
@@ -253,15 +331,15 @@ private extension WatchPhoneSessionHistoryStore {
 
     func merge(entry incoming: WatchCaptureSessionHistoryEntry, now: Date) -> Bool {
         guard var existing = self.recordsByID[incoming.sessionID] else {
+            let firstSeenAt = now
             self.recordsByID[incoming.sessionID] = WatchPhoneSessionHistoryRecord(
                 entry: incoming,
-                retentionAnchorAt: self.retentionAnchor(
-                    previous: nil,
-                    entry: incoming,
-                    now: now
-                )
+                firstSeenAt: firstSeenAt,
+                retentionAnchorAt: self.retentionAnchor(entry: incoming, firstSeenAt: firstSeenAt)
             )
-            self.metadata.distinctMergedTotal += 1
+            if !self.metadata.requiresBaseline {
+                self.metadata.distinctMergedTotal += 1
+            }
             return true
         }
 
@@ -276,10 +354,9 @@ private extension WatchPhoneSessionHistoryStore {
             existing.entry.locationArmed = incoming.locationArmed
         }
         existing.entry.segmentsProduced = max(existing.entry.segmentsProduced, incoming.segmentsProduced)
-        existing.retentionAnchorAt = self.retentionAnchor(
-            previous: existing.retentionAnchorAt,
-            entry: incoming,
-            now: now
+        existing.retentionAnchorAt = min(
+            existing.retentionAnchorAt,
+            self.retentionAnchor(entry: incoming, firstSeenAt: existing.firstSeenAt)
         )
         guard existing != before else { return false }
         self.recordsByID[incoming.sessionID] = existing
@@ -351,22 +428,23 @@ private extension WatchPhoneSessionHistoryStore {
               let adjusted = self.metadata.adjustedWatchStarted,
               self.metadata.counterUnavailableReason == nil
         else { return false }
-        guard self.metadata.baselineEpoch != epoch
+        guard self.metadata.requiresBaseline
+            || self.metadata.baselineEpoch != epoch
             || self.metadata.baselineAdjustedWatchStarted == nil
             || self.metadata.baselineDistinctMerged == nil
         else { return false }
+        if self.metadata.requiresBaseline {
+            self.metadata.distinctMergedTotal = 0
+            self.metadata.requiresBaseline = false
+        }
         self.metadata.baselineEpoch = epoch
         self.metadata.baselineAdjustedWatchStarted = adjusted
         self.metadata.baselineDistinctMerged = self.metadata.distinctMergedTotal
         return true
     }
 
-    func retentionAnchor(
-        previous: Date?,
-        entry: WatchCaptureSessionHistoryEntry,
-        now: Date
-    ) -> Date {
-        max(previous ?? .distantPast, min(entry.terminalAt ?? entry.startedAt, now))
+    func retentionAnchor(entry: WatchCaptureSessionHistoryEntry, firstSeenAt: Date) -> Date {
+        min(entry.terminalAt ?? entry.startedAt, firstSeenAt)
     }
 
     func isRetained(_ record: WatchPhoneSessionHistoryRecord, asOf: Date) -> Bool {

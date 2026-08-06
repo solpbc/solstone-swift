@@ -607,23 +607,31 @@ private extension WatchPipelineReducer {
     }
 
     nonisolated static func sessionHistoryRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
-        guard case let .available(history) = input.phoneSessionHistory else {
-            let reason = self.availabilityReason(input.phoneSessionHistory)
-            return [
-                WatchDiagnosticsExportRow(label: "sessions retained on this iphone", value: reason),
-                WatchDiagnosticsExportRow(label: "retention window", value: reason),
-                WatchDiagnosticsExportRow(label: "sessions dropped as older than the retention window", value: reason),
-                WatchDiagnosticsExportRow(label: "sessions this iphone has not received", value: reason),
-            ]
-        }
-        var rows = [
-            WatchDiagnosticsExportRow(label: "sessions retained on this iphone", value: "\(history.retainedCount)"),
-            WatchDiagnosticsExportRow(label: "retention window", value: "\(history.retentionDays) days"),
-            WatchDiagnosticsExportRow(label: "sessions dropped as older than the retention window", value: "\(history.droppedAsOlderThanRetentionWindow)"),
-            WatchDiagnosticsExportRow(label: "sessions this iphone has not received", value: self.intAvailabilityText(history.sessionsNotReceived)),
+        let labels = [
+            "sessions retained on this iphone",
+            "retention window",
+            "sessions dropped as older than the retention window",
+            "sessions this iphone has not received",
         ]
-        for (offset, entry) in history.entries.enumerated() {
-            rows.append(contentsOf: self.sessionHistoryRows(entry: entry, index: offset + 1, total: history.entries.count, now: input.now))
+        let values: [String]
+        let entries: [WatchCaptureSessionHistoryEntry]
+        switch input.phoneSessionHistory {
+        case let .available(history):
+            values = [
+                "\(history.retainedCount)",
+                "\(history.retentionDays) days",
+                "\(history.droppedAsOlderThanRetentionWindow)",
+                self.intAvailabilityText(history.sessionsNotReceived),
+            ]
+            entries = history.entries
+        case .unavailable:
+            let reason = self.availabilityReason(input.phoneSessionHistory)
+            values = Array(repeating: reason, count: labels.count)
+            entries = []
+        }
+        var rows = zip(labels, values).map { WatchDiagnosticsExportRow(label: $0, value: $1) }
+        for (offset, entry) in entries.enumerated() {
+            rows.append(contentsOf: self.sessionHistoryRows(entry: entry, index: offset + 1, total: entries.count, now: input.now))
         }
         return rows
     }
