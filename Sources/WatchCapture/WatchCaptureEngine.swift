@@ -203,6 +203,8 @@ final class WatchCaptureEngine {
             self.notifyPresentationChanged()
             return
         }
+        guard let currentSessionID else { return }
+        let source = WatchCaptureSourceToken(sessionID: currentSessionID)
         self.status = .enrolling
         self.notifyPresentationChanged()
         guard await self.refreshWristAlertState(
@@ -237,7 +239,7 @@ final class WatchCaptureEngine {
                 self.notifyPresentationChanged()
                 return
             }
-            try self.openSegment(startedAt: startedAt)
+            try self.openSegment(startedAt: startedAt, source: source)
             guard let segment = self.activeSegment else { return }
             if !segment.hasLiveSensor {
                 self.refuseInitialStartAfterSegmentOpen(
@@ -248,7 +250,7 @@ final class WatchCaptureEngine {
             self.writeActiveSessionRecord(startedAt: startedAt)
             await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
             guard await self.continueLifecycleOperation(generation) else { return }
-            self.installAudioSessionObservers()
+            self.installAudioSessionObservers(source: source)
             self.status = self.statusForRunningSegment(segment)
             self.startSegmentationTask()
         } catch WatchCaptureEngineError.audioStartFailed {
@@ -265,7 +267,7 @@ final class WatchCaptureEngine {
         }
         if self.activeSegment != nil {
             self.publishStatus(.observing)
-            self.startHeartbeatTask()
+            self.startHeartbeatTask(source: source)
         } else {
             self.publishStatus(.idle)
         }
@@ -336,7 +338,8 @@ final class WatchCaptureEngine {
 
         case .rollover:
             guard case let .running(sessionID) = self.lifecycleState else { return }
-            await self.rolloverInner(generation: generation)
+            let source = WatchCaptureSourceToken(sessionID: sessionID)
+            await self.rolloverInner(generation: generation, source: source)
             // A stale rollover may have opened a successor before its final callback.
             // Converge through terminalization before returning to idle.
             guard self.isLifecycleGenerationCurrent(generation) else {
@@ -351,7 +354,9 @@ final class WatchCaptureEngine {
             }
 
         case let .terminal(terminal):
-            guard case let .running(sessionID) = self.lifecycleState else { return }
+            guard case let .running(sessionID) = self.lifecycleState,
+                  terminal.source.sessionID == sessionID
+            else { return }
             self.lifecycleState = .stopping(sessionID: sessionID)
             await self.terminalize(
                 reason: terminal.reason,
@@ -403,21 +408,23 @@ private enum WatchCaptureEngineError: Error {
 }
 
 extension WatchCaptureEngine: WatchAudioRecorderEventSink {
-    func audioRecorderDidFinish(successfully: Bool) {
+    func audioRecorderDidFinish(successfully: Bool, source: WatchCaptureSourceToken) {
         guard !successfully else { return }
         self.submitTerminalIntent(
             reason: .audioFinishUnsuccessful,
-            disposition: .detectedStoppedItself
+            disposition: .detectedStoppedItself,
+            source: source
         )
     }
 
-    func audioRecorderEncodeError(_ error: (any Error)?) {
+    func audioRecorderEncodeError(_ error: (any Error)?, source: WatchCaptureSourceToken) {
         if let error {
             watchCaptureLog.error("watch audio encode failed: \(String(describing: error), privacy: .public)")
         }
         self.submitTerminalIntent(
             reason: .audioEncodeError,
-            disposition: .detectedStoppedItself
+            disposition: .detectedStoppedItself,
+            source: source
         )
     }
 }
@@ -551,7 +558,7 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func openSegment(startedAt: Date) throws {
+    func openSegment(startedAt: Date, source: WatchCaptureSourceToken) throws {
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
         let day = self.storage.dayString(for: startedAt)
@@ -591,7 +598,7 @@ private extension WatchCaptureEngine {
             active.manifest = manifest
             self.openingSegment = active
             do {
-                try self.audioRecorder.start(url: audioURL)
+                try self.audioRecorder.start(url: audioURL, source: source)
                 self.lastAudioCurrentTime = self.audioRecorder.currentTime
                 self.zeroAudioCurrentTimeObservationCount = 0
             } catch {
@@ -692,7 +699,7 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func rolloverInner(generation: Int) async {
+    func rolloverInner(generation: Int, source: WatchCaptureSourceToken) async {
         guard var segment = self.activeSegment else { return }
         let end = self.clock.now()
         self.activeSegment = nil
@@ -713,7 +720,7 @@ private extension WatchCaptureEngine {
         var rolloverTerminalReason: WatchCaptureTerminalReason?
         var discardEmptySuccessorAfterStop = false
         do {
-            try self.openSegment(startedAt: end)
+            try self.openSegment(startedAt: end, source: source)
             guard let newSegment = self.activeSegment, newSegment.hasLiveSensor else {
                 self.adoptOpeningFailureSegment(self.activeSegment)
                 rolloverTerminalReason = self.reopenFailureTerminalReason()
@@ -1023,38 +1030,39 @@ private extension WatchCaptureEngine {
         return .active
     }
 
-    func installAudioSessionObservers() {
+    func installAudioSessionObservers(source: WatchCaptureSourceToken) {
         self.removeAudioSessionObservers()
         self.audioSessionObservers.append(self.notificationCenter.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: nil,
             queue: nil
-        ) { [weak self] notification in
+        ) { [weak self, source] notification in
             guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue)
             else { return }
-            Task { @MainActor [weak self] in
-                self?.handleInterruption(type)
+            Task { @MainActor [weak self, source] in
+                self?.handleInterruption(type, source: source)
             }
         })
         self.audioSessionObservers.append(self.notificationCenter.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: nil,
             queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handleRouteChange()
+        ) { [weak self, source] _ in
+            Task { @MainActor [weak self, source] in
+                self?.handleRouteChange(source: source)
             }
         })
         self.audioSessionObservers.append(self.notificationCenter.addObserver(
             forName: AVAudioSession.mediaServicesWereLostNotification,
             object: nil,
             queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        ) { [weak self, source] _ in
+            Task { @MainActor [weak self, source] in
                 self?.submitTerminalIntent(
                     reason: .audioMediaServicesLost,
-                    disposition: .detectedStoppedItself
+                    disposition: .detectedStoppedItself,
+                    source: source
                 )
             }
         })
@@ -1062,11 +1070,12 @@ private extension WatchCaptureEngine {
             forName: AVAudioSession.mediaServicesWereResetNotification,
             object: nil,
             queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        ) { [weak self, source] _ in
+            Task { @MainActor [weak self, source] in
                 self?.submitTerminalIntent(
                     reason: .audioMediaServicesReset,
-                    disposition: .detectedStoppedItself
+                    disposition: .detectedStoppedItself,
+                    source: source
                 )
             }
         })
@@ -1079,12 +1088,13 @@ private extension WatchCaptureEngine {
         self.audioSessionObservers = []
     }
 
-    func handleInterruption(_ type: AVAudioSession.InterruptionType) {
+    func handleInterruption(_ type: AVAudioSession.InterruptionType, source: WatchCaptureSourceToken) {
         switch type {
         case .began:
             self.submitTerminalIntent(
                 reason: .audioInterrupted,
-                disposition: .detectedStoppedItself
+                disposition: .detectedStoppedItself,
+                source: source
             )
         case .ended:
             break
@@ -1093,23 +1103,26 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func handleRouteChange() {
+    func handleRouteChange(source: WatchCaptureSourceToken) {
         guard self.activeSegment != nil, !self.audioSession.hasSuitableInput else { return }
         self.submitTerminalIntent(
             reason: .audioRouteUnavailable,
-            disposition: .detectedStoppedItself
+            disposition: .detectedStoppedItself,
+            source: source
         )
     }
 
     func submitTerminalIntent(
         reason: WatchCaptureTerminalReason,
         disposition: WatchCaptureTerminalDisposition,
-        livenessEvidence: WatchCaptureLivenessEvidence? = nil
+        livenessEvidence: WatchCaptureLivenessEvidence? = nil,
+        source: WatchCaptureSourceToken
     ) {
         self.lifecycleSerializer.submit(.terminal(.init(
             reason: reason,
             disposition: disposition,
-            livenessEvidence: livenessEvidence
+            livenessEvidence: livenessEvidence,
+            source: source
         )))
     }
 
@@ -1470,7 +1483,7 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func startHeartbeatTask() {
+    func startHeartbeatTask(source: WatchCaptureSourceToken) {
         self.cancelHeartbeatTask()
         self.heartbeatTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1481,7 +1494,7 @@ private extension WatchCaptureEngine {
                     return
                 }
                 guard !Task.isCancelled, self.activeSegment != nil else { return }
-                guard self.evaluateAudioLiveness() else { return }
+                guard self.evaluateAudioLiveness(source: source) else { return }
                 self.publishStatus(.observing)
             }
         }
@@ -1682,7 +1695,7 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func evaluateAudioLiveness() -> Bool {
+    func evaluateAudioLiveness(source: WatchCaptureSourceToken) -> Bool {
         guard self.activeSegment != nil, self.audioArmed else {
             self.zeroAudioCurrentTimeObservationCount = 0
             self.lastAudioCurrentTime = nil
@@ -1697,7 +1710,8 @@ private extension WatchCaptureEngine {
             self.submitTerminalIntent(
                 reason: .audioRecorderStopped,
                 disposition: .detectedStoppedItself,
-                livenessEvidence: liveness
+                livenessEvidence: liveness,
+                source: source
             )
             return false
         }
@@ -1729,7 +1743,8 @@ private extension WatchCaptureEngine {
         self.submitTerminalIntent(
             reason: .audioClockStalled,
             disposition: .detectedStoppedItself,
-            livenessEvidence: liveness
+            livenessEvidence: liveness,
+            source: source
         )
         return false
     }

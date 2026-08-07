@@ -13,14 +13,14 @@ protocol WatchAudioRecording: AnyObject {
     var eventSink: (any WatchAudioRecorderEventSink)? { get set }
 
     func requestPermission() async -> WatchMicrophonePermission
-    func start(url: URL) throws
+    func start(url: URL, source: WatchCaptureSourceToken) throws
     func stop() throws -> TimeInterval
 }
 
 @MainActor
 protocol WatchAudioRecorderEventSink: AnyObject {
-    func audioRecorderDidFinish(successfully: Bool)
-    func audioRecorderEncodeError(_ error: (any Error)?)
+    func audioRecorderDidFinish(successfully: Bool, source: WatchCaptureSourceToken)
+    func audioRecorderEncodeError(_ error: (any Error)?, source: WatchCaptureSourceToken)
 }
 
 @MainActor

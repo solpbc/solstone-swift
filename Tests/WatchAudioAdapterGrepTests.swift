@@ -5,30 +5,32 @@ import Foundation
 import XCTest
 
 nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
-    func testFinishUnsuccessfulForwardsToEngineSink() throws {
+    func testRecorderStartCreatesForwarderWithEnrollmentSource() throws {
         let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
         let body = try self.section(
-            from: "extension LiveWatchAudioRecorder: AVAudioRecorderDelegate",
-            to: "@MainActor\nfinal class LiveWatchAudioSessionController",
+            from: "func start(url: URL, source: WatchCaptureSourceToken) throws",
+            to: "func stop() throws -> TimeInterval",
             in: path
         )
 
-        XCTAssertTrue(body.contains("audioRecorderDidFinishRecording"))
-        XCTAssertTrue(body.contains("audioRecorderDidFinish(successfully: flag)"))
-        XCTAssertFalse(body.contains("WatchCaptureTerminalReason"))
+        XCTAssertTrue(body.contains("WatchAudioRecorderTerminalForwarder(source: source, sink: self.eventSink)"))
+        XCTAssertTrue(body.contains("recorder.delegate = forwarder"))
+        XCTAssertTrue(body.contains("self.activeForwarder = forwarder"))
     }
 
-    func testEncodeErrorForwardsToEngineSink() throws {
+    func testLiveRecorderDelegatesOnlyToForwarder() throws {
         let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
-        let body = try self.section(
-            from: "extension LiveWatchAudioRecorder: AVAudioRecorderDelegate",
-            to: "@MainActor\nfinal class LiveWatchAudioSessionController",
-            in: path
-        )
+        let body = try self.contents(path)
 
-        XCTAssertTrue(body.contains("audioRecorderEncodeErrorDidOccur"))
-        XCTAssertTrue(body.contains("audioRecorderEncodeError(error)"))
-        XCTAssertFalse(body.contains("WatchCaptureTerminalReason"))
+        XCTAssertFalse(body.contains("LiveWatchAudioRecorder: AVAudioRecorderDelegate"))
+        XCTAssertFalse(body.contains("recorder.delegate = self"))
+    }
+
+    func testForwarderDelegateMethodsOnlyCallDeliveryMethods() throws {
+        let body = try self.contents("Sources/WatchCapture/WatchCaptureTerminalSource.swift")
+
+        XCTAssertTrue(body.contains("self.deliverDidFinish(successfully: flag)"))
+        XCTAssertTrue(body.contains("self.deliverEncodeError(error)"))
     }
 
     func testMicrophonePermissionIsReadOnlyAdapter() throws {
@@ -47,7 +49,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
         let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "func requestPermission() async -> WatchMicrophonePermission",
-            to: "func start(url: URL) throws",
+            to: "func start(url: URL, source: WatchCaptureSourceToken) throws",
             in: path
         )
 

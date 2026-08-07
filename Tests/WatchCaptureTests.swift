@@ -635,6 +635,33 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(resetStatuses.last?.audioTerminalReason, .audioMediaServicesReset)
     }
 
+    func testBoundAudioSessionNotificationsTerminateTheirCurrentSession() async throws {
+        let interruptionUserInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+        ]
+        let cases: [(Notification.Name, WatchCaptureTerminalReason, [AnyHashable: Any]?, Bool)] = [
+            (AVAudioSession.mediaServicesWereLostNotification, .audioMediaServicesLost, nil, false),
+            (AVAudioSession.mediaServicesWereResetNotification, .audioMediaServicesReset, nil, false),
+            (AVAudioSession.interruptionNotification, .audioInterrupted, interruptionUserInfo, false),
+            (AVAudioSession.routeChangeNotification, .audioRouteUnavailable, nil, true),
+        ]
+
+        for (name, reason, userInfo, makesInputUnsuitable) in cases {
+            let harness = try self.makeHarness(locationAuthorization: .denied)
+            harness.engine.start(); await harness.engine.settled()
+            if makesInputUnsuitable {
+                harness.audioSession.hasSuitableInput = false
+            }
+            harness.notificationCenter.post(name: name, object: nil, userInfo: userInfo)
+            await self.drain(until: { harness.engine.ownerPresentation.terminalReason == reason })
+            await harness.engine.settled()
+
+            XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, reason)
+            XCTAssertEqual(harness.engine.ownerPresentation.terminalDisposition, .detectedStoppedItself)
+            XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        }
+    }
+
     func testRecorderDelegateFailuresTerminateWithDistinctReasons() async throws {
         let finished = try self.makeHarness(locationAuthorization: .denied)
         var finishedStatuses: [WatchStatusContext] = []
@@ -642,7 +669,8 @@ final class WatchCaptureTests: XCTestCase {
         finished.engine.start(); await finished.engine.settled()
         await self.drain(until: { finishedStatuses.contains { $0.phase == .observing } })
         finishedStatuses.removeAll()
-        finished.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        let finishedSource = try XCTUnwrap(finished.recorder.startSources.last)
+        finished.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: finishedSource)
         await self.drain(until: { finishedStatuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
 
         let encoded = try self.makeHarness(locationAuthorization: .denied)
@@ -651,7 +679,8 @@ final class WatchCaptureTests: XCTestCase {
         encoded.engine.start(); await encoded.engine.settled()
         await self.drain(until: { encodedStatuses.contains { $0.phase == .observing } })
         encodedStatuses.removeAll()
-        encoded.recorder.eventSink?.audioRecorderEncodeError(nil)
+        let encodedSource = try XCTUnwrap(encoded.recorder.startSources.last)
+        encoded.recorder.eventSink?.audioRecorderEncodeError(nil, source: encodedSource)
         await self.drain(until: { encodedStatuses.contains { $0.audioTerminalReason == .audioEncodeError } })
 
         XCTAssertEqual(finishedStatuses.last?.audioTerminalReason, .audioFinishUnsuccessful)
@@ -1602,6 +1631,114 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
     }
 
+    func testFinalStopRemovesSuccessorAcrossOldBoundRecorderTerminal() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.engine.stop()
+        harness.engine.start()
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        harness.engine.stop()
+        await self.advanceNotificationGate(
+            gate,
+            scheduler: harness.notificationScheduler,
+            keyPath: \MockWatchNotificationScheduler.addGate
+        )
+        await harness.engine.settled()
+
+        try self.assertOwnerStoppedTerminal(in: harness, recorderStops: 1)
+        XCTAssertEqual(harness.recorder.startURLs.count, 1)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 0)
+    }
+
+    func testOldBoundRecorderTerminalDoesNotStopSuccessor() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        let firstID = try XCTUnwrap(try harness.storage.readSessionRecord()).sessionID
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.engine.stop()
+        harness.engine.start()
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
+        await self.advanceNotificationGate(
+            gate,
+            scheduler: harness.notificationScheduler,
+            keyPath: \MockWatchNotificationScheduler.addGate
+        )
+        await harness.engine.settled()
+
+        let successor = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertNotEqual(successor.sessionID, firstID)
+        XCTAssertEqual(successor.state, .active)
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+    }
+
+    func testRecorderTerminalSourcesIgnorePriorSessionAndClaimCurrentExactlyOnce() async throws {
+        let cases: [(WatchCaptureTerminalReason, @MainActor (Harness, WatchCaptureSourceToken) -> Void)] = [
+            (.audioFinishUnsuccessful, { harness, source in
+                harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+            }),
+            (.audioEncodeError, { harness, source in
+                harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
+            }),
+        ]
+
+        for (reason, deliver) in cases {
+            let harness = try self.makeHarness(locationAuthorization: .denied)
+            harness.engine.start(); await harness.engine.settled()
+            let priorSource = try XCTUnwrap(harness.recorder.startSources.last)
+            harness.engine.stop(); await harness.engine.settled()
+            harness.engine.start(); await harness.engine.settled()
+            let currentSource = try XCTUnwrap(harness.recorder.startSources.last)
+            let stopsBeforeOldTerminal = harness.recorder.stopCallCount
+
+            deliver(harness, priorSource)
+            await harness.engine.settled()
+            XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning, "\(reason)")
+            XCTAssertEqual(harness.recorder.stopCallCount, stopsBeforeOldTerminal, "\(reason)")
+
+            deliver(harness, currentSource)
+            deliver(harness, currentSource)
+            await harness.engine.settled()
+
+            let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+            XCTAssertEqual(record.terminalReason, reason)
+            XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+            XCTAssertEqual(harness.recorder.stopCallCount, stopsBeforeOldTerminal + 1)
+            XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        }
+    }
+
+    func testTerminalWithNoRunningOrMismatchedSourceIsNoOp() async throws {
+        let idle = try self.makeHarness(locationAuthorization: .denied)
+        idle.recorder.eventSink?.audioRecorderEncodeError(
+            nil,
+            source: WatchCaptureSourceToken(sessionID: "missing")
+        )
+        await idle.engine.settled()
+        XCTAssertNil(try idle.storage.readSessionRecord())
+        XCTAssertFalse(idle.engine.ownerPresentation.isSessionRunning)
+
+        let active = try self.makeHarness(locationAuthorization: .denied)
+        active.engine.start(); await active.engine.settled()
+        active.recorder.eventSink?.audioRecorderEncodeError(
+            nil,
+            source: WatchCaptureSourceToken(sessionID: "mismatched")
+        )
+        await active.engine.settled()
+
+        XCTAssertTrue(active.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(active.recorder.stopCallCount, 0)
+    }
+
     func testReentrantStopAtStoppingRemovesQueuedSuccessorStart() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
         harness.engine.start(); await harness.engine.settled()
@@ -1694,6 +1831,29 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(record.state, .active)
         let manifests = try harness.storage.scanManifests().map(\.manifest)
         XCTAssertEqual(Set(manifests.map(\.id)).count, 2)
+    }
+
+    func testPriorSegmentBoundTerminalStillClaimsRolloverSessionExactlyOnce() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        let source = try XCTUnwrap(harness.recorder.startSources.first)
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count == 2 })
+        await harness.engine.settled()
+        XCTAssertEqual(harness.recorder.startSources, [source, source])
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
+        await harness.engine.settled()
+
+        try self.assertDetectedTerminalOnce(
+            in: harness,
+            reason: .audioEncodeError,
+            recorderStops: 2
+        )
     }
 
     func testOnceRecorderStopFailureStillCompletesOwnerStopCleanup() async throws {
@@ -2273,7 +2433,8 @@ final class WatchCaptureTests: XCTestCase {
         let gate = WatchCaptureHoldGate()
         harness.notificationScheduler.addGate = gate
 
-        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
         await self.waitForGate(gate)
         let noticeWaiting = await gate.waiting()
         XCTAssertTrue(noticeWaiting)
@@ -2282,7 +2443,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
         XCTAssertEqual(harness.locationProvider.stopCallCount, 1)
 
-        harness.recorder.eventSink?.audioRecorderEncodeError(nil)
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
         await gate.release()
         await harness.engine.settled()
 
@@ -2296,8 +2457,9 @@ final class WatchCaptureTests: XCTestCase {
     func testReverseDetectedClaimAndOwnerStopKeepTheirFirstTerminalFacts() async throws {
         let detected = try self.makeHarness(locationAuthorization: .authorized)
         detected.engine.start(); await detected.engine.settled()
-        detected.recorder.eventSink?.audioRecorderEncodeError(nil)
-        detected.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        let detectedSource = try XCTUnwrap(detected.recorder.startSources.last)
+        detected.recorder.eventSink?.audioRecorderEncodeError(nil, source: detectedSource)
+        detected.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: detectedSource)
         await detected.engine.settled()
 
         let detectedRecord = try XCTUnwrap(try detected.storage.readSessionRecord())
@@ -2310,7 +2472,8 @@ final class WatchCaptureTests: XCTestCase {
         let owner = try self.makeHarness(locationAuthorization: .authorized)
         owner.engine.start(); await owner.engine.settled()
         owner.engine.stop()
-        owner.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        let ownerSource = try XCTUnwrap(owner.recorder.startSources.last)
+        owner.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: ownerSource)
         await owner.engine.settled()
 
         let ownerRecord = try XCTUnwrap(try owner.storage.readSessionRecord())
@@ -2823,6 +2986,20 @@ private extension WatchCaptureTests {
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
     }
 
+    func assertDetectedTerminalOnce(
+        in harness: Harness,
+        reason: WatchCaptureTerminalReason,
+        recorderStops: Int
+    ) throws {
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.state, .terminal)
+        XCTAssertEqual(record.terminalReason, reason)
+        XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+        XCTAssertEqual(harness.recorder.stopCallCount, recorderStops)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+    }
+
     func assertSupersededStartTerminal(
         in harness: Harness,
         publications: WatchCapturePublicationRecord,
@@ -3187,6 +3364,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
     var isRecording = false
     var eventSink: (any WatchAudioRecorderEventSink)?
     var startURLs: [URL] = []
+    var startSources: [WatchCaptureSourceToken] = []
     var stopCallCount = 0
     var microphonePermission: WatchMicrophonePermission
     var requestPermissionResult: WatchMicrophonePermission = .granted
@@ -3211,7 +3389,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
         return self.requestPermissionResult
     }
 
-    func start(url: URL) throws {
+    func start(url: URL, source: WatchCaptureSourceToken) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if let startError, !self.writesBeforeStartError { throw startError }
         try Data("audio".utf8).write(to: url)
@@ -3220,6 +3398,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
         self.currentTime = 0
         self.isRecording = true
         self.startURLs.append(url)
+        self.startSources.append(source)
     }
 
     func stop() throws -> TimeInterval {

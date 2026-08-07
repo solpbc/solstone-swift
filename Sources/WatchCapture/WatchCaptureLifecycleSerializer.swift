@@ -11,15 +11,18 @@ final class WatchCaptureLifecycleSerializer {
             let reason: WatchCaptureTerminalReason
             let disposition: WatchCaptureTerminalDisposition
             let livenessEvidence: WatchCaptureLivenessEvidence?
+            let source: WatchCaptureSourceToken
 
             init(
                 reason: WatchCaptureTerminalReason,
                 disposition: WatchCaptureTerminalDisposition,
-                livenessEvidence: WatchCaptureLivenessEvidence? = nil
+                livenessEvidence: WatchCaptureLivenessEvidence? = nil,
+                source: WatchCaptureSourceToken
             ) {
                 self.reason = reason
                 self.disposition = disposition
                 self.livenessEvidence = livenessEvidence
+                self.source = source
             }
         }
 
@@ -98,7 +101,7 @@ final class WatchCaptureLifecycleSerializer {
         self.current != nil || !self.pending.isEmpty || self.pumpTask != nil
     }
 
-    /// Reduces redundant intents. A Stop first removes trailing Starts, then
+    /// Reduces redundant intents. A Stop removes all pending Starts, then
     /// coalesces only with a Stop that still represents the latest stop intent.
     private func compact(_ intent: Intent) -> Bool {
         switch intent {
@@ -114,9 +117,7 @@ final class WatchCaptureLifecycleSerializer {
             return self.current?.isStart == true
 
         case .stop:
-            while self.pending.last?.isStart == true {
-                self.pending.removeLast()
-            }
+            self.pending.removeAll(where: \.isStart)
             return self.current?.isStop == true || self.pending.contains(where: \.isStop)
 
         case .reconcile:
