@@ -220,21 +220,39 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         XCTAssertEqual(controlLease.records.map(\.sequence), [1])
 
         let foreignGeneration = UUID()
-        let fixtures: [(name: String, data: Data, reason: OmiLaunchCaptureCursorDefectReason)] = [
-            ("truncated", Data(controlData.dropLast()), .invalidLength),
-            ("extended", controlData + Data([0]), .invalidLength),
-            ("invalid_magic", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: 0, with: controlData[0] ^ 0x01)), .invalidMagic),
-            ("cursor_checksum", Self.replacingByte(in: controlData, at: controlData.count - 1, with: controlData[controlData.count - 1] ^ 0x01), .cursorChecksumMismatch),
-            ("unsupported_version", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: OmiLaunchCaptureCursorFormat.magic.count, with: 2)), .unsupportedVersion),
-            ("foreign_generation", Self.recomputingCursorDigest(Self.replacingUUID(in: controlData, at: OmiLaunchCaptureCursorFormat.magic.count + OmiLaunchCaptureCursorFormat.versionByteCount, with: foreignGeneration)), .generationMismatch),
-            ("offset_out_of_range", Self.recomputingCursorDigest(Self.replacingAcknowledgedEnd(in: controlData, with: UInt64(Int.max) + 1)), .offsetOutOfRange),
+        let magicRange = 0..<OmiLaunchCaptureCursorFormat.magic.count
+        let versionRange = magicRange.upperBound..<(magicRange.upperBound + OmiLaunchCaptureCursorFormat.versionByteCount)
+        let generationRange = versionRange.upperBound..<(versionRange.upperBound + OmiLaunchCaptureFormat.generationIDByteCount)
+        let sequenceRange = generationRange.upperBound..<(generationRange.upperBound + OmiLaunchCaptureCursorFormat.sequenceByteCount)
+        let acknowledgedEndRange = sequenceRange.upperBound..<(sequenceRange.upperBound + OmiLaunchCaptureCursorFormat.offsetByteCount)
+        let digestRange = (controlData.count - OmiLaunchCaptureCursorFormat.digestByteCount)..<controlData.count
+        enum FixtureDifference {
+            case length
+            case field(Range<Int>)
+            case digest
+        }
+        let fixtures: [(name: String, data: Data, reason: OmiLaunchCaptureCursorDefectReason, difference: FixtureDifference)] = [
+            ("truncated", Data(controlData.dropLast()), .invalidLength, .length),
+            ("extended", controlData + Data([0]), .invalidLength, .length),
+            ("invalid_magic", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: magicRange.lowerBound, with: controlData[magicRange.lowerBound] ^ 0x01)), .invalidMagic, .field(magicRange)),
+            ("cursor_checksum", Self.replacingByte(in: controlData, at: digestRange.upperBound - 1, with: controlData[digestRange.upperBound - 1] ^ 0x01), .cursorChecksumMismatch, .digest),
+            ("unsupported_version", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: versionRange.lowerBound, with: 2)), .unsupportedVersion, .field(versionRange)),
+            ("foreign_generation", Self.recomputingCursorDigest(Self.replacingUUID(in: controlData, at: generationRange.lowerBound, with: foreignGeneration)), .generationMismatch, .field(generationRange)),
+            ("offset_out_of_range", Self.recomputingCursorDigest(Self.replacingAcknowledgedEnd(in: controlData, with: UInt64(Int.max) + 1)), .offsetOutOfRange, .field(acknowledgedEndRange)),
         ]
 
         for fixture in fixtures {
             try fixture.data.write(to: reader.cursorURL)
             XCTAssertTrue(FileManager.default.fileExists(atPath: reader.cursorURL.path), fixture.name)
             XCTAssertEqual(try Data(contentsOf: writer.fileURL), captureData, fixture.name)
-            XCTAssertNotEqual(fixture.data, controlData, fixture.name)
+            switch fixture.difference {
+            case .length:
+                Self.assertOnlyCursorLengthDiffers(control: controlData, fixture: fixture.data, message: fixture.name)
+            case .field(let range):
+                Self.assertOnlyCursorFieldDiffers(control: controlData, fixture: fixture.data, mutatedRange: range, digestRange: digestRange, message: fixture.name)
+            case .digest:
+                Self.assertOnlyCursorDigestDiffers(control: controlData, fixture: fixture.data, digestRange: digestRange, message: fixture.name)
+            }
 
             let reopened = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
             XCTAssertEqual(reopened.cursorDefect()?.reason, fixture.reason, fixture.name)
@@ -319,5 +337,39 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         var result = data
         result.replaceSubrange(digestOffset..<result.count, with: OmiLaunchCaptureDigest.truncated(result.prefix(digestOffset)))
         return result
+    }
+
+    private static func assertOnlyCursorLengthDiffers(control: Data, fixture: Data, message: String) {
+        XCTAssertNotEqual(fixture.count, control.count, message)
+        let sharedCount = min(fixture.count, control.count)
+        XCTAssertEqual(Data(fixture.prefix(sharedCount)), Data(control.prefix(sharedCount)), message)
+    }
+
+    private static func assertOnlyCursorFieldDiffers(
+        control: Data,
+        fixture: Data,
+        mutatedRange: Range<Int>,
+        digestRange: Range<Int>,
+        message: String
+    ) {
+        XCTAssertEqual(fixture.count, control.count, message)
+        XCTAssertNotEqual(
+            Data(fixture[fixture.startIndex + mutatedRange.lowerBound..<fixture.startIndex + mutatedRange.upperBound]),
+            Data(control[control.startIndex + mutatedRange.lowerBound..<control.startIndex + mutatedRange.upperBound]),
+            message
+        )
+        for offset in 0..<control.count where !mutatedRange.contains(offset) && !digestRange.contains(offset) {
+            XCTAssertEqual(fixture[fixture.startIndex + offset], control[control.startIndex + offset], "\(message) offset=\(offset)")
+        }
+    }
+
+    private static func assertOnlyCursorDigestDiffers(control: Data, fixture: Data, digestRange: Range<Int>, message: String) {
+        XCTAssertEqual(fixture.count, control.count, message)
+        XCTAssertEqual(Data(fixture.prefix(digestRange.lowerBound)), Data(control.prefix(digestRange.lowerBound)), message)
+        let differingBytes = digestRange.filter { fixture[fixture.startIndex + $0] != control[control.startIndex + $0] }
+        XCTAssertEqual(differingBytes.count, 1, message)
+        if let offset = differingBytes.first {
+            XCTAssertEqual((fixture[fixture.startIndex + offset] ^ control[control.startIndex + offset]).nonzeroBitCount, 1, message)
+        }
     }
 }

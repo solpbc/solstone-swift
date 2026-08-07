@@ -177,6 +177,8 @@ final class OmiLaunchCaptureCommitCoordinator {
         if case .unavailable(let reason) = reader.lease() {
             await self.conservativelyGateOmi()
             if reason == .cursorUnreadable, let defect = reader.cursorDefect() {
+                // Re-read deliberately to confirm the defect persists; a transient failure gates without a permanent signal.
+                // The reader stays stateless, and a later reconcile retries normally.
                 await self.commitUnreadableCursor(defect: defect, generationID: generationID)
             }
             return .failed

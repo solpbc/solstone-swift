@@ -505,6 +505,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 sourceManager: self.makeManager()
             ).reconcile()
             let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            XCTAssertEqual(snapshots.filter { $0.state == .attention }.count, 1, "restart=\(restart)")
             let attention = try XCTUnwrap(snapshots.first)
             XCTAssertEqual(attention.state, .attention, "restart=\(restart)")
             XCTAssertTrue(attention.manifest.payloadParts.isEmpty, "restart=\(restart)")
