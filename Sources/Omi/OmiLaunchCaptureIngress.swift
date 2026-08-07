@@ -24,7 +24,6 @@ enum OmiLaunchCaptureIngressBoundaryReason: String, Equatable {
 enum OmiLaunchCaptureIngressResult: Equatable {
     case retainedContiguous
     case boundaryCommitted(reason: OmiLaunchCaptureIngressBoundaryReason)
-    case suffixRetainedNoncontiguous
     case notRetained
 }
 
@@ -88,7 +87,7 @@ final class OmiLaunchCaptureIngress {
         }
         switch input {
         case .payload(let payload):
-            if self.isLatched, !self.hasCommittedBoundary {
+            if self.isLatched {
                 return self.routeReservation(writer.reserveGap(), reason: .payloadNotRetained)
             }
             return self.routeAppend(writer.append(payload), writer: writer)
@@ -127,7 +126,7 @@ final class OmiLaunchCaptureIngress {
     ) -> OmiLaunchCaptureIngressResult {
         switch outcome {
         case .retained:
-            return self.isLatched ? .suffixRetainedNoncontiguous : .retainedContiguous
+            return .retainedContiguous
         case .notRetained:
             return self.routeReservation(writer.reserveGap(), reason: .payloadNotRetained)
         case .visibleGap(_, let reason):

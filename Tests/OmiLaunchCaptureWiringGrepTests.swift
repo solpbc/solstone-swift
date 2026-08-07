@@ -50,7 +50,7 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
         )
         let route = try Self.functionSlice(named: "routeAppend", in: text)
         let notRetained = try XCTUnwrap(route.range(of: "case .notRetained:"))
-        let visibleGap = try XCTUnwrap(route.range(of: "case .visibleGap:"))
+        let visibleGap = try XCTUnwrap(route.range(of: "case .visibleGap"))
         XCTAssertTrue(route[notRetained.lowerBound..<visibleGap.lowerBound].contains("self.routeReservation(writer.reserveGap()"))
 
         let rejected = try XCTUnwrap(route.range(of: "case .rejected"))
@@ -65,7 +65,10 @@ private extension OmiLaunchCaptureWiringGrepTests {
     static func functionSlice(named name: String, in text: String) throws -> Substring {
         let start = try XCTUnwrap(text.range(of: "func \(name)"))
         let remainder = text[start.lowerBound...]
-        let end = remainder.dropFirst().range(of: "\n    func ")?.lowerBound ?? text.endIndex
+        let end = remainder.dropFirst().range(
+            of: #"\n    (?:(?:private|fileprivate|internal|public|open|static|class|final)\s+)*func "#,
+            options: .regularExpression
+        )?.lowerBound ?? text.endIndex
         return text[start.lowerBound..<end]
     }
 }

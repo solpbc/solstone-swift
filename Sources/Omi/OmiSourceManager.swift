@@ -155,9 +155,6 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.persistEnabled(true)
         self.manuallyDisconnected = false
         self.synchronizeWriterFaultState()
-        if self.launchCaptureIngress?.hasCommittedBoundary == true {
-            self.launchCaptureRotationState = .awaitingResubscription
-        }
         self.requestLaunchCaptureRecoveryAfterExplicitEnable()
         guard self.isLaunchReady else { return }
         self.enableBatteryMonitoringIfNeeded()
@@ -318,7 +315,6 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.stopPhoneSampleLoop()
         self.restoreBatteryMonitoringIfNeeded()
         self.manuallyDisconnected = true
-        self.launchCaptureRotationState = .none
         self.cancelInitialConnectTimeout()
         let pendingPeripheralID = self.pendingConnectionID ?? self.connectedPeripheralID
         if let pendingPeripheralID {
@@ -544,8 +540,6 @@ extension OmiSourceManager {
                 } else {
                     self.synchronizeWriterFaultState()
                 }
-            case .suffixRetainedNoncontiguous:
-                self.synchronizeWriterFaultState()
             case .notRetained:
                 if !wasLatched {
                     self.noteWriterFault()
@@ -946,10 +940,10 @@ extension OmiSourceManager {
         isReconnecting: Bool,
         error: (any Error)?
     ) async {
-        guard !self.isOmiWorkDisabled else { return }
         if self.launchCaptureRotationState == .awaitingBoundaryDisconnect {
             self.launchCaptureRotationState = .awaitingResubscription
         }
+        guard !self.isOmiWorkDisabled else { return }
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
         self.lastDisconnectedAt = disconnectedAt
         self.uptime.noteDisconnected(at: disconnectedAt)
