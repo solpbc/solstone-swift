@@ -212,6 +212,14 @@ final class MobileSegmentStore {
             .appendingPathComponent(kind, isDirectory: true)
     }
 
+    func hasTombstone(segmentID: UUID, kind: String) -> Bool {
+        self.fileManager.fileExists(
+            atPath: self.tombstoneDirectory(kind: kind)
+                .appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
+                .path
+        )
+    }
+
     func list(_ lifecycle: MobileSegmentLifecycle) throws -> [URL] {
         let directory = self.directoryURL(lifecycle)
         guard self.fileManager.fileExists(atPath: directory.path) else { return [] }

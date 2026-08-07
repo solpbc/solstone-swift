@@ -59,6 +59,7 @@ final class MobileSegmentUploader {
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let storageDisabledReason: String?
     @ObservationIgnored private let cooperator: MaintenanceCooperator
+    @ObservationIgnored private var enqueuingSegmentIDs: Set<UUID> = []
 
     init(
         transferEngine: TransferEngine? = nil,
@@ -568,6 +569,8 @@ final class MobileSegmentUploader {
         do {
             try self.store.ensureRoot()
             self.sweepStaleTransferEnqueueTemps()
+            try self.retireDeliveredResidue()
+            await self.retireTransferOwnedResidue()
             try await self.reconcileActiveSegments()
             if Task.isCancelled {
                 self.refreshCounts()
@@ -741,6 +744,8 @@ final class MobileSegmentUploader {
 
     func writeUploadedTombstone(segmentID: UUID) throws {
         try self.store.writeTombstone(segmentID: segmentID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+        try self.retireDeliveredResidue(segmentID: segmentID)
+        self.refreshCounts()
     }
 
     func redactLocationFacet(segmentID: UUID) async {
@@ -1205,6 +1210,8 @@ private extension MobileSegmentUploader {
 
     func enqueuePendingSegmentIntoTransfer(segmentID: UUID) async {
         guard self.guardStorageAvailable() else { return }
+        guard self.enqueuingSegmentIDs.insert(segmentID).inserted else { return }
+        defer { self.enqueuingSegmentIDs.remove(segmentID) }
 
         let directory = self.store.segmentDirectoryURL(.pending, segmentID: segmentID)
         guard self.store.fileExists(directory) else { return }
@@ -1266,6 +1273,7 @@ private extension MobileSegmentUploader {
 
             let payloadParts = declaredParts.map(\.descriptor)
             let transferManifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+                itemID: segmentID,
                 manifest: manifest,
                 now: self.clock.now(),
                 sources: declaredParts.map(\.source),
@@ -1278,7 +1286,11 @@ private extension MobileSegmentUploader {
                 payloadFileURLs[part.descriptor.partID] = tempDirectory
                     .appendingPathComponent(part.descriptor.relativePath, isDirectory: false)
             }
-            _ = try await transferEngine.enqueue(manifest: transferManifest, payloadFileURLs: payloadFileURLs)
+            _ = try await transferEngine.enqueueIfAbsent(
+                manifest: transferManifest,
+                equivalentObserverSegmentID: segmentID,
+                payloadFileURLs: payloadFileURLs
+            )
             try self.store.remove(directory)
         } catch {
             let diagnostic = "mobile segment enqueue failed segment=\(segmentID.uuidString) stage=transfer-enqueue"
@@ -1286,6 +1298,90 @@ private extension MobileSegmentUploader {
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public): \(String(describing: error), privacy: .public)")
         }
         self.refreshCounts()
+    }
+
+    private func retireDeliveredResidue() throws {
+        for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
+            for directory in try self.store.list(lifecycle) {
+                guard let segmentID = UUID(uuidString: directory.lastPathComponent),
+                      self.store.hasTombstone(segmentID: segmentID, kind: "uploaded")
+                else { continue }
+                try self.store.remove(directory)
+                mobileSegmentUploadLog.notice(
+                    "mobile segment retired delivered residue segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public)"
+                )
+            }
+        }
+    }
+
+    private func retireDeliveredResidue(segmentID: UUID) throws {
+        for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
+            try self.store.remove(self.store.segmentDirectoryURL(lifecycle, segmentID: segmentID))
+        }
+    }
+
+    private func retireTransferOwnedResidue() async {
+        guard let transferEngine else { return }
+        for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
+            guard let directories = try? self.store.list(lifecycle) else { continue }
+            for directory in directories {
+                guard let segmentID = UUID(uuidString: directory.lastPathComponent),
+                      let manifest = try? self.store.readManifest(in: directory),
+                      manifest.isFullyResolved,
+                      !manifest.hasFinalizeFailure
+                else { continue }
+                let declaredParts = manifest.declaredSources.compactMap { source -> MobileSegmentDeclaredPart? in
+                    guard manifest.resolution(for: source).state == .finalizedArtifact else { return nil }
+                    let artifactURL = self.store.artifactURL(in: directory, source: source)
+                    guard self.store.fileExists(artifactURL) else { return nil }
+                    return MobileSegmentDeclaredPart(
+                        source: source,
+                        descriptor: self.transferPartDescriptor(for: source),
+                        artifactURL: artifactURL
+                    )
+                }
+                guard !declaredParts.isEmpty,
+                      declaredParts.count == manifest.declaredSources.filter({
+                          manifest.resolution(for: $0).state == .finalizedArtifact
+                      }).count
+                else { continue }
+                let expectedManifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+                    itemID: segmentID,
+                    manifest: manifest,
+                    now: self.clock.now(),
+                    sources: declaredParts.map(\.source),
+                    payloadParts: declaredParts.map(\.descriptor)
+                )
+                let payloadURLs = Dictionary(uniqueKeysWithValues: declaredParts.map {
+                    ($0.descriptor.partID, $0.artifactURL)
+                })
+                do {
+                    let verdict = try await transferEngine.verifyEquivalentOwnership(
+                        expectedManifest: expectedManifest,
+                        equivalentObserverSegmentID: segmentID,
+                        expectedPayloadSourceURLs: payloadURLs
+                    )
+                    guard verdict == .ownedInQueued || verdict == .ownedInAttention else {
+                        if case .conflict = verdict {
+                            let diagnostic = "mobile segment ownership conflict segment=\(segmentID.uuidString) stage=transfer-recovery"
+                            self.lastError = diagnostic
+                            mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
+                        }
+                        continue
+                    }
+                    try self.store.remove(directory)
+                    mobileSegmentUploadLog.notice(
+                        "mobile segment retired verified transfer-owned residue segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public)"
+                    )
+                } catch {
+                    let diagnostic = "mobile segment ownership verification failed segment=\(segmentID.uuidString) stage=transfer-recovery"
+                    self.lastError = diagnostic
+                    mobileSegmentUploadLog.error(
+                        "\(diagnostic, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+        }
     }
 
     private func failPendingSegment(segmentID: UUID, reason: String, stage: String) throws {

@@ -47,6 +47,7 @@ struct SolstoneSwiftApp: App {
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pendingFold = PendingFoldState()
     @State private var pairingHandoff = PairingHandoffState()
+    @State private var pairingCredentialRecovery: PairingCredentialRecoveryCoordinator
     @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
     @State private var launchCaptureCommitCoordinator: OmiLaunchCaptureCommitCoordinator
@@ -342,11 +343,6 @@ struct SolstoneSwiftApp: App {
                 IngestPrefixStore().clear(.watch)
             }
         )
-        let omiRegistrationRefreshCoordinator = OmiRegistrationRefreshCoordinator { port in
-            guard !Self.isIntegrationMode, !Self.isUITest else { return }
-            omiRegistration.activeLocalPort = port
-            _ = try? await omiRegistration.refreshRegistration()
-        }
         let transferEndpointResolver = LoopbackTransferEndpointResolver()
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
@@ -388,6 +384,21 @@ struct SolstoneSwiftApp: App {
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             }
         )
+        let pairingCredentialRecovery = PairingCredentialRecoveryCoordinator(
+            observerRegistration: observerRegistration,
+            omiRegistration: omiRegistration,
+            watchRegistration: watchRegistration,
+            transferEngine: transferEngine
+        )
+        let omiRegistrationRefreshCoordinator = OmiRegistrationRefreshCoordinator { port in
+            guard !Self.isIntegrationMode, !Self.isUITest else { return }
+            omiRegistration.activeLocalPort = port
+            if pairingCredentialRecovery.isPending(sourceKey: ObserverAudioTransferSource.omi) {
+                await pairingCredentialRecovery.recoverIfPending()
+            } else {
+                _ = try? await omiRegistration.refreshRegistration()
+            }
+        }
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
@@ -717,6 +728,7 @@ struct SolstoneSwiftApp: App {
         self._screencastManager = State(initialValue: screencastManager)
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
+        self._pairingCredentialRecovery = State(initialValue: pairingCredentialRecovery)
         self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)
         self._launchCaptureCommitCoordinator = State(initialValue: launchCaptureCommitCoordinator)
@@ -779,6 +791,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
                 .environment(self.pairingHandoff)
+                .environment(self.pairingCredentialRecovery)
                 .environment(self.diagnosticLog)
                 .environment(self.problemReportsManager)
                 .environment(self.appDelegate.pushManager)
@@ -813,6 +826,7 @@ struct SolstoneSwiftApp: App {
                 .task {
                     await self.bootstrapTransfer()
                     _ = await self.omiSourceManager.resumeLaunchCaptureOnce()
+                    await self.pairingCredentialRecovery.recoverIfPending()
                 }
                 .task {
                     self.mobileHealthBeacon.start()
@@ -842,8 +856,15 @@ struct SolstoneSwiftApp: App {
                     }
                 }
                 .task {
-                    // Initial connected state needs the same Omi registration edge observation.
-                    guard case .connected = self.tunnelManager.state else { return }
+                    // Initial connected state needs the same registration, transfer, recovery,
+                    // and Omi edge handling because onChange does not fire for its initial value.
+                    guard case .connected(let port, _) = self.tunnelManager.state else { return }
+                    self.observerRegistration.activeLocalPort = port
+                    self.omiRegistration.activeLocalPort = port
+                    self.watchRegistration.activeLocalPort = port
+                    await self.transferEndpointResolver.update(activeLocalPort: port)
+                    await self.transferEngine.endpointAvailabilityChanged()
+                    await self.pairingCredentialRecovery.recoverIfPending()
                     self.omiRegistrationRefreshCoordinator.observe(tunnelState: self.tunnelManager.state)
                 }
         }
@@ -968,6 +989,7 @@ struct SolstoneSwiftApp: App {
                     await self.transferEndpointResolver.update(activeLocalPort: port)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
+                Task { await self.pairingCredentialRecovery.recoverIfPending() }
                 Task { await self.foregroundDrainGate.requestDrain() }
 
                 if Self.isIntegrationMode,

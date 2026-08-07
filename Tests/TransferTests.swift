@@ -1118,6 +1118,74 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.attentionCount, 0)
     }
 
+    func testRetryAuthenticationAttentionOnlyRequeuesInvalidPairingKey() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("retry-auth", isDirectory: true))
+        let authID = Self.uuid(43)
+        let unrelatedHTTPID = Self.uuid(44)
+        let unrelatedReasonID = Self.uuid(45)
+        for (itemID, reason, detail) in [
+            (authID, "http_client_error", #"{ "error": "Invalid key", "reason_code": "auth_key_invalid" }"#),
+            (unrelatedHTTPID, "http_client_error", #"{"reason_code":"invalid_payload"}"#),
+            (unrelatedReasonID, "missing_payload", #"{"reason_code":"auth_key_invalid"}"#),
+        ] {
+            _ = try spool.moveQueuedItemToAttention(
+                try spool.commitStagedItem(itemID: spool.stage(
+                    manifest: self.makeManifest(itemID: itemID, source: "alpha"),
+                    payloads: self.audioPayloads()
+                ).item.manifest.itemID),
+                reason: reason,
+                detail: detail,
+                now: Self.baseDate
+            )
+        }
+        let engine = self.makeEngine(
+            spool: spool,
+            resolver: TransferEndpointResolverStub(.unavailable("held"))
+        )
+        try await engine.start()
+
+        try await engine.retryAuthenticationAttention()
+
+        let snapshot = await engine.snapshot()
+        let authItem = await engine.itemSnapshot(itemID: authID)
+        let unrelatedHTTPItem = await engine.itemSnapshot(itemID: unrelatedHTTPID)
+        let unrelatedReasonItem = await engine.itemSnapshot(itemID: unrelatedReasonID)
+        XCTAssertEqual(snapshot.counters.queuedCount, 1)
+        XCTAssertEqual(snapshot.counters.attentionCount, 2)
+        XCTAssertNil(authItem?.manifest.attention)
+        XCTAssertNotNil(unrelatedHTTPItem?.manifest.attention)
+        XCTAssertNotNil(unrelatedReasonItem?.manifest.attention)
+    }
+
+    func testRetryAuthenticationAttentionCanBeScopedToRecoveredSource() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("retry-auth-source", isDirectory: true))
+        let alphaID = Self.uuid(46)
+        let betaID = Self.uuid(47)
+        for (itemID, source) in [(alphaID, "alpha"), (betaID, "beta")] {
+            _ = try spool.moveQueuedItemToAttention(
+                try spool.commitStagedItem(itemID: spool.stage(
+                    manifest: self.makeManifest(itemID: itemID, source: source),
+                    payloads: self.audioPayloads()
+                ).item.manifest.itemID),
+                reason: "http_client_error",
+                detail: #"{"reason_code":"auth_key_invalid"}"#,
+                now: Self.baseDate
+            )
+        }
+        let engine = self.makeEngine(
+            spool: spool,
+            resolver: TransferEndpointResolverStub(.unavailable("held"))
+        )
+        try await engine.start()
+
+        try await engine.retryAuthenticationAttention(source: "alpha")
+
+        let alpha = await engine.itemSnapshot(itemID: alphaID)
+        let beta = await engine.itemSnapshot(itemID: betaID)
+        XCTAssertNil(alpha?.manifest.attention)
+        XCTAssertNotNil(beta?.manifest.attention)
+    }
+
     func testFreshBandBoundaryAtFifteenMinutes() async throws {
         TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
         let clock = FakeTransferClock(wall: Self.baseDate)

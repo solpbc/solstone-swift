@@ -27,7 +27,15 @@ nonisolated enum LoadTrigger: String, Sendable {
     case watchCounts
     case importCounts
     case mobileSegmentCounts
+    case delivery
     case activePort
+}
+
+nonisolated struct OnThisPhoneDeliveryMarkers: Equatable, Sendable {
+    let mobileSegment: Date?
+    let omi: Date?
+    let watch: Date?
+    let share: Date?
 }
 
 nonisolated enum OnThisPhoneEmptyInviteBranch: Equatable, Sendable {
@@ -236,6 +244,9 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .onChange(of: self.mobileSegmentUploader.failedCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .mobileSegmentCounts) }
             }
+            .onChange(of: self.deliveryMarkers) { _, _ in
+                self.coalescer.schedule { await self.loadSnapshot(trigger: .delivery) }
+            }
             .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
                 Task { await self.loadSnapshot(trigger: .activePort) }
                 self.refreshWelcomeFraming()
@@ -271,6 +282,15 @@ struct OnThisPhoneMomentsView<Header: View>: View {
 }
 
 private extension OnThisPhoneMomentsView {
+    var deliveryMarkers: OnThisPhoneDeliveryMarkers {
+        OnThisPhoneDeliveryMarkers(
+            mobileSegment: self.mobileSegmentTransferHolder.lastUploadAt,
+            omi: self.omiUploaderHolder.lastUploadAt,
+            watch: self.watchUploaderHolder.lastUploadAt,
+            share: self.shareTransferHolder.lastUploadAt
+        )
+    }
+
     var displayAggregate: OnThisPhoneAggregateSnapshot? {
         self.aggregate?.filteringOutPending(self.dropController.pendingIDs)
     }

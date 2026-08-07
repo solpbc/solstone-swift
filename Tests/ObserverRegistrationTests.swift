@@ -379,10 +379,37 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         let registration = self.makeRegistration(retryDelays: [1])
         registration.activeLocalPort = 7071
 
-        let refreshedKey = try await registration.refreshRegistration()
-        XCTAssertEqual(refreshedKey, "existing-key")
+        let result = try await registration.refreshRegistrationResult()
+        XCTAssertEqual(result.key, "existing-key")
+        XCTAssertEqual(result.change, .confirmedCurrent)
         XCTAssertEqual(registration.registrationPrefix, "existing")
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+    }
+
+    @MainActor
+    func testRefreshResultIsUnchangedWhenFailedStateRetainsCachedKey() async throws {
+        self.storedKeyBox.withLock { $0 = "existing-key" }
+        self.storedPrefixBox.withLock { $0 = "obs_existing_" }
+        ObserverRegistrationURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        let registration = self.makeRegistration(
+            retryDelays: [1],
+            deleteKey: { throw ObserverRegistrationTestError.injectedDeleteKeyFailure }
+        )
+        registration.activeLocalPort = 7071
+        registration.reset()
+        guard case .failed = registration.state else {
+            return XCTFail("expected failed state after reset could not delete the cached key")
+        }
+
+        let result = try await registration.refreshRegistrationResult()
+
+        XCTAssertEqual(result.key, "existing-key")
+        XCTAssertEqual(result.change, .unchanged)
     }
 
     @MainActor
@@ -690,13 +717,15 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
         loadKey: (@Sendable () throws -> String?)? = nil,
         saveKey: (@Sendable (String) throws -> Void)? = nil,
-        savePrefix: (@Sendable (String) throws -> Void)? = nil
+        savePrefix: (@Sendable (String) throws -> Void)? = nil,
+        deleteKey: (@Sendable () throws -> Void)? = nil
     ) -> ObserverRegistration {
         let keyBox = keyBox ?? self.storedKeyBox
         let prefixBox = prefixBox ?? self.storedPrefixBox
         let loadKey = loadKey ?? { [keyBox] in keyBox.withLock { $0 } }
         let saveKey = saveKey ?? { [keyBox] key in keyBox.withLock { $0 = key } }
         let savePrefix = savePrefix ?? { [prefixBox] prefix in prefixBox.withLock { $0 = prefix } }
+        let deleteKey = deleteKey ?? { [keyBox] in keyBox.withLock { $0 = nil } }
         return ObserverRegistration(
             hostname: "test-device",
             version: "1.2.3",
@@ -706,7 +735,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
             sleep: sleep,
             loadKey: loadKey,
             saveKey: saveKey,
-            deleteKey: { [keyBox] in keyBox.withLock { $0 = nil } },
+            deleteKey: deleteKey,
             loadPrefix: { [prefixBox] in prefixBox.withLock { $0 } },
             savePrefix: savePrefix,
             deletePrefix: { [prefixBox] in prefixBox.withLock { $0 = nil } }
@@ -718,6 +747,7 @@ private enum ObserverRegistrationTestError: Error {
     case injectedSavePrefixFailure
     case injectedSaveKeyFailure
     case injectedReadBackFailure
+    case injectedDeleteKeyFailure
 }
 
 private enum ObserverRegistrationReadBackOutcome: Sendable, Equatable {

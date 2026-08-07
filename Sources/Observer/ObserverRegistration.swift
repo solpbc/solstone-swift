@@ -7,6 +7,18 @@ import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "registration")
 
+nonisolated enum ObserverRegistrationRefreshChange: Equatable, Sendable {
+    case minted
+    case replaced
+    case confirmedCurrent
+    case unchanged
+}
+
+nonisolated struct ObserverRegistrationRefreshResult: Equatable, Sendable {
+    let key: String
+    let change: ObserverRegistrationRefreshChange
+}
+
 @MainActor
 @Observable
 // Observer ingest keys are device-local registrations (keychain
@@ -43,6 +55,11 @@ final class ObserverRegistration {
         let prefix: String
     }
 
+    private struct RegistrationTaskResult: Sendable {
+        let key: String
+        let serverConfirmed: Bool
+    }
+
     private(set) var state: State = .idle
     private(set) var registrationPrefix: String?
     var activeLocalPort: Int?
@@ -61,7 +78,7 @@ final class ObserverRegistration {
     @ObservationIgnored private let loadPrefix: @Sendable () throws -> String?
     @ObservationIgnored private let savePrefix: @Sendable (String) throws -> Void
     @ObservationIgnored private let deletePrefix: @Sendable () throws -> Void
-    @ObservationIgnored private var registrationTask: Task<String, Error>?
+    @ObservationIgnored private var registrationTask: Task<RegistrationTaskResult, Error>?
 
     init(
         hostname: String,
@@ -112,16 +129,34 @@ final class ObserverRegistration {
         }
 
         return try await self.runRegistrationTask {
-            try await self.mintRegistration()
-        }
+            RegistrationTaskResult(
+                key: try await self.mintRegistration(),
+                serverConfirmed: true
+            )
+        }.key
     }
 
     func refreshRegistration() async throws -> String {
+        try await self.refreshRegistrationResult().key
+    }
+
+    func refreshRegistrationResult() async throws -> ObserverRegistrationRefreshResult {
         let cachedKey = try self.loadKey().flatMap { $0.isEmpty ? nil : $0 }
 
-        return try await self.runRegistrationTask {
+        let refresh = try await self.runRegistrationTask {
             try await self.refreshWithServer(cachedKey: cachedKey)
         }
+        let change: ObserverRegistrationRefreshChange
+        if let cachedKey {
+            if refresh.key != cachedKey {
+                change = .replaced
+            } else {
+                change = refresh.serverConfirmed ? .confirmedCurrent : .unchanged
+            }
+        } else {
+            change = refresh.serverConfirmed ? .minted : .unchanged
+        }
+        return ObserverRegistrationRefreshResult(key: refresh.key, change: change)
     }
 
     func registeredHandle() -> String? {
@@ -168,7 +203,7 @@ final class ObserverRegistration {
         return payload.key
     }
 
-    private func refreshWithServer(cachedKey: String?) async throws -> String {
+    private func refreshWithServer(cachedKey: String?) async throws -> RegistrationTaskResult {
         if cachedKey == nil {
             self.state = .registering
         }
@@ -214,7 +249,10 @@ final class ObserverRegistration {
         }
 
         if committedKey == payload.key {
-            return self.publishRefreshedRegistration(committedKey)
+            return RegistrationTaskResult(
+                key: self.publishRefreshedRegistration(committedKey),
+                serverConfirmed: true
+            )
         }
 
         if committedKey == cachedKey {
@@ -228,7 +266,10 @@ final class ObserverRegistration {
         log.error(
             "observer registration refresh key commit read-back anomaly (key length=\(committedKey.count, privacy: .public))"
         )
-        return self.publishRefreshedRegistration(committedKey)
+        return RegistrationTaskResult(
+            key: self.publishRefreshedRegistration(committedKey),
+            serverConfirmed: true
+        )
     }
 
     private func publishRefreshedRegistration(_ committedKey: String) -> String {
@@ -335,9 +376,9 @@ final class ObserverRegistration {
 }
 
 private extension ObserverRegistration {
-    func runRegistrationTask(
-        _ operation: @escaping @MainActor @Sendable () async throws -> String
-    ) async throws -> String {
+    private func runRegistrationTask(
+        _ operation: @escaping @MainActor @Sendable () async throws -> RegistrationTaskResult
+    ) async throws -> RegistrationTaskResult {
         if let registrationTask = self.registrationTask {
             return try await registrationTask.value
         }
@@ -366,14 +407,14 @@ private extension ObserverRegistration {
         log.error("observer registration failed: \(reason, privacy: .public)")
     }
 
-    func finishRefreshFailure(
+    private func finishRefreshFailure(
         _ error: Error,
         cachedKey: String?,
         reason: String
-    ) throws -> String {
+    ) throws -> RegistrationTaskResult {
         if let cachedKey {
             self.logRefreshFailure(reason: reason)
-            return cachedKey
+            return RegistrationTaskResult(key: cachedKey, serverConfirmed: false)
         }
         self.failRegistration(reason: reason)
         throw error

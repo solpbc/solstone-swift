@@ -75,6 +75,15 @@ nonisolated enum TransferGateSettlementOutcome: Equatable, Sendable {
     case mismatchedToken
 }
 
+nonisolated enum TransferEnqueueIfAbsentOutcome: Equatable, Sendable {
+    case enqueued
+    case alreadyPresent
+}
+
+nonisolated enum TransferEnqueueIfAbsentError: Error, Equatable, Sendable {
+    case unverifiedOwnership(TransferOwnershipVerdict)
+}
+
 nonisolated enum TransferHeldGateRestorationOutcome: Equatable, Sendable {
     case gated(TransferGateToken)
     case notHeld
@@ -412,6 +421,76 @@ actor TransferEngine {
             .manifest.itemID
     }
 
+    /// Atomically adopts a producer item unless this engine already owns the
+    /// manifest's durable item ID. The actor boundary keeps simultaneous
+    /// producer recovery paths from staging twins for one logical item.
+    func enqueueIfAbsent(
+        manifest: TransferManifest,
+        equivalentObserverSegmentID: UUID? = nil,
+        payloadFileURLs: [String: URL]
+    ) throws -> TransferEnqueueIfAbsentOutcome {
+        let ownership = try self.verifyEquivalentOwnership(
+            expectedManifest: manifest,
+            equivalentObserverSegmentID: equivalentObserverSegmentID,
+            expectedPayloadSourceURLs: payloadFileURLs
+        )
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            return .alreadyPresent
+        case .notFound, .salvageOnly:
+            break
+        case .conflict, .stagingOnly:
+            throw TransferEnqueueIfAbsentError.unverifiedOwnership(ownership)
+        }
+        _ = try self.commitStagedResult(self.spool.stage(
+            manifest: manifest,
+            payloadFileURLs: payloadFileURLs
+        ))
+        return .enqueued
+    }
+
+    func verifyEquivalentOwnership(
+        expectedManifest: TransferManifest,
+        equivalentObserverSegmentID: UUID?,
+        expectedPayloadSourceURLs: [String: URL]
+    ) throws -> TransferOwnershipVerdict {
+        var candidateIDs = [expectedManifest.itemID]
+        if let equivalentObserverSegmentID {
+            let alternatives = self.queuedItems.values
+                .map(\.manifest)
+                + self.attentionItems.values.map(\.manifest)
+            candidateIDs.append(contentsOf: alternatives
+                .filter { candidate in
+                    candidate.itemID != expectedManifest.itemID
+                        && candidate.sourceKey == expectedManifest.sourceKey
+                        && candidate.observerIngest?.segmentID == equivalentObserverSegmentID
+                }
+                .map(\.itemID)
+                .sorted { $0.uuidString < $1.uuidString })
+        }
+
+        for candidateID in candidateIDs {
+            var candidateExpectation = expectedManifest
+            candidateExpectation.itemID = candidateID
+            let verdict = try self.spool.verifyOwnership(
+                expectedManifest: candidateExpectation,
+                expectedPayloadSourceURLs: expectedPayloadSourceURLs
+            )
+            switch verdict {
+            case .notFound:
+                continue
+            case .conflict(.ownerConflict):
+                self.conflictedItemIDs.insert(candidateID)
+                return verdict
+            case .conflict:
+                return verdict
+            case .ownedInQueued, .ownedInAttention, .stagingOnly, .salvageOnly:
+                return verdict
+            }
+        }
+        return .notFound
+    }
+
     /// Commits a file-owned item with a process-local gate already active. It is
     /// valid after `initialize()` rebuilds in-memory state from the spool and
     /// before `enableDispatch()`; initialization clears process-local gates.
@@ -673,6 +752,27 @@ actor TransferEngine {
             .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
             .filter { !self.isGateActive($0.manifest.itemID) }
             .filter { source == nil || $0.manifest.sourceKey == source }
+            .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
+        try self.moveAttentionItemsToQueued(items)
+    }
+
+    /// Pairing credentials are intentionally not retried as a blanket 4xx
+    /// policy. A confirmed pairing replacement requeues only items whose
+    /// persisted server response explicitly identifies the superseded key.
+    func retryAuthenticationAttention(source: String? = nil) throws {
+        let items = self.attentionItems.values
+            .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+            .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
+            .filter { !self.isGateActive($0.manifest.itemID) }
+            .filter { source == nil || $0.manifest.sourceKey == source }
+            .filter { item in
+                guard item.manifest.attention?.reason == "http_client_error",
+                      let detail = item.manifest.attention?.shortDetail,
+                      let data = detail.data(using: .utf8),
+                      let response = try? JSONDecoder().decode(TransferAuthenticationErrorResponse.self, from: data)
+                else { return false }
+                return response.reasonCode == TransferReasonCodes.authKeyInvalid
+            }
             .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
         try self.moveAttentionItemsToQueued(items)
     }

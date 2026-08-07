@@ -12,9 +12,15 @@ nonisolated final class SolstoneSwiftAppOmiRefreshWiringGrepTests: XCTestCase {
 
         let initialBody = try Self.slice(
             in: text,
-            from: "// Initial connected state needs the same Omi registration edge observation.",
+            from: "// Initial connected state needs the same registration, transfer, recovery,",
             to: ".onChange(of: self.scenePhase)"
         )
+        XCTAssertTrue(initialBody.contains("self.observerRegistration.activeLocalPort = port"))
+        XCTAssertTrue(initialBody.contains("self.omiRegistration.activeLocalPort = port"))
+        XCTAssertTrue(initialBody.contains("self.watchRegistration.activeLocalPort = port"))
+        XCTAssertTrue(initialBody.contains("self.transferEndpointResolver.update(activeLocalPort: port)"))
+        XCTAssertTrue(initialBody.contains("self.transferEngine.endpointAvailabilityChanged()"))
+        XCTAssertTrue(initialBody.contains("self.pairingCredentialRecovery.recoverIfPending()"))
         XCTAssertTrue(initialBody.contains("self.omiRegistrationRefreshCoordinator.observe(tunnelState: self.tunnelManager.state)"))
 
         let tunnelChangeBody = try Self.slice(
@@ -27,10 +33,12 @@ nonisolated final class SolstoneSwiftAppOmiRefreshWiringGrepTests: XCTestCase {
         let closure = try Self.slice(
             in: text,
             from: "let omiRegistrationRefreshCoordinator = OmiRegistrationRefreshCoordinator",
-            to: "let transferEndpointResolver"
+            to: "let transferEnqueuer"
         )
         XCTAssertTrue(closure.contains("guard !Self.isIntegrationMode, !Self.isUITest else { return }"))
         XCTAssertTrue(closure.contains("omiRegistration.activeLocalPort = port"))
+        XCTAssertTrue(closure.contains("pairingCredentialRecovery.isPending(sourceKey: ObserverAudioTransferSource.omi)"))
+        XCTAssertTrue(closure.contains("pairingCredentialRecovery.recoverIfPending()"))
         XCTAssertTrue(closure.contains("omiRegistration.refreshRegistration()"))
         XCTAssertFalse(closure.contains("observerRegistration.refreshRegistration()"))
         XCTAssertFalse(closure.contains("watchRegistration.refreshRegistration()"))
@@ -38,7 +46,7 @@ nonisolated final class SolstoneSwiftAppOmiRefreshWiringGrepTests: XCTestCase {
         let revalidationBody = try Self.slice(
             in: text,
             from: "// cold-launch-into-connected:",
-            to: "// Initial connected state needs the same Omi registration edge observation."
+            to: "// Initial connected state needs the same registration, transfer, recovery,"
         )
         XCTAssertFalse(revalidationBody.contains("refreshRegistration"))
         XCTAssertFalse(revalidationBody.contains("omiRegistrationRefreshCoordinator"))

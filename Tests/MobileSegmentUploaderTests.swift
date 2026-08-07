@@ -95,7 +95,11 @@ final class MobileSegmentUploaderTests: XCTestCase {
 
     func testMultiPartEnqueueFailureLeavesPendingArtifactsAndLaterPassReenqueues() async throws {
         let failingFileSystem = MoveFailingTransferFileSystem(failOnMove: 2)
-        let failingHarness = self.makeHarness(fileSystem: failingFileSystem)
+        let transferRootName = "retry-transfer"
+        let failingHarness = self.makeHarness(
+            transferRootName: transferRootName,
+            fileSystem: failingFileSystem
+        )
         let segmentID = UUID()
         try self.writeSegment(
             store: failingHarness.store,
@@ -113,9 +117,10 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertFalse(self.tempPathExists(containing: segmentID.uuidString))
 
         let successHarness = self.makeHarness(
-            transferRootName: "success-transfer",
+            transferRootName: transferRootName,
             store: failingHarness.store
         )
+        try await successHarness.engine.start()
         await successHarness.uploader.resumeFromDisk()
 
         let snapshots = await successHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
@@ -147,7 +152,7 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertTrue(snapshots.isEmpty)
     }
 
-    func testDeliveredTombstoneWriteIsIdempotentAndCosmetic() async throws {
+    func testDeliveredTombstoneWriteIsIdempotentAndRetiresResidue() async throws {
         let harness = self.makeHarness()
         let segmentID = UUID()
 
@@ -159,6 +164,208 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
         XCTAssertTrue((try? harness.store.list(.pending))?.isEmpty ?? true)
         XCTAssertTrue((try? harness.store.list(.failed))?.isEmpty ?? true)
+    }
+
+    func testConcurrentResumeAdoptsPendingSegmentOnlyOnce() async throws {
+        let harness = self.makeHarness(cooperator: MaintenanceCooperator(chunkSize: 1))
+        let segmentID = UUID()
+        try self.writeSegment(store: harness.store, segmentID: segmentID, sources: [.audio])
+
+        async let first: Void = harness.uploader.resumeFromDisk()
+        async let second: Void = harness.uploader.resumeFromDisk()
+        _ = await (first, second)
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.manifest.itemID, segmentID)
+        XCTAssertEqual(snapshots.first?.manifest.observerIngest?.segmentID, segmentID)
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        ))
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        ))
+    }
+
+    func testTwoUploaderInstancesAtomicallyAdoptOneSegment() async throws {
+        let harness = self.makeHarness(cooperator: MaintenanceCooperator(chunkSize: 1))
+        let secondUploader = MobileSegmentUploader(
+            transferEngine: harness.engine,
+            store: harness.store,
+            clock: self.clock,
+            cooperator: MaintenanceCooperator(chunkSize: 1)
+        )
+        let segmentID = UUID()
+        try self.writeSegment(store: harness.store, segmentID: segmentID, sources: [.audio])
+
+        async let first: Void = harness.uploader.resumeFromDisk()
+        async let second: Void = secondUploader.resumeFromDisk()
+        _ = await (first, second)
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.manifest.itemID, segmentID)
+        XCTAssertEqual(snapshots.first?.manifest.observerIngest?.segmentID, segmentID)
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        ))
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        ))
+    }
+
+    func testLegacyRandomTransferOwnershipRetiresFailedResidue() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let failedDirectory = try self.writeSegment(
+            store: harness.store,
+            segmentID: segmentID,
+            sources: [.audio]
+        )
+        let mobileManifest = try harness.store.readManifest(in: failedDirectory)
+        _ = try harness.store.move(segmentID: segmentID, from: .pending, to: .failed)
+        let legacyItemID = UUID()
+        let transferManifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: legacyItemID,
+            manifest: mobileManifest,
+            now: self.clock.now(),
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
+        )
+        _ = try await harness.engine.enqueue(
+            manifest: transferManifest,
+            payloads: ["audio": Data("audio-bytes".utf8)]
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.manifest.itemID, legacyItemID)
+        XCTAssertEqual(snapshots.first?.manifest.observerIngest?.segmentID, segmentID)
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        ))
+    }
+
+    func testMissingTransferPayloadNeverRetiresIntactProducerCopy() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let pendingDirectory = try self.writeSegment(
+            store: harness.store,
+            segmentID: segmentID,
+            sources: [.audio]
+        )
+        let mobileManifest = try harness.store.readManifest(in: pendingDirectory)
+        let transferManifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: segmentID,
+            manifest: mobileManifest,
+            now: self.clock.now(),
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
+        )
+        _ = try await harness.engine.enqueue(
+            manifest: transferManifest,
+            payloads: ["audio": Data("audio-bytes".utf8)]
+        )
+        let transferPayload = self.tempDirectory
+            .appendingPathComponent("Transfers/queued/\(segmentID.uuidString)/audio.m4a")
+        try FileManager.default.removeItem(at: transferPayload)
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertTrue(harness.store.fileExists(pendingDirectory))
+        XCTAssertTrue(harness.store.fileExists(harness.store.audioURL(in: pendingDirectory)))
+    }
+
+    func testLegacyPayloadMismatchNeverRetiresIntactProducerCopy() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 200), Data("ok".utf8))
+        }
+        let harness = self.makeHarness(endpointAvailable: true)
+        try await harness.engine.initialize()
+        let segmentID = UUID()
+        let failedDirectory = try self.writeSegment(
+            store: harness.store,
+            segmentID: segmentID,
+            sources: [.audio]
+        )
+        let mobileManifest = try harness.store.readManifest(in: failedDirectory)
+        _ = try harness.store.move(segmentID: segmentID, from: .pending, to: .failed)
+        let legacyManifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: UUID(),
+            manifest: mobileManifest,
+            now: self.clock.now(),
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
+        )
+        _ = try await harness.engine.enqueue(
+            manifest: legacyManifest,
+            payloads: ["audio": Data("different-bytes".utf8)]
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        await harness.engine.enableDispatch()
+        try await transferTestWaitFor("independent legacy mismatch dispatch") {
+            TransferURLProtocol.requests.count == 1
+        }
+
+        let retained = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        XCTAssertTrue(harness.store.fileExists(retained))
+        XCTAssertTrue(harness.store.fileExists(harness.store.audioURL(in: retained)))
+    }
+
+    func testLegacyManifestMismatchNeverRetiresIntactProducerCopy() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let failedDirectory = try self.writeSegment(
+            store: harness.store,
+            segmentID: segmentID,
+            sources: [.audio]
+        )
+        let mobileManifest = try harness.store.readManifest(in: failedDirectory)
+        _ = try harness.store.move(segmentID: segmentID, from: .pending, to: .failed)
+        var legacyManifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: UUID(),
+            manifest: mobileManifest,
+            now: self.clock.now(),
+            sources: [.audio],
+            payloadParts: [ObserverAudioTransferEnqueuer.audioPart()]
+        )
+        legacyManifest.observerIngest?.day = "20991231"
+        _ = try await harness.engine.enqueue(
+            manifest: legacyManifest,
+            payloads: ["audio": Data("audio-bytes".utf8)]
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        let retained = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        XCTAssertTrue(harness.store.fileExists(retained))
+        XCTAssertTrue(harness.store.fileExists(harness.store.audioURL(in: retained)))
+    }
+
+    func testUploadedTombstoneRetiresStalePendingAndFailedResidue() async throws {
+        let harness = self.makeHarness()
+        let pendingID = UUID()
+        let failedID = UUID()
+        try self.writeSegment(store: harness.store, segmentID: pendingID, sources: [.audio])
+        _ = try self.writeSegment(store: harness.store, segmentID: failedID, sources: [.audio])
+        _ = try harness.store.move(segmentID: failedID, from: .pending, to: .failed)
+        try harness.store.writeTombstone(segmentID: pendingID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+        try harness.store.writeTombstone(segmentID: failedID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.pending, segmentID: pendingID)
+        ))
+        XCTAssertFalse(harness.store.fileExists(
+            harness.store.segmentDirectoryURL(.failed, segmentID: failedID)
+        ))
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertTrue(snapshots.isEmpty)
     }
 }
 
@@ -173,7 +380,8 @@ private extension MobileSegmentUploaderTests {
         endpointAvailable: Bool = false,
         transferRootName: String = "Transfers",
         store: MobileSegmentStore? = nil,
-        fileSystem: (any TransferFileSystem)? = nil
+        fileSystem: (any TransferFileSystem)? = nil,
+        cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) -> Harness {
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent(transferRootName, isDirectory: true),
@@ -187,7 +395,12 @@ private extension MobileSegmentUploaderTests {
             rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)
         )
         return Harness(
-            uploader: MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock),
+            uploader: MobileSegmentUploader(
+                transferEngine: transferHarness.engine,
+                store: store,
+                clock: self.clock,
+                cooperator: cooperator
+            ),
             store: store,
             engine: transferHarness.engine
         )

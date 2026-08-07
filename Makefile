@@ -1,18 +1,24 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
 PROJECT   ?= solstone-swift.xcodeproj
+comma := ,
 BUNDLE_ID ?= app.solstone.swift
 TEAM_ID   ?= 7QCG8V4M6H
 DEVICE    ?= 1776B0A9-E149-52A1-9F6F-04CCDE223940
 SIM       ?= iPhone 17 Pro
 SIM_IPAD  ?= iPad Pro 13-inch (M4)
 SIM_WATCH ?= Apple Watch Series 11 (46mm)
+SIM_UDID ?=
+SIM_DESTINATION ?= $(if $(strip $(SIM_UDID)),platform=iOS Simulator$(comma)id=$(SIM_UDID),platform=iOS Simulator$(comma)name=$(SIM))
+SIM_RUN_NAME ?= solstone-swift-manual
+SIM_UDID_FILE ?= build/manual-sim.udid
+SIM_LOG_WINDOW ?= 5m
 ARCHIVE   ?= build/solstone-swift.xcarchive
 APP       ?= $(ARCHIVE)/Products/Applications/solstone-swift.app
 LOG_SUB   ?= app.solstone.swift
@@ -117,10 +123,63 @@ unlock:
 
 # --- Simulator (no device/signing needed) ---
 
+sim-create:
+	@set -eu; \
+		mkdir -p "$$(dirname "$(SIM_UDID_FILE)")"; \
+		test ! -s "$(SIM_UDID_FILE)" || { echo "error: simulator ownership file already exists: $(SIM_UDID_FILE)"; exit 1; }; \
+		udid=""; \
+		cleanup() { if [ -n "$$udid" ] && [ ! -s "$(SIM_UDID_FILE)" ]; then xcrun simctl delete "$$udid" >/dev/null 2>&1 || true; fi; }; \
+		trap cleanup EXIT; \
+		udid=$$(xcrun simctl create "$(SIM_RUN_NAME)" "$(CI_SIM_DEVICETYPE)" "$(CI_SIM_RUNTIME)"); \
+		printf '%s\n' "$$udid" >"$(SIM_UDID_FILE)"; \
+		trap - EXIT; \
+		printf '%s\n' "$$udid"
+
+sim-delete:
+	@set -eu; \
+		test -s "$(SIM_UDID_FILE)" || { echo "error: simulator ownership file is missing: $(SIM_UDID_FILE)"; exit 1; }; \
+		owned_udid=$$(cat "$(SIM_UDID_FILE)"); \
+		udid='$(SIM_UDID)'; \
+		if [ -z "$$udid" ]; then \
+			udid="$$owned_udid"; \
+		fi; \
+		test "$$udid" = "$$owned_udid" || { echo "error: simulator ownership mismatch requested=$$udid recorded=$$owned_udid"; exit 1; }; \
+		devices_json=$$(mktemp -t solstone-sim-devices.XXXXXX); \
+		trap 'rm -f "$$devices_json"' EXIT; \
+		xcrun simctl list devices -j >"$$devices_json"; \
+		actual_name=$$(jq -r --arg udid "$$udid" 'first(.devices[][] | select(.udid == $$udid) | .name) // ""' "$$devices_json"); \
+		test "$$actual_name" = "$(SIM_RUN_NAME)" || { echo "error: simulator ownership mismatch udid=$$udid expected=$(SIM_RUN_NAME) actual=$$actual_name"; exit 1; }; \
+		xcrun simctl shutdown "$$udid" >/dev/null 2>&1 || true; \
+		xcrun simctl delete "$$udid"; \
+		if [ -s "$(SIM_UDID_FILE)" ] && [ "$$(cat "$(SIM_UDID_FILE)")" = "$$udid" ]; then rm -f "$(SIM_UDID_FILE)"; fi; \
+		rm -f "$$devices_json"; \
+		trap - EXIT
+
+sim-state:
+	@set -eu; \
+		udid='$(SIM_UDID)'; \
+		if [ -z "$$udid" ]; then \
+			test -s "$(SIM_UDID_FILE)" || { echo "error: simulator ownership file is missing: $(SIM_UDID_FILE)"; exit 1; }; \
+			udid=$$(cat "$(SIM_UDID_FILE)"); \
+		fi; \
+		root=$$(xcrun simctl get_app_container "$$udid" $(BUNDLE_ID) group.app.solstone.swift); \
+		for directory in MobileSegment Transfers; do \
+			if [ -d "$$root/$$directory" ]; then \
+				find "$$root/$$directory" -maxdepth 4 -type f -print | LC_ALL=C sort; \
+			fi; \
+		done; \
+		for file in "$$root"/MobileSegment/failed/*/failure.json "$$root"/MobileSegment/failed/*/manifest.json "$$root"/Transfers/attention/*/manifest.json; do \
+			[ -f "$$file" ] || continue; \
+			echo "--- $$file"; \
+			jq -c . "$$file"; \
+		done; \
+		xcrun simctl spawn "$$udid" log show --style compact --last '$(SIM_LOG_WINDOW)' \
+			--predicate 'subsystem == "$(LOG_SUB)"'
+
 sim: deps
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
-		-destination 'platform=iOS Simulator,name=$(SIM)' \
+		-destination '$(SIM_DESTINATION)' \
 		-derivedDataPath $(DERIVED) \
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build
@@ -165,10 +224,17 @@ watch-sim-json: deps
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build 2>&1 | xcsift
 
-sim-launch: sim
-	@xcrun simctl boot '$(SIM)' 2>/dev/null || true
-	xcrun simctl install booted $(SIM_APP)
-	xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID)
+sim-launch:
+	@set -eu; \
+		udid='$(SIM_UDID)'; \
+		if [ -z "$$udid" ]; then \
+			test -s "$(SIM_UDID_FILE)" || { echo "error: simulator ownership file is missing: $(SIM_UDID_FILE)"; exit 1; }; \
+			udid=$$(cat "$(SIM_UDID_FILE)"); \
+		fi; \
+		$(MAKE) sim SIM_UDID="$$udid"; \
+		xcrun simctl boot "$$udid" >/dev/null 2>&1 || true; \
+		xcrun simctl install "$$udid" $(SIM_APP); \
+		xcrun simctl launch --console-pty --terminate-running-process "$$udid" $(BUNDLE_ID)
 
 test: deps
 	@rm -rf build/test-results.xcresult
