@@ -3477,6 +3477,7 @@ final class WatchCaptureTests: XCTestCase {
         harness.engine.start(); await harness.engine.settled()
 
         let openingID = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest.id)
+        XCTAssertTrue(writer.appendLineURLs.contains(locationURL))
         XCTAssertTrue(harness.storage.fileWriter.fileExists(at: locationURL))
         let originalAudio = try Data(contentsOf: audioURL)
 
@@ -4627,7 +4628,6 @@ private final class FailingWatchFileWriter: WatchFileWriting {
     var moveItems: [(source: URL, destination: URL)] = []
     var fileSizeURLs: [URL] = []
     var writeDataObservations: [String: () -> Void] = [:]
-    var appendLineObservations: [String: () -> Void] = [:]
     private var atomicReplaceOrdinals: [String: Int] = [:]
     private var writeDataOrdinals: [String: Int] = [:]
     private var atomicReplaceFailures: [String: Set<Int>] = [:]
@@ -4686,7 +4686,6 @@ private final class FailingWatchFileWriter: WatchFileWriting {
         if self.failAppend {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSPC))
         }
-        self.appendLineObservations[url.path]?()
         try self.base.appendLine(line, to: url)
     }
 
