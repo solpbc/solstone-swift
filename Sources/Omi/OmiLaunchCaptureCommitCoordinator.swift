@@ -64,12 +64,12 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private enum CoordinatorGateOwner {
-        case linked(TransferGateToken)
+        case attached(TransferGateToken)
         case registered(PendingOwner)
 
         var token: TransferGateToken {
             switch self {
-            case .linked(let token): token
+            case .attached(let token): token
             case .registered(let owner): owner.token
             }
         }
@@ -96,7 +96,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     private var didCutOver = false
     // Last writer wins: the call that creates a lifetime hold owns its resume policy.
     // Explicit holds resume only from the explicit-enable path; conservative and retry
-    // holds require a successful linked-handoff scan.
+    // holds require a successful attached-handoff scan.
     private var coordinatorHoldReasonsByItemID: [UUID: CoordinatorHoldReason] = [:]
     private var isResumingAfterExplicitEnable = false
     private var pendingGateOwnersByItemID: [UUID: CoordinatorGateOwner] = [:]
@@ -217,7 +217,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
         }
 
-        let unsettledLinkedGenerationIDs = await self.settleAcknowledgedLinkedHandoffs()
+        let unsettledLinkedGenerationIDs = await self.settleAcknowledgedAttachedHandoffs()
         await self.holdPendingGateOwners()
 
         // Retirement is post-settlement maintenance. A handoff owner may need its cursor
@@ -260,7 +260,7 @@ final class OmiLaunchCaptureCommitCoordinator {
                 case .alreadyReleased, .unknownToken, .mismatchedToken:
                     // The restoration issued this process-local token. Retain it for
                     // retry rather than leaving an active gate without an owner.
-                    self.pendingGateOwnersByItemID[item.itemID] = .linked(existingHold)
+                    self.pendingGateOwnersByItemID[item.itemID] = .attached(existingHold)
                 }
                 continue
             case .alreadyGated:
@@ -271,7 +271,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             switch await self.engine.gateExisting(itemID: item.itemID) {
             case .gated(let token):
                 if !(await self.convertGateToHold(token, itemID: item.itemID, reason: .conservative)) {
-                    self.pendingGateOwnersByItemID[item.itemID] = .linked(token)
+                    self.pendingGateOwnersByItemID[item.itemID] = .attached(token)
                 }
             case .alreadyGated:
                 continue
@@ -493,12 +493,12 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private func restoreCoordinatorHolds(for handoffs: [LinkedHandoff]) async {
-        let linkedIDs = Set(handoffs.map(\.itemID))
-        for itemID in linkedIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
+        let attachedIDs = Set(handoffs.map(\.itemID))
+        for itemID in attachedIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
             guard let reason = self.coordinatorHoldReasonsByItemID[itemID], reason != .explicitResume else { continue }
             switch await self.engine.restoreGateFromHold(itemID: itemID) {
             case .gated(let token):
-                self.pendingGateOwnersByItemID[itemID] = .linked(token)
+                self.pendingGateOwnersByItemID[itemID] = .attached(token)
             case .notHeld, .alreadyGated, .engineNotInitialized:
                 await self.engine.hold(itemID: itemID)
                 self.coordinatorHoldReasonsByItemID[itemID] = reason
@@ -512,7 +512,7 @@ final class OmiLaunchCaptureCommitCoordinator {
                self.coordinatorHoldReasonsByItemID[itemID] == .explicitResume {
                 switch await self.engine.restoreGateFromHold(itemID: itemID) {
                 case .gated(let token):
-                    self.pendingGateOwnersByItemID[itemID] = .linked(token)
+                    self.pendingGateOwnersByItemID[itemID] = .attached(token)
                 case .notHeld, .alreadyGated, .engineNotInitialized:
                     await self.engine.hold(itemID: itemID)
                     self.coordinatorHoldReasonsByItemID[itemID] = .explicitResume
@@ -521,7 +521,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
             switch await self.engine.gateExisting(itemID: itemID) {
             case .gated(let token):
-                self.pendingGateOwnersByItemID[itemID] = .linked(token)
+                self.pendingGateOwnersByItemID[itemID] = .attached(token)
             case .alreadyGated:
                 await self.engine.hold(itemID: itemID)
             case .dispatchAlreadyEnabled:
@@ -545,7 +545,7 @@ final class OmiLaunchCaptureCommitCoordinator {
         case .ownedInQueued, .ownedInAttention:
             if let owner = self.pendingGateOwnersByItemID[partition.itemID] {
                 switch owner {
-                case .linked(let token):
+                case .attached(let token):
                     return token
                 case .registered(let pending):
                     return pending.token
@@ -568,7 +568,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
             guard (try? self.io.fileExists(at: partition.audioURL)) == false else {
                 if !(await self.convertGateToHold(token, itemID: partition.itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[partition.itemID] = .linked(token)
+                    self.pendingGateOwnersByItemID[partition.itemID] = .attached(token)
                 }
                 return nil
             }
@@ -608,7 +608,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             guard owner.isAcknowledged else {
                 unsettledGenerationIDs.formUnion(generationIDs)
                 if !(await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[owner.itemID] = .linked(owner.token)
+                    self.pendingGateOwnersByItemID[owner.itemID] = .attached(owner.token)
                     await self.commitSettlementAttention(owner, action: "gate_conversion")
                 } else {
                     self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
@@ -631,7 +631,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             guard cleaned else {
                 unsettledGenerationIDs.formUnion(generationIDs)
                 if !(await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[owner.itemID] = .linked(owner.token)
+                    self.pendingGateOwnersByItemID[owner.itemID] = .attached(owner.token)
                     await self.commitSettlementAttention(owner, action: "gate_conversion")
                 } else {
                     self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
@@ -647,7 +647,7 @@ final class OmiLaunchCaptureCommitCoordinator {
                 self.cleanupProvenHandoffsByItemID.removeValue(forKey: owner.itemID)
             } else {
                 unsettledGenerationIDs.formUnion(generationIDs)
-                self.pendingGateOwnersByItemID[owner.itemID] = .linked(owner.token)
+                self.pendingGateOwnersByItemID[owner.itemID] = .attached(owner.token)
                 await self.commitSettlementAttention(owner, action: "release")
             }
         }
@@ -725,16 +725,16 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private func settleAcknowledgedLinkedHandoffs() async -> Set<UUID> {
+    private func settleAcknowledgedAttachedHandoffs() async -> Set<UUID> {
         guard let rootURL else { return Set(self.enumeratedHandoffs.map(\.generationID)) }
-        let linkedOwners = self.pendingGateOwnersByItemID.compactMap { itemID, owner -> (UUID, TransferGateToken)? in
+        let attachedOwners = self.pendingGateOwnersByItemID.compactMap { itemID, owner -> (UUID, TransferGateToken)? in
             switch owner {
-            case .linked(let token): (itemID, token)
+            case .attached(let token): (itemID, token)
             case .registered: nil
             }
         }.sorted { $0.0.uuidString < $1.0.uuidString }
         var owners: [SettlementOwner] = []
-        for (itemID, token) in linkedOwners {
+        for (itemID, token) in attachedOwners {
             let handoffs = self.enumeratedHandoffs
                 .filter { $0.itemID == itemID }
                 .sorted { lhs, rhs in
@@ -794,7 +794,7 @@ final class OmiLaunchCaptureCommitCoordinator {
         case .registered(let pending):
             guard let generationID = self.materializerSession?.generationID else { return nil }
             return self.settlementOwners(for: [pending], generationID: generationID)[0]
-        case .linked(let token):
+        case .attached(let token):
             let handoffs = self.enumeratedHandoffs
                 .filter { $0.itemID == itemID }
                 .map {

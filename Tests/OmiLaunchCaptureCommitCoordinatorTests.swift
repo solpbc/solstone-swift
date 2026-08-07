@@ -303,7 +303,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         }
     }
 
-    @MainActor func testConservativeEnumerationHoldRestoresLinkedOwnersWithoutRestart() async throws {
+    @MainActor func testConservativeEnumerationHoldRestoresAttachedOwnersWithoutRestart() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("conservative-capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("conservative-transfer", isDirectory: true)
         let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
@@ -332,14 +332,14 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
 
         io.clearFaults()
         await coordinator.reconcile()
-        try await transferTestWaitFor("restored linked owners") {
+        try await transferTestWaitFor("restored attached owners") {
             Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs)
         }
         await self.assertFixtureOwnerSettlement(fixture, engine: harness.engine, requests: TransferURLProtocol.requests)
         XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
     }
 
-    @MainActor func testOnlyLinkedCoordinatorHoldsRestoreAndProofGatePrecedesDispatch() async throws {
+    @MainActor func testOnlyAttachedCoordinatorHoldsRestoreAndProofGatePrecedesDispatch() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("proof-capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("proof-transfer", isDirectory: true)
         let io = FaultInjectingOmiLaunchCaptureIO()
@@ -382,7 +382,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == foreignHeldID })
         await barrier.resume()
         await reconciliation.value
-        try await transferTestWaitFor("linked owner sends") { TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == partition.itemID } }
+        try await transferTestWaitFor("attached owner sends") { TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == partition.itemID } }
         XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == foreignHeldID })
     }
 
@@ -423,7 +423,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             XCTAssertEqual(item.manifest.attention?.reason, "launch_capture_settlement_\(name)_failed", name)
         }
 
-        // Existing spool owners take the linked-handoff path. Exercise every
+        // Existing spool owners take the attached-handoff path. Exercise every
         // settlement action that can occur after their durable acknowledgment.
         for action in [
             OmiLaunchCaptureCommitCoordinator.SettlementAction.release,
@@ -431,8 +431,8 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         ] {
             TransferURLProtocol.reset()
             let name = action == .release ? "release" : "gate_conversion"
-            let captureRoot = self.rootURL.appendingPathComponent("linked-attention-\(name)-capture", isDirectory: true)
-            let transferRoot = self.rootURL.appendingPathComponent("linked-attention-\(name)-transfer", isDirectory: true)
+            let captureRoot = self.rootURL.appendingPathComponent("attached-attention-\(name)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("attached-attention-\(name)-transfer", isDirectory: true)
             let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
             let io = FaultInjectingOmiLaunchCaptureIO()
             let harness = self.makeHarness(rootURL: transferRoot)
@@ -461,14 +461,14 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             await coordinator.reconcile()
             let attention = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
                 .filter { $0.manifest.attention?.reason == "launch_capture_settlement_\(name)_failed" }
-            XCTAssertEqual(attention.count, 1, "linked \(name)")
-            XCTAssertTrue(try XCTUnwrap(attention.first, "linked \(name)").manifest.payloadParts.isEmpty, "linked \(name)")
+            XCTAssertEqual(attention.count, 1, "attached \(name)")
+            XCTAssertTrue(try XCTUnwrap(attention.first, "attached \(name)").manifest.payloadParts.isEmpty, "attached \(name)")
         }
 
         TransferURLProtocol.reset()
         do {
-            let captureRoot = self.rootURL.appendingPathComponent("linked-attention-cleanup-capture", isDirectory: true)
-            let transferRoot = self.rootURL.appendingPathComponent("linked-attention-cleanup-transfer", isDirectory: true)
+            let captureRoot = self.rootURL.appendingPathComponent("attached-attention-cleanup-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("attached-attention-cleanup-transfer", isDirectory: true)
             let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
             let io = FaultInjectingOmiLaunchCaptureIO()
             let harness = self.makeHarness(rootURL: transferRoot)
@@ -486,8 +486,8 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             await coordinator.reconcile()
             let attention = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
                 .filter { $0.manifest.attention?.reason == "launch_capture_settlement_cleanup_failed" }
-            XCTAssertEqual(attention.count, 1, "linked cleanup")
-            XCTAssertTrue(try XCTUnwrap(attention.first, "linked cleanup").manifest.payloadParts.isEmpty, "linked cleanup")
+            XCTAssertEqual(attention.count, 1, "attached cleanup")
+            XCTAssertTrue(try XCTUnwrap(attention.first, "attached cleanup").manifest.payloadParts.isEmpty, "attached cleanup")
         }
 
         let healthyCaptureRoot = self.rootURL.appendingPathComponent("attention-healthy-capture", isDirectory: true)
@@ -683,7 +683,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         XCTAssertEqual(TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) == partition.itemID }.count, 1)
     }
 
-    @MainActor func testRestartAfterAcknowledgmentCleansAndReleasesEveryLinkedOwner() async throws {
+    @MainActor func testRestartAfterAcknowledgmentCleansAndReleasesEveryAttachedOwner() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("restart-after-ack-capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("restart-after-ack-transfer", isDirectory: true)
         let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
@@ -749,7 +749,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
 
             let restarted = self.makeHarness(rootURL: transferRoot)
             try await restarted.engine.initialize()
-            var registeredLinkedOwner = false
+            var registeredAttachedOwner = false
             let restartedCoordinator = OmiLaunchCaptureCommitCoordinator(
                 rootURL: captureRoot,
                 engine: restarted.engine,
@@ -757,12 +757,12 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 io: io,
                 onReconciliationPhase: { phase in
                     if phase == .afterOwnerRegisteredBeforeAcknowledgment {
-                        registeredLinkedOwner = true
+                        registeredAttachedOwner = true
                     }
                 }
             )
             await restartedCoordinator.reconcile()
-            XCTAssertFalse(registeredLinkedOwner)
+            XCTAssertFalse(registeredAttachedOwner)
             XCTAssertEqual(TransferURLProtocol.requests.count, 0)
             await restarted.engine.enableDispatch()
             try await transferTestWaitFor("cleanup-before-release restart \(position)") {
