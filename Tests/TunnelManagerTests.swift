@@ -2607,6 +2607,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             TunnelProbeURLProtocol.capturedRequests.count >= requestsAfterFirstNewArmFailure + 1
         }, timeout: .seconds(1), interval: .milliseconds(20))
         XCTAssertTrue(didSecondFailureOnSameConnection)
+        let didEscalateOnSameConnection = await Self.waitUntil({
+            manager.state == .error(.muxTeardown)
+        }, timeout: .seconds(2), interval: .milliseconds(20))
+        XCTAssertTrue(didEscalateOnSameConnection)
         XCTAssertEqual(manager.state, .error(.muxTeardown))
         await manager.disconnect()
     }
