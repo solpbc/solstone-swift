@@ -437,7 +437,7 @@ final class IntegrationGateActions {
                     } catch {
                         throw IntegrationGateValidationError(.runningRecordWriteFailed)
                     }
-                    await self.holdG3InterruptWindow(after: oldGeneration)
+                    try await self.holdG3InterruptWindow(after: oldGeneration)
                 }
             )
             firstCompleted = true
@@ -653,13 +653,16 @@ final class IntegrationGateActions {
         return tunnelManager.transportGenerationSnapshot
     }
 
-    private func holdG3InterruptWindow(after oldGeneration: UInt64?) async {
+    private func holdG3InterruptWindow(after oldGeneration: UInt64?) async throws {
         guard let oldGeneration else { return }
         let startedAt = clock.now()
         while true {
             if let lastClosedGeneration = tunnelManager.transportGenerationSnapshot.lastClosedGeneration,
                lastClosedGeneration >= oldGeneration {
-                return
+                // The full response may already be buffered behind this progress
+                // callback. Returning would let those stale bytes masquerade as a
+                // successful first attempt after the transport generation closed.
+                throw IntegrationGateValidationError(.requestFailed)
             }
             let elapsed = IntegrationGateOperationCeiling(
                 startedAt: startedAt,
@@ -668,11 +671,7 @@ final class IntegrationGateActions {
             guard elapsed < IntegrationGateConstants.g3InterruptHoldMilliseconds else {
                 return
             }
-            do {
-                try await clock.sleep(for: .milliseconds(100))
-            } catch {
-                return
-            }
+            try await clock.sleep(for: .milliseconds(100))
         }
     }
 

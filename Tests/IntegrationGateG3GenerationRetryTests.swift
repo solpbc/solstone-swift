@@ -131,7 +131,6 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
         let expectedTotal: UInt64 = 8_388_625
         let retryData = IntegrationGateG2RangeHashTests.data(length: rangeLength)
         let expectedDigest = IntegrationGateG2RangeHashTests.sha256Hex(retryData)
-        let firstAttemptChunk = Data(repeating: 0x7a, count: 64 * 1024)
         let requestCount = OSAllocatedUnfairLock(initialState: 0)
         IntegrationGateRangeHeaderURLProtocol.handler = { request in
             let index = requestCount.withLock { count in
@@ -147,8 +146,7 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
             if index == 1 {
                 return IntegrationGateRangeHeaderURLProtocolPayload(
                     response: response,
-                    chunks: Array(repeating: firstAttemptChunk, count: 17),
-                    failureAfterChunks: true
+                    chunks: IntegrationGateG2RangeHashTests.chunks(retryData, size: 64 * 1024)
                 )
             }
             return IntegrationGateRangeHeaderURLProtocolPayload(
