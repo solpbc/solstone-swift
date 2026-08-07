@@ -202,23 +202,20 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
         guard result.orphanRepairFailures.isEmpty else { return .failed }
 
-        var pending: [PendingOwner] = []
-        var coveredThroughSequence: UInt64?
-        for partition in result.partitions {
-            guard let token = await self.registerOwner(for: partition) else {
-                self.log.error("launch capture owner settlement registration failed")
+        if let failure = result.failure {
+            guard await self.commitMaterializationFailure(failure, generationID: generationID) else {
+                await self.conservativelyGateOmi()
                 return .failed
             }
-            pending.append(PendingOwner(partition: partition, token: token))
-            guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-                await self.hold(pending, retainForExplicitResume: true)
-                return .failed
-            }
-            guard partition.endsAtSourceFrameBoundary,
-                  let throughSequence = partition.coveredThroughSequence
-            else { continue }
-            coveredThroughSequence = throughSequence
+            guard let pending = await self.registerPendingOwners(for: result.partitions) else { return .failed }
+            return await self.finishMaterializationFailure(
+                pending: pending,
+                reader: reader,
+                coveredThroughSequence: result.coveredThroughSequence
+            )
         }
+
+        guard let pending = await self.registerPendingOwners(for: result.partitions) else { return .failed }
 
         guard !pending.isEmpty else {
             if scan.boundaryReason != nil {
@@ -227,7 +224,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             guard case .empty = reader.lease() else { return .retryRequired(result) }
             return .settled(result, reader)
         }
-        guard let coveredThroughSequence,
+        guard let coveredThroughSequence = result.coveredThroughSequence,
               pending.last?.partition.endsAtSourceFrameBoundary == true
         else {
             await self.hold(pending)
@@ -252,6 +249,50 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
         guard case .empty = reader.lease() else { return .retryRequired(result) }
         return .settled(result, reader)
+    }
+
+    private func registerPendingOwners(for partitions: [OmiLaunchCaptureMaterializedPartition]) async -> [PendingOwner]? {
+        var pending: [PendingOwner] = []
+        for partition in partitions {
+            guard let token = await self.registerOwner(for: partition) else {
+                self.log.error("launch capture owner settlement registration failed")
+                return nil
+            }
+            pending.append(PendingOwner(partition: partition, token: token))
+            guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
+                await self.hold(pending, retainForExplicitResume: true)
+                return nil
+            }
+        }
+        return pending
+    }
+
+    private func finishMaterializationFailure(
+        pending: [PendingOwner],
+        reader: OmiLaunchCaptureLeaseReader,
+        coveredThroughSequence: UInt64?
+    ) async -> GenerationOutcome {
+        guard !pending.isEmpty else { return .failed }
+        guard let coveredThroughSequence,
+              pending.last?.partition.endsAtSourceFrameBoundary == true
+        else {
+            await self.hold(pending)
+            return .failed
+        }
+        if let onReconciliationPhase {
+            await onReconciliationPhase(.afterOwnerRegisteredBeforeAcknowledgment)
+        }
+        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
+            await self.hold(pending, retainForExplicitResume: true)
+            return .failed
+        }
+        guard self.acknowledge(reader: reader, throughSequence: coveredThroughSequence) else {
+            await self.hold(pending)
+            return .failed
+        }
+        guard await self.cleanup(pending) else { return .failed }
+        guard await self.release(pending) else { return .failed }
+        return .failed
     }
 
     private func registerExistingOwners(_ handoffs: [LinkedHandoff]) async {
@@ -595,6 +636,45 @@ final class OmiLaunchCaptureCommitCoordinator {
         return true
     }
 
+    private func commitMaterializationFailure(_ failure: OmiLaunchCaptureMaterializationFailure, generationID: UUID) async -> Bool {
+        let startedAt = Date(timeIntervalSince1970: 0)
+        let itemID = Self.materializationFailureItemID(generationID: generationID, ordinal: failure.partitionOrdinal)
+        let sidecar = ChunkSidecar(
+            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
+            day: ObserverSegmentNaming.dayString(for: startedAt),
+            chunkIndex: failure.partitionOrdinal,
+            startedAt: startedAt,
+            durationS: 0,
+            sessionID: generationID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
+        manifest.payloadParts = []
+        manifest.diskState = .attention
+        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            return true
+        case .notFound:
+            do {
+                _ = try await self.engine.enqueueAttention(
+                    manifest: manifest,
+                    payloadFileURLs: [:],
+                    reason: "launch_capture_materialization_failed",
+                    detail: "generation=\(generationID.uuidString.lowercased()) partition=\(failure.partitionOrdinal) cause=\(failure.reason)"
+                )
+                return true
+            } catch {
+                self.log.error("launch capture materialization attention failed")
+                return false
+            }
+        case .stagingOnly, .salvageOnly, .conflict, .none:
+            self.log.error("launch capture materialization ownership failed")
+            return false
+        }
+    }
+
     private func enumerateLinkedIDs() -> EnumerationResult {
         guard let rootURL else { return .unknown }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
@@ -689,6 +769,16 @@ final class OmiLaunchCaptureCommitCoordinator {
         data.append(uuidBytes: generationID)
         data.appendLittleEndian(UInt64(ordinal))
         data.append(uuidBytes: itemID)
+        var bytes = Array(SHA256.hash(data: data).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    private static func materializationFailureItemID(generationID: UUID, ordinal: Int) -> UUID {
+        var data = Data("omi-launch-capture-materialization-failed-v1".utf8)
+        data.append(uuidBytes: generationID)
+        data.appendLittleEndian(UInt64(ordinal))
         var bytes = Array(SHA256.hash(data: data).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
