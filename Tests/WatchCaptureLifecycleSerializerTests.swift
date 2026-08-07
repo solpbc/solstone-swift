@@ -61,7 +61,7 @@ private final class WatchCaptureLifecycleSerializerStub {
 final class WatchCaptureLifecycleSerializerTests: XCTestCase {
     private typealias Intent = WatchCaptureLifecycleSerializer.Intent
 
-    func testIdleStartThenStopCompactsToNoExecutorCalls() async {
+    func testIdleStartThenStopRemovesStartAndExecutesStop() async {
         let stub = WatchCaptureLifecycleSerializerStub()
         let serializer = self.makeSerializer(stub)
 
@@ -69,7 +69,28 @@ final class WatchCaptureLifecycleSerializerTests: XCTestCase {
         serializer.submit(.stop)
         await serializer.settled()
 
-        XCTAssertEqual(stub.calls, [])
+        XCTAssertEqual(stub.calls, [.stop])
+    }
+
+    func testFinalStopRemovesLaterStartBehindPendingStop() async {
+        let gate = WatchCaptureLifecycleSerializerHoldGate()
+        let stub = WatchCaptureLifecycleSerializerStub()
+        stub.onExecute = { intent in
+            if intent == .start {
+                await gate.suspend()
+            }
+        }
+        let serializer = self.makeSerializer(stub)
+
+        serializer.submit(.start)
+        await self.waitForGate(gate)
+        serializer.submit(.stop)
+        serializer.submit(.start)
+        serializer.submit(.stop)
+        await gate.resume()
+        await serializer.settled()
+
+        XCTAssertEqual(stub.calls, [.start, .stop])
     }
 
     func testStopDropsPendingStartBehindReconcile() async {

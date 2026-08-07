@@ -98,6 +98,8 @@ final class WatchCaptureLifecycleSerializer {
         self.current != nil || !self.pending.isEmpty || self.pumpTask != nil
     }
 
+    /// Reduces redundant intents. A Stop first removes trailing Starts, then
+    /// coalesces only with a Stop that still represents the latest stop intent.
     private func compact(_ intent: Intent) -> Bool {
         switch intent {
         case .start:
@@ -112,18 +114,10 @@ final class WatchCaptureLifecycleSerializer {
             return self.current?.isStart == true
 
         case .stop:
-            if self.current?.isStop == true || self.pending.contains(where: \.isStop) {
-                return true
-            }
-            var droppedPendingStart = false
             while self.pending.last?.isStart == true {
                 self.pending.removeLast()
-                droppedPendingStart = true
             }
-            if droppedPendingStart, self.current == nil, self.pending.isEmpty {
-                return true
-            }
-            return false
+            return self.current?.isStop == true || self.pending.contains(where: \.isStop)
 
         case .reconcile:
             return self.current?.isReconcile == true || self.pending.contains(where: \.isReconcile)

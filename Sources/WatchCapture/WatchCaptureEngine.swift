@@ -315,7 +315,10 @@ final class WatchCaptureEngine {
             guard case .idle = self.lifecycleState else { return }
             self.lifecycleState = .starting
             await self.startInner(generation: generation)
+            // A stale start may have completed its synchronous live-resource tail.
+            // Converge through terminalization before returning to idle.
             guard self.isLifecycleGenerationCurrent(generation) else {
+                _ = await self.continueLifecycleOperation(generation)
                 self.lifecycleState = .idle
                 return
             }
@@ -334,7 +337,10 @@ final class WatchCaptureEngine {
         case .rollover:
             guard case let .running(sessionID) = self.lifecycleState else { return }
             await self.rolloverInner(generation: generation)
+            // A stale rollover may have opened a successor before its final callback.
+            // Converge through terminalization before returning to idle.
             guard self.isLifecycleGenerationCurrent(generation) else {
+                _ = await self.continueLifecycleOperation(generation)
                 self.lifecycleState = .idle
                 return
             }
