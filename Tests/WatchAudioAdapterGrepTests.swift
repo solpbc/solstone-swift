@@ -5,7 +5,7 @@ import Foundation
 import XCTest
 
 nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
-    func testRecorderStartCreatesForwarderWithEnrollmentSource() throws {
+    func testRecorderStartEnrollsRetentionWithSource() throws {
         let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "func start(url: URL, source: WatchCaptureSourceToken) throws",
@@ -17,7 +17,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
         XCTAssertTrue(body.contains("_ = self.terminalRetention.stopCurrent()"))
     }
 
-    func testLiveRecorderDelegatesOnlyToForwarder() throws {
+    func testLiveRecorderHasNoAdapterOwnedRecorderState() throws {
         let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
         let body = try self.contents(path)
 

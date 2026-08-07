@@ -1741,17 +1741,12 @@ final class WatchCaptureTests: XCTestCase {
                 source: WatchCaptureSourceToken(sessionID: "retired-\(UUID().uuidString)"),
                 sink: harness.engine
             )
-            let currentRecorder = try AVAudioRecorder(
-                url: self.tempDirectory.appendingPathComponent("CurrentTerminal-\(UUID().uuidString).m4a"),
-                settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: 16_000,
-                    AVNumberOfChannelsKey: 1,
-                    AVEncoderBitRateKey: 32_000,
-                ]
-            )
             let currentSource = try XCTUnwrap(harness.recorder.startSources.last)
-            retention.enroll(recorder: currentRecorder, source: currentSource, sink: harness.engine)
+            _ = try self.makeConcreteRecorderTrigger(
+                retention: retention,
+                source: currentSource,
+                sink: harness.engine
+            )
             await self.drain(until: { retentionClock.pendingSleeperCount == 1 })
 
             switch callback {
@@ -1772,6 +1767,49 @@ final class WatchCaptureTests: XCTestCase {
             XCTAssertTrue(statuses.isEmpty, "\(callback)")
             XCTAssertTrue(presentations.isEmpty, "\(callback)")
             XCTAssertTrue(harness.notificationScheduler.submittedRequests.isEmpty, "\(callback)")
+        }
+    }
+
+    func testCurrentConcreteRecorderCallbacksTerminalizeTheirBoundSession() async throws {
+        enum Callback {
+            case finish
+            case encodeError
+
+            var reason: WatchCaptureTerminalReason {
+                switch self {
+                case .finish:
+                    .audioFinishUnsuccessful
+                case .encodeError:
+                    .audioEncodeError
+                }
+            }
+        }
+
+        for callback in [Callback.finish, .encodeError] {
+            let harness = try self.makeHarness(locationAuthorization: .denied)
+            harness.engine.start(); await harness.engine.settled()
+            let source = try XCTUnwrap(harness.recorder.startSources.last)
+            let retention = WatchAudioRecorderTerminalRetention(clock: MockObserverClock())
+            let trigger = try self.makeConcreteRecorderTrigger(
+                retention: retention,
+                source: source,
+                sink: harness.engine
+            )
+
+            switch callback {
+            case .finish:
+                trigger.finish(successfully: false)
+            case .encodeError:
+                trigger.encodeError()
+            }
+            await Task.yield()
+            await harness.engine.settled()
+
+            let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+            XCTAssertEqual(record.terminalReason, callback.reason, "\(callback)")
+            XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself, "\(callback)")
+            XCTAssertEqual(harness.recorder.stopCallCount, 1, "\(callback)")
+            XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1, "\(callback)")
         }
     }
 
@@ -3154,10 +3192,20 @@ private extension WatchCaptureTests {
         source: WatchCaptureSourceToken,
         sink: any WatchAudioRecorderEventSink
     ) throws -> RetiredConcreteRecorderTrigger {
+        let trigger = try self.makeConcreteRecorderTrigger(retention: retention, source: source, sink: sink)
+        _ = retention.stopCurrent()
+        return trigger
+    }
+
+    func makeConcreteRecorderTrigger(
+        retention: WatchAudioRecorderTerminalRetention,
+        source: WatchCaptureSourceToken,
+        sink: any WatchAudioRecorderEventSink
+    ) throws -> RetiredConcreteRecorderTrigger {
         let trigger = RetiredConcreteRecorderTrigger()
         try autoreleasepool {
             let url = self.tempDirectory
-                .appendingPathComponent("RetainedTerminal-\(UUID().uuidString).m4a")
+                .appendingPathComponent("CurrentTerminal-\(UUID().uuidString).m4a")
             let recorder = try AVAudioRecorder(
                 url: url,
                 settings: [
@@ -3170,7 +3218,6 @@ private extension WatchCaptureTests {
             trigger.recorder = recorder
             retention.enroll(recorder: recorder, source: source, sink: sink)
             trigger.forwarder = recorder.delegate as? WatchAudioRecorderTerminalForwarder
-            _ = retention.stopCurrent()
         }
         return trigger
     }

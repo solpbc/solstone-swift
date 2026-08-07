@@ -27,6 +27,11 @@ nonisolated final class WatchAudioRecorderTerminalRetention: Sendable {
         var expiryTask: Task<Void, Never>?
     }
 
+    private struct Retirement {
+        let pair: Pair
+        let evicted: RetiredPair?
+    }
+
     private struct State {
         var current: Pair?
         var retired: [RetiredPair] = []
@@ -55,23 +60,27 @@ nonisolated final class WatchAudioRecorderTerminalRetention: Sendable {
             }
         )
         recorder.delegate = forwarder
-        let incumbent = self.state.withLockUnchecked { state -> Pair? in
+        let retirement = self.state.withLockUnchecked { state -> Retirement? in
             let incumbent = state.current
             state.current = Pair(identity: identity, recorder: recorder, forwarder: forwarder)
-            return incumbent
+            guard let incumbent else { return nil }
+            return Retirement(
+                pair: incumbent,
+                evicted: Self.appendRetired(incumbent, to: &state)
+            )
         }
-        if let incumbent {
+        if let retirement {
             Self.log.error("watch audio recorder enrolled over an active recorder")
-            self.retire(pair: incumbent)
+            self.armExpiry(for: retirement)
         }
     }
 
     @MainActor
     func stopCurrent() -> TimeInterval {
-        guard let pair = self.takeCurrentForRetirement() else { return 0 }
-        let duration = pair.recorder.currentTime
-        self.retire(pair: pair)
-        pair.recorder.stop()
+        guard let retirement = self.moveCurrentToRetired() else { return 0 }
+        let duration = retirement.pair.recorder.currentTime
+        self.armExpiry(for: retirement)
+        retirement.pair.recorder.stop()
         return duration
     }
 
@@ -107,25 +116,21 @@ nonisolated final class WatchAudioRecorderTerminalRetention: Sendable {
     }
 
     @MainActor
-    private func takeCurrentForRetirement() -> Pair? {
+    private func moveCurrentToRetired() -> Retirement? {
         self.state.withLockUnchecked { state in
             let pair = state.current
             state.current = nil
-            return pair
+            guard let pair else { return nil }
+            return Retirement(pair: pair, evicted: Self.appendRetired(pair, to: &state))
         }
     }
 
     @MainActor
-    private func retire(pair: Pair) {
-        let evicted = self.state.withLockUnchecked { state -> RetiredPair? in
-            state.retired.append(RetiredPair(pair: pair, expiryTask: nil))
-            guard state.retired.count > Self.retiredPairCapacity else { return nil }
-            return state.retired.removeFirst()
-        }
-        evicted?.expiryTask?.cancel()
+    private func armExpiry(for retirement: Retirement) {
+        retirement.evicted?.expiryTask?.cancel()
 
         let clock = self.clock
-        let identity = pair.identity
+        let identity = retirement.pair.identity
         let task = Task { [weak self, clock] in
             do {
                 try await clock.sleep(for: Self.retentionWindow)
@@ -143,5 +148,11 @@ nonisolated final class WatchAudioRecorderTerminalRetention: Sendable {
             return nil
         }
         orphanedTask?.cancel()
+    }
+
+    private static func appendRetired(_ pair: Pair, to state: inout State) -> RetiredPair? {
+        state.retired.append(RetiredPair(pair: pair, expiryTask: nil))
+        guard state.retired.count > Self.retiredPairCapacity else { return nil }
+        return state.retired.removeFirst()
     }
 }

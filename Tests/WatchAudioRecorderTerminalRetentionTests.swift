@@ -97,6 +97,33 @@ final class WatchAudioRecorderTerminalRetentionTests: XCTestCase {
         XCTAssertNotNil(third.forwarder)
     }
 
+    func testEnrollOverCurrentRetiresIncumbentAndKeepsNewPairCurrent() async throws {
+        let clock = MockObserverClock()
+        let retention = WatchAudioRecorderTerminalRetention(clock: clock)
+        let incumbent = RetiredPairFixture()
+        let current = RetiredPairFixture()
+
+        try autoreleasepool {
+            let recorder = try self.makeRecorder()
+            incumbent.recorder = recorder
+            retention.enroll(recorder: recorder, source: WatchCaptureSourceToken(sessionID: "A"), sink: nil)
+            incumbent.forwarder = recorder.delegate as? WatchAudioRecorderTerminalForwarder
+
+            let replacement = try self.makeRecorder()
+            current.recorder = replacement
+            retention.enroll(recorder: replacement, source: WatchCaptureSourceToken(sessionID: "B"), sink: nil)
+            current.forwarder = replacement.delegate as? WatchAudioRecorderTerminalForwarder
+        }
+
+        await self.drain(until: { clock.pendingSleeperCount == 1 })
+
+        XCTAssertNotNil(incumbent.recorder)
+        XCTAssertNotNil(incumbent.forwarder)
+        XCTAssertNotNil(current.recorder)
+        XCTAssertNotNil(current.forwarder)
+        XCTAssertEqual(retention.currentURL(), current.recorder?.url)
+    }
+
     func testCallbackBeforeExpiryForwardsAfterExpiryAdvance() async throws {
         let clock = MockObserverClock()
         let expectation = self.expectation(description: "finish forwarded after clock advance")
