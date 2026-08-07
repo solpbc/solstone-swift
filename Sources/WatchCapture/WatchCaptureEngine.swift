@@ -459,6 +459,24 @@ private extension WatchCaptureEngine {
         }
     }
 
+    enum FinalizationDisposition {
+        case discard
+        case retain
+        case queue
+    }
+
+    struct PreparedFinalization {
+        let segment: ActiveSegment
+        let manifest: WatchSegmentManifest
+        let verifiedAudioAt: Date?
+        let disposition: FinalizationDisposition
+    }
+
+    struct DeclaredSensorEvidence {
+        let sensors: [WatchSensor]
+        let unknownPresence: [WatchSensor]
+    }
+
     func clearTransientStateForStart() {
         self.currentSessionID = nil
         self.currentAudioEnrollment = nil
@@ -806,7 +824,7 @@ private extension WatchCaptureEngine {
                 return false
             }
         }
-        self.persistFinalization(segment: prepared.segment, manifest: prepared.manifest)
+        self.persistFinalization(prepared, sessionID: self.currentSessionID)
         return true
     }
 
@@ -820,52 +838,77 @@ private extension WatchCaptureEngine {
             audioDuration: audioDuration,
             end: end
         )
-        self.persistFinalization(segment: prepared.segment, manifest: prepared.manifest)
+        self.persistFinalization(prepared, sessionID: self.currentSessionID)
     }
 
     func prepareFinalization(
         segment: ActiveSegment,
         audioDuration: TimeInterval?,
         end: Date
-    ) -> (segment: ActiveSegment, manifest: WatchSegmentManifest, verifiedAudioAt: Date?) {
+    ) -> PreparedFinalization {
         var segment = segment
         var manifest = segment.manifest
-        let declaredSensors = self.retainDeclaredSensorsWhoseFilesExist(
+        // `.captured` is the durable intent record written before either media
+        // side effect; `.persisted` proves the segment finished opening.
+        let openingFailure = manifest.state == .captured
+        let declaredSensorEvidence = self.retainDeclaredSensors(
             &manifest,
-            directory: segment.directoryURL
+            directory: segment.directoryURL,
+            requirePositiveSize: openingFailure
         )
-        var duration = max(audioDuration ?? end.timeIntervalSince(manifest.startedAt), 0)
+        let declaredSensors = declaredSensorEvidence.sensors
+        var hasUncertainMedia = !declaredSensorEvidence.unknownPresence.isEmpty
+        var duration = openingFailure
+            ? max(manifest.duration, 0)
+            : max(audioDuration ?? end.timeIntervalSince(manifest.startedAt), 0)
         manifest.duration = duration
         var verifiedAudioAt: Date?
 
         if declaredSensors.contains(.audio) {
             let audioURL = self.storage.audioURL(directory: segment.directoryURL)
-            if let probedDuration = self.audioProbe.decodableDuration(at: audioURL), probedDuration > 0 {
-                duration = probedDuration
-                manifest.duration = probedDuration
-                verifiedAudioAt = manifest.startedAt.addingTimeInterval(probedDuration)
-            } else {
+            if declaredSensorEvidence.unknownPresence.contains(.audio) {
                 manifest.partial = true
-                manifest.lost = true
-                manifest.failureReason = WatchCaptureTerminalReason.audioUndecodable.observerError.message
-                try? self.storage.fileWriter.removeItem(at: audioURL)
+            } else {
+                switch self.audioProbeResult(at: audioURL) {
+                case let .decodable(probedDuration):
+                    duration = probedDuration
+                    manifest.duration = probedDuration
+                    verifiedAudioAt = manifest.startedAt.addingTimeInterval(probedDuration)
+                case .confirmedUndecodable:
+                    manifest.partial = true
+                    if openingFailure {
+                        manifest.lost = false
+                    } else {
+                        manifest.lost = true
+                        manifest.failureReason = WatchCaptureTerminalReason.audioUndecodable.observerError.message
+                        try? self.storage.fileWriter.removeItem(at: audioURL)
+                    }
+                case .ioUnknown:
+                    manifest.partial = true
+                    hasUncertainMedia = true
+                }
             }
         }
 
         if declaredSensors.contains(.location) {
             let locationURL = self.storage.locationURL(directory: segment.directoryURL)
-            do {
-                let stats = try WatchCaptureLocationLog.reconcile(
-                    url: locationURL,
-                    armed: true,
-                    fileWriter: self.storage.fileWriter
-                )
-                manifest.fixCount = stats.fixCount
-                manifest.gap = stats.gap
-            } catch {
-                self.markPartial(&segment, error: WatchCaptureFailureMapper.observerError(for: error))
+            if declaredSensorEvidence.unknownPresence.contains(.location) {
                 manifest.partial = true
-                manifest.failureReason = segment.partialError?.message
+            } else {
+                do {
+                    let stats = try WatchCaptureLocationLog.reconcile(
+                        url: locationURL,
+                        armed: true,
+                        fileWriter: self.storage.fileWriter
+                    )
+                    manifest.fixCount = stats.fixCount
+                    manifest.gap = stats.gap
+                } catch {
+                    self.markPartial(&segment, error: WatchCaptureFailureMapper.observerError(for: error))
+                    manifest.partial = true
+                    manifest.failureReason = segment.partialError?.message
+                    hasUncertainMedia = true
+                }
             }
         } else {
             manifest.fixCount = 0
@@ -877,15 +920,46 @@ private extension WatchCaptureEngine {
             manifest.failureReason = partialError.message
         }
 
-        return (segment, manifest, verifiedAudioAt)
+        let disposition: FinalizationDisposition
+        if openingFailure, declaredSensors.isEmpty, !hasUncertainMedia {
+            disposition = .discard
+        } else if hasUncertainMedia {
+            disposition = .retain
+        } else {
+            disposition = .queue
+        }
+        return PreparedFinalization(
+            segment: segment,
+            manifest: manifest,
+            verifiedAudioAt: verifiedAudioAt,
+            disposition: disposition
+        )
     }
 
-    func persistFinalization(segment: ActiveSegment, manifest: WatchSegmentManifest) {
+    func persistFinalization(_ prepared: PreparedFinalization, sessionID: String?) {
+        let segment = prepared.segment
+        var manifest = prepared.manifest
+        switch prepared.disposition {
+        case .discard:
+            guard self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL) else {
+                self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
+                return
+            }
+            return
+        case .retain:
+            do {
+                try self.storage.writeManifest(manifest, in: segment.directoryURL)
+            } catch {
+                self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+            }
+            return
+        case .queue:
+            break
+        }
         let finalSegment = self.storage.segmentString(
             for: manifest.startedAt,
             durationSeconds: max(manifest.duration, 1)
         )
-        var manifest = manifest
         do {
             let finalDirectory = try self.storage.moveSegmentDirectoryIfNeeded(
                 currentURL: segment.directoryURL,
@@ -904,7 +978,7 @@ private extension WatchCaptureEngine {
                 )
             }
             self.queuedCount += 1
-            self.incrementSegmentsProduced(sessionID: self.currentSessionID)
+            self.incrementSegmentsProduced(sessionID: sessionID)
             self.requestRelayDrain()
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
@@ -914,75 +988,42 @@ private extension WatchCaptureEngine {
     func recoverUnclean(_ entry: WatchCaptureStorage.ManifestEntry, sessionID: String?) throws {
         var manifest = entry.manifest
         manifest.partial = true
-        let declaredSensors = self.retainDeclaredSensorsWhoseFilesExist(
-            &manifest,
-            directory: entry.directoryURL
+        let segment = ActiveSegment(
+            directoryURL: entry.directoryURL,
+            manifest: manifest,
+            audioURL: manifest.sensors.contains(.audio)
+                ? self.storage.audioURL(directory: entry.directoryURL) : nil,
+            locationURL: manifest.sensors.contains(.location)
+                ? self.storage.locationURL(directory: entry.directoryURL) : nil,
+            locationLog: nil,
+            partialError: nil,
+            hasElapsedLocationCoverage: false
         )
-        if declaredSensors.isEmpty,
-           self.removeSegmentDirectoryIfMediaIsProvablyEmpty(entry.directoryURL) {
-            return
-        }
-
-        if declaredSensors.contains(.location) {
-            let locationURL = self.storage.locationURL(directory: entry.directoryURL)
-            do {
-                let stats = try WatchCaptureLocationLog.reconcile(
-                    url: locationURL,
-                    armed: true,
-                    fileWriter: self.storage.fileWriter
-                )
-                manifest.fixCount = stats.fixCount
-                manifest.gap = stats.gap
-            } catch {
-                manifest.failureReason = WatchCaptureFailureMapper.observerError(for: error).message
-            }
-        }
-
-        if declaredSensors.contains(.audio) {
-            let audioURL = self.storage.audioURL(directory: entry.directoryURL)
-            if let duration = self.audioProbe.decodableDuration(at: audioURL), duration > 0 {
-                manifest.duration = duration
-            } else {
-                manifest.lost = true
-                try? self.storage.fileWriter.removeItem(at: audioURL)
-                self.status = .needsAttention(.unavailable(reason: "audio unavailable after restart"))
-            }
-        }
-
-        let finalSegment = self.storage.segmentString(
-            for: manifest.startedAt,
-            durationSeconds: max(manifest.duration, 1)
+        var prepared = self.prepareFinalization(
+            segment: segment,
+            audioDuration: nil,
+            end: manifest.startedAt.addingTimeInterval(manifest.duration)
         )
-        let finalDirectory = try self.storage.moveSegmentDirectoryIfNeeded(
-            currentURL: entry.directoryURL,
-            day: manifest.day,
-            currentSegment: manifest.segment,
-            finalSegment: finalSegment
-        )
-        manifest.segment = finalSegment
-        manifest.state = .queued
-        if manifest.lost {
-            manifest.failureReason = "audio unavailable after restart"
-        }
-        try self.storage.writeManifest(manifest, in: finalDirectory)
-        if manifest.lost {
-            watchCaptureLog.info(
-                "watch segment lost id=\(manifest.id.uuidString, privacy: .public) state=queued"
+        if prepared.manifest.lost {
+            var lostManifest = prepared.manifest
+            lostManifest.failureReason = "audio unavailable after restart"
+            prepared = PreparedFinalization(
+                segment: prepared.segment,
+                manifest: lostManifest,
+                verifiedAudioAt: prepared.verifiedAudioAt,
+                disposition: prepared.disposition
             )
-        } else {
-            watchCaptureLog.info(
-                "watch segment recovered id=\(manifest.id.uuidString, privacy: .public) state=queued"
-            )
+            self.status = .needsAttention(.unavailable(reason: "audio unavailable after restart"))
         }
-        self.queuedCount += 1
-        self.incrementSegmentsProduced(sessionID: sessionID)
-        self.requestRelayDrain()
+        self.persistFinalization(prepared, sessionID: sessionID)
     }
 
-    func retainDeclaredSensorsWhoseFilesExist(
+    func retainDeclaredSensors(
         _ manifest: inout WatchSegmentManifest,
-        directory: URL
-    ) -> [WatchSensor] {
+        directory: URL,
+        requirePositiveSize: Bool
+    ) -> DeclaredSensorEvidence {
+        var unknownPresence: [WatchSensor] = []
         manifest.sensors = manifest.sensors.filter { sensor in
             let url: URL
             switch sensor {
@@ -991,9 +1032,29 @@ private extension WatchCaptureEngine {
             case .location:
                 url = self.storage.locationURL(directory: directory)
             }
-            return self.storage.fileWriter.fileExists(at: url)
+            guard requirePositiveSize else {
+                return self.storage.fileWriter.fileExists(at: url)
+            }
+            do {
+                return try self.storage.fileWriter.fileSize(at: url) > 0
+            } catch {
+                unknownPresence.append(sensor)
+                return true
+            }
         }
-        return manifest.sensors
+        return DeclaredSensorEvidence(
+            sensors: manifest.sensors,
+            unknownPresence: unknownPresence
+        )
+    }
+
+    func audioProbeResult(at url: URL) -> WatchAudioProbeResult {
+        do {
+            _ = try self.storage.fileWriter.readData(from: url)
+        } catch {
+            return .ioUnknown
+        }
+        return self.audioProbe.probe(at: url)
     }
 
     func incrementSegmentsProduced(sessionID: String?) {

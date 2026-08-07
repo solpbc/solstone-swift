@@ -3624,6 +3624,254 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: locationURL.path))
     }
 
+    func testOpeningFailureRetainsAudioAcrossUnknownEvidenceThenQueuesAfterRecovery() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
+        let directory = self.initialDirectory(in: harness)
+        let audioURL = harness.storage.audioURL(directory: directory)
+        harness.recorder.writesBeforeStartError = true
+        harness.recorder.startError = NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        writer.failFileSize(at: audioURL)
+        harness.audioProbe.ioUnknownPaths.insert(audioURL.path)
+
+        harness.engine.start(); await harness.engine.settled()
+
+        let opening = try XCTUnwrap(try harness.storage.scanManifests().first)
+        let originalID = opening.manifest.id
+        let originalAudio = try Data(contentsOf: audioURL)
+        XCTAssertEqual(opening.manifest.state, .captured)
+        XCTAssertFalse(opening.manifest.lost)
+
+        let firstRelaunch = self.relaunchEngine(for: harness)
+        firstRelaunch.reconcileOnLaunch(); await firstRelaunch.settled()
+
+        let retained = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(retained.manifest.id, originalID)
+        XCTAssertEqual(retained.manifest.state, .captured)
+        XCTAssertFalse(retained.manifest.lost)
+        XCTAssertEqual(retained.manifest.sensors, [.audio])
+        XCTAssertEqual(try Data(contentsOf: audioURL), originalAudio)
+        XCTAssertFalse(writer.removeItemURLs.contains(audioURL))
+        XCTAssertFalse(writer.removeItemURLs.contains(directory))
+
+        writer.clearFileSizeFailure(at: audioURL)
+        harness.audioProbe.ioUnknownPaths.remove(audioURL.path)
+        harness.audioProbe.durations[audioURL.path] = 12.3
+        let secondRelaunch = self.relaunchEngine(for: harness)
+        secondRelaunch.reconcileOnLaunch(); await secondRelaunch.settled()
+
+        let queued = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(queued.manifest.id, originalID)
+        XCTAssertEqual(queued.manifest.state, .queued)
+        XCTAssertTrue(queued.manifest.partial)
+        XCTAssertFalse(queued.manifest.lost)
+        XCTAssertEqual(queued.manifest.duration, 12.3, accuracy: 0.001)
+        XCTAssertEqual(
+            try Data(contentsOf: harness.storage.audioURL(directory: queued.directoryURL)),
+            originalAudio
+        )
+    }
+
+    func testUnreadableLocationRetainsAudioProgressUntilSiblingRecovers() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .authorized, fileWriter: writer)
+        let startedAt = harness.clock.now()
+        let directory = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .captured,
+            sensors: [.audio, .location]
+        )
+        let audioURL = harness.storage.audioURL(directory: directory)
+        let locationURL = harness.storage.locationURL(directory: directory)
+        try Data("audio".utf8).write(to: audioURL)
+        let locationLog = WatchCaptureLocationLog(url: locationURL, fileWriter: writer)
+        try locationLog.openProvisionalHeader()
+        try locationLog.append(Self.fix(time: startedAt.addingTimeInterval(1)))
+        let originalID = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest.id)
+        harness.audioProbe.durations[audioURL.path] = 12.3
+        writer.failRead(at: locationURL)
+
+        let firstRelaunch = self.relaunchEngine(for: harness)
+        firstRelaunch.reconcileOnLaunch(); await firstRelaunch.settled()
+
+        let retained = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(retained.manifest.id, originalID)
+        XCTAssertEqual(retained.manifest.state, .captured)
+        XCTAssertEqual(retained.manifest.duration, 12.3, accuracy: 0.001)
+        XCTAssertFalse(retained.manifest.lost)
+        XCTAssertEqual(Set(retained.manifest.sensors), [.audio, .location])
+        XCTAssertTrue(writer.fileExists(at: locationURL))
+
+        writer.clearReadFailure(at: locationURL)
+        let secondRelaunch = self.relaunchEngine(for: harness)
+        secondRelaunch.reconcileOnLaunch(); await secondRelaunch.settled()
+
+        let queued = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(queued.manifest.id, originalID)
+        XCTAssertEqual(queued.manifest.state, .queued)
+        XCTAssertEqual(queued.manifest.fixCount, 1)
+        XCTAssertFalse(queued.manifest.gap)
+        XCTAssertEqual(queued.manifest.duration, 12.3, accuracy: 0.001)
+    }
+
+    func testUnknownLocationPresenceDoesNotCreateMediaWhileAudioAdvances() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .authorized, fileWriter: writer)
+        let startedAt = harness.clock.now()
+        let directory = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .captured,
+            sensors: [.audio, .location]
+        )
+        let audioURL = harness.storage.audioURL(directory: directory)
+        let locationURL = harness.storage.locationURL(directory: directory)
+        try Data("audio".utf8).write(to: audioURL)
+        let originalID = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest.id)
+        harness.audioProbe.durations[audioURL.path] = 12.3
+        writer.failFileSize(at: locationURL)
+
+        let firstRelaunch = self.relaunchEngine(for: harness)
+        firstRelaunch.reconcileOnLaunch(); await firstRelaunch.settled()
+
+        let retained = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(retained.manifest.id, originalID)
+        XCTAssertEqual(retained.manifest.state, .captured)
+        XCTAssertEqual(retained.manifest.duration, 12.3, accuracy: 0.001)
+        XCTAssertFalse(writer.fileExists(at: locationURL))
+        XCTAssertFalse(writer.writeDataURLs.contains(locationURL))
+        XCTAssertFalse(writer.atomicReplaceURLs.contains(locationURL))
+
+        writer.clearFileSizeFailure(at: locationURL)
+        let secondRelaunch = self.relaunchEngine(for: harness)
+        secondRelaunch.reconcileOnLaunch(); await secondRelaunch.settled()
+
+        let queued = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(queued.manifest.id, originalID)
+        XCTAssertEqual(queued.manifest.state, .queued)
+        XCTAssertEqual(queued.manifest.sensors, [.audio])
+        XCTAssertEqual(queued.manifest.duration, 12.3, accuracy: 0.001)
+        XCTAssertFalse(writer.fileExists(at: harness.storage.locationURL(directory: queued.directoryURL)))
+    }
+
+    func testUnknownAudioRetainsLocationProgressUntilSiblingRecovers() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .authorized, fileWriter: writer)
+        let startedAt = harness.clock.now()
+        let directory = try self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .captured,
+            sensors: [.audio, .location]
+        )
+        let audioURL = harness.storage.audioURL(directory: directory)
+        let locationURL = harness.storage.locationURL(directory: directory)
+        try Data("audio".utf8).write(to: audioURL)
+        let originalAudio = try Data(contentsOf: audioURL)
+        let locationLog = WatchCaptureLocationLog(url: locationURL, fileWriter: writer)
+        try locationLog.openProvisionalHeader()
+        try locationLog.append(Self.fix(time: startedAt.addingTimeInterval(1)))
+        let originalID = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest.id)
+        writer.failRead(at: audioURL)
+
+        let firstRelaunch = self.relaunchEngine(for: harness)
+        firstRelaunch.reconcileOnLaunch(); await firstRelaunch.settled()
+
+        let retained = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(retained.manifest.id, originalID)
+        XCTAssertEqual(retained.manifest.state, .captured)
+        XCTAssertEqual(retained.manifest.fixCount, 1)
+        XCTAssertFalse(retained.manifest.gap)
+        XCTAssertFalse(retained.manifest.lost)
+        XCTAssertEqual(try Data(contentsOf: audioURL), originalAudio)
+        XCTAssertTrue(writer.atomicReplaceURLs.contains(locationURL))
+
+        writer.clearReadFailure(at: audioURL)
+        harness.audioProbe.ioUnknownPaths.insert(audioURL.path)
+        let probeUnknownRelaunch = self.relaunchEngine(for: harness)
+        probeUnknownRelaunch.reconcileOnLaunch(); await probeUnknownRelaunch.settled()
+
+        let probeUnknown = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(probeUnknown.manifest.id, originalID)
+        XCTAssertEqual(probeUnknown.manifest.state, .captured)
+        XCTAssertEqual(probeUnknown.manifest.fixCount, 1)
+        XCTAssertFalse(probeUnknown.manifest.lost)
+        XCTAssertEqual(try Data(contentsOf: audioURL), originalAudio)
+
+        harness.audioProbe.ioUnknownPaths.remove(audioURL.path)
+        harness.audioProbe.durations[audioURL.path] = 23.4
+        let secondRelaunch = self.relaunchEngine(for: harness)
+        secondRelaunch.reconcileOnLaunch(); await secondRelaunch.settled()
+
+        let queued = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(queued.manifest.id, originalID)
+        XCTAssertEqual(queued.manifest.state, .queued)
+        XCTAssertEqual(queued.manifest.duration, 23.4, accuracy: 0.001)
+        XCTAssertFalse(queued.manifest.lost)
+        XCTAssertEqual(
+            try Data(contentsOf: harness.storage.audioURL(directory: queued.directoryURL)),
+            originalAudio
+        )
+    }
+
+    func testRolloverOpeningFailurePreservesConfirmedUndecodableAudio() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let successorStartedAt = harness.clock.now().addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds)
+        let successorDirectory = self.successorDirectory(in: harness)
+        let successorAudioURL = harness.storage.audioURL(directory: successorDirectory)
+        harness.audioProbe.durations[successorAudioURL.path] = .some(nil)
+        harness.recorder.writesBeforeStartError = true
+        harness.recorder.startError = NSError(domain: "WatchCaptureTests.recorder", code: 4)
+
+        harness.clock.advance(by: WatchCaptureTiming.segmentDurationSeconds)
+        await self.drain(until: { !harness.engine.ownerPresentation.isSessionRunning })
+        await harness.engine.settled()
+
+        let entries = try harness.storage.scanManifests()
+        XCTAssertEqual(entries.count, 2)
+        let successor = try XCTUnwrap(entries.first { $0.manifest.startedAt == successorStartedAt })
+        XCTAssertEqual(successor.manifest.state, .queued)
+        XCTAssertTrue(successor.manifest.partial)
+        XCTAssertFalse(successor.manifest.lost)
+        XCTAssertEqual(successor.manifest.sensors, [.audio])
+        XCTAssertEqual(
+            try Data(contentsOf: harness.storage.audioURL(directory: successor.directoryURL)),
+            Data("audio".utf8)
+        )
+        XCTAssertEqual(entries.filter { $0.manifest.startedAt != successorStartedAt }.count, 1)
+    }
+
+    func testLiveAudioProbeSeparatesReadableCorruptionFromMissingMedia() throws {
+        let probe = LiveWatchAudioProbe()
+        let corruptURL = self.tempDirectory.appendingPathComponent("readable-corrupt.m4a")
+        let missingURL = self.tempDirectory.appendingPathComponent("missing.m4a")
+        try Data("not an audio file".utf8).write(to: corruptURL)
+
+        XCTAssertEqual(probe.probe(at: corruptURL), .confirmedUndecodable)
+        XCTAssertEqual(probe.probe(at: missingURL), .ioUnknown)
+        XCTAssertEqual(
+            LiveWatchAudioProbe.classification(
+                for: NSError(domain: NSOSStatusErrorDomain, code: 0x6474_613F)
+            ),
+            .confirmedUndecodable
+        )
+        XCTAssertEqual(
+            LiveWatchAudioProbe.classification(
+                for: NSError(domain: NSOSStatusErrorDomain, code: 0x1234_5678)
+            ),
+            .ioUnknown
+        )
+        XCTAssertEqual(
+            LiveWatchAudioProbe.classification(
+                for: NSError(domain: NSOSStatusErrorDomain, code: 0x7768_743F)
+            ),
+            .ioUnknown
+        )
+    }
+
     func testSegmentDirectoryCollisionsDoNotOverwriteExistingData() throws {
         let storage = try WatchCaptureStorage(
             rootURL: self.tempDirectory.appendingPathComponent("Collision-\(UUID().uuidString)", isDirectory: true)
@@ -4233,6 +4481,23 @@ private extension WatchCaptureTests {
         return directory
     }
 
+    func relaunchEngine(for harness: Harness) -> WatchCaptureEngine {
+        WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+            audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
+            storage: harness.storage,
+            clock: harness.clock,
+            audioProbe: harness.audioProbe,
+            notificationScheduler: MockWatchNotificationScheduler(
+                authorizationStatus: .authorized,
+                alertSetting: .enabled
+            ),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
+            notificationCenter: NotificationCenter()
+        )
+    }
+
     static func fix(
         time: Date = Date(timeIntervalSince1970: 1_713_624_000),
         lat: Double = 39.7392,
@@ -4602,14 +4867,24 @@ private final class MockWatchLocationProvider: WatchLocationProviding {
 @MainActor
 private final class MockWatchAudioProbe: WatchAudioProbing {
     var durations: [String: TimeInterval?] = [:]
+    var ioUnknownPaths: Set<String> = []
     // Six re-harnessed legacy tests depend on unseeded URLs reading decodable.
     var defaultDuration: TimeInterval? = 300
 
-    func decodableDuration(at url: URL) -> TimeInterval? {
-        if let seeded = self.durations[url.path] {
-            return seeded
+    func probe(at url: URL) -> WatchAudioProbeResult {
+        if self.ioUnknownPaths.contains(url.path) {
+            return .ioUnknown
         }
-        return self.defaultDuration
+        if let seeded = self.durations[url.path] {
+            if let seeded {
+                return seeded > 0 ? .decodable(duration: seeded) : .confirmedUndecodable
+            }
+            return .confirmedUndecodable
+        }
+        if let defaultDuration {
+            return defaultDuration > 0 ? .decodable(duration: defaultDuration) : .confirmedUndecodable
+        }
+        return .confirmedUndecodable
     }
 }
 
@@ -4633,6 +4908,7 @@ private final class FailingWatchFileWriter: WatchFileWriting {
     private var atomicReplaceFailures: [String: Set<Int>] = [:]
     private var writeDataFailures: [String: Set<Int>] = [:]
     private var fileSizeFailures: Set<String> = []
+    private var readFailures: Set<String> = []
 
     init(
         failAppend: Bool,
@@ -4668,6 +4944,9 @@ private final class FailingWatchFileWriter: WatchFileWriting {
 
     func readData(from url: URL) throws -> Data {
         self.readDataURLs.append(url)
+        if self.readFailures.contains(url.path) {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        }
         return try self.base.readData(from: url)
     }
 
@@ -4735,6 +5014,18 @@ private final class FailingWatchFileWriter: WatchFileWriting {
 
     func failFileSize(at url: URL) {
         self.fileSizeFailures.insert(url.path)
+    }
+
+    func clearFileSizeFailure(at url: URL) {
+        self.fileSizeFailures.remove(url.path)
+    }
+
+    func failRead(at url: URL) {
+        self.readFailures.insert(url.path)
+    }
+
+    func clearReadFailure(at url: URL) {
+        self.readFailures.remove(url.path)
     }
 
     private func nextOrdinal(for url: URL, in ordinals: inout [String: Int]) -> Int {
