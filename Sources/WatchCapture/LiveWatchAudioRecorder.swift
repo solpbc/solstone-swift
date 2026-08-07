@@ -123,10 +123,34 @@ final class LiveWatchAudioSessionController: WatchAudioSessionControlling {
 
 @MainActor
 final class LiveWatchAudioProbe: WatchAudioProbing {
-    func decodableDuration(at url: URL) -> TimeInterval? {
-        guard let file = try? AVAudioFile(forReading: url), file.fileFormat.sampleRate > 0 else {
-            return nil
+    nonisolated static func classification(for error: any Error) -> WatchAudioProbeResult {
+        let nsError = error as NSError
+        switch nsError.code {
+        case 0x7479_703F, // 'typ?' — unsupported file type
+             0x666D_743F, // 'fmt?' — unsupported data format
+             0x6474_613F, // 'dta?' — invalid file
+             0x6368_6B3F: // 'chk?' — invalid chunk
+            return .confirmedUndecodable
+        default:
+            return .ioUnknown
         }
-        return Double(file.length) / file.fileFormat.sampleRate
+    }
+
+    func probe(at url: URL) -> WatchAudioProbeResult {
+        do {
+            _ = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch {
+            return .ioUnknown
+        }
+        do {
+            let file = try AVAudioFile(forReading: url)
+            guard file.fileFormat.sampleRate > 0 else {
+                return .confirmedUndecodable
+            }
+            let duration = Double(file.length) / file.fileFormat.sampleRate
+            return duration > 0 ? .decodable(duration: duration) : .confirmedUndecodable
+        } catch {
+            return Self.classification(for: error)
+        }
     }
 }

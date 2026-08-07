@@ -67,9 +67,15 @@ protocol WatchFileWriting: AnyObject {
     func contentsOfDirectory(at url: URL) throws -> [URL]
 }
 
+nonisolated enum WatchAudioProbeResult: Equatable, Sendable {
+    case decodable(duration: TimeInterval)
+    case confirmedUndecodable
+    case ioUnknown
+}
+
 @MainActor
 protocol WatchAudioProbing: AnyObject {
-    func decodableDuration(at url: URL) -> TimeInterval?
+    func probe(at url: URL) -> WatchAudioProbeResult
 }
 
 @MainActor
