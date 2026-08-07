@@ -35,7 +35,6 @@ final class OmiLaunchCaptureIngress {
     private let io: any OmiLaunchCaptureIO
     private var writer: OmiLaunchCaptureWriter?
     private(set) var isLatched = false
-    private(set) var hasCommittedBoundary = false
     private var didConsumeResume = false
     private(set) var didAttemptInitialArm = false
 
@@ -98,8 +97,8 @@ final class OmiLaunchCaptureIngress {
         }
     }
 
-    func rotateAfterCommittedBoundary() -> Bool {
-        guard self.isLatched, self.hasCommittedBoundary,
+    func rotateToFreshGeneration() -> Bool {
+        guard self.isLatched,
               let rootURL = try? self.appGroupRoot()
         else {
             return false
@@ -116,7 +115,6 @@ final class OmiLaunchCaptureIngress {
         self.writer = candidate
         self.generationID = generationID
         self.isLatched = false
-        self.hasCommittedBoundary = false
         return true
     }
 
@@ -131,7 +129,6 @@ final class OmiLaunchCaptureIngress {
             return self.routeReservation(writer.reserveGap(), reason: .payloadNotRetained)
         case .visibleGap(_, let reason):
             self.isLatched = true
-            self.hasCommittedBoundary = true
             return .boundaryCommitted(reason: Self.boundaryReason(for: reason))
         case .rejected(let reason):
             if case .pendingSlotOccupied = reason {
@@ -149,7 +146,6 @@ final class OmiLaunchCaptureIngress {
         switch outcome {
         case .visibleGap:
             self.isLatched = true
-            self.hasCommittedBoundary = true
             return .boundaryCommitted(reason: reason)
         case .retained, .notRetained, .rejected:
             self.isLatched = true

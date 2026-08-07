@@ -12,10 +12,10 @@ private struct OmiPendingSubscribe: Sendable {
     let connectedAt: Date
 }
 
-private enum LaunchCaptureRotationState {
+private enum LaunchCaptureRotationState: Equatable {
     case none
-    case awaitingBoundaryDisconnect
-    case awaitingResubscription
+    case awaitingDisconnect(peripheralID: UUID)
+    case awaitingResubscription(peripheralID: UUID, disconnectEpoch: UInt64)
 }
 
 @MainActor
@@ -100,6 +100,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var captureRequiresExplicitResume: Bool
     @ObservationIgnored private var audioRoute: AudioRoute = .launchCapture
     @ObservationIgnored private var launchCaptureRotationState: LaunchCaptureRotationState = .none
+    @ObservationIgnored private var connectionEpoch: UInt64 = 0
+    @ObservationIgnored private var launchCaptureSubscribeRequestEpoch: UInt64?
 
     private enum AudioRoute {
         case launchCapture
@@ -524,30 +526,21 @@ extension OmiSourceManager {
     ) {
         guard !self.isOmiWorkDisabled else { return }
         if self.audioRoute == .launchCapture, let launchCaptureIngress {
-            let wasLatched = launchCaptureIngress.isLatched
-            let hadCommittedBoundary = launchCaptureIngress.hasCommittedBoundary
             switch launchCaptureIngress.ingest(input) {
             case .retainedContiguous:
                 break
-            case .boundaryCommitted(let reason):
-                if !hadCommittedBoundary {
-                    self.noteWriterFault()
-                    self.launchCaptureRotationState = .awaitingBoundaryDisconnect
-                    self.log.error("omi launch capture boundary: \(reason.rawValue, privacy: .public)")
-                    if !wasLatched {
-                        self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
-                    }
-                } else {
-                    self.synchronizeWriterFaultState()
-                }
+            case .boundaryCommitted:
+                self.armLaunchCaptureRecovery(
+                    peripheralID: peripheralID,
+                    characteristic: characteristic,
+                    reason: "recovery_armed_boundary"
+                )
             case .notRetained:
-                if !wasLatched {
-                    self.noteWriterFault()
-                    self.log.error("omi launch capture boundary: reservation_not_retained")
-                    self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
-                } else {
-                    self.synchronizeWriterFaultState()
-                }
+                self.armLaunchCaptureRecovery(
+                    peripheralID: peripheralID,
+                    characteristic: characteristic,
+                    reason: "recovery_armed_not_retained"
+                )
             }
             return
         }
@@ -800,8 +793,12 @@ extension OmiSourceManager {
         case .rearmConnect:
             self.beginConnect(peripheral, isReconnect: true)
         case .discoverServices:
+            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
+            if didBeginConnection {
+                self.noteConnectionEpochBegan()
+            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -810,8 +807,12 @@ extension OmiSourceManager {
             }
             self.bluetoothPort.discoverServices(peripheralID: peripheral.id, serviceIDs: self.restoreServiceIDs)
         case .readCodec:
+            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
+            if didBeginConnection {
+                self.noteConnectionEpochBegan()
+            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -829,12 +830,20 @@ extension OmiSourceManager {
                 self.log.error("omi audio unavailable during readiness")
             }
         case .needsAttention(let attention):
+            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             _ = self.adoptConnectedPeripheralIfNeeded(peripheral)
+            if didBeginConnection {
+                self.noteConnectionEpochBegan()
+            }
             self.connectionState = .needsAttention(attention)
             self.log.error("omi readiness needs attention: \(attention.displayString, privacy: .public)")
         case .subscribeAudio:
+            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
+            if didBeginConnection {
+                self.noteConnectionEpochBegan()
+            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -850,8 +859,13 @@ extension OmiSourceManager {
                 self.log.error("omi audio unavailable during readiness")
             }
         case .alreadyLive:
+            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
+            if didBeginConnection {
+                self.noteConnectionEpochBegan()
+                self.launchCaptureSubscribeRequestEpoch = self.connectionEpoch
+            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -884,6 +898,7 @@ extension OmiSourceManager {
         }
         self.cancelInitialConnectTimeout()
         self.pendingConnectionID = nil
+        let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
         self.adoptConnectedPeripheral(peripheral)
         let now = self.clock.now()
 
@@ -901,7 +916,10 @@ extension OmiSourceManager {
         }
 
         self.connectionState = .connected
-        self.beginConnectionInstrumentation(now: now, expectsSubscribeConfirm: true)
+        if didBeginConnection {
+            self.noteConnectionEpochBegan()
+            self.beginConnectionInstrumentation(now: now, expectsSubscribeConfirm: true)
+        }
         self.attributeOpenConnectedSilentGap(at: now)
         self.diagnostics.recordConnected()
         self.lastSilentAttributionAt = nil
@@ -940,8 +958,13 @@ extension OmiSourceManager {
         isReconnecting: Bool,
         error: (any Error)?
     ) async {
-        if self.launchCaptureRotationState == .awaitingBoundaryDisconnect {
-            self.launchCaptureRotationState = .awaitingResubscription
+        if case .awaitingDisconnect(let peripheralID) = self.launchCaptureRotationState,
+           peripheral.id == peripheralID
+        {
+            self.launchCaptureRotationState = .awaitingResubscription(
+                peripheralID: peripheralID,
+                disconnectEpoch: self.connectionEpoch
+            )
         }
         guard !self.isOmiWorkDisabled else { return }
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
@@ -1288,6 +1311,9 @@ private extension OmiSourceManager {
             self.log.error("omi audio flow control: flow_control_request_failed")
             return
         }
+        if enabled {
+            self.launchCaptureSubscribeRequestEpoch = self.connectionEpoch
+        }
     }
 
     func readRSSI() {
@@ -1318,6 +1344,15 @@ private extension OmiSourceManager {
         }
         self.adoptConnectedPeripheral(peripheral)
         return true
+    }
+
+    func isBeginningCurrentConnection(for peripheral: OmiPeripheralDescriptor) -> Bool {
+        self.connectedPeripheralID != peripheral.id || self.connectionState != .connected
+    }
+
+    func noteConnectionEpochBegan() {
+        self.connectionEpoch += 1
+        self.launchCaptureSubscribeRequestEpoch = nil
     }
 
     func beginConnectionInstrumentation(
@@ -1458,24 +1493,40 @@ private extension OmiSourceManager {
         self.bluetoothPort.cancelConnection(peripheralID: peripheralID)
     }
 
+    func armLaunchCaptureRecovery(
+        peripheralID: UUID,
+        characteristic: OmiCharacteristicDescriptor?,
+        reason: String
+    ) {
+        guard self.launchCaptureRotationState == .none else { return }
+        self.noteWriterFault()
+        self.launchCaptureRotationState = .awaitingDisconnect(peripheralID: peripheralID)
+        self.log.error("omi launch capture recovery: \(reason, privacy: .public)")
+        self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
+    }
+
     func rotateLaunchCaptureAfterResubscriptionIfNeeded(
         for peripheral: OmiPeripheralDescriptor,
         characteristic: OmiCharacteristicDescriptor?
     ) -> Bool {
-        guard self.launchCaptureRotationState == .awaitingResubscription else { return true }
+        guard case .awaitingResubscription(let affectedPeripheralID, let disconnectEpoch) = self.launchCaptureRotationState else {
+            return true
+        }
+        guard affectedPeripheralID == peripheral.id else { return true }
         guard self.connectedPeripheralID == peripheral.id,
-              self.connectionState == .connected,
               self.enabled,
               self.isLaunchReady,
+              self.connectionEpoch > disconnectEpoch,
+              self.launchCaptureSubscribeRequestEpoch == self.connectionEpoch,
               let launchCaptureIngress,
-              launchCaptureIngress.isLatched,
-              launchCaptureIngress.hasCommittedBoundary
+              launchCaptureIngress.isLatched
         else {
             return false
         }
-        guard launchCaptureIngress.rotateAfterCommittedBoundary() else {
+        guard launchCaptureIngress.rotateToFreshGeneration() else {
             self.noteWriterFault()
             self.log.error("omi launch capture rotation: generation_rotation_failed")
+            self.launchCaptureRotationState = .awaitingDisconnect(peripheralID: affectedPeripheralID)
             self.requestLaunchCaptureFlowControl(peripheralID: peripheral.id, characteristic: characteristic)
             return false
         }
