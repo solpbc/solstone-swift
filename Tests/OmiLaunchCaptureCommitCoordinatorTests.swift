@@ -639,12 +639,13 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             try await harness.engine.initialize()
             await harness.engine.enableDispatch()
 
-            await OmiLaunchCaptureCommitCoordinator(
+            let coordinator = OmiLaunchCaptureCommitCoordinator(
                 rootURL: captureRoot,
                 engine: harness.engine,
                 sourceManager: self.makeManager(),
                 io: io
-            ).reconcile()
+            )
+            await coordinator.reconcile()
 
             try await transferTestWaitFor("frontier delivery \(name)") {
                 TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == frontierItemID }
@@ -720,13 +721,89 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         XCTAssertFalse(snapshots.contains { $0.manifest.attention?.reason == "launch_capture_materialization_failed" })
     }
 
+    @MainActor func testCrashWindowsKeepDurableArtifactsReusableAndFrontierContiguous() throws {
+        for window in ["before-output", "after-output-before-frontier", "after-frontier-before-return", "before-next-batch"] {
+            let captureRoot = self.rootURL.appendingPathComponent(window, isDirectory: true)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let generation = try self.seedCapture(rootURL: captureRoot)
+            let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+
+            if window == "before-output" {
+                io.failNext(.open)
+                let decoder = try OmiOpusAudioDecoder()
+                XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: io, decode: { decoder.decode($0) }).materializeForTests().partitions.isEmpty, window)
+                io.clearFaults()
+            } else {
+                let output = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first, window)
+                let audioBytes = try Data(contentsOf: output.audioURL)
+                let envelopeBytes = try Data(contentsOf: output.envelopeURL)
+                // The synchronized restore models loss of work after the named
+                // durability boundary without manufacturing any result in the test.
+                try io.restoreLastSynchronizedState()
+                let reopened = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first, window)
+                XCTAssertEqual(reopened.itemID, output.itemID, window)
+                XCTAssertEqual(try Data(contentsOf: paths.audioURL), audioBytes, window)
+                XCTAssertEqual(try Data(contentsOf: paths.envelopeURL), envelopeBytes, window)
+            }
+
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
+            if let cursor = reader.cursor() {
+                XCTAssertLessThanOrEqual(cursor.materializedPrefixNextSequence, cursor.acknowledgedPrefixNextSequence, window)
+            }
+            let recovered = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first, window)
+            XCTAssertEqual(recovered.itemID, OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generation, partitionOrdinal: 0, startSequence: 0, startSampleOffset: 0), window)
+        }
+    }
+
+    @MainActor func testNoProgressUsesOneClockDelayedSuccessorAndDeduplicatesAttention() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("no-progress-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("no-progress-transfer", isDirectory: true)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let clock = MockObserverClock()
+        let generation = UUID()
+        let writer = OmiLaunchCaptureWriter(rootURL: captureRoot, generationID: generation, clock: clock, io: io)
+        let frame = try Self.opusFrame()
+        let cut1 = max(1, frame.count / 3)
+        let cut2 = min(frame.count - 1, cut1 + max(1, frame.count / 3))
+        self.append(Data([0, 0, 0]) + Data(frame.prefix(cut1)), to: writer)
+        self.append(Data([1, 0, 1]) + Data(frame[cut1..<cut2]), to: writer)
+        self.append(Data([2, 0, 2]) + Data(frame[cut2...]), to: writer)
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: self.makeManager(),
+            io: io,
+            clock: clock
+        )
+
+        await coordinator.reconcile()
+        await Task.yield()
+        XCTAssertEqual(clock.pendingSleeperCount, 1)
+        let firstSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(firstSnapshots.filter { $0.manifest.attention?.reason == "launch_capture_no_progress" }.count, 1)
+        let callsWhileDelayed = io.performedIOCallCount
+        await Task.yield()
+        XCTAssertEqual(io.performedIOCallCount, callsWhileDelayed, "no immediate successor may spin while the clock delay is armed")
+
+        clock.advance(by: 1)
+        // The clock wake is itself a state-changing trigger. Re-enter through the
+        // public trigger to make the convergence assertion deterministic.
+        await coordinator.reconcile()
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
+        XCTAssertEqual(reader.lease(), .empty)
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.filter { $0.manifest.attention?.reason == "launch_capture_no_progress" }.count, 1)
+    }
+
     @MainActor func testOrphanRepairFailureAttentionDeduplicatesAcrossRestarts() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
         let generation = try self.seedCapture(rootURL: captureRoot)
         let crashIO = CrashAfterFinalAudioReplaceIO()
         let crashDecoder = try OmiOpusAudioDecoder()
-        XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: crashIO, decode: { crashDecoder.decode($0) }).materialize().partitions.isEmpty)
+        XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: crashIO, decode: { crashDecoder.decode($0) }).materializeForTests().partitions.isEmpty)
         let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.audioURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.provenanceURL.path))
@@ -758,7 +835,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
         let generation = try self.seedCapture(rootURL: captureRoot)
         let crashDecoder = try OmiOpusAudioDecoder()
-        XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: CrashAfterFinalAudioReplaceIO(), decode: { crashDecoder.decode($0) }).materialize().partitions.isEmpty)
+        XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: CrashAfterFinalAudioReplaceIO(), decode: { crashDecoder.decode($0) }).materializeForTests().partitions.isEmpty)
         let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
         let unrelatedURL = paths.audioURL.deletingLastPathComponent().appendingPathComponent("unrelated.m4a")
         try Data("unrelated".utf8).write(to: unrelatedURL)
@@ -794,7 +871,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             let transferRoot = self.rootURL.appendingPathComponent("\(mismatch)-transfer", isDirectory: true)
             let generation = try self.seedCapture(rootURL: captureRoot)
             let crashDecoder = try OmiOpusAudioDecoder()
-            XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: CrashAfterFinalAudioReplaceIO(), decode: { crashDecoder.decode($0) }).materialize().partitions.isEmpty, mismatch)
+            XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: CrashAfterFinalAudioReplaceIO(), decode: { crashDecoder.decode($0) }).materializeForTests().partitions.isEmpty, mismatch)
             let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
             let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generation, partitionOrdinal: 0, startSequence: 0, startSampleOffset: 0)
             let twin = OmiLaunchCaptureMaterializationProvenance(
@@ -871,7 +948,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
 
     @MainActor private func materialize(rootURL: URL, generation: UUID, io: any OmiLaunchCaptureIO) throws -> OmiLaunchCaptureMaterializationResult {
         let decoder = try OmiOpusAudioDecoder()
-        return OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { decoder.decode($0) }).materialize()
+        return OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { decoder.decode($0) }).materializeForTests()
     }
 
     @MainActor private func append(_ payload: Data, to writer: OmiLaunchCaptureWriter) {

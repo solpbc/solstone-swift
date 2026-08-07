@@ -46,6 +46,102 @@ final class OmiLaunchCaptureLeaseReader {
         }
     }
 
+    func materializedPosition() -> OmiLaunchCaptureReadPosition? {
+        switch self.readCursor() {
+        case .valid(let cursor):
+            return OmiLaunchCaptureReadPosition(generationID: cursor.generationID, nextSequence: cursor.materializedPrefixNextSequence, offset: cursor.materializedPrefixEndOffset)
+        case .initial:
+            return OmiLaunchCaptureReadPosition(generationID: self.generationID, nextSequence: 0, offset: 0)
+        case .unreadable:
+            return nil
+        }
+    }
+
+    func cursor() -> OmiLaunchCaptureCursor? {
+        switch self.readCursor() {
+        case .valid(let cursor): return cursor
+        case .initial:
+            return OmiLaunchCaptureCursor(generationID: self.generationID, acknowledgedPrefixNextSequence: 0, acknowledgedPrefixEndOffset: 0)
+        case .unreadable:
+            return nil
+        }
+    }
+
+    func advanceMaterialized(
+        throughSequence: UInt64,
+        endOffset: Int,
+        nextPartitionOrdinal: UInt64,
+        nextSampleOffset: UInt64
+    ) -> OmiLaunchCaptureAcknowledgmentOutcome {
+        let cursorRead = self.readCursor()
+        let cursor: OmiLaunchCaptureCursor
+        switch cursorRead {
+        case .valid(let value): cursor = value
+        case .initial:
+            cursor = OmiLaunchCaptureCursor(generationID: self.generationID, acknowledgedPrefixNextSequence: 0, acknowledgedPrefixEndOffset: 0)
+        case .unreadable: return .refused(.cursorUnreadable)
+        }
+        guard cursor.materializedPrefixNextSequence <= throughSequence + 1,
+              cursor.acknowledgedPrefixNextSequence <= throughSequence + 1
+        else { return .refused(.noncontiguousFutureSequence) }
+        let position = OmiLaunchCaptureReadPosition(
+            generationID: self.generationID,
+            nextSequence: cursor.materializedPrefixNextSequence,
+            offset: cursor.materializedPrefixEndOffset
+        )
+        guard let scan = self.scanCurrent(from: position),
+              throughSequence < scan.verifiedPrefixNextSequence
+        else { return .refused(.pastVerifiedPrefix) }
+        do {
+            let token = try self.io.openForReading(at: self.fileURL)
+            defer { try? self.io.close(token) }
+            guard try OmiLaunchCaptureLeaseLogic.headerEnd(
+                generationID: self.generationID,
+                startSequence: position.nextSequence,
+                startOffset: position.offset,
+                throughSequence: throughSequence,
+                read: { try self.io.read(token, offset: $0, count: $1) }
+            ) == endOffset else { return .refused(.pastVerifiedPrefix) }
+        } catch {
+            return .refused(.cursorUnreadable)
+        }
+        let next = OmiLaunchCaptureCursor(
+            generationID: self.generationID,
+            acknowledgedPrefixNextSequence: cursor.acknowledgedPrefixNextSequence,
+            acknowledgedPrefixEndOffset: cursor.acknowledgedPrefixEndOffset,
+            materializedPrefixNextSequence: throughSequence + 1,
+            materializedPrefixEndOffset: endOffset,
+            nextPartitionOrdinal: nextPartitionOrdinal,
+            nextSampleOffset: nextSampleOffset,
+            replayMarkerNextSequence: cursor.replayMarkerNextSequence
+        )
+        return self.writeCursor(next)
+    }
+
+    func advanceReplayMarkers(through sequence: UInt64) -> OmiLaunchCaptureAcknowledgmentOutcome {
+        let cursorRead = self.readCursor()
+        let cursor: OmiLaunchCaptureCursor
+        switch cursorRead {
+        case .valid(let value): cursor = value
+        case .initial:
+            cursor = OmiLaunchCaptureCursor(generationID: self.generationID, acknowledgedPrefixNextSequence: 0, acknowledgedPrefixEndOffset: 0)
+        case .unreadable: return .refused(.cursorUnreadable)
+        }
+        guard cursor.replayMarkerNextSequence <= sequence else { return .noOp(.lowerSequence) }
+        guard sequence < UInt64.max else { return .refused(.pastVerifiedPrefix) }
+        let next = OmiLaunchCaptureCursor(
+            generationID: self.generationID,
+            acknowledgedPrefixNextSequence: cursor.acknowledgedPrefixNextSequence,
+            acknowledgedPrefixEndOffset: cursor.acknowledgedPrefixEndOffset,
+            materializedPrefixNextSequence: cursor.materializedPrefixNextSequence,
+            materializedPrefixEndOffset: cursor.materializedPrefixEndOffset,
+            nextPartitionOrdinal: cursor.nextPartitionOrdinal,
+            nextSampleOffset: cursor.nextSampleOffset,
+            replayMarkerNextSequence: sequence + 1
+        )
+        return self.writeCursor(next)
+    }
+
     func hasDurableAcknowledgment() -> Bool {
         if case .valid = self.readCursor() {
             return true
@@ -56,6 +152,23 @@ final class OmiLaunchCaptureLeaseReader {
     func cursorDefect() -> OmiLaunchCaptureCursorDefect? {
         guard case .unreadable(let defect) = self.readCursor() else { return nil }
         return defect
+    }
+
+    // Ordering only needs the immutable first header; do not acquire a full lease
+    // (and therefore do not rescan a generation) from a sort comparator.
+    func captureStartTime() -> Int64? {
+        do {
+            let token = try self.io.openForReading(at: self.fileURL)
+            defer { try? self.io.close(token) }
+            let data = try self.io.read(token, offset: 0, count: OmiLaunchCaptureFormat.headerByteCount)
+            guard case .success(let header) = OmiLaunchCaptureHeader.decode(data),
+                  header.generationID == self.generationID,
+                  header.sequence == 0
+            else { return nil }
+            return header.acquiredAtUnixMicros
+        } catch {
+            return nil
+        }
     }
 
     func lease() -> OmiLaunchCaptureLeaseOutcome {
@@ -77,7 +190,9 @@ final class OmiLaunchCaptureLeaseReader {
 
     func lease(from position: OmiLaunchCaptureReadPosition) -> OmiLaunchCaptureLeaseOutcome {
         guard position.generationID == self.generationID else { return .unavailable(.cursorDoesNotMatchCapture) }
-        guard let scan = self.scanCurrent() else { return .unavailable(.captureUnreadable) }
+        // Recovery has already verified the committed prefix. Batch materialization
+        // only needs to validate the suffix beginning at its durable frontier.
+        guard let scan = self.scanCurrent(from: position) else { return .unavailable(.captureUnreadable) }
         return self.makeLease(cursor: OmiLaunchCaptureCursor(
             generationID: position.generationID,
             acknowledgedPrefixNextSequence: position.nextSequence,
@@ -154,7 +269,7 @@ final class OmiLaunchCaptureLeaseReader {
                   first.sequence == cursor.acknowledgedPrefixNextSequence
             else { return .unavailable(.cursorDoesNotMatchCapture) }
 
-            let limit = OmiLaunchCaptureFormat.maximumResidentPayloadBytes / OmiLaunchCaptureFormat.maximumPayloadBytes
+            let limit = OmiLaunchCaptureFormat.maximumRecordsPerLease
             guard let firstRecord = try self.readRecord(
                 token: token,
                 offset: cursor.acknowledgedPrefixEndOffset,
@@ -183,7 +298,8 @@ final class OmiLaunchCaptureLeaseReader {
                 startOffset: cursor.acknowledgedPrefixEndOffset,
                 throughSequence: last.sequence,
                 endOffset: offset,
-                records: records
+                records: records,
+                endsAtVerifiedPrefix: sequence == scan.verifiedPrefixNextSequence
             ))
         } catch {
             return .unavailable(.captureUnreadable)
@@ -219,7 +335,15 @@ final class OmiLaunchCaptureLeaseReader {
             let next = OmiLaunchCaptureCursor(
                 generationID: self.generationID,
                 acknowledgedPrefixNextSequence: throughSequence + 1,
-                acknowledgedPrefixEndOffset: endOffset
+                acknowledgedPrefixEndOffset: endOffset,
+                // Direct acknowledgement is retained for the lease API's existing
+                // callers. It also establishes a materialized lower bound, because
+                // an acknowledged record is necessarily fully durable.
+                materializedPrefixNextSequence: max(cursor.materializedPrefixNextSequence, throughSequence + 1),
+                materializedPrefixEndOffset: max(cursor.materializedPrefixEndOffset, endOffset),
+                nextPartitionOrdinal: cursor.nextPartitionOrdinal,
+                nextSampleOffset: cursor.nextSampleOffset,
+                replayMarkerNextSequence: cursor.replayMarkerNextSequence
             )
             return self.writeCursor(next)
         } catch {
@@ -228,6 +352,10 @@ final class OmiLaunchCaptureLeaseReader {
     }
 
     private func scanCurrent() -> OmiLaunchCaptureScanResult? {
+        self.scanCurrent(from: OmiLaunchCaptureReadPosition(generationID: self.generationID, nextSequence: 0, offset: 0))
+    }
+
+    private func scanCurrent(from position: OmiLaunchCaptureReadPosition) -> OmiLaunchCaptureScanResult? {
         do {
             guard try self.io.fileExists(at: self.fileURL) else { return OmiLaunchCaptureScanResult() }
             let token = try self.io.openForReading(at: self.fileURL)
@@ -235,6 +363,8 @@ final class OmiLaunchCaptureLeaseReader {
             return OmiLaunchCaptureLogic.scan(
                 generationID: self.generationID,
                 fileSize: try self.io.fileSize(at: self.fileURL),
+                startOffset: position.offset,
+                expectedSequence: position.nextSequence,
                 read: { try self.io.read(token, offset: $0, count: $1) }
             )
         } catch {

@@ -16,6 +16,7 @@ nonisolated struct OmiLaunchCaptureLease: Equatable, Sendable {
     let throughSequence: UInt64
     let endOffset: Int
     let records: [OmiLaunchCaptureRecord]
+    let endsAtVerifiedPrefix: Bool
 }
 
 nonisolated enum OmiLaunchCaptureLeaseFailureReason: String, Equatable, Sendable {

@@ -49,6 +49,10 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         self.lock.withLock { self.ioCallCount }
     }
 
+    func readCallCount(at url: URL) -> Int {
+        self.lock.withLock { self.readCallCountByURL[url, default: 0] }
+    }
+
     func failNext(_ operation: OmiLaunchCaptureInjectedOperation) {
         self.lock.withLock { self.failingOperations.append(operation) }
     }

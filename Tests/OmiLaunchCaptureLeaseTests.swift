@@ -8,6 +8,9 @@ import XCTest
 @MainActor
 final class OmiLaunchCaptureLeaseTests: XCTestCase {
     private var rootURL: URL!
+    private static let captureScanReadsPerRecord = 2
+    private static let captureLeaseReadsPerRecord = 2
+    private static let captureLeaseFirstHeaderReadCount = 1
 
     override func setUpWithError() throws {
         self.rootURL = FileManager.default.temporaryDirectory
@@ -47,7 +50,13 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         XCTAssertEqual(writer.append(Data("three".utf8)), .retained(sequence: 2, retriedPending: false))
 
         let restarted = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
-        XCTAssertEqual(restarted.lease(), .lease(first))
+        guard case .lease(let reopened) = restarted.lease() else { return XCTFail("expected reopened lease") }
+        XCTAssertEqual(reopened.records, first.records)
+        XCTAssertEqual(reopened.startSequence, first.startSequence)
+        XCTAssertEqual(reopened.startOffset, first.startOffset)
+        XCTAssertEqual(reopened.throughSequence, first.throughSequence)
+        XCTAssertEqual(reopened.endOffset, first.endOffset)
+        XCTAssertFalse(reopened.endsAtVerifiedPrefix, "growth intentionally changes this live lease property")
         XCTAssertEqual(restarted.acknowledge(throughSequence: first.throughSequence), .advanced)
         guard case .lease(let later) = restarted.lease() else { return XCTFail("expected later lease") }
         XCTAssertEqual(later.records.map(\.sequence), [2])
@@ -173,6 +182,78 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         XCTAssertEqual(restarted.lease(), .empty)
     }
 
+    func testMaterializedFrontierResumeReadsOnlySuffixAndKeepsCoordinatesStable() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        for value in 0..<4 {
+            XCTAssertEqual(writer.append(Data([UInt8(value)])), .retained(sequence: UInt64(value), retriedPending: false))
+        }
+
+        let first = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        guard case .lease(let prefix) = first.lease() else { return XCTFail("expected prefix lease") }
+        XCTAssertEqual(prefix.records.map(\.sequence), [0, 1])
+        XCTAssertEqual(first.advanceMaterialized(
+            throughSequence: prefix.throughSequence,
+            endOffset: prefix.endOffset,
+            nextPartitionOrdinal: 7,
+            nextSampleOffset: 42
+        ), .advanced)
+        XCTAssertEqual(first.acknowledge(throughSequence: prefix.throughSequence), .advanced)
+        let readsAfterCommit = io.readCallCount(at: writer.fileURL)
+
+        let resumed = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        XCTAssertEqual(resumed.materializedPosition(), OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: 2, offset: prefix.endOffset))
+        guard case .lease(let suffix) = resumed.lease(from: try XCTUnwrap(resumed.materializedPosition())) else {
+            return XCTFail("expected suffix lease")
+        }
+        XCTAssertEqual(suffix.records.map(\.sequence), [2, 3])
+        XCTAssertEqual(resumed.cursor()?.nextPartitionOrdinal, 7)
+        XCTAssertEqual(resumed.cursor()?.nextSampleOffset, 42)
+        let suffixReadCeiling = suffix.records.count
+            * (Self.captureScanReadsPerRecord + Self.captureLeaseReadsPerRecord)
+            + Self.captureLeaseFirstHeaderReadCount
+        XCTAssertLessThanOrEqual(
+            io.readCallCount(at: writer.fileURL) - readsAfterCommit,
+            suffixReadCeiling,
+            "frontier-relative scan must not reread the committed prefix"
+        )
+        XCTAssertEqual(suffix.startOffset, prefix.endOffset, "resume must begin at the committed frontier, not byte zero")
+    }
+
+    func testAppendBehindFrozenLeaseKeepsBoundedOrderedSuccessors() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        for value in 0..<2 {
+            XCTAssertEqual(writer.append(Data([UInt8(value)])), .retained(sequence: UInt64(value), retriedPending: false))
+        }
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        guard case .lease(let frozen) = reader.lease() else { return XCTFail("expected frozen lease") }
+        XCTAssertEqual(frozen.records.map(\.sequence), [0, 1])
+        for value in 2..<9 {
+            XCTAssertEqual(writer.append(Data([UInt8(value)])), .retained(sequence: UInt64(value), retriedPending: false))
+        }
+        XCTAssertEqual(reader.advanceMaterialized(
+            throughSequence: frozen.throughSequence,
+            endOffset: frozen.endOffset,
+            nextPartitionOrdinal: 0,
+            nextSampleOffset: 0
+        ), .advanced)
+        XCTAssertEqual(reader.acknowledge(throughSequence: frozen.throughSequence), .advanced)
+
+        var sequences: [UInt64] = []
+        var position = try XCTUnwrap(reader.materializedPosition())
+        while case .lease(let lease) = reader.lease(from: position) {
+            XCTAssertLessThanOrEqual(lease.records.count, OmiLaunchCaptureFormat.maximumRecordsPerLease)
+            XCTAssertLessThanOrEqual(reader.peakLeaseResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
+            sequences.append(contentsOf: lease.records.map(\.sequence))
+            position = OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: lease.throughSequence + 1, offset: lease.endOffset)
+        }
+        XCTAssertEqual(sequences, Array(2..<9))
+        XCTAssertEqual(frozen.endOffset, try XCTUnwrap(reader.materializedPosition()).offset)
+    }
+
     func testBoundaryPrefixIsLeasableThenQuarantinedOnlyAfterAcknowledgment() {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let generation = UUID()
@@ -236,7 +317,7 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
             ("extended", controlData + Data([0]), .invalidLength, .length),
             ("invalid_magic", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: magicRange.lowerBound, with: controlData[magicRange.lowerBound] ^ 0x01)), .invalidMagic, .field(magicRange)),
             ("cursor_checksum", Self.replacingByte(in: controlData, at: digestRange.upperBound - 1, with: controlData[digestRange.upperBound - 1] ^ 0x01), .cursorChecksumMismatch, .digest),
-            ("unsupported_version", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: versionRange.lowerBound, with: 2)), .unsupportedVersion, .field(versionRange)),
+            ("unsupported_version", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: versionRange.lowerBound, with: 1)), .unsupportedVersion, .field(versionRange)),
             ("foreign_generation", Self.recomputingCursorDigest(Self.replacingUUID(in: controlData, at: generationRange.lowerBound, with: foreignGeneration)), .generationMismatch, .field(generationRange)),
             ("offset_out_of_range", Self.recomputingCursorDigest(Self.replacingAcknowledgedEnd(in: controlData, with: UInt64(Int.max) + 1)), .offsetOutOfRange, .field(acknowledgedEndRange)),
         ]
@@ -266,7 +347,7 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
                 generationID: generation,
                 io: io,
                 decode: { _ in [1] }
-            ).materialize()
+            ).materializeForTests()
             XCTAssertTrue(result.partitions.isEmpty, fixture.name)
             XCTAssertTrue(result.markers.isEmpty, fixture.name)
             XCTAssertEqual(try Data(contentsOf: reader.cursorURL), fixture.data, fixture.name)

@@ -28,9 +28,16 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     private enum GenerationOutcome {
         case settled(OmiLaunchCaptureMaterializationResult, OmiLaunchCaptureLeaseReader)
-        case retryRequired(OmiLaunchCaptureMaterializationResult)
+        case retryRequired(OmiLaunchCaptureMaterializationResult, OmiLaunchCaptureLeaseReader)
+        case retryDelayed(OmiLaunchCaptureMaterializationResult, OmiLaunchCaptureLeaseReader)
+        case held
         case boundary
         case failed
+    }
+
+    private enum PendingSuccessor {
+        case immediate
+        case delayed
     }
 
     private struct PendingOwner {
@@ -42,28 +49,34 @@ final class OmiLaunchCaptureCommitCoordinator {
     private let engine: TransferEngine
     private let sourceManager: OmiSourceManager
     private let io: any OmiLaunchCaptureIO
+    private let clock: any ObserverClock
     private let onReconciliationPhase: (@MainActor @Sendable (ReconciliationPhase) async -> Void)?
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-launch-capture")
     private var reconciliationRequested = false
+    private var successorTask: Task<Void, Never>?
     private var isReconciling = false
+    private var pendingSuccessor: PendingSuccessor?
     private var didCutOver = false
     private var heldForExplicitResumeIDs: Set<UUID> = []
     private var isResumingAfterExplicitEnable = false
     private var preRegisteredGateTokens: [UUID: TransferGateToken] = [:]
     private var enumeratedHandoffs: [LinkedHandoff] = []
-    private var markersAwaitingCutover: [OmiLaunchCaptureMarkerObservation] = []
+    private var materializerSession: (generationID: UUID, materializer: OmiLaunchCaptureMaterializer)?
+    private static let reconciliationNoProgressDelay: Duration = .seconds(1)
 
     init(
         rootURL: URL?,
         engine: TransferEngine,
         sourceManager: OmiSourceManager,
         io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO(),
+        clock: any ObserverClock = SystemObserverClock(),
         onReconciliationPhase: (@MainActor @Sendable (ReconciliationPhase) async -> Void)? = nil
     ) {
         self.rootURL = rootURL
         self.engine = engine
         self.sourceManager = sourceManager
         self.io = io
+        self.clock = clock
         self.onReconciliationPhase = onReconciliationPhase
     }
 
@@ -77,7 +90,13 @@ final class OmiLaunchCaptureCommitCoordinator {
             return
         }
         self.isReconciling = true
-        defer { self.isReconciling = false }
+        defer {
+            self.isReconciling = false
+            if let pendingSuccessor {
+                self.pendingSuccessor = nil
+                self.armReconciliationSuccessor(delayed: pendingSuccessor == .delayed)
+            }
+        }
         guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
             await self.conservativelyGateOmi()
             return
@@ -109,23 +128,41 @@ final class OmiLaunchCaptureCommitCoordinator {
         var activeResult: (result: OmiLaunchCaptureMaterializationResult, reader: OmiLaunchCaptureLeaseReader)?
         var settledReaders: [(generationID: UUID, reader: OmiLaunchCaptureLeaseReader)] = []
         var shouldRetry = false
+        var shouldDelayRetry = false
         var sawBoundary = false
         var failed = false
-        for generationID in self.generationsInCaptureOrder(generationIDs, rootURL: rootURL) {
+        let ordering = self.generationsInCaptureOrder(generationIDs, rootURL: rootURL)
+        guard !ordering.hasUnreadableHeader else {
+            await self.conservativelyGateOmi()
+            return
+        }
+        for generationID in ordering.generationIDs {
             switch await self.reconcile(generationID: generationID) {
             case .settled(let result, let reader):
-                self.appendReplayMarkers(result.markers)
+                self.deliverReplayMarkers(result.markers, reader: reader)
                 settledReaders.append((generationID, reader))
                 if generationID == activeGenerationID {
                     activeResult = (result, reader)
                 }
-            case .retryRequired(let result):
-                self.appendReplayMarkers(result.markers)
+                self.dropMaterializerSession(reason: "settled")
+            case .retryRequired(let result, let reader):
+                self.deliverReplayMarkers(result.markers, reader: reader)
                 shouldRetry = true
+            case .retryDelayed(let result, let reader):
+                self.deliverReplayMarkers(result.markers, reader: reader)
+                shouldRetry = true
+                shouldDelayRetry = true
+            case .held:
+                // A held owner leaves the durable frontier unchanged. Discard the
+                // in-memory tail so an explicit resume re-derives its deterministic
+                // artifact and owner from that frontier.
+                self.dropMaterializerSession(reason: "held")
             case .boundary:
                 sawBoundary = true
+                self.dropMaterializerSession(reason: "boundary")
             case .failed:
                 failed = true
+                self.dropMaterializerSession(reason: "terminal failure")
             }
         }
 
@@ -136,11 +173,14 @@ final class OmiLaunchCaptureCommitCoordinator {
         // as durable acknowledgment evidence until its gate has been released or held.
         for reader in settledReaders where !unsettledLinkedGenerationIDs.contains(reader.generationID) {
             _ = reader.reader.retireIfEligible(activeGenerationID: activeGenerationID)
+            if reader.generationID != activeGenerationID {
+                self.dropMaterializerSession(reason: "retired")
+            }
         }
 
         guard !failed, !sawBoundary else { return }
         guard !shouldRetry else {
-            self.requestReconciliation()
+            self.requestReconciliation(delayed: shouldDelayRetry)
             return
         }
         guard let activeResult else { return }
@@ -174,6 +214,12 @@ final class OmiLaunchCaptureCommitCoordinator {
         guard let rootURL else { return .failed }
         let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generationID, io: self.io)
         let scan = OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: generationID, io: self.io).recover()
+        // A recovery read failure verifies no prefix. Do not let a second read race
+        // past that failure and create an owner from an unverified capture.
+        if scan.boundaryReason == .readFailed, scan.boundarySequence == nil {
+            await self.conservativelyGateOmi()
+            return .failed
+        }
         if case .unavailable(let reason) = reader.lease() {
             await self.conservativelyGateOmi()
             if reason == .cursorUnreadable, let defect = reader.cursorDefect() {
@@ -189,12 +235,22 @@ final class OmiLaunchCaptureCommitCoordinator {
             await self.conservativelyGateOmi()
             return .failed
         }
-        let result = OmiLaunchCaptureMaterializer(
-            rootURL: rootURL,
-            generationID: generationID,
-            io: self.io,
-            decode: { decoder.decode($0) }
-        ).materialize()
+        let materializer: OmiLaunchCaptureMaterializer
+        if let session = self.materializerSession, session.generationID == generationID {
+            materializer = session.materializer
+        } else {
+            self.dropMaterializerSession(reason: "generation changed")
+            // Materializer diagnostics stay test-only: coordinator converts returned
+            // failures to the durable transfer attention item below.
+            materializer = OmiLaunchCaptureMaterializer(
+                rootURL: rootURL,
+                generationID: generationID,
+                io: self.io,
+                decode: { decoder.decode($0) }
+            )
+            self.materializerSession = (generationID, materializer)
+        }
+        let result = materializer.materializeNextBatch()
 
         guard await self.commitOrphanRepairFailures(result.orphanRepairFailures, generationID: generationID) else {
             await self.conservativelyGateOmi()
@@ -207,21 +263,44 @@ final class OmiLaunchCaptureCommitCoordinator {
                 await self.conservativelyGateOmi()
                 return .failed
             }
-            guard let pending = await self.registerPendingOwners(for: result.partitions) else { return .failed }
-            return await self.finishMaterializationFailure(
+            guard let pending = await self.registerPendingOwners(for: result.partitions) else {
+                return self.sourceManager.isLaunchCaptureRecoveryEnabled ? .failed : .held
+            }
+            let outcome = await self.finishMaterializationFailure(
                 pending: pending,
                 reader: reader,
                 coveredThroughSequence: result.coveredThroughSequence
             )
+            if case .held = outcome { return outcome }
+            // A failed materialization may have durably persisted an earlier
+            // partition from this lease. Restart from the materialized frontier so
+            // that partition is recognized and settled before retrying the fault.
+            self.dropMaterializerSession(reason: "materialization retry")
+            return .retryDelayed(result, reader)
         }
 
-        guard let pending = await self.registerPendingOwners(for: result.partitions) else { return .failed }
+        guard let pending = await self.registerPendingOwners(for: result.partitions) else {
+            return self.sourceManager.isLaunchCaptureRecoveryEnabled ? .failed : .held
+        }
 
         guard !pending.isEmpty else {
+            guard self.advanceMaterializedFrontier(result.materializedFrontier, reader: reader) else {
+                await self.conservativelyGateOmi()
+                return .failed
+            }
             if scan.boundaryReason != nil {
                 return await self.commitBoundary(scan: scan, generationID: generationID) ? .boundary : .failed
             }
-            guard case .empty = reader.lease() else { return .retryRequired(result) }
+            guard case .empty = reader.lease() else {
+                if result.materializedFrontier == nil, result.coveredThroughSequence == nil {
+                    guard await self.commitNoProgress(generationID: generationID, reader: reader) else {
+                        await self.conservativelyGateOmi()
+                        return .failed
+                    }
+                    return .retryDelayed(result, reader)
+                }
+                return .retryRequired(result, reader)
+            }
             return .settled(result, reader)
         }
         guard let coveredThroughSequence = result.coveredThroughSequence,
@@ -235,6 +314,13 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
         guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
             await self.hold(pending, retainForExplicitResume: true)
+            return .held
+        }
+        // The artifacts and their gated owners are durable before this frontier
+        // advances. A restart before the next acknowledgement re-derives the same
+        // deterministic handoff instead of skipping an unsettled owner.
+        guard self.advanceMaterializedFrontier(result.materializedFrontier, reader: reader) else {
+            await self.hold(pending)
             return .failed
         }
         guard self.acknowledge(reader: reader, throughSequence: coveredThroughSequence) else {
@@ -247,7 +333,7 @@ final class OmiLaunchCaptureCommitCoordinator {
         if scan.boundaryReason != nil {
             return await self.commitBoundary(scan: scan, generationID: generationID) ? .boundary : .failed
         }
-        guard case .empty = reader.lease() else { return .retryRequired(result) }
+        guard case .empty = reader.lease() else { return .retryRequired(result, reader) }
         return .settled(result, reader)
     }
 
@@ -265,6 +351,24 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
         }
         return pending
+    }
+
+    private func advanceMaterializedFrontier(
+        _ frontier: OmiLaunchCaptureMaterializedFrontier?,
+        reader: OmiLaunchCaptureLeaseReader
+    ) -> Bool {
+        guard let frontier else { return true }
+        switch reader.advanceMaterialized(
+            throughSequence: frontier.throughSequence,
+            endOffset: frontier.endOffset,
+            nextPartitionOrdinal: frontier.nextPartitionOrdinal,
+            nextSampleOffset: frontier.nextSampleOffset
+        ) {
+        case .advanced, .noOp:
+            return true
+        case .refused:
+            return false
+        }
     }
 
     private func finishMaterializationFailure(
@@ -471,9 +575,23 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private func appendReplayMarkers(_ markers: [OmiLaunchCaptureMarkerObservation]) {
-        for marker in markers where !self.markersAwaitingCutover.contains(marker) {
-            self.markersAwaitingCutover.append(marker)
+    private func deliverReplayMarkers(_ markers: [OmiLaunchCaptureMarkerObservation], reader: OmiLaunchCaptureLeaseReader?) {
+        guard !markers.isEmpty else { return }
+        let filtered: [OmiLaunchCaptureMarkerObservation]
+        if let cursor = reader?.cursor() {
+            filtered = markers.filter { marker in
+                guard let sequence = marker.sequence else { return true }
+                return sequence >= cursor.replayMarkerNextSequence
+            }
+        } else {
+            filtered = markers
+        }
+        self.sourceManager.observeRecoveredLaunchCaptureMarkers(filtered)
+        let sequencedMarkers = filtered.compactMap { $0.sequence }
+        if let reader, let last = sequencedMarkers.max() {
+            // Delivery precedes this durable high-water mark. A crash in this window
+            // may replay the marker, but OmiDiagnostics makes replay effects idempotent.
+            _ = reader.advanceReplayMarkers(through: last)
         }
     }
 
@@ -499,19 +617,65 @@ final class OmiLaunchCaptureCommitCoordinator {
                 return
             }
         }
-        self.sourceManager.completeLaunchCaptureCutover(markers: self.markersAwaitingCutover)
-        self.markersAwaitingCutover.removeAll()
+        self.sourceManager.completeLaunchCaptureCutover()
         self.didCutOver = true
+        self.pendingSuccessor = nil
+        self.successorTask?.cancel()
+        self.successorTask = nil
+        self.reconciliationRequested = false
+        self.dropMaterializerSession(reason: "cut over")
     }
 
-    private func requestReconciliation() {
-        guard !self.reconciliationRequested else { return }
-        self.reconciliationRequested = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.reconciliationRequested = false
-            await self.reconcile()
+    private func requestReconciliation(delayed: Bool = false) {
+        guard !self.didCutOver else { return }
+        if self.isReconciling {
+            guard self.pendingSuccessor == nil else { return }
+            self.pendingSuccessor = delayed ? .delayed : .immediate
+            return
         }
+        self.armReconciliationSuccessor(delayed: delayed)
+    }
+
+    private func armReconciliationSuccessor(delayed: Bool) {
+        guard !self.reconciliationRequested, !self.didCutOver else { return }
+        self.reconciliationRequested = true
+        if delayed {
+            let clock = self.clock
+            self.successorTask = Task { @MainActor [weak self, clock] in
+                try? await clock.sleep(for: Self.reconciliationNoProgressDelay)
+                guard let self else { return }
+                await self.runReconciliationSuccessor()
+            }
+        } else {
+            // An immediate successor retains the coordinator only until it runs. This
+            // keeps a caller that has just requested reconciliation alive through the
+            // next drain batch without retaining a delayed task across teardown.
+            self.successorTask = Task { @MainActor in
+                await self.runReconciliationSuccessor()
+            }
+        }
+    }
+
+    private func runReconciliationSuccessor() async {
+        guard !Task.isCancelled, !self.didCutOver else {
+            self.reconciliationRequested = false
+            self.successorTask = nil
+            return
+        }
+        self.reconciliationRequested = false
+        self.successorTask = nil
+        await self.reconcile()
+    }
+
+    deinit {
+        self.successorTask?.cancel()
+    }
+
+    private func dropMaterializerSession(reason: String) {
+        guard let session = self.materializerSession else { return }
+        session.materializer.discardSession()
+        self.materializerSession = nil
+        self.log.debug("launch capture materializer session dropped: \(reason, privacy: .public)")
     }
 
     private func commitBoundary(scan: OmiLaunchCaptureScanResult, generationID: UUID) async -> Bool {
@@ -675,6 +839,50 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
+    private func commitNoProgress(generationID: UUID, reader: OmiLaunchCaptureLeaseReader) async -> Bool {
+        guard let cursor = reader.cursor() else { return false }
+        let itemID = Self.noProgressItemID(
+            generationID: generationID,
+            sequence: cursor.materializedPrefixNextSequence,
+            offset: cursor.materializedPrefixEndOffset
+        )
+        let startedAt = Date(timeIntervalSince1970: 0)
+        let sidecar = ChunkSidecar(
+            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
+            day: ObserverSegmentNaming.dayString(for: startedAt),
+            chunkIndex: Int.max,
+            startedAt: startedAt,
+            durationS: 0,
+            sessionID: generationID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
+        manifest.payloadParts = []
+        manifest.diskState = .attention
+        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            return true
+        case .notFound:
+            do {
+                _ = try await self.engine.enqueueAttention(
+                    manifest: manifest,
+                    payloadFileURLs: [:],
+                    reason: "launch_capture_no_progress",
+                    detail: "generation=\(generationID.uuidString.lowercased()) sequence=\(cursor.materializedPrefixNextSequence)"
+                )
+                return true
+            } catch {
+                self.log.error("launch capture no-progress attention failed")
+                return false
+            }
+        case .stagingOnly, .salvageOnly, .conflict, .none:
+            self.log.error("launch capture no-progress ownership failed")
+            return false
+        }
+    }
+
     private func enumerateLinkedIDs() -> EnumerationResult {
         guard let rootURL else { return .unknown }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
@@ -723,22 +931,20 @@ final class OmiLaunchCaptureCommitCoordinator {
         })
     }
 
-    private func generationsInCaptureOrder(_ generationIDs: Set<UUID>, rootURL: URL) -> [UUID] {
-        // Acknowledged records never replay markers, so order only the outstanding lease
-        // that can still contribute to this cutover. UUID provides a stable tie-breaker.
-        generationIDs.sorted {
-            let left = self.captureStartTime(generationID: $0, rootURL: rootURL)
-            let right = self.captureStartTime(generationID: $1, rootURL: rootURL)
+    private func generationsInCaptureOrder(_ generationIDs: Set<UUID>, rootURL: URL) -> (generationIDs: [UUID], hasUnreadableHeader: Bool) {
+        // Read each first header once before sorting.  UUID provides the stable
+        // tie-breaker when capture times match or a header is unavailable.
+        let startTimes = Dictionary(uniqueKeysWithValues: generationIDs.map { generationID in
+            let start = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generationID, io: self.io)
+                .captureStartTime()
+            return (generationID, start ?? Int64.max)
+        })
+        let ordered = generationIDs.sorted {
+            let left = startTimes[$0] ?? Int64.max
+            let right = startTimes[$1] ?? Int64.max
             return left == right ? $0.uuidString < $1.uuidString : left < right
         }
-    }
-
-    private func captureStartTime(generationID: UUID, rootURL: URL) -> Int64 {
-        let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generationID, io: self.io)
-        guard case .lease(let lease) = reader.lease(), let first = lease.records.first else {
-            return Int64.max
-        }
-        return first.acquiredAtUnixMicros
+        return (ordered, startTimes.values.contains(Int64.max))
     }
 
     private static func boundaryItemID(generationID: UUID, sequence: UInt64, offset: Int) -> UUID {
@@ -779,6 +985,17 @@ final class OmiLaunchCaptureCommitCoordinator {
         var data = Data("omi-launch-capture-materialization-failed-v1".utf8)
         data.append(uuidBytes: generationID)
         data.appendLittleEndian(UInt64(ordinal))
+        var bytes = Array(SHA256.hash(data: data).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    private static func noProgressItemID(generationID: UUID, sequence: UInt64, offset: Int) -> UUID {
+        var data = Data("omi-launch-capture-no-progress-v1".utf8)
+        data.append(uuidBytes: generationID)
+        data.appendLittleEndian(sequence)
+        data.appendLittleEndian(UInt64(max(offset, 0)))
         var bytes = Array(SHA256.hash(data: data).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80

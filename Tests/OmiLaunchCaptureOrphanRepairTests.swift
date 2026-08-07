@@ -46,7 +46,7 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: seeded.paths.envelopeURL.path))
 
         let decoder = try OmiOpusAudioDecoder()
-        let repaired = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }).materialize()
+        let repaired = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }).materializeForTests()
 
         XCTAssertEqual(repaired.partitions.map(\.itemID), [seeded.itemID])
         XCTAssertTrue(repaired.orphanRepairFailures.isEmpty)
@@ -59,7 +59,7 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
         let repairedAudio = try Data(contentsOf: seeded.paths.audioURL)
         let repairedEnvelope = try Data(contentsOf: seeded.paths.envelopeURL)
         let restartedDecoder = try OmiOpusAudioDecoder()
-        let restarted = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { restartedDecoder.decode($0) }).materialize()
+        let restarted = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { restartedDecoder.decode($0) }).materializeForTests()
         XCTAssertEqual(restarted.partitions.map(\.itemID), [seeded.itemID])
         XCTAssertEqual(try Data(contentsOf: seeded.paths.audioURL), repairedAudio)
         XCTAssertEqual(try Data(contentsOf: seeded.paths.envelopeURL), repairedEnvelope)
@@ -86,7 +86,7 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
         let mismatchedBefore = try self.tree(at: seeded.paths.audioURL.deletingLastPathComponent())
         let diagnosticLog = DiagnosticLog()
         let decoder = try OmiOpusAudioDecoder()
-        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }, diagnosticLog: diagnosticLog).materialize()
+        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }, diagnosticLog: diagnosticLog).materializeForTests()
 
         XCTAssertTrue(result.partitions.isEmpty)
         XCTAssertTrue(result.orphanRepairFailures.isEmpty)
@@ -136,7 +136,7 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
                 io: io,
                 makeWriter: { failingWriter },
                 decode: { failingDecoder.decode($0) }
-            ).materialize()
+            ).materializeForTests()
 
             XCTAssertTrue(failed.partitions.isEmpty, "\(fault)")
             XCTAssertEqual(failed.orphanRepairFailures, [OmiLaunchCaptureOrphanRepairFailure(ordinal: 0, itemID: seeded.itemID)], "\(fault)")
@@ -155,7 +155,7 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
                 generationID: generation,
                 io: io,
                 decode: { recoveredDecoder.decode($0) }
-            ).materialize()
+            ).materializeForTests()
             let output = try XCTUnwrap(recovered.partitions.only, "\(fault)")
             XCTAssertEqual(output.itemID, seeded.itemID, "\(fault)")
             XCTAssertTrue(FileManager.default.fileExists(atPath: seeded.paths.audioURL.path), "\(fault)")
@@ -172,13 +172,13 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
         let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: MockObserverClock())
         Self.append(Self.packet(0, body: try Self.opusFrame()), to: writer)
         let firstDecoder = try OmiOpusAudioDecoder()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materializeForTests()
         let output = try XCTUnwrap(first.partitions.only)
         let audioBytes = try Data(contentsOf: output.audioURL)
         let envelopeBytes = try Data(contentsOf: output.envelopeURL)
 
         let secondDecoder = try OmiOpusAudioDecoder()
-        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materializeForTests()
 
         XCTAssertEqual(repeated.partitions.map(\.itemID), [output.itemID])
         XCTAssertEqual(try Data(contentsOf: output.audioURL), audioBytes)
@@ -191,7 +191,7 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
         let crashIO = CrashAfterFinalAudioReplaceIO()
         let decoder = try OmiOpusAudioDecoder()
         let materializer = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: crashIO, decode: { decoder.decode($0) })
-        XCTAssertTrue(materializer.materialize().partitions.isEmpty)
+        XCTAssertTrue(materializer.materializeForTests().partitions.isEmpty)
         let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: rootURL, generationID: generation, ordinal: 0)
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generation, partitionOrdinal: 0, startSequence: 0, startSampleOffset: 0)
         return (paths, itemID)

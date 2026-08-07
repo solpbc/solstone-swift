@@ -11,14 +11,19 @@ nonisolated enum OmiLaunchCaptureLogic {
     static func scan(
         generationID: UUID,
         fileSize: Int,
+        startOffset: Int = 0,
+        expectedSequence: UInt64 = 0,
         read: (Int, Int) throws -> Data
     ) -> OmiLaunchCaptureScanResult {
-        guard fileSize > 0 else {
-            return OmiLaunchCaptureScanResult()
+        guard fileSize > startOffset else {
+            return OmiLaunchCaptureScanResult(
+                verifiedPrefixNextSequence: expectedSequence,
+                verifiedPrefixEndOffset: startOffset
+            )
         }
 
-        var offset = 0
-        var expectedSequence: UInt64 = 0
+        var offset = startOffset
+        var expectedSequence = expectedSequence
 
         while offset < fileSize {
             let headerData: Data

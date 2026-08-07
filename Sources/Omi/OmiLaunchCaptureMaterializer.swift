@@ -28,6 +28,13 @@ nonisolated struct OmiLaunchCaptureMaterializationFailure: Equatable, Sendable {
     let reason: String
 }
 
+nonisolated struct OmiLaunchCaptureMaterializedFrontier: Equatable, Sendable {
+    let throughSequence: UInt64
+    let endOffset: Int
+    let nextPartitionOrdinal: UInt64
+    let nextSampleOffset: UInt64
+}
+
 nonisolated struct OmiLaunchCaptureMaterializationResult: Equatable, Sendable {
     let partitions: [OmiLaunchCaptureMaterializedPartition]
     let coveredThroughSequence: UInt64?
@@ -35,6 +42,28 @@ nonisolated struct OmiLaunchCaptureMaterializationResult: Equatable, Sendable {
     let markers: [OmiLaunchCaptureMarkerObservation]
     let verifiedPrefixEndOffset: Int
     let orphanRepairFailures: [OmiLaunchCaptureOrphanRepairFailure]
+    let materializedFrontier: OmiLaunchCaptureMaterializedFrontier?
+    let consumedRecordCount: Int
+
+    init(
+        partitions: [OmiLaunchCaptureMaterializedPartition],
+        coveredThroughSequence: UInt64?,
+        failure: OmiLaunchCaptureMaterializationFailure?,
+        markers: [OmiLaunchCaptureMarkerObservation],
+        verifiedPrefixEndOffset: Int,
+        orphanRepairFailures: [OmiLaunchCaptureOrphanRepairFailure],
+        materializedFrontier: OmiLaunchCaptureMaterializedFrontier? = nil,
+        consumedRecordCount: Int = 0
+    ) {
+        self.partitions = partitions
+        self.coveredThroughSequence = coveredThroughSequence
+        self.failure = failure
+        self.markers = markers
+        self.verifiedPrefixEndOffset = verifiedPrefixEndOffset
+        self.orphanRepairFailures = orphanRepairFailures
+        self.materializedFrontier = materializedFrontier
+        self.consumedRecordCount = consumedRecordCount
+    }
 }
 
 @MainActor
@@ -91,8 +120,20 @@ final class OmiLaunchCaptureMaterializer {
     private let decode: @MainActor @Sendable (Data) -> [Int16]?
     private let diagnosticLog: DiagnosticLog?
 
+    private struct Session {
+        var position: OmiLaunchCaptureReadPosition
+        var reassembler = OmiAudioReassembler()
+        var current: Partition?
+        var sampleOffset: UInt64
+        var nextOrdinal: Int
+    }
+
+    private var session: Session?
+
     private(set) var peakLeaseResidentPayloadBytes = 0
     private(set) var peakOpenPartitionSampleCount = 0
+    private(set) var peakMaterializationPassRecordCount = 0
+    private(set) var peakMaterializationPassLeaseCount = 0
     private var orphanRepairFailures: [OmiLaunchCaptureOrphanRepairFailure] = []
 
     init(rootURL: URL, generationID: UUID, io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO(), makeWriter: (() -> any OmiAACChunkWriting)? = nil, decode: @escaping @MainActor @Sendable (Data) -> [Int16]?, diagnosticLog: DiagnosticLog? = nil) {
@@ -105,55 +146,80 @@ final class OmiLaunchCaptureMaterializer {
         self.diagnosticLog = diagnosticLog
     }
 
-    func materialize() -> OmiLaunchCaptureMaterializationResult {
+    // One pass consumes exactly one lease, whose record ceiling is derived from
+    // the resident-payload budget in OmiLaunchCaptureFormat.
+    func materializeNextBatch() -> OmiLaunchCaptureMaterializationResult {
         self.peakLeaseResidentPayloadBytes = 0
         self.peakOpenPartitionSampleCount = 0
+        self.peakMaterializationPassRecordCount = 0
+        self.peakMaterializationPassLeaseCount = 0
         self.orphanRepairFailures = []
-        guard let initialPosition = self.reader.acknowledgedPosition() else {
-            return OmiLaunchCaptureMaterializationResult(partitions: [], coveredThroughSequence: nil, failure: nil, markers: [], verifiedPrefixEndOffset: 0, orphanRepairFailures: [])
+        if self.session == nil {
+            guard let position = self.reader.materializedPosition(), let cursor = self.reader.cursor() else {
+                return OmiLaunchCaptureMaterializationResult(partitions: [], coveredThroughSequence: nil, failure: nil, markers: [], verifiedPrefixEndOffset: 0, orphanRepairFailures: [])
+            }
+            guard cursor.nextPartitionOrdinal <= UInt64(Int.max) else {
+                return OmiLaunchCaptureMaterializationResult(partitions: [], coveredThroughSequence: nil, failure: OmiLaunchCaptureMaterializationFailure(partitionOrdinal: 0, reason: "cursor"), markers: [], verifiedPrefixEndOffset: position.offset, orphanRepairFailures: [])
+            }
+            self.session = Session(position: position, sampleOffset: cursor.nextSampleOffset, nextOrdinal: Int(cursor.nextPartitionOrdinal))
         }
-        var position = initialPosition
-        var reassembler = OmiAudioReassembler()
-        var current: Partition?
+        guard var session = self.session else { fatalError("materialization session missing") }
+        guard case .lease(let lease) = self.reader.lease(from: session.position) else {
+            self.session = session
+            return OmiLaunchCaptureMaterializationResult(partitions: [], coveredThroughSequence: nil, failure: nil, markers: [], verifiedPrefixEndOffset: session.position.offset, orphanRepairFailures: [])
+        }
+        self.peakMaterializationPassLeaseCount = 1
+        self.peakMaterializationPassRecordCount = lease.records.count
+        self.peakLeaseResidentPayloadBytes = self.reader.peakLeaseResidentPayloadBytes
         var outputs: [OmiLaunchCaptureMaterializedPartition] = []
         var markers: [OmiLaunchCaptureMarkerObservation] = []
-        var sampleOffset: UInt64 = 0
-        var nextOrdinal = 0
-        var verifiedPrefixEndOffset = position.offset
         var coveredThroughSequence: UInt64?
         var failure: OmiLaunchCaptureMaterializationFailure?
+        materialization: for record in lease.records {
+            let acquiredAt = Date(timeIntervalSince1970: Double(record.acquiredAtUnixMicros) / 1_000_000)
+            let output = session.reassembler.ingest(record.payload, acquiredAt: acquiredAt, recordSequence: record.sequence)
+            if output.discardedStartedFrame {
+                failure = OmiLaunchCaptureMaterializationFailure(partitionOrdinal: session.current?.ordinal ?? session.nextOrdinal, reason: "reassembly-discarded-frame")
+                self.noteAttention(session.current?.ordinal ?? session.nextOrdinal, reason: "reassembly-discarded-frame")
+                break materialization
+            }
+            markers.append(contentsOf: output.markers.map { OmiLaunchCaptureMarkerObservation(epoch: $0.epoch, acquiredAt: acquiredAt, sequence: record.sequence) })
+            if let consumeFailure = self.consume(output.completedFrames, current: &session.current, sampleOffset: &session.sampleOffset, nextOrdinal: &session.nextOrdinal, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence) {
+                failure = consumeFailure
+                break materialization
+            }
+        }
+        session.position = OmiLaunchCaptureReadPosition(generationID: generationID, nextSequence: lease.throughSequence + 1, offset: lease.endOffset)
+        if failure == nil, lease.endsAtVerifiedPrefix {
+            failure = self.consume(session.reassembler.flushFinalFrame().completedFrames, current: &session.current, sampleOffset: &session.sampleOffset, nextOrdinal: &session.nextOrdinal, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence)
+            if failure == nil, let current = session.current, !current.samples.isEmpty {
+                switch self.persist(current) {
+                case .output(let output): self.append(output, to: &outputs, coveredThroughSequence: &coveredThroughSequence)
+                case .failure(let value): failure = value
+                }
+                session.current = nil
+            }
+        }
+        self.session = session
+        let frontier: OmiLaunchCaptureMaterializedFrontier?
+        if failure == nil, lease.endsAtVerifiedPrefix, session.current == nil {
+            // The final flush persisted every frame before this point.  Commit this
+            // frontier only after those artifacts are durable, so a restart never
+            // skips records that exist solely in the in-memory reassembly tail.
+            frontier = OmiLaunchCaptureMaterializedFrontier(
+                throughSequence: lease.throughSequence,
+                endOffset: lease.endOffset,
+                nextPartitionOrdinal: UInt64(session.nextOrdinal),
+                nextSampleOffset: session.sampleOffset
+            )
+        } else {
+            frontier = nil
+        }
+        return OmiLaunchCaptureMaterializationResult(partitions: outputs, coveredThroughSequence: coveredThroughSequence, failure: failure, markers: markers, verifiedPrefixEndOffset: lease.endOffset, orphanRepairFailures: self.orphanRepairFailures, materializedFrontier: frontier, consumedRecordCount: lease.records.count)
+    }
 
-        materialization: while case .lease(let lease) = reader.lease(from: position) {
-            self.peakLeaseResidentPayloadBytes = max(self.peakLeaseResidentPayloadBytes, reader.peakLeaseResidentPayloadBytes)
-            for record in lease.records {
-                let acquiredAt = Date(timeIntervalSince1970: Double(record.acquiredAtUnixMicros) / 1_000_000)
-                let output = reassembler.ingest(record.payload, acquiredAt: acquiredAt, recordSequence: record.sequence)
-                if output.discardedStartedFrame {
-                    failure = OmiLaunchCaptureMaterializationFailure(partitionOrdinal: current?.ordinal ?? nextOrdinal, reason: "reassembly-discarded-frame")
-                    self.noteAttention(current?.ordinal ?? nextOrdinal, reason: "reassembly-discarded-frame")
-                    break materialization
-                }
-                markers.append(contentsOf: output.markers.map { OmiLaunchCaptureMarkerObservation(epoch: $0.epoch, acquiredAt: acquiredAt, sequence: record.sequence) })
-                if let consumeFailure = self.consume(output.completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence) {
-                    failure = consumeFailure
-                    break materialization
-                }
-            }
-            position = OmiLaunchCaptureReadPosition(generationID: generationID, nextSequence: lease.throughSequence + 1, offset: lease.endOffset)
-            verifiedPrefixEndOffset = lease.endOffset
-        }
-        if failure == nil {
-            failure = self.consume(reassembler.flushFinalFrame().completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence)
-        }
-        if failure == nil, let current, !current.samples.isEmpty {
-            switch self.persist(current) {
-            case .output(let output):
-                self.append(output, to: &outputs, coveredThroughSequence: &coveredThroughSequence)
-            case .failure(let persistFailure):
-                failure = persistFailure
-            }
-        }
-        return OmiLaunchCaptureMaterializationResult(partitions: outputs, coveredThroughSequence: coveredThroughSequence, failure: failure, markers: markers, verifiedPrefixEndOffset: verifiedPrefixEndOffset, orphanRepairFailures: self.orphanRepairFailures)
+    func discardSession() {
+        self.session = nil
     }
 
     private func consume(_ frames: [OmiReassembledFrame], current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, outputs: inout [OmiLaunchCaptureMaterializedPartition], coveredThroughSequence: inout UInt64?) -> OmiLaunchCaptureMaterializationFailure? {

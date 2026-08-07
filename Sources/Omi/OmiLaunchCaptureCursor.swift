@@ -6,14 +6,17 @@ import Foundation
 nonisolated enum OmiLaunchCaptureCursorFormat {
     static let fileExtension = "cursor"
     static let magic = Data("solcursor1".utf8)
-    static let version: UInt16 = 1
+    static let version: UInt16 = 2
     static let versionByteCount = UInt16.bitWidth / 8
     static let sequenceByteCount = UInt64.bitWidth / 8
     static let offsetByteCount = UInt64.bitWidth / 8
     static let digestByteCount = OmiLaunchCaptureFormat.truncatedDigestByteCount
     static let byteCount = magic.count + versionByteCount
         + OmiLaunchCaptureFormat.generationIDByteCount
-        + sequenceByteCount + offsetByteCount + digestByteCount
+        + sequenceByteCount + offsetByteCount
+        + sequenceByteCount + offsetByteCount
+        + sequenceByteCount + sequenceByteCount + sequenceByteCount
+        + digestByteCount
 
     static func fileURL(rootURL: URL, generationID: UUID) -> URL {
         rootURL.appendingPathComponent(
@@ -42,6 +45,31 @@ nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
     let generationID: UUID
     let acknowledgedPrefixNextSequence: UInt64
     let acknowledgedPrefixEndOffset: Int
+    let materializedPrefixNextSequence: UInt64
+    let materializedPrefixEndOffset: Int
+    let nextPartitionOrdinal: UInt64
+    let nextSampleOffset: UInt64
+    let replayMarkerNextSequence: UInt64
+
+    init(
+        generationID: UUID,
+        acknowledgedPrefixNextSequence: UInt64,
+        acknowledgedPrefixEndOffset: Int,
+        materializedPrefixNextSequence: UInt64? = nil,
+        materializedPrefixEndOffset: Int? = nil,
+        nextPartitionOrdinal: UInt64 = 0,
+        nextSampleOffset: UInt64 = 0,
+        replayMarkerNextSequence: UInt64 = 0
+    ) {
+        self.generationID = generationID
+        self.acknowledgedPrefixNextSequence = acknowledgedPrefixNextSequence
+        self.acknowledgedPrefixEndOffset = acknowledgedPrefixEndOffset
+        self.materializedPrefixNextSequence = materializedPrefixNextSequence ?? acknowledgedPrefixNextSequence
+        self.materializedPrefixEndOffset = materializedPrefixEndOffset ?? acknowledgedPrefixEndOffset
+        self.nextPartitionOrdinal = nextPartitionOrdinal
+        self.nextSampleOffset = nextSampleOffset
+        self.replayMarkerNextSequence = replayMarkerNextSequence
+    }
 
     func encoded() -> Data {
         var data = Data(capacity: OmiLaunchCaptureCursorFormat.byteCount)
@@ -50,6 +78,11 @@ nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
         data.append(uuidBytes: self.generationID)
         data.appendLittleEndian(self.acknowledgedPrefixNextSequence)
         data.appendLittleEndian(UInt64(self.acknowledgedPrefixEndOffset))
+        data.appendLittleEndian(self.materializedPrefixNextSequence)
+        data.appendLittleEndian(UInt64(self.materializedPrefixEndOffset))
+        data.appendLittleEndian(self.nextPartitionOrdinal)
+        data.appendLittleEndian(self.nextSampleOffset)
+        data.appendLittleEndian(self.replayMarkerNextSequence)
         data.append(OmiLaunchCaptureDigest.truncated(data))
         return data
     }
@@ -77,13 +110,28 @@ nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
         let sequenceOffset = generationOffset + OmiLaunchCaptureFormat.generationIDByteCount
         let endOffset = sequenceOffset + OmiLaunchCaptureCursorFormat.sequenceByteCount
         let acknowledgedEnd = data.uint64LE(at: endOffset)
-        guard acknowledgedEnd <= UInt64(Int.max) else {
+        let materializedSequenceOffset = endOffset + OmiLaunchCaptureCursorFormat.offsetByteCount
+        let materializedEndOffset = materializedSequenceOffset + OmiLaunchCaptureCursorFormat.sequenceByteCount
+        let materializedEnd = data.uint64LE(at: materializedEndOffset)
+        let ordinalOffset = materializedEndOffset + OmiLaunchCaptureCursorFormat.offsetByteCount
+        let sampleOffset = ordinalOffset + OmiLaunchCaptureCursorFormat.sequenceByteCount
+        let markerOffset = sampleOffset + OmiLaunchCaptureCursorFormat.sequenceByteCount
+        guard acknowledgedEnd <= UInt64(Int.max), materializedEnd <= UInt64(Int.max),
+              data.uint64LE(at: ordinalOffset) <= UInt64(Int.max),
+              data.uint64LE(at: sequenceOffset) <= data.uint64LE(at: materializedSequenceOffset),
+              acknowledgedEnd <= materializedEnd
+        else {
             return .failure(.offsetOutOfRange)
         }
         return .success(Self(
             generationID: generationID,
             acknowledgedPrefixNextSequence: data.uint64LE(at: sequenceOffset),
-            acknowledgedPrefixEndOffset: Int(acknowledgedEnd)
+            acknowledgedPrefixEndOffset: Int(acknowledgedEnd),
+            materializedPrefixNextSequence: data.uint64LE(at: materializedSequenceOffset),
+            materializedPrefixEndOffset: Int(materializedEnd),
+            nextPartitionOrdinal: data.uint64LE(at: ordinalOffset),
+            nextSampleOffset: data.uint64LE(at: sampleOffset),
+            replayMarkerNextSequence: data.uint64LE(at: markerOffset)
         ))
     }
 }

@@ -14,6 +14,9 @@ nonisolated enum OmiLaunchCaptureFormat {
     static let version: UInt16 = 1
     static let maximumPayloadBytes = 512
     static let maximumResidentPayloadBytes = 1_024
+    // A lease is the materialization pass: keep the durable work unit tied to the
+    // resident-payload budget rather than duplicating a second numeric limit.
+    static let maximumRecordsPerLease = maximumResidentPayloadBytes / maximumPayloadBytes
     static let truncatedDigestByteCount = 16
     static let headerChecksumByteCount = truncatedDigestByteCount
     static let recordTagByteCount = truncatedDigestByteCount

@@ -279,7 +279,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.launchCaptureIngress?.activeGenerationID
     }
 
-    func completeLaunchCaptureCutover(markers: [OmiLaunchCaptureMarkerObservation]) {
+    func observeRecoveredLaunchCaptureMarkers(_ markers: [OmiLaunchCaptureMarkerObservation]) {
         guard self.defaults.bool(forKey: Self.enabledKey) else { return }
         for marker in markers {
             if let lastSeenMarkerEpoch,
@@ -293,6 +293,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             self.lastSeenMarkerEpoch = marker.epoch
             self.lastMarkerDate = Date(timeIntervalSince1970: Double(marker.epoch))
         }
+    }
+
+    func completeLaunchCaptureCutover() {
+        guard self.defaults.bool(forKey: Self.enabledKey) else { return }
         self.audioRoute = .live
     }
 

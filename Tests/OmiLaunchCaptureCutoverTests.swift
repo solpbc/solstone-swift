@@ -64,10 +64,25 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(decodedHandoffs, 0)
         await barrier.resume()
         await recovery.value
-        try await transferTestWaitFor("coordinator cutover") {
-            await MainActor.run { manager.lastMarkerDate == Date(timeIntervalSince1970: 2_000) }
+        // The first bounded pass returned after acknowledging only the leased prefix.
+        // Wait until its immediate successors drain the retained tail; completion
+        // switches the route synchronously on the main actor immediately afterward.
+        let captureRoot = self.captureRoot
+        try await transferTestWaitFor("capture drain") {
+            await MainActor.run {
+                switch OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation).lease() {
+                case .empty:
+                    true
+                case .lease, .unavailable:
+                    false
+                }
+            }
         }
+        // A live packet is the downstream proof of the terminal cutover.
         manager.handleAudioData(.payload(Self.packet(3, index: 0, body: frame)), peripheralID: peripheralID)
+        try await transferTestWaitFor("coordinator cutover") {
+            await MainActor.run { manager.audioPackets == 1 }
+        }
         manager.handleAudioData(.payload(Self.packet(4, index: 0, body: frame)), peripheralID: peripheralID)
         XCTAssertEqual(decodedHandoffs, 1)
         let capturedCallbackCount: Int
@@ -123,14 +138,50 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             OmiLaunchCaptureMarkerObservation(epoch: 1_000, acquiredAt: clock.now(), sequence: 1),
         ]
         let first = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: fileURL), clock: clock, bluetoothPort: MockOmiBluetoothPort())
-        first.completeLaunchCaptureCutover(markers: markers)
+        first.observeRecoveredLaunchCaptureMarkers(markers)
+        first.completeLaunchCaptureCutover()
         XCTAssertEqual(first.diagnostics.payload.pendantRebootEvents?.count, 1)
 
         let restarted = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: fileURL), clock: clock, bluetoothPort: MockOmiBluetoothPort())
-        restarted.completeLaunchCaptureCutover(markers: markers)
+        restarted.observeRecoveredLaunchCaptureMarkers(markers)
+        restarted.completeLaunchCaptureCutover()
         restarted.handleAudioData(.payload(Self.marker(packet: 0, epoch: 1_001)), peripheralID: UUID())
         XCTAssertEqual(restarted.diagnostics.payload.pendantRebootEvents?.count, 1)
         XCTAssertEqual(restarted.lastMarkerDate, Date(timeIntervalSince1970: 1_001))
+    }
+
+    @MainActor func testReplayMarkerHighWaterPreservesBoundaryOrderAndSameTimestampDistinctness() throws {
+        let generation = UUID()
+        let defaults = self.defaults(enabled: true)
+        let diagnosticsURL = self.rootURL.appendingPathComponent("marker-diagnostics.json")
+        let observedAt = Date(timeIntervalSince1970: 100)
+        let markers = [
+            OmiLaunchCaptureMarkerObservation(epoch: 3_000, acquiredAt: observedAt, sequence: 0),
+            OmiLaunchCaptureMarkerObservation(epoch: 1_000, acquiredAt: observedAt, sequence: 1),
+            OmiLaunchCaptureMarkerObservation(epoch: 3_000, acquiredAt: observedAt, sequence: 2),
+            OmiLaunchCaptureMarkerObservation(epoch: 999, acquiredAt: observedAt, sequence: 3),
+        ]
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation)
+        let first = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: MockObserverClock(now: observedAt), bluetoothPort: MockOmiBluetoothPort())
+        first.observeRecoveredLaunchCaptureMarkers(Array(markers.prefix(2)))
+        XCTAssertEqual(first.lastMarkerDate, Date(timeIntervalSince1970: 1_000))
+        XCTAssertEqual(first.diagnostics.payload.pendantRebootEvents?.count, 1)
+        XCTAssertEqual(reader.advanceReplayMarkers(through: 1), .advanced)
+
+        let second = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: MockObserverClock(now: observedAt), bluetoothPort: MockOmiBluetoothPort())
+        let suffix = markers.filter { ($0.sequence ?? 0) >= (reader.cursor()?.replayMarkerNextSequence ?? 0) }
+        XCTAssertEqual(suffix.map(\.sequence), [2, 3])
+        second.observeRecoveredLaunchCaptureMarkers(suffix)
+        XCTAssertEqual(second.lastMarkerDate, Date(timeIntervalSince1970: 999))
+        XCTAssertEqual(second.diagnostics.payload.pendantRebootEvents?.count, 2)
+        XCTAssertEqual(reader.advanceReplayMarkers(through: 3), .advanced)
+
+        let reopened = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: MockObserverClock(now: observedAt), bluetoothPort: MockOmiBluetoothPort())
+        let replay = markers.filter { ($0.sequence ?? 0) >= (reader.cursor()?.replayMarkerNextSequence ?? 0) }
+        XCTAssertTrue(replay.isEmpty)
+        reopened.observeRecoveredLaunchCaptureMarkers(replay)
+        XCTAssertEqual(reopened.diagnostics.payload.pendantRebootEvents?.count, 2)
+        XCTAssertEqual(reader.cursor()?.replayMarkerNextSequence, 4)
     }
 
     @MainActor func testCutoverWaitsForAllGenerationsAndRetiresInactiveCaptureInCaptureOrder() async throws {
@@ -188,7 +239,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         Self.assertRetained(writer.append(Self.marker(packet: 0, epoch: 2_000)))
         Self.assertRetained(writer.append(Self.packet(1, index: 0, body: try Self.opusFrame())))
         let decoder = try OmiOpusAudioDecoder()
-        let partition = try XCTUnwrap(OmiLaunchCaptureMaterializer(rootURL: self.captureRoot, generationID: generation, decode: { decoder.decode($0) }).materialize().partitions.first)
+        let partition = try XCTUnwrap(OmiLaunchCaptureMaterializer(rootURL: self.captureRoot, generationID: generation, decode: { decoder.decode($0) }).materializeForTests().partitions.first)
 
         let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
         try await harness.engine.initialize()

@@ -10,6 +10,10 @@ import XCTest
 @MainActor
 final class OmiLaunchCaptureMaterializerTests: XCTestCase {
     private var rootURL: URL!
+    private static let captureScanReadsPerRecord = 2
+    private static let captureLeaseReadsPerRecord = 2
+    private static let captureLeaseFirstHeaderReadCount = 1
+    private static let captureBatchBoundaryReadCount = OmiLaunchCaptureFormat.maximumRecordsPerLease
 
     override func setUpWithError() throws {
         self.rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("OmiLaunchCaptureMaterializerTests-\(UUID().uuidString)", isDirectory: true)
@@ -30,7 +34,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         clock.advance(by: 1)
         Self.append(Self.marker(packet: 3, epoch: 10), to: writer)
         let decoder = try OmiOpusAudioDecoder()
-        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }).materialize()
+        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }).materializeForTests()
 
         XCTAssertEqual(result.markers.map(\.epoch), [1_700_000_000, 10])
         XCTAssertEqual(result.markers.map(\.acquiredAt), [Date(timeIntervalSince1970: 1_800_000_000), Date(timeIntervalSince1970: 1_800_000_003)])
@@ -41,6 +45,125 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         XCTAssertEqual(file.length, 320)
     }
 
+    func testNextBatchBoundsRecordsMarkersAndPartitionsAcrossSuccessivePasses() {
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let writer = OmiLaunchCaptureWriter(rootURL: self.rootURL, generationID: generation, clock: clock)
+        // Fifteen maximum-size audio payloads exceed seven resident-payload budgets;
+        // their interleaved markers exercise the same per-lease ceiling.
+        var packetNumber: UInt16 = 0
+        for packet in 0..<15 {
+            Self.append(Self.marker(packet: packetNumber, epoch: UInt32(packet)), to: writer)
+            packetNumber += 1
+            clock.advance(by: 1)
+            Self.append(Self.packet(packetNumber, index: 0, body: Data(repeating: UInt8(packet), count: OmiLaunchCaptureFormat.maximumPayloadBytes - 3)), to: writer)
+            packetNumber += 1
+            clock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
+        }
+        let store = MaterializedSamples()
+        let materializer = OmiLaunchCaptureMaterializer(
+            rootURL: self.rootURL,
+            generationID: generation,
+            makeWriter: { RecordingOmiAACChunkWriter(store: store) },
+            decode: { _ in [1] }
+        )
+
+        var observedMarkers: [OmiLaunchCaptureMarkerObservation] = []
+        var partitions: [OmiLaunchCaptureMaterializedPartition] = []
+        for _ in 0..<15 {
+            let result = materializer.materializeNextBatch()
+            XCTAssertLessThanOrEqual(materializer.peakMaterializationPassLeaseCount, 1)
+            XCTAssertLessThanOrEqual(materializer.peakMaterializationPassRecordCount, OmiLaunchCaptureFormat.maximumRecordsPerLease)
+            XCTAssertLessThanOrEqual(materializer.peakLeaseResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
+            // Markers originate in leased records, so their per-pass count shares
+            // the record ceiling.
+            XCTAssertLessThanOrEqual(result.markers.count, OmiLaunchCaptureFormat.maximumRecordsPerLease)
+            observedMarkers.append(contentsOf: result.markers)
+            partitions.append(contentsOf: result.partitions)
+        }
+
+        XCTAssertEqual(observedMarkers.map(\.epoch), Array(0..<15))
+        XCTAssertEqual(Set(observedMarkers.map { $0.sequence }).count, 15)
+        XCTAssertEqual(partitions.count, 15)
+        XCTAssertEqual(store.totalSampleCount, 15)
+    }
+
+    func testSplitRealOpusFrameResumesAfterCommittedPrefixWithoutRereadingIt() throws {
+        let generation = UUID()
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let writer = OmiLaunchCaptureWriter(rootURL: self.rootURL, generationID: generation, clock: clock, io: io)
+        // Establish a durable frontier before the split frame. The payloads are
+        // intentionally inert: the assertion below concerns reader position.
+        Self.append(Self.marker(packet: 0, epoch: 10), to: writer)
+        Self.append(Self.marker(packet: 1, epoch: 11), to: writer)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        guard case .lease(let prefix) = reader.lease() else { return XCTFail("expected prefix") }
+        XCTAssertEqual(reader.advanceMaterialized(
+            throughSequence: prefix.throughSequence,
+            endOffset: prefix.endOffset,
+            nextPartitionOrdinal: 0,
+            nextSampleOffset: 0
+        ), .advanced)
+        XCTAssertEqual(reader.acknowledge(throughSequence: prefix.throughSequence), .advanced)
+        let committedReads = io.readCallCount(at: writer.fileURL)
+
+        let frame = try Self.opusFrame()
+        let first = frame.prefix(max(1, frame.count / 3))
+        let secondEnd = min(frame.count - 1, first.count + max(1, frame.count / 3))
+        let second = frame[first.count..<secondEnd]
+        let third = frame[secondEnd...]
+        Self.append(Self.packet(2, index: 0, body: Data(first)), to: writer)
+        Self.append(Self.packet(3, index: 1, body: Data(second)), to: writer)
+        Self.append(Self.packet(4, index: 2, body: Data(third)), to: writer)
+
+        let store = MaterializedSamples()
+        let decoder = try OmiOpusAudioDecoder()
+        let beforeCrash = OmiLaunchCaptureMaterializer(
+            rootURL: self.rootURL,
+            generationID: generation,
+            io: io,
+            makeWriter: { RecordingOmiAACChunkWriter(store: store) },
+            decode: { decoder.decode($0) }
+        )
+        let firstBatch = beforeCrash.materializeNextBatch()
+        XCTAssertEqual(firstBatch.consumedRecordCount, OmiLaunchCaptureFormat.maximumRecordsPerLease)
+        XCTAssertTrue(firstBatch.partitions.isEmpty)
+        XCTAssertNil(firstBatch.materializedFrontier)
+        let readsBeforeRestart = io.readCallCount(at: writer.fileURL)
+
+        // Reopening loses only the uncommitted in-memory tail; it must start at the
+        // committed prefix and reconstruct the split real Opus frame exactly once.
+        let restartedDecoder = try OmiOpusAudioDecoder()
+        let restarted = OmiLaunchCaptureMaterializer(
+            rootURL: self.rootURL,
+            generationID: generation,
+            io: io,
+            makeWriter: { RecordingOmiAACChunkWriter(store: store) },
+            decode: { restartedDecoder.decode($0) }
+        )
+        let recovered = restarted.materializeForTests()
+        let output = try XCTUnwrap(recovered.partitions.only)
+        XCTAssertEqual(output.itemID, OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generation, partitionOrdinal: 0, startSequence: 2, startSampleOffset: 0))
+        XCTAssertEqual(output.audioURL, OmiLaunchCaptureMaterializedArtifactPaths(rootURL: self.rootURL, generationID: generation, ordinal: 0).audioURL)
+        XCTAssertEqual(output.envelopeURL, OmiLaunchCaptureMaterializedArtifactPaths(rootURL: self.rootURL, generationID: generation, ordinal: 0).envelopeURL)
+        XCTAssertEqual(store.totalSampleCount, 320)
+        let restartedRecordCount = 3
+        let restartedBatchCount = Int(ceil(Double(restartedRecordCount) / Double(OmiLaunchCaptureFormat.maximumRecordsPerLease)))
+        let suffixReadCeiling = restartedRecordCount
+            * (Self.captureScanReadsPerRecord + Self.captureLeaseReadsPerRecord)
+            + restartedBatchCount * Self.captureLeaseFirstHeaderReadCount
+            // The last batch also confirms the terminal boundary before it flushes
+            // the reconstructed frame. This remains fixed by the lease bound.
+            + Self.captureBatchBoundaryReadCount
+        XCTAssertLessThanOrEqual(
+            io.readCallCount(at: writer.fileURL) - readsBeforeRestart,
+            suffixReadCeiling,
+            "restart may reread only the uncommitted split-frame suffix"
+        )
+        XCTAssertGreaterThan(readsBeforeRestart, committedReads)
+    }
+
     func testFractionalAcquisitionTimeReusesArtifactByteForByteWithoutQuarantine() throws {
         let generation = UUID()
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000.123_456))
@@ -48,13 +171,13 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
 
         let firstDecoder = try OmiOpusAudioDecoder()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materializeForTests()
         let firstOutput = try XCTUnwrap(first.partitions.only)
         let audioBytes = try Data(contentsOf: firstOutput.audioURL)
         let envelopeBytes = try Data(contentsOf: firstOutput.envelopeURL)
 
         let secondDecoder = try OmiOpusAudioDecoder()
-        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materializeForTests()
 
         XCTAssertEqual(second.partitions.only?.itemID, firstOutput.itemID)
         XCTAssertEqual(try Data(contentsOf: firstOutput.audioURL), audioBytes)
@@ -81,7 +204,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             makeWriter: { RecordingOmiAACChunkWriter(store: store) },
             decode: { _ in decoder.nextFrame() }
         )
-        let result = materializer.materialize()
+        let result = materializer.materializeForTests()
 
         let totalSamples = samplesPerFrame * frameCount
         XCTAssertLessThan(Double(frameCount - 1), OmiAudioChunkFormat.chunkDurationSeconds, "sample-cap fixture must not reach the acquisition-span rule")
@@ -127,7 +250,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             generationID: generation,
             makeWriter: { RecordingOmiAACChunkWriter(store: store) },
             decode: { frame in Array(repeating: Int16(frame.first ?? 0), count: 160) }
-        ).materialize()
+        ).materializeForTests()
 
         XCTAssertEqual(result.partitions.count, 3, "acquisition-span rule must rotate sparse frames")
         XCTAssertEqual(store.chunks.map(\.count), [160, 160, 160])
@@ -144,14 +267,14 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             let failingWriter = FaultInjectingOmiAACChunkWriter(io: io)
             failingWriter.failNext(fault)
             let failing = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { failingWriter }, decode: { _ in [1, 2, 3] })
-            XCTAssertTrue(failing.materialize().partitions.isEmpty)
+            XCTAssertTrue(failing.materializeForTests().partitions.isEmpty)
             try io.restoreLastSynchronizedState()
             let store = MaterializedSamples()
-            let recovered = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1, 2, 3] }).materialize()
+            let recovered = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1, 2, 3] }).materializeForTests()
             let output = try XCTUnwrap(recovered.partitions.only)
             let recoveredAudio = try Data(contentsOf: output.audioURL)
             let recoveredEnvelope = try Data(contentsOf: output.envelopeURL)
-            let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1, 2, 3] }).materialize()
+            let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1, 2, 3] }).materializeForTests()
             XCTAssertEqual(repeated.partitions.map(\.itemID), [output.itemID])
             XCTAssertEqual(repeated.partitions.count, 1)
             XCTAssertEqual(try Data(contentsOf: output.audioURL), recoveredAudio)
@@ -167,9 +290,9 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             Self.append(Self.packet(0, index: 0, body: Data([1])), to: capture)
             io.failNext(fault)
             let store = MaterializedSamples()
-            XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1] }).materialize().partitions.isEmpty)
+            XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1] }).materializeForTests().partitions.isEmpty)
             try io.restoreLastSynchronizedState()
-            let recovered = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1] }).materialize()
+            let recovered = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1] }).materializeForTests()
             XCTAssertEqual(recovered.partitions.count, 1)
         }
     }
@@ -207,7 +330,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             generationID: generation,
             makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) },
             decode: { _ in [1] }
-        ).materialize()
+        ).materializeForTests()
         let prefixOutput = try XCTUnwrap(prefix.partitions.only)
         let expectedAudio = try Data(contentsOf: prefixOutput.audioURL)
         let expectedEnvelope = try Data(contentsOf: prefixOutput.envelopeURL)
@@ -258,7 +381,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
                     decodeCount += 1
                     return point == .decode && decodeCount == 3 ? nil : [1]
                 }
-            ).materialize()
+            ).materializeForTests()
 
             let output = try XCTUnwrap(result.partitions.only, "\(point)")
             XCTAssertEqual(result.coveredThroughSequence, 0, "\(point)")
@@ -292,7 +415,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             generationID: generation,
             makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) },
             decode: { _ in [1] }
-        ).materialize()
+        ).materializeForTests()
 
         XCTAssertEqual(result.markers.map(\.epoch), [1])
         XCTAssertEqual(result.partitions.count, 1)
@@ -314,7 +437,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             generationID: generation,
             makeWriter: { RecordingOmiAACChunkWriter(store: store) },
             decode: { _ in [1] }
-        ).materialize()
+        ).materializeForTests()
 
         XCTAssertEqual(result.partitions.count, 1)
         XCTAssertEqual(result.coveredThroughSequence, 0)
@@ -334,12 +457,12 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in
             failedDecodeCount += 1
             return failedDecodeCount == 3 ? nil : [1]
-        }).materialize()
+        }).materializeForTests()
         XCTAssertEqual(first.partitions.count, 1)
         XCTAssertEqual(first.coveredThroughSequence, 0)
         XCTAssertEqual(first.failure, OmiLaunchCaptureMaterializationFailure(partitionOrdinal: 1, reason: "decode"))
 
-        let recovered = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in [1] }).materialize()
+        let recovered = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in [1] }).materializeForTests()
         XCTAssertEqual(recovered.partitions.count, 4)
         XCTAssertNil(recovered.failure)
         XCTAssertEqual(Set(recovered.partitions.map(\.itemID)).count, 4)
@@ -356,7 +479,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             clock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
         }
         var count = 0
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { _ in count += 1; return count == 3 ? nil : [1] }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { _ in count += 1; return count == 3 ? nil : [1] }).materializeForTests()
         XCTAssertEqual(first.partitions.count, 1)
         XCTAssertEqual(first.coveredThroughSequence, 0)
         XCTAssertEqual(first.failure, OmiLaunchCaptureMaterializationFailure(partitionOrdinal: 1, reason: "decode"))
@@ -364,7 +487,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let bytes = try Data(contentsOf: prefix.audioURL)
         try io.restoreLastSynchronizedState()
         count = 0
-        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { _ in count += 1; return count == 3 ? nil : [1] }).materialize()
+        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { _ in count += 1; return count == 3 ? nil : [1] }).materializeForTests()
         XCTAssertEqual(repeated.coveredThroughSequence, first.coveredThroughSequence)
         XCTAssertEqual(repeated.failure, first.failure)
         XCTAssertEqual(try Data(contentsOf: try XCTUnwrap(repeated.partitions.first).audioURL), bytes)
@@ -398,7 +521,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
                 default: return []
                 }
             }
-        ).materialize()
+        ).materializeForTests()
 
         XCTAssertEqual(result.partitions.count, 2)
         XCTAssertTrue(result.partitions[0].endsAtSourceFrameBoundary)
@@ -416,7 +539,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generation)
         let cursorBytes = try? Data(contentsOf: reader.cursorURL)
         let store = MaterializedSamples()
-        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1] }).materialize()
+        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: store) }, decode: { _ in [1] }).materializeForTests()
 
         XCTAssertEqual(result.partitions.count, 1)
         XCTAssertEqual(try Data(contentsOf: writer.fileURL), captureBytes)
@@ -430,18 +553,18 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let capture = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: clock)
         Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: capture)
         let firstDecoder = try OmiOpusAudioDecoder()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materializeForTests()
         let firstOutput = try XCTUnwrap(first.partitions.only)
         let originalEnvelope = try Data(contentsOf: firstOutput.envelopeURL)
         let repeatedDecoder = try OmiOpusAudioDecoder()
-        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { repeatedDecoder.decode($0) }).materialize()
+        let repeated = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { repeatedDecoder.decode($0) }).materializeForTests()
         XCTAssertEqual(repeated.partitions.only?.itemID, firstOutput.itemID)
         XCTAssertEqual(try Data(contentsOf: firstOutput.envelopeURL), originalEnvelope)
 
         clock.advance(by: 1)
         Self.append(Self.packet(1, index: 0, body: try Self.opusFrame()), to: capture)
         let grownDecoder = try OmiOpusAudioDecoder()
-        let grown = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { grownDecoder.decode($0) }).materialize()
+        let grown = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { grownDecoder.decode($0) }).materializeForTests()
         XCTAssertEqual(grown.partitions.first?.itemID, firstOutput.itemID)
         XCTAssertEqual(grown.partitions.count, 2)
         XCTAssertNotEqual(grown.partitions[1].itemID, firstOutput.itemID)
@@ -454,13 +577,13 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: MockObserverClock())
         Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
         let firstDecoder = try OmiOpusAudioDecoder()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materializeForTests()
         let firstPartition = try XCTUnwrap(first.partitions.first)
         let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generation)
         XCTAssertEqual(reader.acknowledge(throughSequence: 0), .advanced)
 
         let secondDecoder = try OmiOpusAudioDecoder()
-        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materializeForTests()
         XCTAssertTrue(second.partitions.isEmpty)
         XCTAssertFalse(second.partitions.contains { $0.coveredThroughSequence == firstPartition.coveredThroughSequence })
     }
@@ -471,14 +594,14 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
 
         let firstDecoder = try OmiOpusAudioDecoder()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { firstDecoder.decode($0) }).materializeForTests()
         let firstOutput = try XCTUnwrap(first.partitions.only)
         let audioBytes = try Data(contentsOf: firstOutput.audioURL)
         let envelopeBytes = try Data(contentsOf: firstOutput.envelopeURL)
 
         Self.append(Self.marker(packet: 1, epoch: 1_700_000_000), to: writer)
         let secondDecoder = try OmiOpusAudioDecoder()
-        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materialize()
+        let second = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { secondDecoder.decode($0) }).materializeForTests()
 
         XCTAssertEqual(second.partitions.only?.itemID, firstOutput.itemID)
         XCTAssertEqual(try Data(contentsOf: firstOutput.audioURL), audioBytes)
@@ -492,7 +615,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         Self.append(Self.packet(0, index: 0, body: try Self.opusFrame()), to: writer)
 
         let firstDecoder = try OmiOpusAudioDecoder()
-        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { firstDecoder.decode($0) }).materialize()
+        let first = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, decode: { firstDecoder.decode($0) }).materializeForTests()
         let firstOutput = try XCTUnwrap(first.partitions.only)
         let audioBytes = try Data(contentsOf: firstOutput.audioURL)
         let envelopeBytes = try Data(contentsOf: firstOutput.envelopeURL)
@@ -512,7 +635,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
                 return secondDecoder.decode(frame)
             },
             diagnosticLog: diagnosticLog
-        ).materialize()
+        ).materializeForTests()
 
         XCTAssertTrue(result.partitions.isEmpty)
         XCTAssertEqual(try Data(contentsOf: firstOutput.audioURL), audioBytes)
@@ -526,7 +649,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let frame = try Self.opusFrame()
         Self.append(Self.packet(0, index: 0, body: frame), to: writer)
         let decoder = try OmiOpusAudioDecoder()
-        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }).materialize()
+        let result = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, decode: { decoder.decode($0) }).materializeForTests()
         let output = try XCTUnwrap(result.partitions.only)
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.envelopeURL.path), "flushFinalFrame must make the final complete frame durable")
         XCTAssertEqual(try AVAudioFile(forReading: output.audioURL).length, 320)
@@ -542,13 +665,13 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         io.failNext(.remove)
         let diagnosticLog = DiagnosticLog()
         let materializer = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { failingWriter }, decode: { _ in [1] }, diagnosticLog: diagnosticLog)
-        XCTAssertTrue(materializer.materialize().partitions.isEmpty)
+        XCTAssertTrue(materializer.materializeForTests().partitions.isEmpty)
         XCTAssertLessThanOrEqual(materializer.peakLeaseResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
         XCTAssertLessThanOrEqual(io.largestSingleReadCount, OmiLaunchCaptureFormat.readerBodyBufferByteCount)
         XCTAssertLessThanOrEqual(materializer.peakOpenPartitionSampleCount, OmiAudioChunkFormat.sampleLimit)
         XCTAssertEqual(diagnosticLog.events.only?.detail, "generation=\(generation.uuidString.lowercased()) partition=0 reason=cleanup")
         let decoderLog = DiagnosticLog()
-        XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in nil }, diagnosticLog: decoderLog).materialize().partitions.isEmpty)
+        XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in nil }, diagnosticLog: decoderLog).materializeForTests().partitions.isEmpty)
         XCTAssertEqual(decoderLog.events.only?.detail, "generation=\(generation.uuidString.lowercased()) partition=0 reason=decode")
     }
 
@@ -560,7 +683,7 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generation, io: io)
         let beforeLease = reader.lease()
         let beforeCursor = try? Data(contentsOf: reader.cursorURL)
-        _ = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in [1] }).materialize()
+        _ = OmiLaunchCaptureMaterializer(rootURL: rootURL, generationID: generation, io: io, makeWriter: { RecordingOmiAACChunkWriter(store: MaterializedSamples()) }, decode: { _ in [1] }).materializeForTests()
         XCTAssertEqual(reader.lease(), beforeLease)
         XCTAssertEqual(try? Data(contentsOf: reader.cursorURL), beforeCursor)
     }
@@ -651,4 +774,52 @@ private extension Collection {
 
 private extension OmiAACChunkWriterFault {
     static let allCases: [Self] = [.open, .write, .close, .synchronize]
+}
+
+@MainActor
+extension OmiLaunchCaptureMaterializer {
+    // Test-only aggregation preserves legacy test intent while production exposes
+    // exactly one bounded materialization pass.
+    func materializeForTests() -> OmiLaunchCaptureMaterializationResult {
+        var partitions: [OmiLaunchCaptureMaterializedPartition] = []
+        var markers: [OmiLaunchCaptureMarkerObservation] = []
+        var orphanRepairFailures: [OmiLaunchCaptureOrphanRepairFailure] = []
+        var coveredThroughSequence: UInt64?
+        var verifiedPrefixEndOffset = 0
+        var materializedFrontier: OmiLaunchCaptureMaterializedFrontier?
+
+        while true {
+            let result = self.materializeNextBatch()
+            guard result.consumedRecordCount > 0 else {
+                return OmiLaunchCaptureMaterializationResult(
+                    partitions: partitions,
+                    coveredThroughSequence: coveredThroughSequence,
+                    failure: nil,
+                    markers: markers,
+                    verifiedPrefixEndOffset: verifiedPrefixEndOffset,
+                    orphanRepairFailures: orphanRepairFailures,
+                    materializedFrontier: materializedFrontier
+                )
+            }
+            partitions.append(contentsOf: result.partitions)
+            markers.append(contentsOf: result.markers)
+            orphanRepairFailures.append(contentsOf: result.orphanRepairFailures)
+            if let covered = result.coveredThroughSequence {
+                coveredThroughSequence = covered
+            }
+            verifiedPrefixEndOffset = result.verifiedPrefixEndOffset
+            materializedFrontier = result.materializedFrontier ?? materializedFrontier
+            if let failure = result.failure {
+                return OmiLaunchCaptureMaterializationResult(
+                    partitions: partitions,
+                    coveredThroughSequence: coveredThroughSequence,
+                    failure: failure,
+                    markers: markers,
+                    verifiedPrefixEndOffset: verifiedPrefixEndOffset,
+                    orphanRepairFailures: orphanRepairFailures,
+                    materializedFrontier: materializedFrontier
+                )
+            }
+        }
+    }
 }
