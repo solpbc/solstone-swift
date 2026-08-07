@@ -4,10 +4,38 @@
 import AVFoundation
 import Foundation
 
+typealias WatchAudioRecorderFactory = @MainActor (URL, [String: Any]) throws -> AVAudioRecorder
+typealias WatchMicrophonePermissionProvider = @MainActor () -> WatchMicrophonePermission
+
 @MainActor
 final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
-    private let terminalRetention = WatchAudioRecorderTerminalRetention()
+    private let recorderFactory: WatchAudioRecorderFactory
+    private let microphonePermissionProvider: WatchMicrophonePermissionProvider
+    private let terminalRetention: WatchAudioRecorderTerminalRetention
     weak var eventSink: (any WatchAudioRecorderEventSink)?
+
+    init(
+        recorderFactory: @escaping WatchAudioRecorderFactory = { url, settings in
+            try AVAudioRecorder(url: url, settings: settings)
+        },
+        microphonePermissionProvider: @escaping WatchMicrophonePermissionProvider =
+            LiveWatchAudioRecorder.liveMicrophonePermission,
+        retentionClock: any WatchAudioRecorderRetentionClock = LiveWatchAudioRecorderRetentionClock(),
+        expiryTaskSpawner: @escaping WatchAudioRecorderRetentionTaskSpawner = { body in
+            Task { await body() }
+        },
+        terminalHandoff: @escaping WatchAudioRecorderTerminalHandoff = { operation in
+            Task { @MainActor in operation() }
+        }
+    ) {
+        self.recorderFactory = recorderFactory
+        self.microphonePermissionProvider = microphonePermissionProvider
+        self.terminalRetention = WatchAudioRecorderTerminalRetention(
+            clock: retentionClock,
+            spawnExpiryTask: expiryTaskSpawner,
+            terminalHandoff: terminalHandoff
+        )
+    }
 
     var url: URL? {
         self.terminalRetention.currentURL()
@@ -22,15 +50,15 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
     }
 
     var microphonePermission: WatchMicrophonePermission {
+        self.microphonePermissionProvider()
+    }
+
+    static let liveMicrophonePermission: WatchMicrophonePermissionProvider = {
         switch AVAudioApplication.shared.recordPermission {
-        case .granted:
-            return .granted
-        case .denied:
-            return .denied
-        case .undetermined:
-            return .notDetermined
-        @unknown default:
-            return .denied
+        case .granted: return .granted
+        case .denied: return .denied
+        case .undetermined: return .notDetermined
+        @unknown default: return .denied
         }
     }
 
@@ -55,7 +83,7 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
             AVNumberOfChannelsKey: 1,
             AVEncoderBitRateKey: 32_000,
         ]
-        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        let recorder = try self.recorderFactory(url, settings)
         self.terminalRetention.enroll(recorder: recorder, source: source, sink: self.eventSink)
         guard recorder.record() else {
             _ = self.terminalRetention.stopCurrent()

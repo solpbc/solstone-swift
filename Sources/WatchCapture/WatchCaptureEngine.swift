@@ -32,7 +32,7 @@ final class WatchCaptureEngine {
     private let notificationCenter: NotificationCenter
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     private let sessionHistoryStore: WatchCaptureSessionHistoryStore
-    private let lifecycleSerializer: WatchCaptureLifecycleSerializer
+    let lifecycleSerializer: WatchCaptureLifecycleSerializer
 
     private var activeSegment: ActiveSegment?
     private var openingSegment: ActiveSegment?
@@ -52,6 +52,7 @@ final class WatchCaptureEngine {
     private var status: WatchCaptureRuntimeStatus = .off
     private var statusSeq = 0
     private var currentSessionID: String?
+    private var currentAudioEnrollment: UUID?
     private var sessionStartedAt: Date?
     private var startRefusalReason: WatchCaptureStartRefusalReason?
     private var settingsRoute: WatchCaptureSettingsRoute?
@@ -204,7 +205,7 @@ final class WatchCaptureEngine {
             return
         }
         guard let currentSessionID else { return }
-        let source = WatchCaptureSourceToken(sessionID: currentSessionID)
+        let ownerSource = WatchCaptureSourceToken(sessionID: currentSessionID)
         self.status = .enrolling
         self.notifyPresentationChanged()
         guard await self.refreshWristAlertState(
@@ -239,7 +240,7 @@ final class WatchCaptureEngine {
                 self.notifyPresentationChanged()
                 return
             }
-            try self.openSegment(startedAt: startedAt, source: source)
+            try self.openSegment(startedAt: startedAt, ownerSessionID: currentSessionID)
             guard let segment = self.activeSegment else { return }
             if !segment.hasLiveSensor {
                 self.refuseInitialStartAfterSegmentOpen(
@@ -250,7 +251,7 @@ final class WatchCaptureEngine {
             self.writeActiveSessionRecord(startedAt: startedAt)
             await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
             guard await self.continueLifecycleOperation(generation) else { return }
-            self.installAudioSessionObservers(source: source)
+            self.installAudioSessionObservers(source: ownerSource)
             self.status = self.statusForRunningSegment(segment)
             self.startSegmentationTask()
         } catch WatchCaptureEngineError.audioStartFailed {
@@ -267,7 +268,7 @@ final class WatchCaptureEngine {
         }
         if self.activeSegment != nil {
             self.publishStatus(.observing)
-            self.startHeartbeatTask(source: source)
+            self.startHeartbeatTask(source: ownerSource)
         } else {
             self.publishStatus(.idle)
         }
@@ -338,8 +339,7 @@ final class WatchCaptureEngine {
 
         case .rollover:
             guard case let .running(sessionID) = self.lifecycleState else { return }
-            let source = WatchCaptureSourceToken(sessionID: sessionID)
-            await self.rolloverInner(generation: generation, source: source)
+            await self.rolloverInner(generation: generation, ownerSessionID: sessionID)
             // A stale rollover may have opened a successor before its final callback.
             // Converge through terminalization before returning to idle.
             guard self.isLifecycleGenerationCurrent(generation) else {
@@ -357,6 +357,10 @@ final class WatchCaptureEngine {
             guard case let .running(sessionID) = self.lifecycleState,
                   terminal.source.sessionID == sessionID
             else { return }
+            if let enrollment = terminal.source.enrollment,
+               enrollment != self.currentAudioEnrollment {
+                return
+            }
             self.lifecycleState = .stopping(sessionID: sessionID)
             await self.terminalize(
                 reason: terminal.reason,
@@ -449,6 +453,7 @@ private extension WatchCaptureEngine {
 
     func clearTransientStateForStart() {
         self.currentSessionID = nil
+        self.currentAudioEnrollment = nil
         self.sessionStartedAt = nil
         self.startRefusalReason = nil
         self.settingsRoute = nil
@@ -498,6 +503,7 @@ private extension WatchCaptureEngine {
         self.settingsRoute = settingsRoute
         self.status = .needsAttention(error)
         self.currentSessionID = nil
+        self.currentAudioEnrollment = nil
         self.sessionStartedAt = nil
         self.audioArmed = false
         if self.locationArmed {
@@ -531,6 +537,7 @@ private extension WatchCaptureEngine {
         self.activeSegment = nil
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
+        self.currentAudioEnrollment = nil
         if self.audioArmed, segment?.audioURL != nil {
             _ = try? self.audioRecorder.stop()
         }
@@ -558,7 +565,7 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func openSegment(startedAt: Date, source: WatchCaptureSourceToken) throws {
+    func openSegment(startedAt: Date, ownerSessionID: String) throws {
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
         let day = self.storage.dayString(for: startedAt)
@@ -598,10 +605,16 @@ private extension WatchCaptureEngine {
             active.manifest = manifest
             self.openingSegment = active
             do {
-                try self.audioRecorder.start(url: audioURL, source: source)
+                let enrollment = UUID()
+                self.currentAudioEnrollment = enrollment
+                try self.audioRecorder.start(
+                    url: audioURL,
+                    source: WatchCaptureSourceToken(sessionID: ownerSessionID, enrollment: enrollment)
+                )
                 self.lastAudioCurrentTime = self.audioRecorder.currentTime
                 self.zeroAudioCurrentTimeObservationCount = 0
             } catch {
+                self.currentAudioEnrollment = nil
                 watchCaptureLog.error("watch audio start failed: \(String(describing: error), privacy: .public)")
                 throw WatchCaptureEngineError.audioStartFailed
             }
@@ -699,10 +712,11 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func rolloverInner(generation: Int, source: WatchCaptureSourceToken) async {
+    func rolloverInner(generation: Int, ownerSessionID: String) async {
         guard var segment = self.activeSegment else { return }
         let end = self.clock.now()
         self.activeSegment = nil
+        self.currentAudioEnrollment = nil
         let audioDuration: TimeInterval?
         if self.audioArmed, segment.audioURL != nil {
             do {
@@ -720,7 +734,7 @@ private extension WatchCaptureEngine {
         var rolloverTerminalReason: WatchCaptureTerminalReason?
         var discardEmptySuccessorAfterStop = false
         do {
-            try self.openSegment(startedAt: end, source: source)
+            try self.openSegment(startedAt: end, ownerSessionID: ownerSessionID)
             guard let newSegment = self.activeSegment, newSegment.hasLiveSensor else {
                 self.adoptOpeningFailureSegment(self.activeSegment)
                 rolloverTerminalReason = self.reopenFailureTerminalReason()
@@ -1774,6 +1788,7 @@ private extension WatchCaptureEngine {
         self.segmentationTask = nil
         self.removeAudioSessionObservers()
         self.locationProvider.stop()
+        self.currentAudioEnrollment = nil
 
         let audioDuration: TimeInterval?
         if self.audioArmed, segment?.audioURL != nil {

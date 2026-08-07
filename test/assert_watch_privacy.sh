@@ -46,17 +46,44 @@ for key, actual, expected in checks:
   exit 1
 fi
 
-if rg -n "showsBackgroundLocationIndicator" Watch/Sources/LiveWatchAudioRecorder.swift Watch/Sources/LiveWatchLocationProvider.swift; then
+audio_adapter="Sources/WatchCapture/LiveWatchAudioRecorder.swift"
+location_provider="Watch/Sources/LiveWatchLocationProvider.swift"
+
+# Preflight every scanned input. A missing path must fail closed rather than
+# read as "pattern absent" via ripgrep's exit 2.
+for scanned in "$audio_adapter" "$location_provider"; do
+  if [ ! -f "$scanned" ]; then
+    echo "watch privacy assertion failed: scanned path missing: ${scanned}" >&2
+    exit 1
+  fi
+done
+
+# Only ripgrep exit 1 means "no match". Anything >=2 is an error and fails closed.
+rg_absent() {
+  local pattern="$1"; shift
+  local status=0
+  rg -q "$pattern" "$@" || status=$?
+  case "$status" in
+    0) return 1 ;;
+    1) return 0 ;;
+    *)
+      echo "watch privacy assertion failed: rg error (exit ${status}) scanning $* for ${pattern}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+if ! rg_absent "showsBackgroundLocationIndicator" "$audio_adapter" "$location_provider"; then
   echo "watch privacy assertion failed: indicator-suppression flag found"
   exit 1
 fi
 
-if ! rg -q "allowsBackgroundLocationUpdates = true" Watch/Sources/LiveWatchLocationProvider.swift; then
+if rg_absent "allowsBackgroundLocationUpdates = true" "$location_provider"; then
   echo "watch privacy assertion failed: background location start flag missing"
   exit 1
 fi
 
-if ! rg -q "allowsBackgroundLocationUpdates = false" Watch/Sources/LiveWatchLocationProvider.swift; then
+if rg_absent "allowsBackgroundLocationUpdates = false" "$location_provider"; then
   echo "watch privacy assertion failed: background location stop reset missing"
   exit 1
 fi

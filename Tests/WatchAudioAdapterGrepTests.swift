@@ -6,7 +6,7 @@ import XCTest
 
 nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     func testRecorderStartEnrollsRetentionWithSource() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "func start(url: URL, source: WatchCaptureSourceToken) throws",
             to: "func stop() throws -> TimeInterval",
@@ -18,7 +18,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     }
 
     func testLiveRecorderHasNoAdapterOwnedRecorderState() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.contents(path)
 
         XCTAssertFalse(body.contains("LiveWatchAudioRecorder: AVAudioRecorderDelegate"))
@@ -42,7 +42,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
         for marker in ["func deliverDidFinish(successfully: Bool)", "func deliverEncodeError(_ error: (any Error)?)"] {
             let section = try self.section(
                 from: marker,
-                to: "Task { @MainActor",
+                to: "self.terminalHandoff",
                 in: "Sources/WatchCapture/WatchCaptureTerminalSource.swift"
             )
             let release = try XCTUnwrap(section.range(of: "let released = self.releasePair(self.identity)"))
@@ -52,7 +52,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     }
 
     func testMicrophonePermissionIsReadOnlyAdapter() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "var microphonePermission: WatchMicrophonePermission",
             to: "func requestPermission() async -> WatchMicrophonePermission",
@@ -64,7 +64,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     }
 
     func testPromptOnlyLivesInRequestPermission() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "func requestPermission() async -> WatchMicrophonePermission",
             to: "func start(url: URL, source: WatchCaptureSourceToken) throws",
@@ -75,7 +75,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     }
 
     func testCurrentTimeReadsLiveRecorderState() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "var currentTime: TimeInterval",
             to: "var isRecording: Bool",
@@ -86,7 +86,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     }
 
     func testIsRecordingReadsLiveRecorderState() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "var isRecording: Bool",
             to: "var microphonePermission: WatchMicrophonePermission",
@@ -97,7 +97,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     }
 
     func testRouteSuitabilityReadsLiveAudioSessionInputState() throws {
-        let path = "Watch/Sources/LiveWatchAudioRecorder.swift"
+        let path = "Sources/WatchCapture/LiveWatchAudioRecorder.swift"
         let body = try self.section(
             from: "var hasSuitableInput: Bool",
             to: "func setCategory(",
@@ -111,7 +111,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
     func testNoPauseResumeAudioSurface() throws {
         let files = [
             "Sources/WatchCapture/WatchCaptureProtocols.swift",
-            "Watch/Sources/LiveWatchAudioRecorder.swift",
+            "Sources/WatchCapture/LiveWatchAudioRecorder.swift",
             "Tests/WatchCaptureTests.swift",
         ]
 

@@ -1717,100 +1717,344 @@ final class WatchCaptureTests: XCTestCase {
         }
     }
 
-    func testRetainedConcreteRecorderCallbacksDoNotTerminalizeSuccessorSession() async throws {
-        enum Callback {
-            case finish
-            case encodeError
-        }
+    func testCurrentProductionRecorderFinishTerminalizesAndClosesOnce() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        harness.engine.start()
+        await harness.engine.settled()
+        let handle = try XCTUnwrap(harness.recorders.latest)
+        handle.telemetry.reportedCurrentTime = 42
+        let audioURL = try XCTUnwrap(handle.recorder?.url)
+        harness.audioProbe.durations[audioURL.path] = .some(nil)
+        handle.recorder?.stopCallback = .unsuccessfulFinish
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        let deliveriesBefore = harness.deliveries.count
 
-        for callback in [Callback.finish, .encodeError] {
-            let harness = try self.makeHarness(locationAuthorization: .denied)
-            harness.engine.start(); await harness.engine.settled()
-            let successor = try XCTUnwrap(try harness.storage.readSessionRecord())
-            var statuses: [WatchStatusContext] = []
-            var presentations: [WatchCaptureOwnerPresentation] = []
-            harness.engine.onPublishStatus = { statuses.append($0) }
-            harness.engine.onPresentationChanged = { presentations.append($0) }
-            harness.notificationScheduler.calls.removeAll()
-            harness.notificationScheduler.submittedRequests.removeAll()
-
-            let retentionClock = MockObserverClock()
-            let retention = WatchAudioRecorderTerminalRetention(clock: retentionClock)
-            let delayed = try self.makeRetiredConcreteRecorderTrigger(
-                retention: retention,
-                source: WatchCaptureSourceToken(sessionID: "retired-\(UUID().uuidString)"),
-                sink: harness.engine
-            )
-            let currentSource = try XCTUnwrap(harness.recorder.startSources.last)
-            _ = try self.makeConcreteRecorderTrigger(
-                retention: retention,
-                source: currentSource,
-                sink: harness.engine
-            )
-            await self.drain(until: { retentionClock.pendingSleeperCount == 1 })
-
-            switch callback {
-            case .finish:
-                delayed.finish(successfully: false)
-            case .encodeError:
-                delayed.encodeError()
-            }
-            await Task.yield()
-            await harness.engine.settled()
-
-            let record = try XCTUnwrap(try harness.storage.readSessionRecord())
-            XCTAssertEqual(record.sessionID, successor.sessionID, "\(callback)")
-            XCTAssertEqual(record.state, .active, "\(callback)")
-            XCTAssertNil(record.terminalReason, "\(callback)")
-            XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning, "\(callback)")
-            XCTAssertEqual(harness.recorder.stopCallCount, 0, "\(callback)")
-            XCTAssertTrue(statuses.isEmpty, "\(callback)")
-            XCTAssertTrue(presentations.isEmpty, "\(callback)")
-            XCTAssertTrue(harness.notificationScheduler.submittedRequests.isEmpty, "\(callback)")
-        }
+        handle.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { harness.deliveries.count >= deliveriesBefore + 2 })
+        await harness.engine.settled()
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioFinishUnsuccessful)
+        XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+        XCTAssertEqual(handle.telemetry.stopCallCount, 1)
+        XCTAssertEqual(publications.statuses.filter { $0.audioTerminalReason == .audioFinishUnsuccessful }.count, 1)
+        let manifest = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest)
+        XCTAssertEqual(manifest.duration, 42)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        await self.drain(until: { handle.isReleased })
     }
 
-    func testCurrentConcreteRecorderCallbacksTerminalizeTheirBoundSession() async throws {
-        enum Callback {
-            case finish
-            case encodeError
+    func testCurrentProductionRecorderEncodeErrorTerminalizesAndClosesOnce() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        harness.engine.start()
+        await harness.engine.settled()
+        let handle = try XCTUnwrap(harness.recorders.latest)
+        handle.telemetry.reportedCurrentTime = 42
+        let audioURL = try XCTUnwrap(handle.recorder?.url)
+        harness.audioProbe.durations[audioURL.path] = .some(nil)
+        handle.recorder?.stopCallback = .unsuccessfulFinish
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        let deliveriesBefore = harness.deliveries.count
 
-            var reason: WatchCaptureTerminalReason {
-                switch self {
-                case .finish:
-                    .audioFinishUnsuccessful
-                case .encodeError:
-                    .audioEncodeError
-                }
+        handle.recorder?.fireEncodeError()
+        await self.drain(until: { harness.deliveries.count >= deliveriesBefore + 2 })
+        await harness.engine.settled()
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioEncodeError)
+        XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+        XCTAssertEqual(handle.telemetry.stopCallCount, 1)
+        XCTAssertEqual(publications.statuses.filter { $0.audioTerminalReason == .audioEncodeError }.count, 1)
+        let manifest = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest)
+        XCTAssertEqual(manifest.duration, 42)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        await self.drain(until: { handle.isReleased })
+    }
+
+    func testGatedProductionEncodeErrorKeepsPendingPairUntilCleanupThenUsesFreshDeadline() async throws {
+        let gate = WatchCaptureHoldGate()
+        let harness = try self.makeProductionAudioHarness(terminalHandoffGate: gate)
+        harness.engine.start(); await harness.engine.settled()
+        let handle = try XCTUnwrap(harness.recorders.latest)
+        handle.telemetry.reportedCurrentTime = 42
+        let audioURL = try XCTUnwrap(handle.recorder?.url)
+        harness.audioProbe.durations[audioURL.path] = .some(nil)
+
+        handle.recorder?.fireEncodeError()
+        await self.waitForGate(gate)
+        await harness.retentionClock.advance(by: .seconds(60))
+        XCTAssertNotNil(handle.recorder)
+        XCTAssertNotNil(handle.forwarder)
+        XCTAssertEqual(handle.telemetry.stopCallCount, 0)
+
+        await gate.open()
+        await self.drain(until: { harness.deliveries.count >= 1 })
+        await harness.engine.settled()
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioEncodeError)
+        XCTAssertEqual(handle.telemetry.stopCallCount, 1)
+        XCTAssertEqual(handle.telemetry.reportedCurrentTime, 42)
+        let manifest = try XCTUnwrap(try harness.storage.scanManifests().first?.manifest)
+        XCTAssertEqual(manifest.duration, 42)
+        await self.drain(until: { harness.retentionClock.pendingSleeperCount == 1 })
+        await harness.retentionClock.advance(by: .milliseconds(4_999))
+        XCTAssertFalse(handle.isReleased)
+        await harness.retentionClock.advance(by: .milliseconds(1))
+        await self.drain(until: { handle.isReleased })
+    }
+
+    func testDelayedFormerSessionFinishDoesNotAffectNewOwnerSession() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        harness.engine.start(); await harness.engine.settled()
+        let former = try XCTUnwrap(harness.recorders.latest)
+        harness.engine.stop(); await harness.engine.settled()
+        harness.engine.start(); await harness.engine.settled()
+        let successor = try XCTUnwrap(harness.recorders.latest)
+        try await self.assertDelayedFormerSessionCallbackIsInert(
+            in: harness,
+            former: former,
+            successor: successor,
+            deliver: { $0.recorder?.fireFinish(successfully: false) }
+        )
+    }
+
+    func testDelayedFormerSessionEncodeErrorDoesNotAffectNewOwnerSession() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        harness.engine.start(); await harness.engine.settled()
+        let former = try XCTUnwrap(harness.recorders.latest)
+        harness.engine.stop(); await harness.engine.settled()
+        harness.engine.start(); await harness.engine.settled()
+        let successor = try XCTUnwrap(harness.recorders.latest)
+        try await self.assertDelayedFormerSessionCallbackIsInert(
+            in: harness,
+            former: former,
+            successor: successor,
+            deliver: { $0.recorder?.fireEncodeError() }
+        )
+    }
+
+    func testSynchronousDuplicateFinishDuringTerminalStopIsIdempotent() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        harness.engine.start(); await harness.engine.settled()
+        let handle = try XCTUnwrap(harness.recorders.latest)
+        handle.recorder?.stopCallback = .unsuccessfulFinish
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        let deliveriesBefore = harness.deliveries.count
+
+        handle.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { harness.deliveries.count >= deliveriesBefore + 2 })
+        await harness.engine.settled()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioFinishUnsuccessful)
+        XCTAssertEqual(handle.telemetry.stopCallCount, 1)
+        XCTAssertEqual(publications.statuses.filter { $0.audioTerminalReason == .audioFinishUnsuccessful }.count, 1)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        await self.drain(until: { handle.isReleased })
+    }
+
+    func testDelayedRolloverPredecessorFinishCannotTerminalizeSuccessor() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        let pair = try await self.rolloverProductionRecorderPair(in: harness)
+        try await self.assertDelayedRolloverPredecessorCallbackIsInert(
+            in: harness,
+            pair: pair,
+            deliver: { $0.recorder?.fireFinish(successfully: false) }
+        )
+    }
+
+    func testDelayedRolloverPredecessorEncodeErrorCannotTerminalizeSuccessor() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        let pair = try await self.rolloverProductionRecorderPair(in: harness)
+        try await self.assertDelayedRolloverPredecessorCallbackIsInert(
+            in: harness,
+            pair: pair,
+            deliver: { $0.recorder?.fireEncodeError() }
+        )
+    }
+
+    func testAdmittedPreRolloverTerminalIsRejectedAtExecutionForSuccessorEnrollment() async throws {
+        let harness = try self.makeProductionAudioHarness(synchronousTerminalHandoff: true)
+        harness.engine.start()
+        await harness.engine.settled()
+        let predecessor = try XCTUnwrap(harness.recorders.latest)
+        let predecessorSource = try XCTUnwrap(predecessor.forwarder).source
+        let snapshot = ProductionRolloverSnapshotProbe()
+
+        harness.engine.onPresentationChanged = { _ in
+            guard harness.recorders.count == 2, snapshot.value == nil else { return }
+            do {
+                let successor = try XCTUnwrap(harness.recorders.latest)
+                snapshot.value = ProductionRolloverSnapshot(
+                    record: try XCTUnwrap(try harness.storage.readSessionRecord()),
+                    storageInventory: try self.storageInventory(in: harness.storage),
+                    presentation: harness.engine.ownerPresentation,
+                    notices: harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count,
+                    successor: successor,
+                    successorSource: try XCTUnwrap(successor.forwarder).source,
+                    successorTelemetry: successor.telemetry.snapshot,
+                    predecessorTelemetry: predecessor.telemetry.snapshot
+                )
+                harness.engine.onPublishStatus = { snapshot.publications.statuses.append($0) }
+                harness.engine.onPresentationChanged = { snapshot.publications.presentations.append($0) }
+            } catch {
+                snapshot.error = error
             }
         }
 
-        for callback in [Callback.finish, .encodeError] {
-            let harness = try self.makeHarness(locationAuthorization: .denied)
-            harness.engine.start(); await harness.engine.settled()
-            let source = try XCTUnwrap(harness.recorder.startSources.last)
-            let retention = WatchAudioRecorderTerminalRetention(clock: MockObserverClock())
-            let trigger = try self.makeConcreteRecorderTrigger(
-                retention: retention,
-                source: source,
-                sink: harness.engine
-            )
+        // Both submissions happen in one MainActor turn. The synchronous adapter
+        // handoff admits B's terminal while B is current, but the serializer pump
+        // executes the already-queued rollover first.
+        harness.clock.advance(by: 1)
+        harness.engine.lifecycleSerializer.submit(.rollover)
+        predecessor.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { snapshot.value != nil || snapshot.error != nil })
+        await harness.engine.settled()
 
-            switch callback {
-            case .finish:
-                trigger.finish(successfully: false)
-            case .encodeError:
-                trigger.encodeError()
-            }
-            await Task.yield()
-            await harness.engine.settled()
+        XCTAssertNil(snapshot.error)
+        let before = try XCTUnwrap(snapshot.value)
+        XCTAssertEqual(predecessorSource.sessionID, before.successorSource.sessionID)
+        XCTAssertNotNil(predecessorSource.enrollment)
+        XCTAssertNotNil(before.successorSource.enrollment)
+        XCTAssertNotEqual(predecessorSource.enrollment, before.successorSource.enrollment)
+        XCTAssertEqual(predecessor.telemetry.stopCallCount, 1)
+        XCTAssertEqual(harness.deliveries.count, 1)
 
-            let record = try XCTUnwrap(try harness.storage.readSessionRecord())
-            XCTAssertEqual(record.terminalReason, callback.reason, "\(callback)")
-            XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself, "\(callback)")
-            XCTAssertEqual(harness.recorder.stopCallCount, 1, "\(callback)")
-            XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1, "\(callback)")
-        }
+        // A duplicate releases B from retired ownership. It has the same stale
+        // enrollment and therefore remains inert at execution time.
+        predecessor.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { predecessor.isReleased })
+        await harness.engine.settled()
+
+        let after = try XCTUnwrap(try harness.storage.readSessionRecord())
+        let storageInventoryAfter = try self.storageInventory(in: harness.storage)
+        XCTAssertEqual(after, before.record)
+        XCTAssertEqual(storageInventoryAfter, before.storageInventory)
+        XCTAssertEqual(harness.engine.ownerPresentation, before.presentation)
+        XCTAssertTrue(snapshot.publications.statuses.isEmpty)
+        XCTAssertTrue(snapshot.publications.presentations.isEmpty)
+        XCTAssertEqual(
+            harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count,
+            before.notices
+        )
+        XCTAssertEqual(before.successor.telemetry.snapshot, before.successorTelemetry)
+        XCTAssertTrue(before.successor.telemetry.isRecording)
+        XCTAssertEqual(before.successor.telemetry.stopCallCount, 0)
+        XCTAssertEqual(predecessor.telemetry.stopCallCount, before.predecessorTelemetry.stopCallCount)
+        XCTAssertEqual(predecessor.telemetry.recordCallCount, before.predecessorTelemetry.recordCallCount)
+        XCTAssertEqual(predecessor.telemetry.reportedCurrentTime, before.predecessorTelemetry.reportedCurrentTime)
+        XCTAssertEqual(predecessor.telemetry.isRecording, before.predecessorTelemetry.isRecording)
+        XCTAssertEqual(
+            predecessor.telemetry.deliveredCallbackCount,
+            before.predecessorTelemetry.deliveredCallbackCount + 1
+        )
+    }
+
+    func testCurrentRolloverSuccessorFinishIsAuthoritativeOnce() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        let pair = try await self.rolloverProductionRecorderPair(in: harness)
+        pair.successor.recorder?.stopCallback = .unsuccessfulFinish
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        let deliveriesBefore = harness.deliveries.count
+        pair.successor.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { harness.deliveries.count >= deliveriesBefore + 2 })
+        await harness.engine.settled()
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioFinishUnsuccessful)
+        XCTAssertEqual(pair.successor.telemetry.stopCallCount, 1)
+        XCTAssertEqual(publications.statuses.filter { $0.audioTerminalReason == .audioFinishUnsuccessful }.count, 1)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        await self.drain(until: { pair.successor.isReleased })
+    }
+
+    func testCurrentRolloverSuccessorEncodeErrorIsAuthoritativeOnce() async throws {
+        let harness = try self.makeProductionAudioHarness()
+        let pair = try await self.rolloverProductionRecorderPair(in: harness)
+        pair.successor.recorder?.stopCallback = .unsuccessfulFinish
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        let deliveriesBefore = harness.deliveries.count
+        pair.successor.recorder?.fireEncodeError()
+        await self.drain(until: { harness.deliveries.count >= deliveriesBefore + 2 })
+        await harness.engine.settled()
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioEncodeError)
+        XCTAssertEqual(pair.successor.telemetry.stopCallCount, 1)
+        XCTAssertEqual(publications.statuses.filter { $0.audioTerminalReason == .audioEncodeError }.count, 1)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        await self.drain(until: { pair.successor.isReleased })
+    }
+
+    func testClaimedCurrentCallbackIsCleanedBeforeGatedDeliveryWithoutAffectingSuccessor() async throws {
+        let gate = WatchCaptureHoldGate()
+        let harness = try self.makeProductionAudioHarness(terminalHandoffGate: gate)
+        harness.engine.start(); await harness.engine.settled()
+        let predecessor = try XCTUnwrap(harness.recorders.latest)
+        predecessor.recorder?.fireFinish(successfully: false)
+        await self.waitForGate(gate)
+        harness.clock.advance(by: 1)
+        harness.engine.lifecycleSerializer.submit(.rollover)
+        await self.drain(until: { harness.recorders.count == 2 })
+        await harness.engine.settled()
+        let successor = try XCTUnwrap(harness.recorders.latest)
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        harness.engine.onPresentationChanged = { publications.presentations.append($0) }
+        let notices = harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count
+        await gate.open()
+        await self.drain(until: { harness.deliveries.count >= 1 })
+        await harness.engine.settled()
+        predecessor.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { harness.deliveries.count >= 2 })
+        await harness.engine.settled()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(predecessor.telemetry.stopCallCount, 1)
+        XCTAssertEqual(successor.telemetry.stopCallCount, 0)
+        XCTAssertEqual(record.state, .active)
+        XCTAssertNil(record.terminalReason)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertTrue(publications.statuses.isEmpty)
+        XCTAssertTrue(publications.presentations.isEmpty)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, notices)
+        await self.drain(until: { predecessor.isReleased })
+    }
+
+    func testCurrentSuccessorCallbackRemainsServiceableAfterPriorPendingDrain() async throws {
+        let gate = WatchCaptureHoldGate()
+        let harness = try self.makeProductionAudioHarness(terminalHandoffGate: gate)
+        harness.engine.start(); await harness.engine.settled()
+        let predecessor = try XCTUnwrap(harness.recorders.latest)
+        predecessor.recorder?.fireFinish(successfully: false)
+        await self.waitForGate(gate)
+        harness.clock.advance(by: 1)
+        harness.engine.lifecycleSerializer.submit(.rollover)
+        await self.drain(until: { harness.recorders.count == 2 })
+        await harness.engine.settled()
+        let successor = try XCTUnwrap(harness.recorders.latest)
+        await gate.open()
+        await self.drain(until: { harness.deliveries.count >= 1 })
+        await harness.engine.settled()
+        predecessor.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { harness.deliveries.count >= 2 })
+        await harness.engine.settled()
+        await self.drain(until: { predecessor.isReleased })
+
+        successor.recorder?.stopCallback = .unsuccessfulFinish
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        let deliveriesBefore = harness.deliveries.count
+        successor.recorder?.fireFinish(successfully: false)
+        await self.drain(until: { harness.deliveries.count >= deliveriesBefore + 2 })
+        await harness.engine.settled()
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(successor.telemetry.stopCallCount, 1)
+        XCTAssertEqual(record.terminalReason, .audioFinishUnsuccessful)
+        XCTAssertEqual(publications.statuses.filter { $0.audioTerminalReason == .audioFinishUnsuccessful }.count, 1)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        await self.drain(until: { successor.isReleased })
     }
 
     func testTerminalWithNoRunningOrMismatchedSourceIsNoOp() async throws {
@@ -1929,27 +2173,32 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(Set(manifests.map(\.id)).count, 2)
     }
 
-    func testPriorSegmentBoundTerminalStillClaimsRolloverSessionExactlyOnce() async throws {
+    func testPriorSegmentBoundTerminalDoesNotClaimRolloverSuccessor() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         harness.engine.start(); await harness.engine.settled()
-        let source = try XCTUnwrap(harness.recorder.startSources.first)
+        let priorSource = try XCTUnwrap(harness.recorder.startSources.first)
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
 
         harness.clock.advance(by: 300)
         await self.drain(until: { harness.recorder.startURLs.count == 2 })
         await harness.engine.settled()
-        XCTAssertEqual(harness.recorder.startSources, [source, source])
+        let successorSource = try XCTUnwrap(harness.recorder.startSources.last)
+        XCTAssertEqual(priorSource.sessionID, successorSource.sessionID)
+        XCTAssertNotNil(priorSource.enrollment)
+        XCTAssertNotNil(successorSource.enrollment)
+        XCTAssertNotEqual(priorSource.enrollment, successorSource.enrollment)
         XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        let stopsBeforeTerminal = harness.recorder.stopCallCount
 
-        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
-        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: source)
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: priorSource)
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil, source: priorSource)
         await harness.engine.settled()
 
-        try self.assertDetectedTerminalOnce(
-            in: harness,
-            reason: .audioEncodeError,
-            recorderStops: 2
-        )
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.state, .active)
+        XCTAssertNil(record.terminalReason)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.recorder.stopCallCount, stopsBeforeTerminal)
     }
 
     func testOnceRecorderStopFailureStillCompletesOwnerStopCleanup() async throws {
@@ -3036,6 +3285,234 @@ private extension WatchCaptureTests {
         let notificationCenter: NotificationCenter
     }
 
+    struct ProductionAudioHarness {
+        let engine: WatchCaptureEngine
+        let recorder: LiveWatchAudioRecorder
+        let recorders: ProductionRecorderStore
+        let audioSession: MockWatchAudioSession
+        let locationProvider: MockWatchLocationProvider
+        let storage: WatchCaptureStorage
+        let clock: MockObserverClock
+        let retentionClock: FakeWatchAudioRecorderRetentionClock
+        let audioProbe: MockWatchAudioProbe
+        let notificationScheduler: MockWatchNotificationScheduler
+        let deliveries: TerminalDeliveryProbe
+    }
+
+    func makeProductionAudioHarness(
+        terminalHandoffGate: WatchCaptureHoldGate? = nil,
+        synchronousTerminalHandoff: Bool = false
+    ) throws -> ProductionAudioHarness {
+        let recorders = ProductionRecorderStore()
+        let deliveries = TerminalDeliveryProbe()
+        let retentionClock = FakeWatchAudioRecorderRetentionClock()
+        let recorder = LiveWatchAudioRecorder(
+            recorderFactory: { url, settings in
+                try recorders.makeRecorder(url: url, settings: settings)
+            },
+            microphonePermissionProvider: { .granted },
+            retentionClock: retentionClock,
+            terminalHandoff: { operation in
+                if synchronousTerminalHandoff {
+                    MainActor.assumeIsolated {
+                        deliveries.count += 1
+                        operation()
+                    }
+                    return
+                }
+                Task { @MainActor in
+                    if let terminalHandoffGate {
+                        await terminalHandoffGate.suspend()
+                    }
+                    deliveries.count += 1
+                    operation()
+                }
+            }
+        )
+        let audioSession = MockWatchAudioSession()
+        let locationProvider = MockWatchLocationProvider(authorizationStatus: .denied)
+        let rootURL = self.tempDirectory
+            .appendingPathComponent("ProductionAudioHarness-\(UUID().uuidString)", isDirectory: true)
+        let storage = try WatchCaptureStorage(rootURL: rootURL)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
+        let audioProbe = MockWatchAudioProbe()
+        let notificationScheduler = MockWatchNotificationScheduler(
+            authorizationStatus: .authorized,
+            alertSetting: .enabled
+        )
+        let engine = WatchCaptureEngine(
+            audioRecorder: recorder,
+            audioSession: audioSession,
+            locationProvider: locationProvider,
+            storage: storage,
+            clock: clock,
+            audioProbe: audioProbe,
+            notificationScheduler: notificationScheduler,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
+            notificationCenter: NotificationCenter()
+        )
+        return ProductionAudioHarness(
+            engine: engine,
+            recorder: recorder,
+            recorders: recorders,
+            audioSession: audioSession,
+            locationProvider: locationProvider,
+            storage: storage,
+            clock: clock,
+            retentionClock: retentionClock,
+            audioProbe: audioProbe,
+            notificationScheduler: notificationScheduler,
+            deliveries: deliveries
+        )
+    }
+
+    func rolloverProductionRecorderPair(
+        in harness: ProductionAudioHarness
+    ) async throws -> (predecessor: WeakRecorderHandle, successor: WeakRecorderHandle) {
+        harness.engine.start()
+        await harness.engine.settled()
+        let predecessor = try XCTUnwrap(harness.recorders.latest)
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        harness.clock.advance(by: WatchCaptureTiming.segmentDurationSeconds)
+        await self.drain(until: { harness.recorders.count == 2 })
+        await harness.engine.settled()
+        return (predecessor, try XCTUnwrap(harness.recorders.latest))
+    }
+
+    func assertDelayedFormerSessionCallbackIsInert(
+        in harness: ProductionAudioHarness,
+        former: WeakRecorderHandle,
+        successor: WeakRecorderHandle,
+        deliver: @MainActor (WeakRecorderHandle) -> Void
+    ) async throws {
+        let formerSource = try XCTUnwrap(former.forwarder).source
+        let successorSource = try XCTUnwrap(successor.forwarder).source
+        XCTAssertNotEqual(formerSource.sessionID, successorSource.sessionID)
+
+        let recordBefore = try XCTUnwrap(try harness.storage.readSessionRecord())
+        let storageInventoryBefore = try self.storageInventory(in: harness.storage)
+        let presentationBefore = harness.engine.ownerPresentation
+        let noticesBefore = harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count
+        let formerTelemetryBefore = former.telemetry.snapshot
+        let successorTelemetryBefore = successor.telemetry.snapshot
+        XCTAssertTrue(successorTelemetryBefore.isRecording)
+        let deliveriesBefore = harness.deliveries.count
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        harness.engine.onPresentationChanged = { publications.presentations.append($0) }
+
+        deliver(former)
+        await self.drain(until: { harness.deliveries.count == deliveriesBefore + 1 })
+        await harness.engine.settled()
+
+        let recordAfter = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(recordAfter, recordBefore)
+        XCTAssertEqual(try self.storageInventory(in: harness.storage), storageInventoryBefore)
+        XCTAssertEqual(harness.engine.ownerPresentation, presentationBefore)
+        XCTAssertTrue(publications.statuses.isEmpty)
+        XCTAssertTrue(publications.presentations.isEmpty)
+        XCTAssertEqual(
+            harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count,
+            noticesBefore
+        )
+        XCTAssertEqual(successor.telemetry.snapshot, successorTelemetryBefore)
+        XCTAssertTrue(successor.telemetry.isRecording)
+        XCTAssertEqual(former.telemetry.stopCallCount, formerTelemetryBefore.stopCallCount)
+        XCTAssertEqual(former.telemetry.recordCallCount, formerTelemetryBefore.recordCallCount)
+        XCTAssertEqual(former.telemetry.reportedCurrentTime, formerTelemetryBefore.reportedCurrentTime)
+        XCTAssertEqual(former.telemetry.isRecording, formerTelemetryBefore.isRecording)
+        XCTAssertEqual(former.telemetry.deliveredCallbackCount, formerTelemetryBefore.deliveredCallbackCount + 1)
+        await self.drain(until: { former.isReleased })
+    }
+
+    func assertDelayedRolloverPredecessorCallbackIsInert(
+        in harness: ProductionAudioHarness,
+        pair: (predecessor: WeakRecorderHandle, successor: WeakRecorderHandle),
+        deliver: @MainActor (WeakRecorderHandle) -> Void
+    ) async throws {
+        let predecessorSource = try XCTUnwrap(pair.predecessor.forwarder).source
+        let successorSource = try XCTUnwrap(pair.successor.forwarder).source
+        XCTAssertEqual(predecessorSource.sessionID, successorSource.sessionID)
+        XCTAssertNotNil(predecessorSource.enrollment)
+        XCTAssertNotNil(successorSource.enrollment)
+        XCTAssertNotEqual(predecessorSource.enrollment, successorSource.enrollment)
+
+        let recordBefore = try XCTUnwrap(try harness.storage.readSessionRecord())
+        let storageInventoryBefore = try self.storageInventory(in: harness.storage)
+        let presentationBefore = harness.engine.ownerPresentation
+        let noticesBefore = harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count
+        let predecessorTelemetryBefore = pair.predecessor.telemetry.snapshot
+        let successorTelemetryBefore = pair.successor.telemetry.snapshot
+        XCTAssertTrue(successorTelemetryBefore.isRecording)
+        let deliveriesBefore = harness.deliveries.count
+        let publications = WatchCapturePublicationRecord()
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        harness.engine.onPresentationChanged = { publications.presentations.append($0) }
+
+        deliver(pair.predecessor)
+        await self.drain(until: { harness.deliveries.count == deliveriesBefore + 1 })
+        await harness.engine.settled()
+
+        let recordAfter = try XCTUnwrap(try harness.storage.readSessionRecord())
+        let storageInventoryAfter = try self.storageInventory(in: harness.storage)
+        XCTAssertEqual(recordAfter, recordBefore)
+        XCTAssertEqual(storageInventoryAfter, storageInventoryBefore)
+        XCTAssertEqual(harness.engine.ownerPresentation, presentationBefore)
+        XCTAssertTrue(publications.statuses.isEmpty)
+        XCTAssertTrue(publications.presentations.isEmpty)
+        XCTAssertEqual(
+            harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count,
+            noticesBefore
+        )
+        XCTAssertEqual(pair.successor.telemetry.snapshot, successorTelemetryBefore)
+        XCTAssertTrue(pair.successor.telemetry.isRecording)
+        XCTAssertEqual(pair.successor.telemetry.stopCallCount, 0)
+        XCTAssertNil(recordAfter.terminalReason)
+        XCTAssertEqual(pair.predecessor.telemetry.stopCallCount, predecessorTelemetryBefore.stopCallCount)
+        XCTAssertEqual(pair.predecessor.telemetry.recordCallCount, predecessorTelemetryBefore.recordCallCount)
+        XCTAssertEqual(pair.predecessor.telemetry.reportedCurrentTime, predecessorTelemetryBefore.reportedCurrentTime)
+        XCTAssertEqual(pair.predecessor.telemetry.isRecording, predecessorTelemetryBefore.isRecording)
+        XCTAssertEqual(
+            pair.predecessor.telemetry.deliveredCallbackCount,
+            predecessorTelemetryBefore.deliveredCallbackCount + 1
+        )
+        await self.drain(until: { pair.predecessor.isReleased })
+    }
+
+    func storageInventory(in storage: WatchCaptureStorage) throws -> WatchCaptureStorageInventory {
+        let rootURL = storage.rootURL
+        let fileManager = FileManager.default
+
+        func inventory(in directory: URL) throws -> [WatchCaptureStorageInventory.Entry] {
+            // No skip options: the acceptance claim is a FULL byte-for-byte storage/media
+            // inventory, so hidden files are enumerated too and any storage mutation is
+            // observable. Omitting them would let a hidden-file change pass as unchanged.
+            let children = try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: []
+            )
+            .sorted { $0.path < $1.path }
+            var entries: [WatchCaptureStorageInventory.Entry] = []
+            for child in children {
+                let relativePath = child.path.replacingOccurrences(of: rootURL.path + "/", with: "")
+                if try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                    entries.append(.init(relativePath: relativePath, isDirectory: true, contents: nil))
+                    entries += try inventory(in: child)
+                } else {
+                    entries.append(.init(
+                        relativePath: relativePath,
+                        isDirectory: false,
+                        contents: try Data(contentsOf: child)
+                    ))
+                }
+            }
+            return entries
+        }
+
+        return WatchCaptureStorageInventory(entries: try inventory(in: rootURL))
+    }
+
     func oneShotStatusAction(
         phase: WatchStatusContext.Phase,
         occurrence: Int,
@@ -3187,57 +3664,52 @@ private extension WatchCaptureTests {
         )
     }
 
-    func makeRetiredConcreteRecorderTrigger(
-        retention: WatchAudioRecorderTerminalRetention,
-        source: WatchCaptureSourceToken,
-        sink: any WatchAudioRecorderEventSink
-    ) throws -> RetiredConcreteRecorderTrigger {
-        let trigger = try self.makeConcreteRecorderTrigger(retention: retention, source: source, sink: sink)
-        _ = retention.stopCurrent()
-        return trigger
-    }
-
-    func makeConcreteRecorderTrigger(
-        retention: WatchAudioRecorderTerminalRetention,
-        source: WatchCaptureSourceToken,
-        sink: any WatchAudioRecorderEventSink
-    ) throws -> RetiredConcreteRecorderTrigger {
-        let trigger = RetiredConcreteRecorderTrigger()
-        try autoreleasepool {
-            let url = self.tempDirectory
-                .appendingPathComponent("CurrentTerminal-\(UUID().uuidString).m4a")
-            let recorder = try AVAudioRecorder(
-                url: url,
-                settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: 16_000,
-                    AVNumberOfChannelsKey: 1,
-                    AVEncoderBitRateKey: 32_000,
-                ]
-            )
-            trigger.recorder = recorder
-            retention.enroll(recorder: recorder, source: source, sink: sink)
-            trigger.forwarder = recorder.delegate as? WatchAudioRecorderTerminalForwarder
-        }
-        return trigger
-    }
-
     /// Yield the cooperative thread until `condition` holds or a bounded cap is hit.
     /// Deterministic replacement for fixed Task.yield() counts after advancing the mock clock.
-    func drain(until condition: () -> Bool, maxYields: Int = 10_000) async {
+    /// Yields until `condition` holds, then returns immediately. Fails closed at the
+    /// bounded cap: silently returning would let every dependent assertion pass
+    /// vacuously. `file`/`line` default to the CALL SITE, so the failure is attributed
+    /// to the fixture that waited, not to this helper.
+    func drain(
+        until condition: () -> Bool,
+        maxYields: Int = 10_000,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
         var yields = 0
-        while !condition() && yields < maxYields {
+        while yields < maxYields {
+            if condition() { return }
             await Task.yield()
             yields += 1
         }
+        if condition() { return }
+        XCTFail(
+            "drain(until:) exhausted \(maxYields) yields without the condition becoming true",
+            file: file,
+            line: line
+        )
     }
 
-    func waitForGate(_ gate: WatchCaptureHoldGate, maxYields: Int = 10_000) async {
+    /// Yields until the gate has a parked continuation, then returns immediately.
+    /// Fails closed at the bounded cap for the same reason as `drain(until:)`.
+    func waitForGate(
+        _ gate: WatchCaptureHoldGate,
+        maxYields: Int = 10_000,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
         var yields = 0
-        while !(await gate.waiting()) && yields < maxYields {
+        while yields < maxYields {
+            if await gate.waiting() { return }
             await Task.yield()
             yields += 1
         }
+        if await gate.waiting() { return }
+        XCTFail(
+            "waitForGate exhausted \(maxYields) yields without the gate suspending",
+            file: file,
+            line: line
+        )
     }
 
     func initialDirectory(in harness: Harness) -> URL {
@@ -3340,8 +3812,10 @@ private extension WatchCaptureTests {
 private actor WatchCaptureHoldGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var isWaitingForResume = false
+    private var isOpen = false
 
     func suspend() async {
+        guard !self.isOpen else { return }
         await withCheckedContinuation { continuation in
             self.continuation = continuation
             self.isWaitingForResume = true
@@ -3354,6 +3828,11 @@ private actor WatchCaptureHoldGate {
     func release() {
         self.continuation?.resume()
         self.continuation = nil
+    }
+
+    func open() {
+        self.isOpen = true
+        self.release()
     }
 }
 
@@ -3489,19 +3968,65 @@ private final class MockWatchAudioSession: WatchAudioSessionControlling {
 }
 
 @MainActor
-private final class RetiredConcreteRecorderTrigger {
-    weak var recorder: AVAudioRecorder?
-    weak var forwarder: WatchAudioRecorderTerminalForwarder?
+private final class ProductionRecorderStore {
+    private(set) var handles: [WeakRecorderHandle] = []
 
-    func finish(successfully: Bool) {
-        guard let recorder, let forwarder else { return }
-        forwarder.audioRecorderDidFinishRecording(recorder, successfully: successfully)
+    var count: Int { self.handles.count }
+
+    var latest: WeakRecorderHandle? {
+        guard let handle = self.handles.last else { return nil }
+        handle.forwarder = handle.recorder?.delegate as? WatchAudioRecorderTerminalForwarder
+        return handle
     }
 
-    func encodeError() {
-        guard let recorder, let forwarder else { return }
-        forwarder.audioRecorderEncodeErrorDidOccur(recorder, error: nil)
+    func makeRecorder(url: URL, settings: [String: Any]) throws -> AVAudioRecorder {
+        let telemetry = RecorderTelemetry()
+        let recorder = try SynchronousFinishAudioRecorder(
+            url: url,
+            settings: settings,
+            telemetry: telemetry
+        )
+        let handle = WeakRecorderHandle(telemetry: telemetry)
+        handle.recorder = recorder
+        self.handles.append(handle)
+        return recorder
     }
+}
+
+/// Counts terminal deliveries that actually reached the sink, so fixtures can
+/// converge on proof a callback was delivered instead of a fixed yield count.
+@MainActor
+private final class TerminalDeliveryProbe {
+    var count = 0
+}
+
+@MainActor
+private final class ProductionRolloverSnapshotProbe {
+    var value: ProductionRolloverSnapshot?
+    var error: (any Error)?
+    let publications = WatchCapturePublicationRecord()
+}
+
+@MainActor
+private struct ProductionRolloverSnapshot {
+    let record: WatchCaptureSessionRecord
+    let storageInventory: WatchCaptureStorageInventory
+    let presentation: WatchCaptureOwnerPresentation
+    let notices: Int
+    let successor: WeakRecorderHandle
+    let successorSource: WatchCaptureSourceToken
+    let successorTelemetry: RecorderTelemetry.Snapshot
+    let predecessorTelemetry: RecorderTelemetry.Snapshot
+}
+
+private struct WatchCaptureStorageInventory: Equatable {
+    struct Entry: Equatable {
+        let relativePath: String
+        let isDirectory: Bool
+        let contents: Data?
+    }
+
+    let entries: [Entry]
 }
 
 @MainActor

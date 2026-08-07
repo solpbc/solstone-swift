@@ -6,34 +6,46 @@ import Foundation
 
 nonisolated struct WatchCaptureSourceToken: Equatable, Sendable {
     let sessionID: String
+    let enrollment: UUID?
+
+    init(sessionID: String, enrollment: UUID? = nil) {
+        self.sessionID = sessionID
+        self.enrollment = enrollment
+    }
 }
 
 /// Binds recorder callbacks to one immutable owner session and one concrete
-/// recorder pair. Callback entry releases terminal retention before forwarding
-/// the event to the MainActor sink.
+/// recorder pair. Callback entry transfers a current pair into terminal-pending
+/// ownership so production cleanup can still stop it, and releases a pair that
+/// is already retired, before forwarding the event to the MainActor sink.
 @MainActor
 final class WatchAudioRecorderTerminalForwarder: NSObject, AVAudioRecorderDelegate {
     nonisolated let identity: UUID
     let source: WatchCaptureSourceToken
     private weak var sink: (any WatchAudioRecorderEventSink)?
     nonisolated private let releasePair: @Sendable (UUID) -> AnyObject?
+    nonisolated private let terminalHandoff: WatchAudioRecorderTerminalHandoff
 
     init(
         identity: UUID,
         source: WatchCaptureSourceToken,
         sink: (any WatchAudioRecorderEventSink)?,
-        releasePair: @escaping @Sendable (UUID) -> AnyObject?
+        releasePair: @escaping @Sendable (UUID) -> AnyObject?,
+        terminalHandoff: @escaping WatchAudioRecorderTerminalHandoff = { operation in
+            Task { @MainActor in operation() }
+        }
     ) {
         self.identity = identity
         self.source = source
         self.sink = sink
         self.releasePair = releasePair
+        self.terminalHandoff = terminalHandoff
     }
 
     nonisolated func deliverDidFinish(successfully: Bool) {
         let source = self.source
         let released = self.releasePair(self.identity)
-        Task { @MainActor in
+        self.terminalHandoff { @MainActor in
             self.sink?.audioRecorderDidFinish(successfully: successfully, source: source)
         }
         withExtendedLifetime(released) {}
@@ -42,7 +54,7 @@ final class WatchAudioRecorderTerminalForwarder: NSObject, AVAudioRecorderDelega
     nonisolated func deliverEncodeError(_ error: (any Error)?) {
         let source = self.source
         let released = self.releasePair(self.identity)
-        Task { @MainActor in
+        self.terminalHandoff { @MainActor in
             self.sink?.audioRecorderEncodeError(error, source: source)
         }
         withExtendedLifetime(released) {}
