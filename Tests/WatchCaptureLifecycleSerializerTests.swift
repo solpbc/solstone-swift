@@ -93,7 +93,7 @@ final class WatchCaptureLifecycleSerializerTests: XCTestCase {
         XCTAssertEqual(stub.calls, [.start, .stop])
     }
 
-    func testFinalStopRemovesPendingStartAcrossTerminal() async {
+    func testFinalStopRemovesOlderStartAndPreservesLaterStartAcrossTerminal() async {
         let gate = WatchCaptureLifecycleSerializerHoldGate()
         let stub = WatchCaptureLifecycleSerializerStub()
         var hasSuspendedFirstStart = false
@@ -115,6 +115,7 @@ final class WatchCaptureLifecycleSerializerTests: XCTestCase {
             source: source
         )))
         serializer.submit(.stop)
+        serializer.submit(.start)
         await gate.resume()
         await serializer.settled()
 
@@ -126,6 +127,7 @@ final class WatchCaptureLifecycleSerializerTests: XCTestCase {
                 disposition: .detectedStoppedItself,
                 source: source
             )),
+            .start,
         ])
     }
 

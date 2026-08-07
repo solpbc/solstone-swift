@@ -7,6 +7,9 @@ import os
 
 private let watchCaptureLog = Logger(subsystem: "app.solstone.swift", category: "watch-capture")
 
+typealias WatchAudioSessionNotificationHandoff =
+    @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
+
 @MainActor
 final class WatchCaptureEngine {
     private enum LifecycleState: Equatable, Sendable {
@@ -30,6 +33,7 @@ final class WatchCaptureEngine {
     private let audioProbe: any WatchAudioProbing
     private let notificationScheduler: any WatchNotificationScheduling
     private let notificationCenter: NotificationCenter
+    private let audioSessionNotificationHandoff: WatchAudioSessionNotificationHandoff
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     private let sessionHistoryStore: WatchCaptureSessionHistoryStore
     let lifecycleSerializer: WatchCaptureLifecycleSerializer
@@ -85,7 +89,10 @@ final class WatchCaptureEngine {
         audioProbe: any WatchAudioProbing,
         notificationScheduler: any WatchNotificationScheduling,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        audioSessionNotificationHandoff: @escaping WatchAudioSessionNotificationHandoff = { operation in
+            Task { @MainActor in operation() }
+        }
     ) {
         self.audioRecorder = audioRecorder
         self.audioSession = audioSession
@@ -97,6 +104,7 @@ final class WatchCaptureEngine {
         self.environmentProvider = environmentProvider
         self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
         self.notificationCenter = notificationCenter
+        self.audioSessionNotificationHandoff = audioSessionNotificationHandoff
         self.lifecycleSerializer = WatchCaptureLifecycleSerializer()
 
         self.audioRecorder.eventSink = self
@@ -1046,6 +1054,7 @@ private extension WatchCaptureEngine {
 
     func installAudioSessionObservers(source: WatchCaptureSourceToken) {
         self.removeAudioSessionObservers()
+        let notificationHandoff = self.audioSessionNotificationHandoff
         self.audioSessionObservers.append(self.notificationCenter.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: nil,
@@ -1054,7 +1063,7 @@ private extension WatchCaptureEngine {
             guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue)
             else { return }
-            Task { @MainActor [weak self, source] in
+            notificationHandoff { [weak self, source] in
                 self?.handleInterruption(type, source: source)
             }
         })
@@ -1063,7 +1072,7 @@ private extension WatchCaptureEngine {
             object: nil,
             queue: nil
         ) { [weak self, source] _ in
-            Task { @MainActor [weak self, source] in
+            notificationHandoff { [weak self, source] in
                 self?.handleRouteChange(source: source)
             }
         })
@@ -1072,7 +1081,7 @@ private extension WatchCaptureEngine {
             object: nil,
             queue: nil
         ) { [weak self, source] _ in
-            Task { @MainActor [weak self, source] in
+            notificationHandoff { [weak self, source] in
                 self?.submitTerminalIntent(
                     reason: .audioMediaServicesLost,
                     disposition: .detectedStoppedItself,
@@ -1085,7 +1094,7 @@ private extension WatchCaptureEngine {
             object: nil,
             queue: nil
         ) { [weak self, source] _ in
-            Task { @MainActor [weak self, source] in
+            notificationHandoff { [weak self, source] in
                 self?.submitTerminalIntent(
                     reason: .audioMediaServicesReset,
                     disposition: .detectedStoppedItself,

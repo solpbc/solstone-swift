@@ -4,6 +4,7 @@
 @testable import solstone_swift
 import AVFoundation
 import Foundation
+import os
 import XCTest
 
 @MainActor
@@ -635,30 +636,126 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(resetStatuses.last?.audioTerminalReason, .audioMediaServicesReset)
     }
 
-    func testBoundAudioSessionNotificationsTerminateTheirCurrentSession() async throws {
-        let interruptionUserInfo: [AnyHashable: Any] = [
-            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
-        ]
-        let cases: [(Notification.Name, WatchCaptureTerminalReason, [AnyHashable: Any]?, Bool)] = [
-            (AVAudioSession.mediaServicesWereLostNotification, .audioMediaServicesLost, nil, false),
-            (AVAudioSession.mediaServicesWereResetNotification, .audioMediaServicesReset, nil, false),
-            (AVAudioSession.interruptionNotification, .audioInterrupted, interruptionUserInfo, false),
-            (AVAudioSession.routeChangeNotification, .audioRouteUnavailable, nil, true),
-        ]
+    func testDelayedAudioSessionNotificationsRemainBoundToFormerSession() async throws {
+        for notification in self.audioSessionNotificationCases {
+            let handoffs = AudioSessionNotificationHandoffProbe()
+            let harness = try self.makeHarness(
+                locationAuthorization: .denied,
+                audioSessionNotificationHandoff: { operation in
+                    handoffs.capture(operation)
+                }
+            )
 
-        for (name, reason, userInfo, makesInputUnsuitable) in cases {
-            let harness = try self.makeHarness(locationAuthorization: .denied)
-            harness.engine.start(); await harness.engine.settled()
-            if makesInputUnsuitable {
+            harness.engine.start()
+            await self.settleCaptureEngine(harness.engine)
+            let formerSource = try XCTUnwrap(harness.recorder.startSources.last)
+            harness.notificationCenter.post(
+                name: notification.name,
+                object: nil,
+                userInfo: notification.userInfo
+            )
+            XCTAssertEqual(handoffs.pendingCount, 1)
+
+            harness.engine.stop()
+            await self.settleCaptureEngine(harness.engine)
+            harness.clock.advance(by: 1)
+            harness.engine.start()
+            await self.settleCaptureEngine(harness.engine)
+            let currentSource = try XCTUnwrap(harness.recorder.startSources.last)
+            XCTAssertNotEqual(formerSource.sessionID, currentSource.sessionID)
+
+            let recordBefore = try XCTUnwrap(try harness.storage.readSessionRecord())
+            XCTAssertEqual(recordBefore.sessionID, currentSource.sessionID)
+            XCTAssertEqual(recordBefore.state, .active)
+            let storageBefore = try self.storageInventory(in: harness.storage)
+            let presentationBefore = harness.engine.ownerPresentation
+            let recorderStopsBefore = harness.recorder.stopCallCount
+            let recorderIsRecordingBefore = harness.recorder.isRecording
+            let audioSessionCallsBefore = harness.audioSession.setActiveCalls
+            let locationStartsBefore = harness.locationProvider.startCallCount
+            let locationStopsBefore = harness.locationProvider.stopCallCount
+            let schedulerCallsBefore = harness.notificationScheduler.calls
+            let pendingRequestsBefore = harness.notificationScheduler.pendingRequests
+            let publications = self.capturePublications(in: harness)
+
+            if notification.makesInputUnsuitable {
                 harness.audioSession.hasSuitableInput = false
             }
-            harness.notificationCenter.post(name: name, object: nil, userInfo: userInfo)
-            await self.drain(until: { harness.engine.ownerPresentation.terminalReason == reason })
-            await harness.engine.settled()
+            handoffs.releaseAll()
+            XCTAssertEqual(handoffs.pendingCount, 0)
+            await self.settleCaptureEngine(harness.engine)
 
-            XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, reason)
+            XCTAssertEqual(try harness.storage.readSessionRecord(), recordBefore)
+            XCTAssertEqual(try self.storageInventory(in: harness.storage), storageBefore)
+            XCTAssertEqual(harness.engine.ownerPresentation, presentationBefore)
+            XCTAssertEqual(harness.recorder.stopCallCount, recorderStopsBefore)
+            XCTAssertEqual(harness.recorder.isRecording, recorderIsRecordingBefore)
+            XCTAssertEqual(harness.audioSession.setActiveCalls, audioSessionCallsBefore)
+            XCTAssertEqual(harness.locationProvider.startCallCount, locationStartsBefore)
+            XCTAssertEqual(harness.locationProvider.stopCallCount, locationStopsBefore)
+            XCTAssertEqual(harness.notificationScheduler.calls, schedulerCallsBefore)
+            XCTAssertEqual(harness.notificationScheduler.pendingRequests, pendingRequestsBefore)
+            XCTAssertTrue(publications.statuses.isEmpty)
+            XCTAssertTrue(publications.presentations.isEmpty)
+        }
+    }
+
+    func testBoundAudioSessionNotificationsTerminateNewCurrentSessionAfterRestart() async throws {
+        for notification in self.audioSessionNotificationCases {
+            let handoffs = AudioSessionNotificationHandoffProbe()
+            let harness = try self.makeHarness(
+                locationAuthorization: .denied,
+                audioSessionNotificationHandoff: { operation in
+                    handoffs.capture(operation)
+                }
+            )
+
+            harness.engine.start()
+            await self.settleCaptureEngine(harness.engine)
+            let formerSource = try XCTUnwrap(harness.recorder.startSources.last)
+            harness.engine.stop()
+            await self.settleCaptureEngine(harness.engine)
+            harness.clock.advance(by: 1)
+            harness.engine.start()
+            await self.settleCaptureEngine(harness.engine)
+            let currentSource = try XCTUnwrap(harness.recorder.startSources.last)
+            XCTAssertNotEqual(formerSource.sessionID, currentSource.sessionID)
+
+            let publications = self.capturePublications(in: harness)
+            let recorderStopsBefore = harness.recorder.stopCallCount
+            let noticesBefore = harness.notificationScheduler.addCalls(
+                identifier: WatchNoticeIdentifiers.notice
+            ).count
+            if notification.makesInputUnsuitable {
+                harness.audioSession.hasSuitableInput = false
+            }
+            harness.notificationCenter.post(
+                name: notification.name,
+                object: nil,
+                userInfo: notification.userInfo
+            )
+            XCTAssertEqual(handoffs.pendingCount, 1)
+            handoffs.releaseAll()
+            XCTAssertEqual(handoffs.pendingCount, 0)
+            await self.settleCaptureEngine(harness.engine)
+
+            let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+            XCTAssertEqual(record.sessionID, currentSource.sessionID)
+            XCTAssertEqual(record.state, .terminal)
+            XCTAssertEqual(record.terminalReason, notification.reason)
+            XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+            XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, notification.reason)
             XCTAssertEqual(harness.engine.ownerPresentation.terminalDisposition, .detectedStoppedItself)
             XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+            XCTAssertEqual(harness.recorder.stopCallCount, recorderStopsBefore + 1)
+            XCTAssertEqual(
+                harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count,
+                noticesBefore + 1
+            )
+            XCTAssertEqual(
+                publications.statuses.filter { $0.audioTerminalReason == notification.reason }.count,
+                1
+            )
         }
     }
 
@@ -3273,6 +3370,13 @@ final class WatchCaptureTests: XCTestCase {
 
 @MainActor
 private extension WatchCaptureTests {
+    struct AudioSessionNotificationCase {
+        let name: Notification.Name
+        let reason: WatchCaptureTerminalReason
+        let userInfo: [AnyHashable: Any]?
+        let makesInputUnsuitable: Bool
+    }
+
     struct Harness {
         let engine: WatchCaptureEngine
         let recorder: MockWatchAudioRecorder
@@ -3283,6 +3387,37 @@ private extension WatchCaptureTests {
         let audioProbe: MockWatchAudioProbe
         let notificationScheduler: MockWatchNotificationScheduler
         let notificationCenter: NotificationCenter
+    }
+
+    var audioSessionNotificationCases: [AudioSessionNotificationCase] {
+        [
+            .init(
+                name: AVAudioSession.mediaServicesWereLostNotification,
+                reason: .audioMediaServicesLost,
+                userInfo: nil,
+                makesInputUnsuitable: false
+            ),
+            .init(
+                name: AVAudioSession.mediaServicesWereResetNotification,
+                reason: .audioMediaServicesReset,
+                userInfo: nil,
+                makesInputUnsuitable: false
+            ),
+            .init(
+                name: AVAudioSession.interruptionNotification,
+                reason: .audioInterrupted,
+                userInfo: [
+                    AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+                ],
+                makesInputUnsuitable: false
+            ),
+            .init(
+                name: AVAudioSession.routeChangeNotification,
+                reason: .audioRouteUnavailable,
+                userInfo: nil,
+                makesInputUnsuitable: true
+            ),
+        ]
     }
 
     struct ProductionAudioHarness {
@@ -3622,7 +3757,10 @@ private extension WatchCaptureTests {
         notificationAuthorizationStatus: WatchNotificationAuthorizationStatus = .authorized,
         notificationAlertSetting: WatchNotificationAlertSetting = .enabled,
         fileWriter: (any WatchFileWriting)? = nil,
-        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = MockWatchRelayDiagnosticsEnvironmentProvider()
+        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = MockWatchRelayDiagnosticsEnvironmentProvider(),
+        audioSessionNotificationHandoff: @escaping WatchAudioSessionNotificationHandoff = { operation in
+            Task { @MainActor in operation() }
+        }
     ) throws -> Harness {
         let recorder = MockWatchAudioRecorder(
             microphonePermission: microphonePermission ?? (audioPermission ? .granted : .denied)
@@ -3649,7 +3787,8 @@ private extension WatchCaptureTests {
             audioProbe: audioProbe,
             notificationScheduler: notificationScheduler,
             environmentProvider: environmentProvider,
-            notificationCenter: notificationCenter
+            notificationCenter: notificationCenter,
+            audioSessionNotificationHandoff: audioSessionNotificationHandoff
         )
         return Harness(
             engine: engine,
@@ -3707,6 +3846,28 @@ private extension WatchCaptureTests {
         if await gate.waiting() { return }
         XCTFail(
             "waitForGate exhausted \(maxYields) yields without the gate suspending",
+            file: file,
+            line: line
+        )
+    }
+
+    /// Polls the serializer's exact settled state without creating a losing task
+    /// or continuation that a bounded test failure could leave suspended.
+    func settleCaptureEngine(
+        _ engine: WatchCaptureEngine,
+        maxYields: Int = 10_000,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        var yields = 0
+        while yields < maxYields {
+            if engine.lifecycleSerializer.isSettled { return }
+            await Task.yield()
+            yields += 1
+        }
+        if engine.lifecycleSerializer.isSettled { return }
+        XCTFail(
+            "settleCaptureEngine exhausted \(maxYields) yields without settlement",
             file: file,
             line: line
         )
@@ -3998,6 +4159,32 @@ private final class ProductionRecorderStore {
 @MainActor
 private final class TerminalDeliveryProbe {
     var count = 0
+}
+
+private final class AudioSessionNotificationHandoffProbe: @unchecked Sendable {
+    typealias Operation = @MainActor @Sendable () -> Void
+
+    private let operations = OSAllocatedUnfairLock<[Operation]>(initialState: [])
+
+    var pendingCount: Int {
+        self.operations.withLock { $0.count }
+    }
+
+    func capture(_ operation: @escaping Operation) {
+        self.operations.withLock { $0.append(operation) }
+    }
+
+    @MainActor
+    func releaseAll() {
+        let pending = self.operations.withLock { operations -> [Operation] in
+            let pending = operations
+            operations.removeAll()
+            return pending
+        }
+        for operation in pending {
+            operation()
+        }
+    }
 }
 
 @MainActor

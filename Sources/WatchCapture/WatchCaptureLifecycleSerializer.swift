@@ -89,6 +89,10 @@ final class WatchCaptureLifecycleSerializer {
         }
     }
 
+    var isSettled: Bool {
+        !self.isBusy
+    }
+
     func settled() async {
         guard self.isBusy else { return }
         await withCheckedContinuation { continuation in
