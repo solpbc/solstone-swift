@@ -33,6 +33,8 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     private var failingOpenForReadingFromCall: (url: URL, call: Int)?
     private var readCallCountByURL: [URL: Int] = [:]
     private var failingReadFromCall: (url: URL, call: Int)?
+    private var replaceCallCountByURL: [URL: Int] = [:]
+    private var failingReplaceFromCall: (url: URL, call: Int)?
     private var tokenURLs: [Int32: URL] = [:]
     private var synchronizedState: [URL: Data] = [:]
     private var trackedURLs: Set<URL> = []
@@ -84,6 +86,12 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         }
     }
 
+    func failReplace(at url: URL, fromCall call: Int) {
+        self.lock.withLock {
+            self.failingReplaceFromCall = (url, call)
+        }
+    }
+
     func clearFaults() {
         self.lock.withLock {
             self.failingOperations.removeAll()
@@ -96,6 +104,8 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
             self.failingOpenForReadingFromCall = nil
             self.readCallCountByURL.removeAll()
             self.failingReadFromCall = nil
+            self.replaceCallCountByURL.removeAll()
+            self.failingReplaceFromCall = nil
         }
     }
 
@@ -258,7 +268,16 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
 
     func atomicReplaceItem(at source: URL, with destination: URL) throws {
         self.recordIOCall()
-        try self.throwIfNeeded(.replace)
+        let shouldFail = self.lock.withLock { () -> Bool in
+            self.replaceCallCountByURL[destination, default: 0] += 1
+            if let failure = self.failingReplaceFromCall,
+               failure.url == destination,
+               self.replaceCallCountByURL[destination, default: 0] >= failure.call {
+                return true
+            }
+            return self.consumeFailure(.replace)
+        }
+        if shouldFail { throw CocoaError(.fileWriteUnknown) }
         try self.base.atomicReplaceItem(at: source, with: destination)
         self.lock.withLock {
             self.migrateSynchronizedSnapshot(from: source, to: destination)

@@ -18,10 +18,16 @@ nonisolated struct OmiLaunchCaptureMaterializedPartition: Equatable, Sendable {
     let isExistingOwner: Bool
 }
 
+nonisolated struct OmiLaunchCaptureOrphanRepairFailure: Equatable, Sendable {
+    let ordinal: Int
+    let itemID: UUID
+}
+
 nonisolated struct OmiLaunchCaptureMaterializationResult: Equatable, Sendable {
     let partitions: [OmiLaunchCaptureMaterializedPartition]
     let markers: [OmiLaunchCaptureMarkerObservation]
     let verifiedPrefixEndOffset: Int
+    let orphanRepairFailures: [OmiLaunchCaptureOrphanRepairFailure]
 }
 
 @MainActor
@@ -35,6 +41,7 @@ final class OmiLaunchCaptureMaterializer {
         var terminalSequence: UInt64?
         var endsAtSourceFrameBoundary = false
         let sealedSampleCount: Int?
+        let isRecognizedOrphan: Bool
     }
 
     private struct ExistingOutput {
@@ -47,6 +54,12 @@ final class OmiLaunchCaptureMaterializer {
         let hasAudio: Bool
     }
 
+    private enum GrowthOutput {
+        case fresh
+        case persisted(PersistedBoundary)
+        case recognizedOrphan
+    }
+
     private let rootURL: URL
     private let generationID: UUID
     private let io: any OmiLaunchCaptureIO
@@ -57,6 +70,7 @@ final class OmiLaunchCaptureMaterializer {
 
     private(set) var peakLeaseResidentPayloadBytes = 0
     private(set) var peakOpenPartitionSampleCount = 0
+    private var orphanRepairFailures: [OmiLaunchCaptureOrphanRepairFailure] = []
 
     init(rootURL: URL, generationID: UUID, io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO(), makeWriter: (() -> any OmiAACChunkWriting)? = nil, decode: @escaping @MainActor @Sendable (Data) -> [Int16]?, diagnosticLog: DiagnosticLog? = nil) {
         self.rootURL = rootURL
@@ -71,8 +85,9 @@ final class OmiLaunchCaptureMaterializer {
     func materialize() -> OmiLaunchCaptureMaterializationResult {
         self.peakLeaseResidentPayloadBytes = 0
         self.peakOpenPartitionSampleCount = 0
+        self.orphanRepairFailures = []
         guard let initialPosition = self.reader.acknowledgedPosition() else {
-            return OmiLaunchCaptureMaterializationResult(partitions: [], markers: [], verifiedPrefixEndOffset: 0)
+            return OmiLaunchCaptureMaterializationResult(partitions: [], markers: [], verifiedPrefixEndOffset: 0, orphanRepairFailures: [])
         }
         var position = initialPosition
         var reassembler = OmiAudioReassembler()
@@ -97,7 +112,7 @@ final class OmiLaunchCaptureMaterializer {
         }
         self.consume(reassembler.flushFinalFrame().completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs)
         if let current, !current.samples.isEmpty, let output = self.persist(current) { outputs.append(output) }
-        return OmiLaunchCaptureMaterializationResult(partitions: outputs, markers: markers, verifiedPrefixEndOffset: verifiedPrefixEndOffset)
+        return OmiLaunchCaptureMaterializationResult(partitions: outputs, markers: markers, verifiedPrefixEndOffset: verifiedPrefixEndOffset, orphanRepairFailures: self.orphanRepairFailures)
     }
 
     private func consume(_ frames: [OmiReassembledFrame], current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, decodeFailures: inout Set<Int>, outputs: inout [OmiLaunchCaptureMaterializedPartition]) {
@@ -117,7 +132,7 @@ final class OmiLaunchCaptureMaterializer {
             var remaining = ArraySlice(decoded)
             while !remaining.isEmpty {
                 if let currentPartition = current, currentPartition.samples.isEmpty {
-                    current = Partition(ordinal: currentPartition.ordinal, startSequence: startSequence, startSampleOffset: currentPartition.startSampleOffset, startedAt: currentPartition.startedAt, samples: [], terminalSequence: nil, sealedSampleCount: currentPartition.sealedSampleCount)
+                    current = Partition(ordinal: currentPartition.ordinal, startSequence: startSequence, startSampleOffset: currentPartition.startSampleOffset, startedAt: currentPartition.startedAt, samples: [], terminalSequence: nil, sealedSampleCount: currentPartition.sealedSampleCount, isRecognizedOrphan: currentPartition.isRecognizedOrphan)
                 }
                 if current == nil {
                     guard let partition = self.makePartition(ordinal: nextOrdinal, startSequence: startSequence, startSampleOffset: sampleOffset, startedAt: frame.acquiredAt) else { return }
@@ -152,10 +167,9 @@ final class OmiLaunchCaptureMaterializer {
     }
 
     private func persist(_ partition: Partition) -> OmiLaunchCaptureMaterializedPartition? {
-        let chunkID = OmiSegmentWriter.chunkID(sessionID: generationID, index: partition.ordinal)
-        let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true).appendingPathComponent(generationID.uuidString, isDirectory: true)
-        let audioURL = directory.appendingPathComponent(chunkID).appendingPathExtension("m4a")
-        let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
+        let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: rootURL, generationID: generationID, ordinal: partition.ordinal)
+        let audioURL = paths.audioURL
+        let envelopeURL = paths.envelopeURL
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
         let sidecar = self.sidecar(for: partition)
         let existingOutput: ExistingOutput
@@ -187,35 +201,62 @@ final class OmiLaunchCaptureMaterializer {
                 isExistingOwner: !boundary.hasAudio
             )
         }
-        guard !existingOutput.hasAudio, !existingOutput.hasEnvelope else {
+        let isRepair = partition.isRecognizedOrphan
+        if isRepair {
+            guard self.isRecognizedOrphan(paths: paths, itemID: itemID, partition: partition) else {
+                self.noteAttention(partition.ordinal, reason: "sealed")
+                return nil
+            }
+            guard self.quarantineIfPresent(audioURL, isPresent: true) else {
+                self.failPersist(partition, isRepair: true, reason: "quarantine")
+                return nil
+            }
+        } else if existingOutput.hasAudio || existingOutput.hasEnvelope {
             self.noteAttention(partition.ordinal, reason: "sealed")
             return nil
         }
-        let temporaryURL = directory.appendingPathComponent(".\(chunkID)-\(UUID().uuidString.lowercased()).tmp.m4a")
-        do { try io.ensureDirectory(at: directory) } catch { self.noteAttention(partition.ordinal, reason: "audio-open"); return nil }
+
+        let directory = audioURL.deletingLastPathComponent()
+        let temporaryURL = directory.appendingPathComponent(".\(audioURL.deletingPathExtension().lastPathComponent)-\(UUID().uuidString.lowercased()).tmp.m4a")
+        do { try io.ensureDirectory(at: directory) } catch { self.failPersist(partition, isRepair: isRepair, reason: "audio-open"); return nil }
         let writer = makeWriter()
-        do { try writer.open(at: temporaryURL) } catch { self.noteAttention(partition.ordinal, reason: "audio-open"); return nil }
+        do { try writer.open(at: temporaryURL) } catch { self.failPersist(partition, isRepair: isRepair, reason: "audio-open"); return nil }
         do { try writer.write(samples: partition.samples[...]) } catch {
             try? writer.close()
-            self.reportAfterCleanup(temporaryURL, partition: partition.ordinal, reason: "audio-write")
+            self.reportAfterCleanup(temporaryURL, partition: partition, isRepair: isRepair, reason: "audio-write")
             return nil
         }
         do { try writer.close() } catch {
-            self.reportAfterCleanup(temporaryURL, partition: partition.ordinal, reason: "audio-sync")
+            self.reportAfterCleanup(temporaryURL, partition: partition, isRepair: isRepair, reason: "audio-sync")
             return nil
         }
         do { try writer.synchronize(at: temporaryURL) } catch {
-            self.reportAfterCleanup(temporaryURL, partition: partition.ordinal, reason: "audio-sync")
+            self.reportAfterCleanup(temporaryURL, partition: partition, isRepair: isRepair, reason: "audio-sync")
+            return nil
+        }
+        let provenance = OmiLaunchCaptureMaterializationProvenance(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset, itemID: itemID)
+        do {
+            try OmiLaunchCaptureMaterializationProvenanceStore.write(
+                try OmiLaunchCaptureMaterializationProvenanceStore.encode(provenance),
+                to: paths.provenanceURL,
+                io: io
+            )
+        } catch {
+            self.reportAfterCleanup(temporaryURL, partition: partition, isRepair: isRepair, reason: "provenance")
             return nil
         }
         do { try io.atomicReplaceItem(at: temporaryURL, with: audioURL) } catch {
-            self.reportAfterCleanup(temporaryURL, partition: partition.ordinal, reason: "replace")
+            self.reportAfterCleanup(temporaryURL, partition: partition, isRepair: isRepair, reason: "replace")
             return nil
         }
         do {
             let envelope = OmiPendingHandoffEnvelope(itemID: itemID, sidecar: sidecar, metadata: nil, frozenTokens: [])
             try OmiPendingHandoffStore.write(try OmiPendingHandoffStore.encode(envelope), to: envelopeURL, io: io)
         } catch {
+            if isRepair {
+                self.noteRepairFailure(partition)
+                return nil
+            }
             let existingOutput: ExistingOutput
             do {
                 existingOutput = try self.existingOutput(audioURL: audioURL, envelopeURL: envelopeURL)
@@ -246,31 +287,38 @@ final class OmiLaunchCaptureMaterializer {
 
     private func makePartition(ordinal: Int, startSequence: UInt64, startSampleOffset: UInt64, startedAt: Date) -> Partition? {
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset)
-        let chunkID = OmiSegmentWriter.chunkID(sessionID: generationID, index: ordinal)
-        let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true).appendingPathComponent(generationID.uuidString, isDirectory: true)
-        let audioURL = directory.appendingPathComponent(chunkID).appendingPathExtension("m4a")
-        let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
-        let boundary: PersistedBoundary?
+        let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: rootURL, generationID: generationID, ordinal: ordinal)
+        let growth: GrowthOutput
         do {
-            boundary = try self.persistedBoundaryForGrowth(itemID: itemID, ordinal: ordinal, envelopeURL: envelopeURL, audioURL: audioURL)
+            growth = try self.persistedBoundaryForGrowth(itemID: itemID, partition: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset, paths: paths)
         } catch {
             self.noteAttention(ordinal, reason: "exists")
             return nil
         }
-        return Partition(ordinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset, startedAt: startedAt, samples: [], terminalSequence: nil, sealedSampleCount: boundary?.sampleCount)
+        switch growth {
+        case .fresh:
+            return Partition(ordinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset, startedAt: startedAt, samples: [], terminalSequence: nil, sealedSampleCount: nil, isRecognizedOrphan: false)
+        case .persisted(let boundary):
+            return Partition(ordinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset, startedAt: startedAt, samples: [], terminalSequence: nil, sealedSampleCount: boundary.sampleCount, isRecognizedOrphan: false)
+        case .recognizedOrphan:
+            return Partition(ordinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset, startedAt: startedAt, samples: [], terminalSequence: nil, sealedSampleCount: nil, isRecognizedOrphan: true)
+        }
     }
 
-    private func persistedBoundaryForGrowth(itemID: UUID, ordinal: Int, envelopeURL: URL, audioURL: URL) throws -> PersistedBoundary? {
-        let hasEnvelope = try io.fileExists(at: envelopeURL)
-        let hasAudio = try io.fileExists(at: audioURL)
+    private func persistedBoundaryForGrowth(itemID: UUID, partition ordinal: Int, startSequence: UInt64, startSampleOffset: UInt64, paths: OmiLaunchCaptureMaterializedArtifactPaths) throws -> GrowthOutput {
+        let hasEnvelope = try io.fileExists(at: paths.envelopeURL)
+        let hasAudio = try io.fileExists(at: paths.audioURL)
         guard hasEnvelope else {
-            guard !hasAudio else { throw CocoaError(.fileReadCorruptFile) }
-            return nil
+            guard hasAudio else { return .fresh }
+            guard self.isRecognizedOrphan(paths: paths, itemID: itemID, ordinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            return .recognizedOrphan
         }
-        guard let boundary = self.persistedBoundary(itemID: itemID, ordinal: ordinal, envelopeURL: envelopeURL, hasAudio: hasAudio) else {
+        guard let boundary = self.persistedBoundary(itemID: itemID, ordinal: ordinal, envelopeURL: paths.envelopeURL, hasAudio: hasAudio) else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        return boundary
+        return .persisted(boundary)
     }
 
     private func persistedBoundary(itemID: UUID, ordinal: Int, envelopeURL: URL, hasAudio: Bool) -> PersistedBoundary? {
@@ -297,6 +345,22 @@ final class OmiLaunchCaptureMaterializer {
         ExistingOutput(hasAudio: try io.fileExists(at: audioURL), hasEnvelope: try io.fileExists(at: envelopeURL))
     }
 
+    private func isRecognizedOrphan(paths: OmiLaunchCaptureMaterializedArtifactPaths, itemID: UUID, partition: Partition) -> Bool {
+        self.isRecognizedOrphan(paths: paths, itemID: itemID, ordinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
+    }
+
+    private func isRecognizedOrphan(paths: OmiLaunchCaptureMaterializedArtifactPaths, itemID: UUID, ordinal: Int, startSequence: UInt64, startSampleOffset: UInt64) -> Bool {
+        guard (try? io.fileExists(at: paths.provenanceURL)) == true,
+              let provenance = try? OmiLaunchCaptureMaterializationProvenanceStore.read(from: paths.provenanceURL)
+        else { return false }
+        return provenance.isSupported
+            && provenance.generationID == generationID
+            && provenance.partitionOrdinal == ordinal
+            && provenance.startSequence == startSequence
+            && provenance.startSampleOffset == startSampleOffset
+            && provenance.itemID == itemID
+    }
+
     private func isReusable(existingOutput: ExistingOutput, envelopeURL: URL, itemID: UUID, sidecar: ChunkSidecar) -> Bool {
         guard existingOutput.hasAudio, existingOutput.hasEnvelope else { return false }
         guard let envelope = try? OmiPendingHandoffStore.read(from: envelopeURL) else { return false }
@@ -319,12 +383,25 @@ final class OmiLaunchCaptureMaterializer {
         }
     }
 
-    private func reportAfterCleanup(_ url: URL, partition: Int, reason: String) {
+    private func reportAfterCleanup(_ url: URL, partition: Partition, isRepair: Bool, reason: String) {
         do {
             try io.removeItem(at: url)
-            self.noteAttention(partition, reason: reason)
+            self.failPersist(partition, isRepair: isRepair, reason: reason)
         } catch {
-            self.noteAttention(partition, reason: "cleanup")
+            self.failPersist(partition, isRepair: isRepair, reason: "cleanup")
+        }
+    }
+
+    private func failPersist(_ partition: Partition, isRepair: Bool, reason: String) {
+        self.noteAttention(partition.ordinal, reason: reason)
+        if isRepair { self.noteRepairFailure(partition) }
+    }
+
+    private func noteRepairFailure(_ partition: Partition) {
+        let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
+        let failure = OmiLaunchCaptureOrphanRepairFailure(ordinal: partition.ordinal, itemID: itemID)
+        if !self.orphanRepairFailures.contains(failure) {
+            self.orphanRepairFailures.append(failure)
         }
     }
 

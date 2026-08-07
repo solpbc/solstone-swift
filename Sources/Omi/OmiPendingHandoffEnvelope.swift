@@ -35,7 +35,7 @@ nonisolated struct OmiPendingHandoffEnvelope: Codable, Equatable, Sendable {
 enum OmiPendingHandoffStore {
     private static let log = Logger(subsystem: "app.solstone.swift", category: "omi-handoff")
 
-    static func url(for audioURL: URL) -> URL {
+    nonisolated static func url(for audioURL: URL) -> URL {
         audioURL.deletingPathExtension().appendingPathExtension(OmiPendingHandoffEnvelope.pathExtension)
     }
 

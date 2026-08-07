@@ -196,6 +196,12 @@ final class OmiLaunchCaptureCommitCoordinator {
             decode: { decoder.decode($0) }
         ).materialize()
 
+        guard await self.commitOrphanRepairFailures(result.orphanRepairFailures, generationID: generationID) else {
+            await self.conservativelyGateOmi()
+            return .failed
+        }
+        guard result.orphanRepairFailures.isEmpty else { return .failed }
+
         var pending: [PendingOwner] = []
         var coveredThroughSequence: UInt64?
         for partition in result.partitions {
@@ -548,6 +554,47 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
+    private func commitOrphanRepairFailures(_ failures: [OmiLaunchCaptureOrphanRepairFailure], generationID: UUID) async -> Bool {
+        for failure in failures {
+            let startedAt = Date(timeIntervalSince1970: 0)
+            let attentionID = Self.orphanRepairFailureItemID(generationID: generationID, ordinal: failure.ordinal, itemID: failure.itemID)
+            let sidecar = ChunkSidecar(
+                segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
+                day: ObserverSegmentNaming.dayString(for: startedAt),
+                chunkIndex: failure.ordinal,
+                startedAt: startedAt,
+                durationS: 0,
+                sessionID: generationID,
+                mode: .meeting,
+                locationJSONL: nil
+            )
+            var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: attentionID, sidecar: sidecar)
+            manifest.payloadParts = []
+            manifest.diskState = .attention
+            let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
+            switch ownership {
+            case .ownedInQueued, .ownedInAttention:
+                continue
+            case .notFound:
+                do {
+                    _ = try await self.engine.enqueueAttention(
+                        manifest: manifest,
+                        payloadFileURLs: [:],
+                        reason: "launch_capture_orphan_repair_failed",
+                        detail: "generation=\(generationID.uuidString.lowercased()) ordinal=\(failure.ordinal) item=\(failure.itemID.uuidString.lowercased())"
+                    )
+                } catch {
+                    self.log.error("launch capture orphan repair attention failed")
+                    return false
+                }
+            case .stagingOnly, .salvageOnly, .conflict, .none:
+                self.log.error("launch capture orphan repair ownership failed")
+                return false
+            }
+        }
+        return true
+    }
+
     private func enumerateLinkedIDs() -> EnumerationResult {
         guard let rootURL else { return .unknown }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
@@ -568,7 +615,11 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
             for file in files where file.pathExtension == "m4a" {
                 let envelopeURL = OmiPendingHandoffStore.url(for: file)
-                guard (try? self.io.fileExists(at: envelopeURL)) == true else { return .unknown }
+                if (try? self.io.fileExists(at: envelopeURL)) == true { continue }
+                let provenanceURL = OmiLaunchCaptureMaterializationProvenanceStore.url(for: file)
+                guard let provenance = try? OmiLaunchCaptureMaterializationProvenanceStore.read(from: provenanceURL), provenance.isSupported else {
+                    return .unknown
+                }
             }
         }
         return handoffs.isEmpty ? .scannedNothingLinked : .scannedWithLinkedIDs(handoffs)
@@ -627,6 +678,17 @@ final class OmiLaunchCaptureCommitCoordinator {
         data.append(uuidBytes: generationID)
         data.append(Data(defect.reason.rawValue.utf8))
         data.append(defect.contentDigest)
+        var bytes = Array(SHA256.hash(data: data).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    private static func orphanRepairFailureItemID(generationID: UUID, ordinal: Int, itemID: UUID) -> UUID {
+        var data = Data("omi-launch-capture-orphan-repair-failed-v1".utf8)
+        data.append(uuidBytes: generationID)
+        data.appendLittleEndian(UInt64(ordinal))
+        data.append(uuidBytes: itemID)
         var bytes = Array(SHA256.hash(data: data).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80

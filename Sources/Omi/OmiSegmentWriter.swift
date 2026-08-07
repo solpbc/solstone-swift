@@ -129,7 +129,7 @@ final class OmiSegmentWriter {
         }
     }
 
-    static func chunkID(sessionID: UUID, index: Int) -> String {
+    nonisolated static func chunkID(sessionID: UUID, index: Int) -> String {
         "\(sessionID.uuidString.lowercased())-\(index)"
     }
 }
