@@ -11,7 +11,7 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/Omi/OmiLaunchCaptureIngressFactory.swift"),
             encoding: .utf8
         )
-        let arm = try XCTUnwrap(factoryText.range(of: "_ = ingress.arm()"))
+        let arm = try XCTUnwrap(factoryText.range(of: "_ = ingress?.arm()"))
         let construct = try XCTUnwrap(factoryText.range(of: "return OmiSourceManager("))
         XCTAssertLessThan(factoryText.distance(from: factoryText.startIndex, to: arm.lowerBound), factoryText.distance(from: factoryText.startIndex, to: construct.lowerBound))
 
@@ -40,6 +40,24 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
         XCTAssertLessThan(captureBody.distance(from: captureBody.startIndex, to: routePredicate.lowerBound), captureBody.distance(from: captureBody.startIndex, to: route.lowerBound))
         XCTAssertLessThan(captureBody.distance(from: captureBody.startIndex, to: route.lowerBound), captureBody.distance(from: captureBody.startIndex, to: decode.lowerBound))
         XCTAssertLessThan(captureBody.distance(from: captureBody.startIndex, to: captureReturn.lowerBound), captureBody.distance(from: captureBody.startIndex, to: decode.lowerBound))
+    }
+
+    func testManagerRoutesReservedCaptureBeforeDecode() throws {
+        let root = StringLiteralGrepSupport.worktreeRoot()
+        let text = try String(
+            contentsOf: root.appendingPathComponent("Sources/Omi/OmiSourceManager.swift"),
+            encoding: .utf8
+        )
+        let start = try XCTUnwrap(text.range(of: "func handleAudioData(\n        _ input:"))
+        let remainder = text[start.lowerBound...]
+        let end = remainder.dropFirst().range(of: "\n    func ")?.lowerBound ?? text.endIndex
+        let body = text[start.lowerBound..<end]
+        let predicate = try XCTUnwrap(body.range(of: "self.audioRoute == .reservedCapture"))
+        let route = try XCTUnwrap(body[predicate.lowerBound...].range(of: "launchCaptureIngress.ingest(input)"))
+        let captureReturn = try XCTUnwrap(body[route.upperBound...].range(of: "return"))
+        let decode = try XCTUnwrap(body.range(of: "self.reassembler.ingest(data, acquiredAt: observedAt, recordSequence: nil)"))
+        XCTAssertLessThan(body.distance(from: body.startIndex, to: route.lowerBound), body.distance(from: body.startIndex, to: captureReturn.lowerBound))
+        XCTAssertLessThan(body.distance(from: body.startIndex, to: captureReturn.lowerBound), body.distance(from: body.startIndex, to: decode.lowerBound))
     }
 
     func testIngressRequestsDurableGapForFailedAppend() throws {

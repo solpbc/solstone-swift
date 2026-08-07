@@ -96,7 +96,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var lastSilentAttributionAt: Date?
     @ObservationIgnored private var lastSeenMarkerEpoch: UInt32?
     @ObservationIgnored private(set) var deferredReadinessPeripheralID: UUID?
-    @ObservationIgnored private let launchCaptureIngress: OmiLaunchCaptureIngress?
+    @ObservationIgnored private var launchCaptureIngress: OmiLaunchCaptureIngress?
     @ObservationIgnored private var captureRequiresExplicitResume: Bool
     @ObservationIgnored private var audioRoute: AudioRoute = .launchCapture
     @ObservationIgnored private var launchCaptureRotationState: LaunchCaptureRotationState = .none
@@ -104,7 +104,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     private enum AudioRoute {
         case launchCapture
-        case live
+        case reservedCapture
+        case cutReservationBlocked
     }
 
     var hasOpusDecoder: Bool { self.opusDecoder != nil }
@@ -119,7 +120,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         heardTally: OmiHeardTally = OmiHeardTally(),
         clock: any ObserverClock = SystemObserverClock(),
         bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort(),
-        launchCaptureIngress: OmiLaunchCaptureIngress? = nil
+        launchCaptureIngress: OmiLaunchCaptureIngress? = nil,
+        initialCutReservation: OmiLaunchCaptureCutReservation? = nil,
+        hasCutReservationDefect: Bool = false
     ) {
         self.defaults = defaults
         self.diagnostics = diagnostics
@@ -136,6 +139,11 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
         self.lastKnownSignal = nil
         self.writerFaulted = self.captureRequiresExplicitResume
+        if initialCutReservation != nil {
+            self.audioRoute = .reservedCapture
+        } else if hasCutReservationDefect {
+            self.audioRoute = .cutReservationBlocked
+        }
         super.init()
         self.bluetoothPort.start(delegate: self)
     }
@@ -276,7 +284,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     var activeLaunchCaptureGenerationID: UUID? {
-        self.launchCaptureIngress?.activeGenerationID
+        guard self.audioRoute == .launchCapture else { return nil }
+        return self.launchCaptureIngress?.activeGenerationID
     }
 
     func observeRecoveredLaunchCaptureMarkers(_ markers: [OmiLaunchCaptureMarkerObservation]) {
@@ -295,9 +304,30 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
     }
 
-    func completeLaunchCaptureCutover() {
-        guard self.defaults.bool(forKey: Self.enabledKey) else { return }
-        self.audioRoute = .live
+    func completeLaunchCaptureCutover(_ reservation: OmiLaunchCaptureCutReservation, ingress: OmiLaunchCaptureIngress) {
+        _ = reservation
+        _ = ingress.arm()
+        self.launchCaptureIngress = ingress
+        self.audioRoute = .reservedCapture
+    }
+
+    func restoreCommittedCutReservation(
+        _ reservation: OmiLaunchCaptureCutReservation,
+        rootURL: URL,
+        io: any OmiLaunchCaptureIO
+    ) {
+        guard self.audioRoute != .reservedCapture else { return }
+        let ingress = OmiLaunchCaptureIngress(
+            captureRoot: { OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL) },
+            generationID: reservation.reservedGenerationID,
+            clock: self.clock,
+            io: io
+        )
+        self.completeLaunchCaptureCutover(reservation, ingress: ingress)
+    }
+
+    func markCutReservationDefect() {
+        self.audioRoute = .cutReservationBlocked
     }
 
     func effectiveConnectionState(now: Date) -> OmiSourceState {
@@ -529,6 +559,14 @@ extension OmiSourceManager {
         characteristic: OmiCharacteristicDescriptor? = nil
     ) {
         guard !self.isOmiWorkDisabled else { return }
+        if self.audioRoute == .cutReservationBlocked {
+            self.armLaunchCaptureRecovery(
+                peripheralID: peripheralID,
+                characteristic: characteristic,
+                reason: "cut_reservation_unreadable"
+            )
+            return
+        }
         if self.audioRoute == .launchCapture, let launchCaptureIngress {
             switch launchCaptureIngress.ingest(input) {
             case .retainedContiguous:
@@ -545,6 +583,26 @@ extension OmiSourceManager {
                     peripheralID: peripheralID,
                     characteristic: characteristic,
                     reason: "recovery_armed_not_retained"
+                )
+            }
+            return
+        }
+        if self.audioRoute == .reservedCapture, let launchCaptureIngress {
+            switch launchCaptureIngress.ingest(input) {
+            case .retainedContiguous:
+                break
+            case .boundaryCommitted(let boundaryReason):
+                self.armLaunchCaptureRecovery(
+                    peripheralID: peripheralID,
+                    characteristic: characteristic,
+                    reason: "reserved_capture_boundary",
+                    boundaryReason: boundaryReason
+                )
+            case .notRetained:
+                self.armLaunchCaptureRecovery(
+                    peripheralID: peripheralID,
+                    characteristic: characteristic,
+                    reason: "reserved_capture_not_retained"
                 )
             }
             return
@@ -1484,7 +1542,8 @@ private extension OmiSourceManager {
         for peripheral: OmiPeripheralDescriptor,
         characteristic: OmiCharacteristicDescriptor?
     ) -> Bool {
-        guard case .awaitingResubscription(let affectedPeripheralID) = self.launchCaptureRotationState else {
+        guard self.audioRoute == .launchCapture,
+              case .awaitingResubscription(let affectedPeripheralID) = self.launchCaptureRotationState else {
             return true
         }
         guard affectedPeripheralID == peripheral.id else { return true }

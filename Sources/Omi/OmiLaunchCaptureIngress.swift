@@ -29,7 +29,7 @@ enum OmiLaunchCaptureIngressResult: Equatable {
 
 @MainActor
 final class OmiLaunchCaptureIngress {
-    private let appGroupRoot: () throws -> URL
+    private let captureRoot: () throws -> URL
     private var generationID: UUID
     private let clock: any ObserverClock
     private let io: any OmiLaunchCaptureIO
@@ -47,7 +47,21 @@ final class OmiLaunchCaptureIngress {
         clock: any ObserverClock = SystemObserverClock(),
         io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO()
     ) {
-        self.appGroupRoot = appGroupRoot
+        self.captureRoot = {
+            try appGroupRoot().appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
+        }
+        self.generationID = generationID
+        self.clock = clock
+        self.io = io
+    }
+
+    init(
+        captureRoot: @escaping () throws -> URL,
+        generationID: UUID,
+        clock: any ObserverClock = SystemObserverClock(),
+        io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO()
+    ) {
+        self.captureRoot = captureRoot
         self.generationID = generationID
         self.clock = clock
         self.io = io
@@ -56,9 +70,9 @@ final class OmiLaunchCaptureIngress {
     func arm() -> Bool {
         guard self.writer == nil else { return true }
         self.didAttemptInitialArm = true
-        guard let rootURL = try? self.appGroupRoot() else { return false }
+        guard let rootURL = try? self.captureRoot() else { return false }
         let writer = OmiLaunchCaptureWriter(
-            rootURL: rootURL.appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true),
+            rootURL: rootURL,
             generationID: self.generationID,
             clock: self.clock,
             io: self.io
@@ -99,13 +113,13 @@ final class OmiLaunchCaptureIngress {
 
     func rotateToFreshGeneration() -> Bool {
         guard self.isLatched,
-              let rootURL = try? self.appGroupRoot()
+              let rootURL = try? self.captureRoot()
         else {
             return false
         }
         let generationID = UUID()
         let candidate = OmiLaunchCaptureWriter(
-            rootURL: rootURL.appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true),
+            rootURL: rootURL,
             generationID: generationID,
             clock: self.clock,
             io: self.io

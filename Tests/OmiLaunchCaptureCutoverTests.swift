@@ -27,7 +27,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         try? FileManager.default.removeItem(at: self.rootURL)
     }
 
-    @MainActor func testCoordinatorCutoverRoutesSubsequentAudioToLiveDecode() async throws {
+    @MainActor func testCoordinatorCutoverRoutesSubsequentAudioToReservedCapture() async throws {
         let defaults = self.defaults(enabled: true)
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
         let generation = UUID()
@@ -78,25 +78,41 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                 }
             }
         }
-        // A live packet is the downstream proof of the terminal cutover.
-        manager.handleAudioData(.payload(Self.packet(3, index: 0, body: frame)), peripheralID: peripheralID)
-        try await transferTestWaitFor("coordinator cutover") {
-            await MainActor.run { manager.audioPackets == 1 }
+        let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.captureRoot)
+        try await transferTestWaitFor("durable cut reservation") {
+            FileManager.default.fileExists(atPath: reservationURL.path)
         }
+        let reservation: OmiLaunchCaptureCutReservation
+        switch OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot).read() {
+        case .valid(let value): reservation = value
+        case .absent, .unreadable:
+            return XCTFail("cut reservation was not readable")
+        }
+        let transportSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let transportRequests = TransferURLProtocol.requests.count
+        manager.handleAudioData(.payload(Self.packet(3, index: 0, body: frame)), peripheralID: peripheralID)
         manager.handleAudioData(.payload(Self.packet(4, index: 0, body: frame)), peripheralID: peripheralID)
-        XCTAssertEqual(decodedHandoffs, 1)
-        let capturedCallbackCount: Int
+        XCTAssertEqual(decodedHandoffs, 0)
+        XCTAssertEqual(manager.audioPackets, 0)
+        let sealedCallbackCount: Int
         switch OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(
             from: OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: 0, offset: 0)
         ) {
         case .lease(let lease):
-            capturedCallbackCount = lease.records.count
+            sealedCallbackCount = lease.records.count
         case .empty, .unavailable:
             return XCTFail("capture route did not retain its callbacks")
         }
-        XCTAssertEqual(capturedCallbackCount, 2)
-        XCTAssertEqual(manager.audioPackets, 2)
-        XCTAssertEqual(capturedCallbackCount + manager.audioPackets, 4)
+        XCTAssertEqual(sealedCallbackCount, 2)
+        let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot)
+        let reservedReader = OmiLaunchCaptureLeaseReader(rootURL: reservedRoot, generationID: reservation.reservedGenerationID)
+        guard case .lease(let reservedLease) = reservedReader.lease() else {
+            return XCTFail("reserved route did not retain its callbacks")
+        }
+        XCTAssertEqual(reservedLease.records.count, 2)
+        let snapshotsAfterReservedCallbacks = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshotsAfterReservedCallbacks, transportSnapshots)
+        XCTAssertEqual(TransferURLProtocol.requests.count, transportRequests)
         XCTAssertEqual(OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(), .empty)
     }
 
@@ -139,12 +155,10 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         ]
         let first = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: fileURL), clock: clock, bluetoothPort: MockOmiBluetoothPort())
         first.observeRecoveredLaunchCaptureMarkers(markers)
-        first.completeLaunchCaptureCutover()
         XCTAssertEqual(first.diagnostics.payload.pendantRebootEvents?.count, 1)
 
         let restarted = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: fileURL), clock: clock, bluetoothPort: MockOmiBluetoothPort())
         restarted.observeRecoveredLaunchCaptureMarkers(markers)
-        restarted.completeLaunchCaptureCutover()
         restarted.handleAudioData(.payload(Self.marker(packet: 0, epoch: 1_001)), peripheralID: UUID())
         XCTAssertEqual(restarted.diagnostics.payload.pendantRebootEvents?.count, 1)
         XCTAssertEqual(restarted.lastMarkerDate, Date(timeIntervalSince1970: 1_001))
@@ -332,6 +346,8 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                 case .afterOwnerRegisteredBeforeAcknowledgment:
                     await resumePasses.increment()
                     await resumeBarrier.suspend()
+                case .afterCutReservationCommittedBeforeRouteMutation:
+                    break
                 }
             }
         )
@@ -365,6 +381,321 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             TransferURLProtocol.requests.count == 1
         }
         XCTAssertEqual(TransferURLProtocol.requests.count, 1)
+    }
+
+    @MainActor func testCutReservationCommitFailureLeavesSealedCaptureOnOrdinaryRoute() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let defaults = self.defaults(enabled: true)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let generation = UUID()
+        let ingress = OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        let peripheralID = UUID()
+        let frame = try Self.opusFrame()
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: frame)), peripheralID: peripheralID)
+        let sealedURL = OmiLaunchCaptureFormat.fileURL(rootURL: self.captureRoot, generationID: generation)
+        let bytesBefore = try Data(contentsOf: sealedURL)
+        let leaseBefore = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation, io: io).lease(from: .init(generationID: generation, nextSequence: 0, offset: 0))
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.captureRoot)
+        io.failReplace(at: reservationURL, fromCall: 1)
+        await OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager, io: io).reconcile()
+        XCTAssertEqual(OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read(), .absent)
+        XCTAssertEqual(try Data(contentsOf: sealedURL), bytesBefore)
+        XCTAssertEqual(OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation, io: io).lease(from: .init(generationID: generation, nextSequence: 0, offset: 0)), leaseBefore)
+        manager.handleAudioData(.payload(Self.packet(2, index: 0, body: frame)), peripheralID: peripheralID)
+        XCTAssertGreaterThan(try io.fileSize(at: sealedURL), bytesBefore.count)
+    }
+
+    @MainActor func testReservedCallbacksAreExclusiveAndRemainOutsideTransportDiscovery() async throws {
+        let defaults = self.defaults(enabled: true)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let generation = UUID()
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        let peripheralID = UUID()
+        let frame = try Self.opusFrame()
+        let before = Self.packet(1, index: 0, body: frame)
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(before), peripheralID: peripheralID)
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager)
+        await coordinator.reconcile()
+        let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.captureRoot)
+        try await transferTestWaitFor("cut reservation") { FileManager.default.fileExists(atPath: reservationURL.path) }
+        guard case .valid(let reservation) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot).read() else {
+            return XCTFail("cut reservation was not readable")
+        }
+        let after = Data("reserved-callback-B".utf8)
+        manager.handleAudioData(.payload(after), peripheralID: peripheralID)
+        let sealedBytes = try Data(contentsOf: OmiLaunchCaptureFormat.fileURL(rootURL: self.captureRoot, generationID: generation))
+        let reservedURL = OmiLaunchCaptureFormat.fileURL(rootURL: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot), generationID: reservation.reservedGenerationID)
+        let reservedBytes = try Data(contentsOf: reservedURL)
+        XCTAssertEqual(Self.occurrences(of: before, in: sealedBytes), 1)
+        XCTAssertEqual(Self.occurrences(of: before, in: reservedBytes), 0)
+        XCTAssertEqual(Self.occurrences(of: after, in: sealedBytes), 0)
+        XCTAssertEqual(Self.occurrences(of: after, in: reservedBytes), 1)
+        let rootEntries = try FileManager.default.contentsOfDirectory(at: self.captureRoot, includingPropertiesForKeys: nil)
+        XCTAssertFalse(rootEntries.contains { $0.lastPathComponent == reservedURL.lastPathComponent })
+        XCTAssertNil(manager.activeLaunchCaptureGenerationID)
+    }
+
+    @MainActor func testThirtyTwoReservedCallbacksLeaveSealedEvidenceAndTransportUnchanged() async throws {
+        let defaults = self.defaults(enabled: true)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let generation = UUID()
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        let peripheralID = UUID()
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: try Self.opusFrame())), peripheralID: peripheralID)
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let captureRoot = self.captureRoot
+        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: manager)
+        await coordinator.reconcile()
+        let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: captureRoot)
+        try await transferTestWaitFor("cut reservation") { FileManager.default.fileExists(atPath: reservationURL.path) }
+        guard case .valid(let reservation) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot).read() else { return XCTFail("cut reservation was not readable") }
+        let sealedReader = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation)
+        let sealedSize = try FileManager.default.attributesOfItem(atPath: sealedReader.fileURL.path)[.size] as? Int
+        let sealedLease = sealedReader.lease(from: .init(generationID: generation, nextSequence: 0, offset: 0))
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let tags = (0..<32).map { Data(String(format: "reserved-%02d", $0).utf8) }
+        for tag in tags {
+            XCTAssertLessThanOrEqual(tag.count, OmiLaunchCaptureFormat.maximumPayloadBytes)
+            manager.handleAudioData(.payload(tag), peripheralID: peripheralID)
+        }
+        let reservedURL = OmiLaunchCaptureFormat.fileURL(rootURL: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot), generationID: reservation.reservedGenerationID)
+        let reservedBytes = try Data(contentsOf: reservedURL)
+        for tag in tags { XCTAssertEqual(Self.occurrences(of: tag, in: reservedBytes), 1) }
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: sealedReader.fileURL.path)[.size] as? Int, sealedSize)
+        XCTAssertEqual(sealedReader.lease(from: .init(generationID: generation, nextSequence: 0, offset: 0)), sealedLease)
+        let snapshotsAfter = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshotsAfter, snapshots)
+    }
+
+    @MainActor func testRestartAfterCommittedReservationBeforeRouteMutationRestoresReservedClassification() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let defaults = self.defaults(enabled: true)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let generation = UUID()
+        let ingress = OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        let peripheralID = UUID()
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: try Self.opusFrame())), peripheralID: peripheralID)
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let barrier = CutoverBarrier()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: self.captureRoot,
+            engine: harness.engine,
+            sourceManager: manager,
+            io: io,
+            onReconciliationPhase: { phase in
+                if phase == .afterCutReservationCommittedBeforeRouteMutation { await barrier.suspend() }
+            }
+        )
+        let pass = Task { @MainActor in await coordinator.reconcile() }
+        try await transferTestWaitFor("reservation committed before route mutation") { await barrier.waiting() }
+        guard case .valid(let committed) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read() else {
+            return XCTFail("committed reservation was not readable")
+        }
+        try io.restoreLastSynchronizedState()
+        let freshIngress = OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io)
+        let freshManager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: freshIngress)
+        let freshCoordinator = OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: freshManager, io: io)
+        guard case .valid(let reopened) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read() else {
+            return XCTFail("reservation was lost after simulated death")
+        }
+        XCTAssertEqual(reopened, committed)
+        XCTAssertNil(freshManager.activeLaunchCaptureGenerationID)
+        await freshCoordinator.reconcile()
+        let tag = Data("restart-reserved-B".utf8)
+        freshManager.handleAudioData(.payload(tag), peripheralID: peripheralID)
+        let reservedURL = OmiLaunchCaptureFormat.fileURL(rootURL: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot), generationID: committed.reservedGenerationID)
+        XCTAssertEqual(Self.occurrences(of: tag, in: try Data(contentsOf: reservedURL)), 1)
+        await barrier.resume()
+        await pass.value
+    }
+
+    @MainActor func testRestartAfterReservedAppendPreservesCutClassificationAndEvidenceSides() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let defaults = self.defaults(enabled: true)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let generation = UUID()
+        let ingress = OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        let peripheralID = UUID()
+        let tagA = Self.packet(1, index: 0, body: try Self.opusFrame())
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(tagA), peripheralID: peripheralID)
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager, io: io)
+        await coordinator.reconcile()
+        let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.captureRoot)
+        try await transferTestWaitFor("cut reservation") { FileManager.default.fileExists(atPath: reservationURL.path) }
+        guard case .valid(let committed) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read() else { return XCTFail("cut reservation was not readable") }
+        let tagB = Data("reserved-after-cut-B".utf8)
+        manager.handleAudioData(.payload(tagB), peripheralID: peripheralID)
+        try io.restoreLastSynchronizedState()
+        let freshIngress = OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io)
+        let freshManager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: freshIngress)
+        _ = OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: freshManager, io: io)
+        guard case .valid(let reopened) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read() else { return XCTFail("reservation was not readable after restart") }
+        XCTAssertEqual(reopened, committed)
+        XCTAssertNil(freshManager.activeLaunchCaptureGenerationID)
+        let sealedBytes = try Data(contentsOf: OmiLaunchCaptureFormat.fileURL(rootURL: self.captureRoot, generationID: generation))
+        let reservedURL = OmiLaunchCaptureFormat.fileURL(rootURL: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot), generationID: committed.reservedGenerationID)
+        let reservedBytes = try Data(contentsOf: reservedURL)
+        XCTAssertEqual(Self.occurrences(of: tagA, in: reservedBytes), 0)
+        XCTAssertEqual(Self.occurrences(of: tagB, in: sealedBytes), 0)
+        XCTAssertEqual(Self.occurrences(of: tagB, in: reservedBytes), 1)
+    }
+
+    @MainActor func testCutReservationTempWriteFailureLeavesNoClaimOrTemporaryFile() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let defaults = self.defaults(enabled: true)
+        let generation = UUID()
+        let manager = OmiSourceManager(
+            defaults: defaults,
+            diagnostics: self.diagnostics(),
+            clock: MockObserverClock(now: Date(timeIntervalSince1970: 100)),
+            bluetoothPort: MockOmiBluetoothPort(),
+            launchCaptureIngress: OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, io: io)
+        )
+        manager.enable()
+        let peripheralID = UUID()
+        let sealedTag = Data("sealed-before-write-failure".utf8)
+        manager.handleAudioData(.payload(sealedTag), peripheralID: peripheralID)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation, io: io)
+        let sealedURL = reader.fileURL
+        let bytesBefore = try Data(contentsOf: sealedURL)
+        let leaseBefore = reader.lease(from: .init(generationID: generation, nextSequence: 0, offset: 0))
+        let reservation = OmiLaunchCaptureCutReservation(
+            sealedGenerationID: generation,
+            sealedNextSequence: 1,
+            sealedEndOffset: bytesBefore.count,
+            reservedGenerationID: UUID()
+        )
+        let store = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io)
+        io.failWrite(onCall: 1, afterBytes: 0)
+        XCTAssertEqual(store.commit(reservation), .refused(.writeFailed))
+        XCTAssertEqual(store.read(), .absent)
+        XCTAssertEqual(try Data(contentsOf: sealedURL), bytesBefore)
+        XCTAssertEqual(reader.lease(from: .init(generationID: generation, nextSequence: 0, offset: 0)), leaseBefore)
+        let entries = try FileManager.default.contentsOfDirectory(at: self.captureRoot, includingPropertiesForKeys: nil)
+        XCTAssertEqual(entries.map(\.lastPathComponent), [sealedURL.lastPathComponent])
+        XCTAssertFalse(entries.contains { $0.pathExtension == "tmp" })
+        manager.handleAudioData(.payload(Data("sealed-after-write-failure".utf8)), peripheralID: peripheralID)
+        XCTAssertGreaterThan(try io.fileSize(at: sealedURL), bytesBefore.count)
+        XCTAssertEqual(manager.activeLaunchCaptureGenerationID, generation)
+    }
+
+    @MainActor func testProcessDeathBeforeReservationCommitReopensOrdinaryCaptureRoute() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let defaults = self.defaults(enabled: true)
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io))
+        manager.enable()
+        let peripheralID = UUID()
+        manager.handleAudioData(.payload(Data("sealed-before-death".utf8)), peripheralID: peripheralID)
+        let sealedURL = OmiLaunchCaptureFormat.fileURL(rootURL: self.captureRoot, generationID: generation)
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        io.failReplace(at: OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.captureRoot), fromCall: 1)
+        await OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager, io: io).reconcile()
+        try io.restoreLastSynchronizedState()
+        let freshManager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: io))
+        _ = OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: freshManager, io: io)
+        XCTAssertEqual(OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read(), .absent)
+        XCTAssertEqual(freshManager.activeLaunchCaptureGenerationID, generation)
+        let bytesBefore = try Data(contentsOf: sealedURL)
+        freshManager.enable()
+        freshManager.handleAudioData(.payload(Data("sealed-after-death".utf8)), peripheralID: peripheralID)
+        XCTAssertGreaterThan(try io.fileSize(at: sealedURL), bytesBefore.count)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot).path))
+    }
+
+    @MainActor func testReservedAppendWriteFailureTriggersFlowControlWithoutTransportOwner() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let world = try await self.makeReservedCaptureWorld(io: io)
+        let snapshots = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        io.failNext(.write)
+        world.manager.handleAudioData(.payload(Data("reserved-write-failure".utf8)), peripheralID: world.peripheralID)
+        XCTAssertTrue(world.manager.writerFaulted)
+        let snapshotsAfter = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshotsAfter, snapshots)
+        XCTAssertEqual(Self.occurrences(of: Data("reserved-write-failure".utf8), in: try Data(contentsOf: world.reservedURL)), 0)
+    }
+
+    @MainActor func testReservedAppendBarrierFailureTriggersFlowControlWithoutTransportOwner() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let world = try await self.makeReservedCaptureWorld(io: io)
+        let snapshots = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        io.failNext(.barrier)
+        world.manager.handleAudioData(.payload(Data("reserved-barrier-failure".utf8)), peripheralID: world.peripheralID)
+        XCTAssertTrue(world.manager.writerFaulted)
+        let snapshotsAfter = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshotsAfter, snapshots)
+    }
+
+    @MainActor func testReservedOverLimitPayloadTriggersFlowControlWithoutTransportOwner() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let world = try await self.makeReservedCaptureWorld(io: io)
+        let snapshots = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let payload = Data(repeating: 0x5a, count: OmiLaunchCaptureFormat.maximumPayloadBytes + 1)
+        world.manager.handleAudioData(.payload(payload), peripheralID: world.peripheralID)
+        XCTAssertTrue(world.manager.writerFaulted)
+        let snapshotsAfter = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshotsAfter, snapshots)
+        XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.reservedURL)), 0)
+    }
+
+    @MainActor func testDisableAroundCutPreservesReservationAndExplicitEnableDoesNotMoveIt() async throws {
+        let beforeIO = FaultInjectingOmiLaunchCaptureIO()
+        let defaults = self.defaults(enabled: true)
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let beforeManager = OmiSourceManager(defaults: defaults, diagnostics: self.diagnostics(), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: OmiLaunchCaptureIngress(captureRoot: { self.captureRoot }, generationID: generation, clock: clock, io: beforeIO))
+        beforeManager.enable()
+        beforeManager.handleAudioData(.payload(Data("disable-before-cut".utf8)), peripheralID: UUID())
+        let beforeHarness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("before-transfer", isDirectory: true))
+        try await beforeHarness.engine.initialize()
+        beforeManager.disable()
+        await OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: beforeHarness.engine, sourceManager: beforeManager, io: beforeIO).reconcile()
+        XCTAssertEqual(OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: beforeIO).read(), .absent)
+        XCTAssertEqual(beforeManager.activeLaunchCaptureGenerationID, generation)
+
+        let world = try await self.makeReservedCaptureWorld(io: FaultInjectingOmiLaunchCaptureIO(), rootURL: self.rootURL.appendingPathComponent("after", isDirectory: true))
+        let tag = Data("reserved-before-disable".utf8)
+        world.manager.handleAudioData(.payload(tag), peripheralID: world.peripheralID)
+        let sealedBytes = try Data(contentsOf: world.sealedURL)
+        let reservationBytes = try Data(contentsOf: OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: world.captureRoot))
+        let reservedBytes = try Data(contentsOf: world.reservedURL)
+        let passes = CutoverPassCounter()
+        world.manager.onLaunchCaptureExplicitEnable = { await passes.increment() }
+        world.manager.disable()
+        world.manager.handleAudioData(.payload(Data("ignored-while-disabled".utf8)), peripheralID: world.peripheralID)
+        XCTAssertEqual(try Data(contentsOf: world.sealedURL), sealedBytes)
+        XCTAssertEqual(try Data(contentsOf: OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: world.captureRoot)), reservationBytes)
+        XCTAssertEqual(try Data(contentsOf: world.reservedURL), reservedBytes)
+        world.manager.enable()
+        try await transferTestWaitFor("single explicit enable callback") { await passes.count() == 1 }
+        let explicitEnablePasses = await passes.count()
+        XCTAssertEqual(explicitEnablePasses, 1)
+        XCTAssertEqual(OmiLaunchCaptureCutReservationStore(rootURL: world.captureRoot, io: world.io).read(), .valid(world.reservation))
     }
 }
 
@@ -418,6 +749,64 @@ private extension OmiLaunchCaptureCutoverTests {
 
     static func assertRetained(_ outcome: OmiLaunchCaptureAppendOutcome) {
         guard case .retained = outcome else { XCTFail("fixture append failed"); return }
+    }
+
+    static func occurrences(of needle: Data, in haystack: Data) -> Int {
+        guard !needle.isEmpty else { return 0 }
+        var count = 0
+        var start = haystack.startIndex
+        while let range = haystack.range(of: needle, options: [], in: start..<haystack.endIndex) {
+            count += 1
+            start = range.upperBound
+        }
+        return count
+    }
+
+    @MainActor func makeReservedCaptureWorld(
+        io: FaultInjectingOmiLaunchCaptureIO,
+        rootURL: URL? = nil
+    ) async throws -> (
+        manager: OmiSourceManager,
+        engine: TransferEngine,
+        io: FaultInjectingOmiLaunchCaptureIO,
+        captureRoot: URL,
+        generation: UUID,
+        reservation: OmiLaunchCaptureCutReservation,
+        peripheralID: UUID,
+        sealedURL: URL,
+        reservedURL: URL
+    ) {
+        let baseRoot: URL
+        if let rootURL {
+            baseRoot = rootURL
+        } else {
+            baseRoot = try XCTUnwrap(self.rootURL)
+        }
+        let captureRoot = baseRoot.appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let manager = OmiSourceManager(defaults: self.defaults(enabled: true), diagnostics: OmiDiagnostics(fileURL: baseRoot.appendingPathComponent("diagnostics.json")), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: OmiLaunchCaptureIngress(captureRoot: { captureRoot }, generationID: generation, clock: clock, io: io))
+        manager.enable()
+        let peripheralID = UUID()
+        manager.handleAudioData(.payload(Data("sealed-for-reserved-world".utf8)), peripheralID: peripheralID)
+        let harness = self.makeHarness(rootURL: baseRoot.appendingPathComponent("transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: manager, io: io).reconcile()
+        let store = OmiLaunchCaptureCutReservationStore(rootURL: captureRoot, io: io)
+        guard case .valid(let reservation) = store.read() else {
+            throw NSError(domain: "OmiLaunchCaptureCutoverTests", code: 1)
+        }
+        return (
+            manager,
+            harness.engine,
+            io,
+            captureRoot,
+            generation,
+            reservation,
+            peripheralID,
+            OmiLaunchCaptureFormat.fileURL(rootURL: captureRoot, generationID: generation),
+            OmiLaunchCaptureFormat.fileURL(rootURL: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: captureRoot), generationID: reservation.reservedGenerationID)
+        )
     }
 }
 

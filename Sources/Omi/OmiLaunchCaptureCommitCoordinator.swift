@@ -7,11 +7,12 @@ import os
 
 @MainActor
 final class OmiLaunchCaptureCommitCoordinator {
-    // These are the only two asynchronous boundaries in an owner settlement.
+    // These are the asynchronous boundaries in owner settlement and cutover.
     // Observing them keeps ordering testable without changing the Transfer APIs.
     enum ReconciliationPhase: Equatable, Sendable {
         case afterNewOwnerGated
         case afterOwnerRegisteredBeforeAcknowledgment
+        case afterCutReservationCommittedBeforeRouteMutation
     }
 
     enum SettlementAction: Equatable, Sendable {
@@ -93,7 +94,8 @@ final class OmiLaunchCaptureCommitCoordinator {
     private var successorTask: Task<Void, Never>?
     private var isReconciling = false
     private var pendingSuccessor: PendingSuccessor?
-    private var didCutOver = false
+    private var hasCommittedCutReservation = false
+    private var cutReservationProbeFailed = false
     // Last writer wins: the call that creates a lifetime hold owns its resume policy.
     // Explicit holds resume only from the explicit-enable path; conservative and retry
     // holds require a successful attached-handoff scan.
@@ -122,14 +124,21 @@ final class OmiLaunchCaptureCommitCoordinator {
         self.clock = clock
         self.onReconciliationPhase = onReconciliationPhase
         self.onSettlementAction = onSettlementAction
+        self.refreshCutReservationState()
     }
 
     func reconcile(rootURL: URL? = nil) async {
         if let rootURL {
             self.rootURL = rootURL
+            self.refreshCutReservationState()
         }
-        guard !self.isReconciling, !self.didCutOver else { return }
+        guard !self.isReconciling, !self.hasCommittedCutReservation else { return }
         guard let rootURL = self.rootURL else {
+            await self.holdPendingGateOwners()
+            await self.conservativelyGateOmi()
+            return
+        }
+        guard !self.cutReservationProbeFailed else {
             await self.holdPendingGateOwners()
             await self.conservativelyGateOmi()
             return
@@ -241,7 +250,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     func resumeAfterExplicitEnable() async {
         guard self.sourceManager.isLaunchCaptureRecoveryEnabled,
               !self.isReconciling,
-              !self.didCutOver
+              !self.hasCommittedCutReservation
         else { return }
         self.isResumingAfterExplicitEnable = true
         await self.reconcile()
@@ -923,8 +932,36 @@ final class OmiLaunchCaptureCommitCoordinator {
                 return
             }
         }
-        self.sourceManager.completeLaunchCaptureCutover()
-        self.didCutOver = true
+        guard let cursor = reader.cursor(),
+              cursor.acknowledgedPrefixNextSequence == cursor.materializedPrefixNextSequence,
+              cursor.acknowledgedPrefixEndOffset == result.verifiedPrefixEndOffset
+        else {
+            self.requestReconciliation()
+            return
+        }
+        let reservation = OmiLaunchCaptureCutReservation(
+            sealedGenerationID: cursor.generationID,
+            sealedNextSequence: cursor.acknowledgedPrefixNextSequence,
+            sealedEndOffset: cursor.acknowledgedPrefixEndOffset,
+            reservedGenerationID: UUID()
+        )
+        guard let rootURL,
+              case .committed = OmiLaunchCaptureCutReservationStore(rootURL: rootURL, io: self.io).commit(reservation)
+        else {
+            self.requestReconciliation()
+            return
+        }
+        self.hasCommittedCutReservation = true
+        if let onReconciliationPhase {
+            await onReconciliationPhase(.afterCutReservationCommittedBeforeRouteMutation)
+        }
+        let ingress = OmiLaunchCaptureIngress(
+            captureRoot: { OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL) },
+            generationID: reservation.reservedGenerationID,
+            clock: self.clock,
+            io: self.io
+        )
+        self.sourceManager.completeLaunchCaptureCutover(reservation, ingress: ingress)
         self.pendingSuccessor = nil
         self.successorTask?.cancel()
         self.successorTask = nil
@@ -933,7 +970,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private func requestReconciliation(delayed: Bool = false) {
-        guard !self.didCutOver else { return }
+        guard !self.hasCommittedCutReservation else { return }
         if self.isReconciling {
             guard self.pendingSuccessor == nil else { return }
             self.pendingSuccessor = delayed ? .delayed : .immediate
@@ -943,7 +980,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private func armReconciliationSuccessor(delayed: Bool) {
-        guard !self.reconciliationRequested, !self.didCutOver else { return }
+        guard !self.reconciliationRequested, !self.hasCommittedCutReservation else { return }
         self.reconciliationRequested = true
         if delayed {
             let clock = self.clock
@@ -963,7 +1000,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private func runReconciliationSuccessor() async {
-        guard !Task.isCancelled, !self.didCutOver else {
+        guard !Task.isCancelled, !self.hasCommittedCutReservation else {
             self.reconciliationRequested = false
             self.successorTask = nil
             return
@@ -971,6 +1008,86 @@ final class OmiLaunchCaptureCommitCoordinator {
         self.reconciliationRequested = false
         self.successorTask = nil
         await self.reconcile()
+    }
+
+    private func refreshCutReservationState() {
+        guard let rootURL else { return }
+        let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: rootURL)
+        let entries: [URL]
+        do {
+            entries = try self.io.contentsOfDirectory(at: rootURL)
+        } catch {
+            self.hasCommittedCutReservation = false
+            self.cutReservationProbeFailed = true
+            return
+        }
+        guard entries.contains(reservationURL) else {
+            self.hasCommittedCutReservation = false
+            self.cutReservationProbeFailed = false
+            return
+        }
+        self.cutReservationProbeFailed = false
+        switch OmiLaunchCaptureCutReservationStore(rootURL: rootURL, io: self.io).read() {
+        case .valid(let reservation):
+            if let defect = self.cutReservationDefect(reservation, rootURL: rootURL) {
+                self.hasCommittedCutReservation = false
+                self.sourceManager.markCutReservationDefect()
+                Task { @MainActor [weak self] in
+                    await self?.commitUnreadableCutReservation(defect)
+                }
+            } else {
+                self.hasCommittedCutReservation = true
+                self.sourceManager.restoreCommittedCutReservation(
+                    reservation,
+                    rootURL: rootURL,
+                    io: self.io
+                )
+            }
+        case .absent:
+            self.hasCommittedCutReservation = false
+        case .unreadable(let defect):
+            self.hasCommittedCutReservation = false
+            self.sourceManager.markCutReservationDefect()
+            Task { @MainActor [weak self] in
+                await self?.commitUnreadableCutReservation(defect)
+            }
+        }
+    }
+
+    private func cutReservationDefect(
+        _ reservation: OmiLaunchCaptureCutReservation,
+        rootURL: URL
+    ) -> OmiLaunchCaptureCutReservationDefect? {
+        let sealedRecovery = OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: reservation.sealedGenerationID, io: self.io)
+        let sealedExists: Bool
+        do {
+            sealedExists = try self.io.fileExists(at: sealedRecovery.fileURL)
+        } catch {
+            return self.cutReservationDefect(.readFailed, reservation: reservation)
+        }
+        guard sealedExists else {
+            return self.cutReservationDefect(.sealedGenerationMismatch, reservation: reservation)
+        }
+        let result = sealedRecovery.recover()
+        guard result.boundaryReason != .generationMismatch,
+              result.verifiedPrefixNextSequence == reservation.sealedNextSequence,
+              result.verifiedPrefixEndOffset == reservation.sealedEndOffset
+        else {
+            return self.cutReservationDefect(.sealedGenerationMismatch, reservation: reservation)
+        }
+        let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL)
+        let reservedRecovery = OmiLaunchCaptureRecovery(rootURL: reservedRoot, generationID: reservation.reservedGenerationID, io: self.io).recover()
+        guard reservedRecovery.boundaryReason != .generationMismatch else {
+            return self.cutReservationDefect(.reservedGenerationMismatch, reservation: reservation)
+        }
+        return nil
+    }
+
+    private func cutReservationDefect(
+        _ reason: OmiLaunchCaptureCutReservationDefectReason,
+        reservation: OmiLaunchCaptureCutReservation
+    ) -> OmiLaunchCaptureCutReservationDefect {
+        OmiLaunchCaptureCutReservationDefect(reason: reason, contentDigest: OmiLaunchCaptureDigest.truncated(reservation.encoded()))
     }
 
     deinit {
@@ -1062,6 +1179,42 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
         case .stagingOnly, .salvageOnly, .conflict, .none:
             self.log.error("launch capture cursor unreadable ownership failed")
+        }
+    }
+
+    private func commitUnreadableCutReservation(_ defect: OmiLaunchCaptureCutReservationDefect) async {
+        let itemID = Self.unreadableCutReservationItemID(defect: defect)
+        let startedAt = Date(timeIntervalSince1970: 0)
+        let sidecar = ChunkSidecar(
+            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
+            day: ObserverSegmentNaming.dayString(for: startedAt),
+            chunkIndex: Int.max,
+            startedAt: startedAt,
+            durationS: 0,
+            sessionID: itemID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
+        manifest.payloadParts = []
+        manifest.diskState = .attention
+        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            return
+        case .notFound:
+            do {
+                _ = try await self.engine.enqueueAttention(
+                    manifest: manifest,
+                    payloadFileURLs: [:],
+                    reason: "launch_capture_cut_reservation_unreadable",
+                    detail: "cut_reservation_defect=\(defect.reason.rawValue)"
+                )
+            } catch {
+                self.log.error("launch capture cut reservation unreadable attention failed")
+            }
+        case .stagingOnly, .salvageOnly, .conflict, .none:
+            self.log.error("launch capture cut reservation unreadable ownership failed")
         }
     }
 
@@ -1268,6 +1421,16 @@ final class OmiLaunchCaptureCommitCoordinator {
         // Identity is intentionally bounded to the first cursor format plus one byte; changes beyond that prefix dedupe.
         var data = Data("omi-launch-capture-cursor-unreadable-v1".utf8)
         data.append(uuidBytes: generationID)
+        data.append(Data(defect.reason.rawValue.utf8))
+        data.append(defect.contentDigest)
+        var bytes = Array(SHA256.hash(data: data).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    private static func unreadableCutReservationItemID(defect: OmiLaunchCaptureCutReservationDefect) -> UUID {
+        var data = Data("omi-launch-capture-cut-reservation-unreadable-v1".utf8)
         data.append(Data(defect.reason.rawValue.utf8))
         data.append(defect.contentDigest)
         var bytes = Array(SHA256.hash(data: data).prefix(16))

@@ -6,6 +6,7 @@ import Foundation
 
 nonisolated enum OmiLaunchCaptureFormat {
     static let rootDirectoryName = "OmiLaunchCapture"
+    static let reservedCaptureDirectoryName = "ReservedCapture"
     static let materializedDirectoryName = "Materialized"
     static let quarantineDirectoryName = "Quarantine"
     static let fileExtension = "omilc"
