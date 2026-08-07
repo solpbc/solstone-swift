@@ -100,8 +100,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var captureRequiresExplicitResume: Bool
     @ObservationIgnored private var audioRoute: AudioRoute = .launchCapture
     @ObservationIgnored private var launchCaptureRotationState: LaunchCaptureRotationState = .none
-    @ObservationIgnored private var connectionEpoch: UInt64 = 0
-    @ObservationIgnored private var launchCaptureSubscribeRequestEpoch: UInt64?
+    @ObservationIgnored private var launchCaptureSubscribeRequestedSinceDisconnect = false
 
     private enum AudioRoute {
         case launchCapture
@@ -312,6 +311,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     func disable() {
         self.enabled = false
+        self.launchCaptureSubscribeRequestedSinceDisconnect = false
         self.persistEnabled(false)
         self.wantsEnableOnPowerOn = false
         self.stopPhoneSampleLoop()
@@ -794,12 +794,8 @@ extension OmiSourceManager {
         case .rearmConnect:
             self.beginConnect(peripheral, isReconnect: true)
         case .discoverServices:
-            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            if didBeginConnection {
-                self.noteConnectionEpochBegan()
-            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -808,12 +804,8 @@ extension OmiSourceManager {
             }
             self.bluetoothPort.discoverServices(peripheralID: peripheral.id, serviceIDs: self.restoreServiceIDs)
         case .readCodec:
-            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            if didBeginConnection {
-                self.noteConnectionEpochBegan()
-            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -831,20 +823,12 @@ extension OmiSourceManager {
                 self.log.error("omi audio unavailable during readiness")
             }
         case .needsAttention(let attention):
-            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             _ = self.adoptConnectedPeripheralIfNeeded(peripheral)
-            if didBeginConnection {
-                self.noteConnectionEpochBegan()
-            }
             self.connectionState = .needsAttention(attention)
             self.log.error("omi readiness needs attention: \(attention.displayString, privacy: .public)")
         case .subscribeAudio:
-            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            if didBeginConnection {
-                self.noteConnectionEpochBegan()
-            }
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -860,13 +844,9 @@ extension OmiSourceManager {
                 self.log.error("omi audio unavailable during readiness")
             }
         case .alreadyLive:
-            let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            if didBeginConnection {
-                self.noteConnectionEpochBegan()
-                self.launchCaptureSubscribeRequestEpoch = self.connectionEpoch
-            }
+            self.launchCaptureSubscribeRequestedSinceDisconnect = true
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -899,7 +879,7 @@ extension OmiSourceManager {
         }
         self.cancelInitialConnectTimeout()
         self.pendingConnectionID = nil
-        let didBeginConnection = self.isBeginningCurrentConnection(for: peripheral)
+        let shouldBeginConnectionInstrumentation = self.connectedPeripheralID != peripheral.id || self.connectionState != .connected
         self.adoptConnectedPeripheral(peripheral)
         let now = self.clock.now()
 
@@ -917,8 +897,7 @@ extension OmiSourceManager {
         }
 
         self.connectionState = .connected
-        if didBeginConnection {
-            self.noteConnectionEpochBegan()
+        if shouldBeginConnectionInstrumentation {
             self.beginConnectionInstrumentation(now: now, expectsSubscribeConfirm: true)
         }
         self.attributeOpenConnectedSilentGap(at: now)
@@ -959,6 +938,7 @@ extension OmiSourceManager {
         isReconnecting: Bool,
         error: (any Error)?
     ) async {
+        self.launchCaptureSubscribeRequestedSinceDisconnect = false
         if case .awaitingDisconnect(let peripheralID) = self.launchCaptureRotationState,
            peripheral.id == peripheralID
         {
@@ -1310,7 +1290,7 @@ private extension OmiSourceManager {
             return
         }
         if enabled {
-            self.launchCaptureSubscribeRequestEpoch = self.connectionEpoch
+            self.launchCaptureSubscribeRequestedSinceDisconnect = true
         }
     }
 
@@ -1342,23 +1322,6 @@ private extension OmiSourceManager {
         }
         self.adoptConnectedPeripheral(peripheral)
         return true
-    }
-
-    func isBeginningCurrentConnection(for peripheral: OmiPeripheralDescriptor) -> Bool {
-        guard self.connectedPeripheralID == peripheral.id else {
-            return true
-        }
-        switch self.connectionState {
-        case .disconnected, .connecting, .reconnecting:
-            return true
-        case .connected, .needsAttention:
-            return false
-        }
-    }
-
-    func noteConnectionEpochBegan() {
-        self.connectionEpoch += 1
-        self.launchCaptureSubscribeRequestEpoch = nil
     }
 
     func beginConnectionInstrumentation(
@@ -1525,7 +1488,7 @@ private extension OmiSourceManager {
               self.connectionState == .connected,
               self.enabled,
               self.isLaunchReady,
-              self.launchCaptureSubscribeRequestEpoch == self.connectionEpoch,
+              self.launchCaptureSubscribeRequestedSinceDisconnect,
               let launchCaptureIngress,
               launchCaptureIngress.isLatched
         else {

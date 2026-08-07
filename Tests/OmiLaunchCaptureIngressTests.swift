@@ -710,6 +710,99 @@ final class OmiLaunchCaptureIngressTests: XCTestCase {
         XCTAssertEqual(lease.records.map(\.payload), [Data("A".utf8)])
     }
 
+    func testNeedsAttentionDetourResubscribesAndRotatesFreshGeneration() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.reconnectPeripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8), isNotifying: false), error: nil)
+        io.failNext(.open)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
+        await manager.handleDisconnected(peripheral, timestamp: 0, isReconnecting: false, error: nil)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
+        manager.handleRestoredPeripheral(peripheral)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+
+        let rotatedGeneration = try XCTUnwrap(manager.activeLaunchCaptureGenerationID)
+        XCTAssertNotEqual(rotatedGeneration, generation)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+        XCTAssertEqual(manager.activeLaunchCaptureGenerationID, rotatedGeneration)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8), isNotifying: true), error: nil)
+
+        let original = self.recovery(rootURL: rootURL, generation: generation, io: io)
+        XCTAssertEqual(original.verifiedPrefixNextSequence, 1)
+        XCTAssertNil(original.boundaryReason)
+        XCTAssertNil(original.boundarySequence)
+        guard case .lease(let originalLease) = self.reader(rootURL: rootURL, generation: generation, io: io).lease() else {
+            return XCTFail("expected original prefix lease")
+        }
+        XCTAssertEqual(originalLease.records.map(\.payload), [Data("A".utf8)])
+        guard case .lease(let freshLease) = self.reader(rootURL: rootURL, generation: rotatedGeneration, io: io).lease() else {
+            return XCTFail("expected fresh-generation lease")
+        }
+        XCTAssertEqual(freshLease.records.map(\.payload), [Data("C".utf8)])
+    }
+
+    func testHandleConnectedAfterNeedsAttentionDetourRotatesFreshGeneration() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.reconnectPeripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8), isNotifying: false), error: nil)
+        io.failNext(.open)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
+        await manager.handleDisconnected(peripheral, timestamp: 0, isReconnecting: false, error: nil)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
+
+        let reconnect = Self.reconnectPeripheral(id: peripheral.id)
+        port.seed(reconnect)
+        manager.handleConnected(reconnect)
+        manager.handleUpdatedValue(reconnect, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(reconnect)
+        manager.handleUpdatedNotificationState(reconnect, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+
+        let rotatedGeneration = try XCTUnwrap(manager.activeLaunchCaptureGenerationID)
+        XCTAssertNotEqual(rotatedGeneration, generation)
+        manager.handleUpdatedNotificationState(reconnect, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+        XCTAssertEqual(manager.activeLaunchCaptureGenerationID, rotatedGeneration)
+        manager.handleUpdatedValue(reconnect, characteristic: Self.audio(Data("C".utf8), isNotifying: true), error: nil)
+
+        let original = self.recovery(rootURL: rootURL, generation: generation, io: io)
+        XCTAssertEqual(original.verifiedPrefixNextSequence, 1)
+        XCTAssertNil(original.boundaryReason)
+        XCTAssertNil(original.boundarySequence)
+        guard case .lease(let originalLease) = self.reader(rootURL: rootURL, generation: generation, io: io).lease() else {
+            return XCTFail("expected original prefix lease")
+        }
+        XCTAssertEqual(originalLease.records.map(\.payload), [Data("A".utf8)])
+        guard case .lease(let freshLease) = self.reader(rootURL: rootURL, generation: rotatedGeneration, io: io).lease() else {
+            return XCTFail("expected fresh-generation lease")
+        }
+        XCTAssertEqual(freshLease.records.map(\.payload), [Data("C".utf8)])
+    }
+
     func testConfirmationBeforeCurrentSubscriptionRequestCannotRotate() async throws {
         let rootURL = self.makeRootURL()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -771,12 +864,19 @@ final class OmiLaunchCaptureIngressTests: XCTestCase {
 
         await manager.openLaunchReadiness()
         manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(peripheral)
         manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8), isNotifying: false), error: nil)
         io.failNext(.open)
         manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
-        manager.disable()
         await manager.handleDisconnected(peripheral, timestamp: 0, isReconnecting: false, error: nil)
-        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+
+        let firstReconnect = Self.reconnectPeripheral(id: peripheral.id)
+        port.seed(firstReconnect)
+        manager.handleConnected(firstReconnect)
+        manager.handleUpdatedValue(firstReconnect, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(firstReconnect)
+        manager.disable()
 
         XCTAssertEqual(manager.activeLaunchCaptureGenerationID, generation)
         let inactiveRecovery = self.recovery(rootURL: rootURL, generation: generation, io: io)
@@ -787,7 +887,13 @@ final class OmiLaunchCaptureIngressTests: XCTestCase {
         manager.enable()
         let reconnect = Self.reconnectPeripheral(id: peripheral.id)
         port.seed(reconnect)
-        self.reconnectAndConfirm(manager, peripheral: reconnect)
+        manager.handleConnected(reconnect)
+        manager.handleUpdatedNotificationState(reconnect, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+        XCTAssertEqual(manager.activeLaunchCaptureGenerationID, generation)
+
+        manager.handleUpdatedValue(reconnect, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(reconnect)
+        manager.handleUpdatedNotificationState(reconnect, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
         let rotatedGeneration = try XCTUnwrap(manager.activeLaunchCaptureGenerationID)
         XCTAssertNotEqual(rotatedGeneration, generation)
         manager.handleUpdatedValue(reconnect, characteristic: Self.audio(Data("C".utf8), isNotifying: true), error: nil)
