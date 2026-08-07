@@ -100,7 +100,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var captureRequiresExplicitResume: Bool
     @ObservationIgnored private var audioRoute: AudioRoute = .launchCapture
     @ObservationIgnored private var launchCaptureRotationState: LaunchCaptureRotationState = .none
-    @ObservationIgnored private var launchCaptureSubscribeRequestedSinceDisconnect = false
+    @ObservationIgnored private var launchCaptureSubscribeRequestedPeripheralID: UUID?
 
     private enum AudioRoute {
         case launchCapture
@@ -311,7 +311,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     func disable() {
         self.enabled = false
-        self.launchCaptureSubscribeRequestedSinceDisconnect = false
+        self.launchCaptureSubscribeRequestedPeripheralID = nil
         self.persistEnabled(false)
         self.wantsEnableOnPowerOn = false
         self.stopPhoneSampleLoop()
@@ -846,7 +846,7 @@ extension OmiSourceManager {
         case .alreadyLive:
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .connected
-            self.launchCaptureSubscribeRequestedSinceDisconnect = true
+            self.launchCaptureSubscribeRequestedPeripheralID = peripheral.id
             if didAdopt {
                 self.beginConnectionInstrumentation(
                     now: self.clock.now(),
@@ -938,7 +938,7 @@ extension OmiSourceManager {
         isReconnecting: Bool,
         error: (any Error)?
     ) async {
-        self.launchCaptureSubscribeRequestedSinceDisconnect = false
+        self.launchCaptureSubscribeRequestedPeripheralID = nil
         if case .awaitingDisconnect(let peripheralID) = self.launchCaptureRotationState,
            peripheral.id == peripheralID
         {
@@ -1290,7 +1290,7 @@ private extension OmiSourceManager {
             return
         }
         if enabled {
-            self.launchCaptureSubscribeRequestedSinceDisconnect = true
+            self.launchCaptureSubscribeRequestedPeripheralID = connectedPeripheralID
         }
     }
 
@@ -1488,7 +1488,7 @@ private extension OmiSourceManager {
               self.connectionState == .connected,
               self.enabled,
               self.isLaunchReady,
-              self.launchCaptureSubscribeRequestedSinceDisconnect,
+              self.launchCaptureSubscribeRequestedPeripheralID == affectedPeripheralID,
               let launchCaptureIngress,
               launchCaptureIngress.isLatched
         else {
