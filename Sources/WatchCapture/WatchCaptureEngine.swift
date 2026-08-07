@@ -378,8 +378,9 @@ final class WatchCaptureEngine {
         self.lifecycleGeneration == generation
     }
 
-    /// A stale lifecycle continuation may only leave through terminalization. This
-    /// keeps a superseded start from writing a refusal-shaped history row.
+    /// Once it has a session identity, a stale lifecycle continuation may only
+    /// leave through terminalization. This keeps a superseded start from writing
+    /// a refusal-shaped history row.
     private func continueLifecycleOperation(_ generation: Int) async -> Bool {
         guard !self.isLifecycleGenerationCurrent(generation) else { return true }
         guard self.currentSessionID != nil else {
