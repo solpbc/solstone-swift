@@ -6,6 +6,11 @@ import SPLTunnel
 
 @MainActor
 final class MockCFTunnelTransport: Transporting {
+    enum Operation: Equatable {
+        case connect(Int)
+        case disconnect(Int)
+        case suspendedConnectFinished(Int)
+    }
     enum QueuedResult: Sendable {
         case success(Int)
         case failure(any Error & Sendable)
@@ -21,15 +26,19 @@ final class MockCFTunnelTransport: Transporting {
     var connectCallCount = 0
     var disconnectCallCount = 0
     var stageEvents: [TransportStage] = []
+    var operations: [Operation] = []
     var connectDelay: Duration?
     var suspendConnectUntilDisconnect = false
     var emitAwaitingBrokerBeforeResult = false
+    var upstreamFailureBeforeAwaitingBroker: String?
     var suspendAfterAwaitingBroker = false
     var returnedPort: Int?
     var onDisconnectInvoked: (() -> Void)?
     var inboundActivitySnapshotValue: UInt64 = 0
     var inboundActivitySnapshots: [UInt64] = []
-    private var suspendedConnect: CheckedContinuation<Int, Error>?
+    private var suspendedConnects: [Int: CheckedContinuation<Int, Error>] = [:]
+    private var disconnectCallbacks: [Int: @Sendable (Error?) -> Void] = [:]
+    private var stageCallbacks: [Int: @Sendable (TransportStage) -> Void] = [:]
 
     func connect(
         candidates: [TransportEndpoint],
@@ -37,9 +46,13 @@ final class MockCFTunnelTransport: Transporting {
         onStageChange: @Sendable @escaping (TransportStage) -> Void
     ) async throws -> Int {
         connectCallCount += 1
+        let attempt = connectCallCount
+        operations.append(.connect(attempt))
         capturedCandidates = candidates
         capturedCandidateBatches.append(candidates)
         onDisconnectCallback = onDisconnect
+        disconnectCallbacks[attempt] = onDisconnect
+        stageCallbacks[attempt] = onStageChange
         let initialStages: [TransportStage] = emitAwaitingBrokerBeforeResult
             ? [.preparingCandidates, .racing]
             : [.preparingCandidates, .racing, .tlsHandshaking, .muxReady]
@@ -48,26 +61,37 @@ final class MockCFTunnelTransport: Transporting {
             onStageChange(stage)
         }
         if emitAwaitingBrokerBeforeResult {
+            if let upstreamFailureBeforeAwaitingBroker {
+                let failed = TransportStage.failed(upstreamFailureBeforeAwaitingBroker)
+                stageEvents.append(failed)
+                onStageChange(failed)
+            }
             stageEvents.append(.awaitingBroker)
             onStageChange(.awaitingBroker)
         }
         if suspendAfterAwaitingBroker {
-            let port = try await withCheckedThrowingContinuation { continuation in
-                suspendedConnect = continuation
+            do {
+                let port = try await withCheckedThrowingContinuation { continuation in
+                    suspendedConnects[attempt] = continuation
+                }
+                operations.append(.suspendedConnectFinished(attempt))
+                for stage in [TransportStage.tlsHandshaking, .muxReady] {
+                    stageEvents.append(stage)
+                    onStageChange(stage)
+                }
+                let ready = TransportStage.loopbackReady(port: port)
+                stageEvents.append(ready)
+                onStageChange(ready)
+                returnedPort = port
+                return port
+            } catch {
+                operations.append(.suspendedConnectFinished(attempt))
+                throw error
             }
-            for stage in [TransportStage.tlsHandshaking, .muxReady] {
-                stageEvents.append(stage)
-                onStageChange(stage)
-            }
-            let ready = TransportStage.loopbackReady(port: port)
-            stageEvents.append(ready)
-            onStageChange(ready)
-            returnedPort = port
-            return port
         }
         if suspendConnectUntilDisconnect {
             return try await withCheckedThrowingContinuation { continuation in
-                suspendedConnect = continuation
+                suspendedConnects[attempt] = continuation
             }
         }
         if let connectDelay {
@@ -102,11 +126,11 @@ final class MockCFTunnelTransport: Transporting {
 
     func disconnect() async {
         disconnectCallCount += 1
+        operations.append(.disconnect(disconnectCallCount))
         onDisconnectInvoked?()
-        guard let continuation = suspendedConnect else {
+        guard let attempt = suspendedConnects.keys.min(), let continuation = suspendedConnects.removeValue(forKey: attempt) else {
             return
         }
-        suspendedConnect = nil
         continuation.resume(throwing: SessionError.transportFailed("watchdog test"))
     }
 
@@ -122,19 +146,36 @@ final class MockCFTunnelTransport: Transporting {
         onDisconnectCallback?(error)
     }
 
+    func simulateDisconnect(attempt: Int, error: Error? = nil) {
+        disconnectCallbacks[attempt]?(error)
+    }
+
+    func emitStage(_ stage: TransportStage, attempt: Int) {
+        stageEvents.append(stage)
+        stageCallbacks[attempt]?(stage)
+    }
+
     func completeSuspendedConnect(port: Int) {
-        guard let continuation = suspendedConnect else {
+        guard let attempt = suspendedConnects.keys.max() else {
             return
         }
-        suspendedConnect = nil
+        completeSuspendedConnect(attempt: attempt, port: port)
+    }
+
+    func completeSuspendedConnect(attempt: Int, port: Int) {
+        guard let continuation = suspendedConnects.removeValue(forKey: attempt) else { return }
         continuation.resume(returning: port)
     }
 
     func failSuspendedConnect(error: any Error) {
-        guard let continuation = suspendedConnect else {
+        guard let attempt = suspendedConnects.keys.max() else {
             return
         }
-        suspendedConnect = nil
+        failSuspendedConnect(attempt: attempt, error: error)
+    }
+
+    func failSuspendedConnect(attempt: Int, error: any Error) {
+        guard let continuation = suspendedConnects.removeValue(forKey: attempt) else { return }
         continuation.resume(throwing: error)
     }
 }

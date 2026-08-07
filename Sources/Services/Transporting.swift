@@ -39,4 +39,7 @@ public enum TransportStage: Sendable, Equatable {
     case muxReady
     case loopbackReady(port: Int)
     case failed(String)
+    case attemptEvent(TunnelAttemptEvent)
+    case attemptUpdatesFinished
+    case attemptUpdatesUnavailable
 }

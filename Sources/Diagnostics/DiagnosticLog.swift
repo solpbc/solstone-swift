@@ -87,6 +87,7 @@ final class DiagnosticLog {
                 .map { "\($0.key) \($0.value)" }
                 .joined(separator: ", ")
         lines.append("tunnel inbound-closed faults: \(inboundFaultBreakdown)")
+        lines.append(contentsOf: tunnel.diagnosticSnapshotLines())
 
         let network: String
         switch tunnel.currentInterfaceIsWiFi {

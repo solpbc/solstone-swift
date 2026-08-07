@@ -90,7 +90,6 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
     @MainActor
     func testAuthRefreshAggregateFailureThrownDuringConnectRethrowsSessionError() async throws {
         let aggregate = RaceCoordinator<ConnectedVia>.aggregateFailure(
-            sawRevocation: false,
             sawNotEntitled: false,
             sawAuthRefreshRequired: true
         )

@@ -38,7 +38,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
         connectDeadline: Duration = .seconds(15),
-        waitingDeadline: Duration = .seconds(600),
+        clock: any TunnelClock = LiveTunnelClock(),
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
@@ -68,7 +68,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
             deviceTokenRefresher: deviceTokenRefresher,
             connectDeadline: connectDeadline,
-            waitingDeadline: waitingDeadline,
+            clock: clock,
             probeSession: probeSession,
             probeURLBuilder: probeURLBuilder,
             probeWatchdogPolicy: probeWatchdogPolicy,
@@ -76,6 +76,278 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             activeLocalTransferCountProvider: activeLocalTransferCountProvider,
             diagnosticLog: diagnosticLog
         )
+    }
+
+    @MainActor
+    func testAwaitingBrokerReracesAtThirtySecondsButNotBefore() async {
+        let clock = FakeTunnelClock()
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport, clock: clock)
+        manager.receiveScenePhase(.active)
+
+        let task = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+        await Self.settle()
+        await clock.advance(by: .milliseconds(29_999))
+        XCTAssertEqual(transport.connectCallCount, 1)
+        await clock.advance(by: .milliseconds(1))
+        let didRerace = await Self.waitUntil { transport.connectCallCount == 2 }
+        XCTAssertTrue(didRerace)
+        await manager.disconnect()
+        await task.value
+    }
+
+    @MainActor
+    func testColdLaunchActiveSceneArmsWaitingCadenceWithoutTransition() async {
+        let clock = FakeTunnelClock()
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport, clock: clock)
+
+        manager.receiveScenePhase(.active)
+        let task = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+        await Self.settle()
+        await clock.advance(by: .seconds(30))
+        let didRerace = await Self.waitUntil { transport.connectCallCount == 2 }
+        XCTAssertTrue(didRerace)
+        await manager.disconnect()
+        await task.value
+    }
+
+    @MainActor
+    func testAwaitingBrokerLeavesRaceCandidatesStageActive() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let diagnostics = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnostics)
+
+        let task = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+        XCTAssertFalse(diagnostics.events.contains {
+            $0.message.hasPrefix("stage: raceCandidates done")
+        })
+        await manager.disconnect()
+        await task.value
+    }
+
+    @MainActor
+    func testSceneIntakeCannotRedriveAnUnpairedManager() async {
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pairing: nil)
+
+        manager.receiveScenePhase(.active)
+        await Self.settle()
+
+        XCTAssertEqual(manager.state, .disconnected)
+        XCTAssertEqual(transport.connectCallCount, 0)
+    }
+
+    @MainActor
+    func testStaleAttemptDisconnectDoesNotAffectFreshConnectedAttempt() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        transport.emitAwaitingBrokerBeforeResult = false
+        transport.suspendAfterAwaitingBroker = false
+        transport.nextResult = .success(5656)
+        await manager.redriveFromWaitingForHome(reason: .manual)
+        await firstConnectTask.value
+        XCTAssertEqual(manager.state, .connected(localPort: 5656, via: .remote))
+        let disconnectsBeforeStaleCallback = transport.disconnectCallCount
+
+        transport.simulateDisconnect(attempt: 1, error: SessionError.transportFailed("stale"))
+        await Self.settle()
+
+        XCTAssertEqual(manager.state, .connected(localPort: 5656, via: .remote))
+        XCTAssertEqual(transport.connectCallCount, 2)
+        XCTAssertEqual(transport.disconnectCallCount, disconnectsBeforeStaleCallback)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testWaitingRedriveDoesNotConstructReplacementAfterSceneBecomesInactive() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport)
+        let connectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+        transport.onDisconnectInvoked = {
+            manager.receiveScenePhase(.inactive)
+            transport.emitAwaitingBrokerBeforeResult = false
+            transport.suspendAfterAwaitingBroker = false
+            transport.nextResult = .success(5656)
+        }
+
+        await manager.redriveFromWaitingForHome(reason: .manual)
+
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(manager.state, .waitingForHome)
+        await manager.disconnect()
+        await connectTask.value
+    }
+
+    @MainActor
+    func testConcurrentWaitingRedrivesShareOneTeardownBeforeFreshRace() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let manager = makeManager(transport: transport)
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        let redrives = [
+            RedriveTrigger.cadence,
+            .networkChanged,
+            .foreground,
+            .manual,
+        ].map { reason in
+            Task { @MainActor in
+                await manager.redriveFromWaitingForHome(reason: reason)
+            }
+        }
+        let didStartFreshRace = await Self.waitUntil {
+            transport.connectCallCount == 2 && manager.state == .waitingForHome
+        }
+        XCTAssertTrue(didStartFreshRace)
+        XCTAssertEqual(transport.disconnectCallCount, 1)
+        XCTAssertEqual(transport.operations, [
+            .connect(1),
+            .disconnect(1),
+            .suspendedConnectFinished(1),
+            .connect(2),
+        ])
+
+        await manager.disconnect()
+        for redrive in redrives {
+            await redrive.value
+        }
+        await firstConnectTask.value
+    }
+
+    @MainActor
+    func testCandidateTerminalEventWithoutStartDoesNotCreateCandidateLine() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+        let connectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .relay,
+                ordinal: 91,
+                phase: .failed(.transport, elapsedMilliseconds: 7)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        XCTAssertFalse(diagnosticLog.events.contains { $0.message == "candidate 91: unavailable" })
+        await manager.disconnect()
+        await connectTask.value
+    }
+
+    @MainActor
+    func testWaitReraceDiagnosticsKeepFixtureSecretsOutOfEventsAndSnapshot() async {
+        let previousVerboseErrors = UserSettings.verboseErrors
+        UserSettings.verboseErrors = true
+        defer { UserSettings.verboseErrors = previousVerboseErrors }
+
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"relay_listen_generation":7}"#.utf8)
+            )
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+
+        let instanceID = "privacy-instance-identifier"
+        let lanHost = "privacy-lan-host.example"
+        let lanPort = 49731
+        let relayURL = "wss://privacy-relay.example/relay"
+        let deviceToken = "privacy-device-token.eyJpYXQiOjE3NjcyMjU2MDAsImV4cCI6MjA4Mjc1ODQwMH0.signature"
+        let authorizationValue = "privacy-authorization-value"
+        let certificatePEM = "privacy-certificate-pem"
+        let keyPEM = "privacy-key-pem"
+        let caPEM = "privacy-ca-pem"
+        let upstreamError = "privacy-upstream-error Authorization: Bearer \(authorizationValue)"
+        let pairing = StoredPairing(
+            instanceID: instanceID,
+            homeLabel: "sol",
+            relayEndpoint: relayURL,
+            fingerprint: "privacy-pairing-fingerprint",
+            clientCertPEM: certificatePEM,
+            clientKeyPEM: keyPEM,
+            caChainPEM: caPEM,
+            relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: nil),
+            localEndpoints: [LocalEndpoint(host: lanHost, port: lanPort, scope: "privacy-lan-scope")],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
+        let clock = FakeTunnelClock()
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        transport.upstreamFailureBeforeAwaitingBroker = upstreamError
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            pairing: pairing,
+            clock: clock,
+            probeSession: session,
+            diagnosticLog: diagnosticLog
+        )
+        let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        transport.emitAwaitingBrokerBeforeResult = false
+        transport.suspendAfterAwaitingBroker = false
+        transport.upstreamFailureBeforeAwaitingBroker = nil
+        transport.nextResult = .success(48123)
+        await clock.advance(by: .seconds(30))
+        let didConnect = await Self.waitUntil {
+            manager.state == .connected(localPort: 48123, via: .remote)
+        }
+        XCTAssertTrue(didConnect)
+        await firstConnectTask.value
+
+        let probeResult = await manager.probeConnection()
+        XCTAssertEqual(probeResult?.alive, true)
+        let loopbackEndpoint = "http://127.0.0.1:48123/app/network/api/status"
+        XCTAssertTrue(TunnelProbeURLProtocol.capturedRequests.contains { $0.url?.absoluteString == loopbackEndpoint })
+
+        let rawEventValues = diagnosticLog.events.flatMap { event in
+            [event.message, event.detail].compactMap { $0 }
+        }
+        let snapshot = diagnosticLog.snapshot(tunnel: manager)
+        let valuesToCheck = rawEventValues + rawEventValues.map(DiagnosticLog.redact) + [snapshot, DiagnosticLog.redact(snapshot)]
+        let forbidden = [
+            instanceID,
+            lanHost,
+            String(lanPort),
+            relayURL,
+            deviceToken,
+            authorizationValue,
+            certificatePEM,
+            keyPEM,
+            caPEM,
+            upstreamError,
+        ]
+        for value in valuesToCheck {
+            for secret in forbidden {
+                XCTAssertFalse(value.contains(secret), "diagnostic exposed \(secret)")
+            }
+        }
+
+        await manager.disconnect()
     }
 
     @MainActor
@@ -950,7 +1222,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let pairing = Self.fixturePairing()
         let aggregate = RaceCoordinator<ConnectedVia>.aggregateFailure(
-            sawRevocation: false,
             sawNotEntitled: false,
             sawAuthRefreshRequired: true
         )
@@ -1134,8 +1405,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
-            connectDeadline: .milliseconds(100),
-            waitingDeadline: .seconds(1)
+            connectDeadline: .milliseconds(100)
         )
 
         let connectTask = Task { @MainActor in
@@ -1159,34 +1429,29 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testAwaitingBrokerTimeoutKeepsWaitingAndSchedulesFixedRedial() async {
+    func testAwaitingBrokerCadenceReracesWithoutBackoff() async {
+        let clock = FakeTunnelClock()
         let transport = MockCFTunnelTransport()
         transport.emitAwaitingBrokerBeforeResult = true
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
             connectDeadline: .seconds(1),
-            waitingDeadline: .milliseconds(100)
+            clock: clock
         )
 
-        let connectTask = Task { @MainActor in
-            await manager.connect()
+        let connectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+        await Self.settle()
+        await clock.advance(by: .seconds(30))
+        let didRerace = await Self.waitUntil {
+            manager.state == .waitingForHome && transport.connectCallCount == 2
         }
-        let didEnterWait = await Self.waitUntil {
-            manager.state == .waitingForHome
-        }
-        XCTAssertTrue(didEnterWait)
-        let didScheduleRelaxedRedial = await Self.waitUntil({
-            manager.state == .waitingForHome
-                && manager.reconnectCountdown == 60
-                && transport.disconnectCallCount == 1
-        }, timeout: .seconds(2))
-        XCTAssertTrue(didScheduleRelaxedRedial)
-        await connectTask.value
+        XCTAssertTrue(didRerace)
 
         XCTAssertEqual(manager.state, .waitingForHome)
-        XCTAssertEqual(manager.reconnectCountdown, 60)
+        XCTAssertNil(manager.reconnectCountdown)
         await manager.disconnect()
+        await connectTask.value
     }
 
     @MainActor
@@ -1197,7 +1462,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let manager = makeManager(
             transport: transport,
             connectDeadline: .seconds(1),
-            waitingDeadline: .seconds(1),
             jitterRandom: { _ in 1.0 }
         )
 
@@ -1455,13 +1719,14 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testWaitingRedriveRearmsWaitingTimeoutWhenFreshAttemptAwaitsBroker() async {
+    func testWaitingRedriveContinuesCadenceWhenFreshAttemptAwaitsBroker() async {
+        let clock = FakeTunnelClock()
         let transport = MockCFTunnelTransport()
         transport.emitAwaitingBrokerBeforeResult = true
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
-            waitingDeadline: .milliseconds(100)
+            clock: clock
         )
         let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
 
@@ -1472,12 +1737,21 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport.connectCallCount == 2 && manager.state == .waitingForHome
         }
         XCTAssertTrue(didStartFreshConnect)
-        let didScheduleRelaxedRedial = await Self.waitUntil({
-            manager.state == .waitingForHome
-                && manager.reconnectCountdown == 60
-                && transport.disconnectCallCount >= 2
-        }, timeout: .seconds(2))
-        XCTAssertTrue(didScheduleRelaxedRedial)
+        let didArmFreshCadence = await Self.waitUntil {
+            clock.pendingSleeperCount >= 2
+        }
+        XCTAssertTrue(didArmFreshCadence)
+        await clock.advance(by: .seconds(30))
+        let didReraceAgain = await Self.waitUntil {
+            transport.connectCallCount == 3 && manager.state == .waitingForHome
+        }
+        guard didReraceAgain else {
+            await manager.disconnect()
+            await redriveTask.value
+            await firstConnectTask.value
+            XCTFail("fresh broker wait did not re-arm cadence")
+            return
+        }
 
         await redriveTask.value
         await firstConnectTask.value
@@ -2595,6 +2869,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async -> Task<Void, Never> {
+        manager.receiveScenePhase(.active)
         let connectTask = Task { @MainActor in
             await manager.connect()
         }

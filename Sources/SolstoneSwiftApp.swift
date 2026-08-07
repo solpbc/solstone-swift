@@ -107,6 +107,19 @@ struct SolstoneSwiftApp: App {
         return !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest
     }
 
+    private static func tunnelScenePhase(_ phase: ScenePhase) -> TunnelScenePhase {
+        switch phase {
+        case .active:
+            .active
+        case .background:
+            .background
+        case .inactive:
+            .inactive
+        @unknown default:
+            .inactive
+        }
+    }
+
     @MainActor
     static func revalidateThenRequestDrain(
         tunnelManager: TunnelManager,
@@ -815,6 +828,9 @@ struct SolstoneSwiftApp: App {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {
+                    self.tunnelManager.receiveScenePhase(Self.tunnelScenePhase(self.scenePhase))
+                }
+                .task {
                     // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value.
                     // Revalidate the existing epoch before foreground drain; failed validation drives
                     // reconnect, and the connected-edge handler drains after recovery.
@@ -832,6 +848,7 @@ struct SolstoneSwiftApp: App {
                 }
         }
         .onChange(of: self.scenePhase) { _, newPhase in
+            self.tunnelManager.receiveScenePhase(Self.tunnelScenePhase(newPhase))
             switch newPhase {
             case .active:
                 self.backgroundDrainTask?.cancel()
@@ -866,7 +883,7 @@ struct SolstoneSwiftApp: App {
                 case .connecting:
                     break
                 case .waitingForHome:
-                    Task { await self.tunnelManager.redriveFromWaitingForHome(reason: .foreground) }
+                    break
                 case .disconnected:
                     Task {
                         await self.tunnelManager.retryNow()

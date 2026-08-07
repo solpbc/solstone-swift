@@ -4,10 +4,12 @@
 import Foundation
 import Observation
 import SPLTunnel
+import Crypto
 import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "tunnel")
-private let waitingRedialDelaySeconds = 60
+private let brokerWaitCadence = Duration.seconds(30)
+private let maximumSnapshotCandidateLines = 6
 private let notEntitledAutoReconnectLimit = 3
 
 private enum PathInterfaceBucket: String, Sendable {
@@ -60,6 +62,8 @@ private struct IntegrationGateRelayOnlyCandidatePolicy: Sendable {
 enum RedriveTrigger: Sendable, Equatable {
     case networkChanged
     case foreground
+    case cadence
+    case manual
 
     var label: String {
         switch self {
@@ -67,6 +71,10 @@ enum RedriveTrigger: Sendable, Equatable {
             return "network changed"
         case .foreground:
             return "foreground"
+        case .cadence:
+            return "cadence"
+        case .manual:
+            return "manual"
         }
     }
 }
@@ -151,6 +159,48 @@ private enum ReactiveTokenRefreshDecision: Sendable {
     case unreachable
 }
 
+private struct BrokerWaitEpisode: Sendable {
+    let startedAt: ContinuousClock.Instant
+    var reraceCount: Int
+    var nextCadenceDeadline: ContinuousClock.Instant?
+    var pausedBecauseInactive: Bool
+}
+
+private enum AttemptTelemetryCompleteness: String, Sendable {
+    case active
+    case complete
+    case unavailable
+}
+
+private enum UnfinishedAttemptReason: String, Sendable {
+    case rerace
+    case ended
+}
+
+private struct CandidateAttemptTelemetry: Sendable {
+    let ordinal: Int
+    let route: TunnelAttemptRoute
+    let startedAt: ContinuousClock.Instant
+    var phase: TunnelAttemptPhase
+    var unfinishedReason: UnfinishedAttemptReason?
+}
+
+private struct HomeListenerObservation: Sendable {
+    let journalFingerprint: String
+    let connectionEpoch: UInt64
+    let probeSequence: UInt64
+    let generation: Int
+    let observedAt: ContinuousClock.Instant
+}
+
+private struct NetworkStatusPayload: Decodable, Sendable {
+    let relayListenGeneration: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case relayListenGeneration = "relay_listen_generation"
+    }
+}
+
 @Observable
 final class TunnelManager {
     var state: TunnelState = .disconnected
@@ -167,10 +217,13 @@ final class TunnelManager {
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var connectWatchdogTask: Task<Void, Never>?
-    @ObservationIgnored private var waitingTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var brokerWaitCadenceTask: Task<Void, Never>?
+    @ObservationIgnored private var waitingRedriveTask: Task<Void, Never>?
+    @ObservationIgnored private var waitingRedriveID: UInt64?
+    @ObservationIgnored private var nextWaitingRedriveID: UInt64 = 0
     @ObservationIgnored private var livenessProbeTask: Task<Void, Never>?
     @ObservationIgnored private let connectDeadline: Duration
-    @ObservationIgnored private let waitingDeadline: Duration
+    @ObservationIgnored private let clock: any TunnelClock
     @ObservationIgnored private var probeWatchdog: ProbeWatchdog
     @ObservationIgnored private var reconnectBackoff: ReconnectBackoff
     @ObservationIgnored private let healthyProbeInterval: Duration
@@ -192,6 +245,18 @@ final class TunnelManager {
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
     @ObservationIgnored private var pendingReconnectReason: ReconnectReasonBucket?
     @ObservationIgnored private(set) var connectionEpoch: UInt64 = 0
+    @ObservationIgnored private var nextAttemptEpoch: UInt64 = 0
+    @ObservationIgnored private var activeAttemptEpoch: UInt64?
+    @ObservationIgnored private var brokerWaitEpisode: BrokerWaitEpisode?
+    @ObservationIgnored private var scenePhase: TunnelScenePhase = .inactive
+    @ObservationIgnored private var telemetryCompleteness: AttemptTelemetryCompleteness = .unavailable
+    @ObservationIgnored private var candidateTelemetry: [Int: CandidateAttemptTelemetry] = [:]
+    @ObservationIgnored private var candidateTelemetryTotal = 0
+    @ObservationIgnored private var currentTelemetryEpoch: UInt64?
+    @ObservationIgnored private var journalFingerprint: String?
+    @ObservationIgnored private var latestListenerObservation: HomeListenerObservation?
+    @ObservationIgnored private var latestProbeSequence: UInt64 = 0
+    @ObservationIgnored private var latestStartedProbeSequenceByEpoch: [UInt64: UInt64] = [:]
 #if DEBUG && targetEnvironment(simulator)
     @ObservationIgnored private var integrationGateRelayOnlyCandidatePolicy: IntegrationGateRelayOnlyCandidatePolicy?
     @ObservationIgnored private(set) var integrationGateCandidateBuildSummary: IntegrationGateCandidateBuildSummary?
@@ -208,7 +273,7 @@ final class TunnelManager {
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
         connectDeadline: Duration = .seconds(15),
-        waitingDeadline: Duration = .seconds(600),
+        clock: any TunnelClock = LiveTunnelClock(),
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
@@ -235,7 +300,7 @@ final class TunnelManager {
         self.probeURLBuilder = probeURLBuilder
         self.activeLocalTransferCountProvider = activeLocalTransferCountProvider
         self.connectDeadline = connectDeadline
-        self.waitingDeadline = waitingDeadline
+        self.clock = clock
         self.healthyProbeInterval = probeWatchdogPolicy.healthyInterval
         self.probeWatchdog = ProbeWatchdog(policy: probeWatchdogPolicy, random: random)
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
@@ -250,6 +315,60 @@ final class TunnelManager {
 
     var transportGenerationSnapshot: TransportGenerationSnapshot {
         self.transport.generationSnapshot
+    }
+
+    private func beginAttempt() -> UInt64 {
+        self.nextAttemptEpoch &+= 1
+        self.activeAttemptEpoch = self.nextAttemptEpoch
+        self.currentTelemetryEpoch = self.nextAttemptEpoch
+        self.candidateTelemetry = [:]
+        self.candidateTelemetryTotal = 0
+        self.telemetryCompleteness = .unavailable
+        return self.nextAttemptEpoch
+    }
+
+    private func isCurrentAttempt(_ epoch: UInt64) -> Bool {
+        self.activeAttemptEpoch == epoch
+    }
+
+    private func retireAttempt() {
+        self.activeAttemptEpoch = nil
+        self.currentTelemetryEpoch = nil
+    }
+
+    func receiveScenePhase(_ phase: TunnelScenePhase) {
+        let prior = self.scenePhase
+        self.scenePhase = phase
+        guard self.brokerWaitEpisode != nil else { return }
+        switch phase {
+        case .active:
+            guard prior != .active else { return }
+            self.brokerWaitEpisode?.pausedBecauseInactive = false
+            guard self.brokerWaitEpisode != nil else { return }
+            Task { @MainActor [weak self] in
+                await self?.redriveFromWaitingForHome(reason: .foreground)
+            }
+        case .inactive, .background:
+            self.brokerWaitEpisode?.pausedBecauseInactive = true
+            self.cancelBrokerWaitCadence()
+        }
+    }
+
+    private func startBrokerWaitEpisodeIfNeeded() {
+        if self.brokerWaitEpisode == nil {
+            self.brokerWaitEpisode = BrokerWaitEpisode(
+                startedAt: self.clock.monotonicNow(),
+                reraceCount: 0,
+                nextCadenceDeadline: nil,
+                pausedBecauseInactive: self.scenePhase != .active
+            )
+        }
+        self.armBrokerWaitCadence()
+    }
+
+    private func clearBrokerWaitEpisode() {
+        self.cancelBrokerWaitCadence()
+        self.brokerWaitEpisode = nil
     }
 
 #if DEBUG && targetEnvironment(simulator)
@@ -270,10 +389,11 @@ final class TunnelManager {
 
     func revalidateConnectedTunnelForForeground() async -> Bool {
         guard let entry = self.activeConnection else { return false }
+        guard let attemptEpoch = self.activeAttemptEpoch else { return false }
         guard let result = await self.probeConnection() else { return false }
-        guard self.activeConnection?.epoch == entry.epoch else { return false }
+        guard self.activeConnection?.epoch == entry.epoch, self.isCurrentAttempt(attemptEpoch) else { return false }
         guard result.alive else {
-            await self.forceReconnect(reason: .probeFailed)
+            await self.forceReconnect(reason: .probeFailed, epoch: attemptEpoch)
             return false
         }
         return true
@@ -296,6 +416,101 @@ final class TunnelManager {
             category: .tunnel,
             message: "stage: \(kind.rawValue) done\(durationSegment)\(detail.map { " (\($0))" } ?? "")"
         )
+    }
+
+    private func cancelStage(_ kind: ConnectionStageKind) {
+        guard let index = self.connectionStages.firstIndex(where: { $0.kind == kind && $0.status == .active }) else { return }
+        self.connectionStages[index].status = .cancelled
+        if let start = self.connectionStages[index].startTime {
+            self.connectionStages[index].duration = Double((ContinuousClock.now - start) / .seconds(1))
+        }
+        self.diagnosticLog?.append(category: .tunnel, message: "stage: \(kind.rawValue) cancelled")
+    }
+
+    private func markUnfinishedCandidates(_ reason: UnfinishedAttemptReason) {
+        for ordinal in self.candidateTelemetry.keys {
+            guard self.candidateTelemetry[ordinal]?.unfinishedReason == nil else { continue }
+            if case .started = self.candidateTelemetry[ordinal]?.phase {
+                self.candidateTelemetry[ordinal]?.unfinishedReason = reason
+                self.diagnosticLog?.append(
+                    category: .tunnel,
+                    message: self.candidateLine(for: ordinal, elapsed: self.elapsedCandidateMilliseconds(ordinal))
+                )
+            }
+        }
+    }
+
+    private func elapsedCandidateMilliseconds(_ ordinal: Int) -> Int {
+        guard let candidate = self.candidateTelemetry[ordinal] else { return 0 }
+        return Int(candidate.startedAt.duration(to: self.clock.monotonicNow()) / .milliseconds(1))
+    }
+
+    private func candidateLine(for ordinal: Int, elapsed: Int? = nil) -> String {
+        guard let candidate = self.candidateTelemetry[ordinal] else { return "candidate \(ordinal): unavailable" }
+        let route: String
+        switch candidate.route {
+        case .directPinned: route = "direct pinned"
+        case .directUnpinned: route = "direct unpinned"
+        case .relay: route = "relay"
+        }
+        let phase: String
+        if let unfinishedReason = candidate.unfinishedReason {
+            phase = "unfinished (\(unfinishedReason.rawValue))"
+        } else {
+            switch candidate.phase {
+            case .started: phase = "started"
+            case .waitingForBroker: phase = "waiting for broker"
+            case .transportReady: phase = "transport ready"
+            case .selected: phase = "selected"
+            case .failed(let failure, _): phase = "failed \(String(describing: failure))"
+            case .cancelled: phase = "cancelled"
+            }
+        }
+        let milliseconds: Int
+        if let elapsed { milliseconds = elapsed } else {
+            switch candidate.phase {
+            case .started: milliseconds = self.elapsedCandidateMilliseconds(ordinal)
+            case .waitingForBroker(let value), .transportReady(let value), .selected(let value), .failed(_, let value), .cancelled(let value):
+                milliseconds = value
+            }
+        }
+        return "candidate \(ordinal): \(route) \(phase) \(milliseconds)ms"
+    }
+
+    private func handleAttemptEvent(_ event: TunnelAttemptEvent, epoch: UInt64) {
+        guard self.isCurrentAttempt(epoch), self.currentTelemetryEpoch == epoch else { return }
+        let now = self.clock.monotonicNow()
+        if case .started = event.phase {
+            self.candidateTelemetryTotal += 1
+            guard self.candidateTelemetry[event.ordinal] != nil || self.candidateTelemetry.count < maximumSnapshotCandidateLines else {
+                self.telemetryCompleteness = .active
+                return
+            }
+            self.candidateTelemetry[event.ordinal] = CandidateAttemptTelemetry(
+                ordinal: event.ordinal,
+                route: event.route,
+                startedAt: now,
+                phase: event.phase,
+                unfinishedReason: nil
+            )
+        } else if var existing = self.candidateTelemetry[event.ordinal] {
+            existing.phase = event.phase
+            self.candidateTelemetry[event.ordinal] = existing
+        }
+        self.telemetryCompleteness = .active
+        if self.candidateTelemetry[event.ordinal] != nil {
+            self.diagnosticLog?.append(category: .tunnel, message: self.candidateLine(for: event.ordinal))
+        }
+        if case .selected = event.phase {
+            self.completeStage(.raceCandidates)
+        }
+    }
+
+    private func handleAttemptUpdatesFinished(epoch: UInt64) {
+        guard self.isCurrentAttempt(epoch), self.currentTelemetryEpoch == epoch else { return }
+        self.markUnfinishedCandidates(.ended)
+        self.telemetryCompleteness = .complete
+        self.diagnosticLog?.append(category: .tunnel, message: "candidate telemetry: complete")
     }
 
     nonisolated static func candidateCountDetail(_ count: Int) -> String {
@@ -341,25 +556,31 @@ final class TunnelManager {
         self.state = .connecting
         self.diagnosticLog?.append(category: .tunnel, message: "connecting")
         self.connectionStages = []
+        let epoch = self.beginAttempt()
 
         let task = Task { [weak self] in
             guard let self else { return }
-            defer { self.connectTask = nil }
+            defer {
+                if self.isCurrentAttempt(epoch) {
+                    self.connectTask = nil
+                }
+            }
             do {
-                let localPort = try await self.connectWithReactiveTokenRefresh()
+                let localPort = try await self.connectWithReactiveTokenRefresh(epoch: epoch)
 
-                if Task.isCancelled {
+                if Task.isCancelled || !self.isCurrentAttempt(epoch) {
                     await self.transport.disconnect()
                     return
                 }
 
                 self.cancelConnectWatchdog()
-                self.cancelWaitingTimeout()
                 await Task.yield()
+                guard self.isCurrentAttempt(epoch) else { return }
                 let endpoint = self.endpoint(for: self.transport.connectionMode)
                 self.connectionEpoch += 1
-                let epoch = self.connectionEpoch
+                let connectionEpoch = self.connectionEpoch
                 self.state = .connected(localPort: localPort, via: endpoint)
+                self.clearBrokerWaitEpisode()
                 self.completeStage(.loopback)
                 self.appendStage(.connected)
                 self.completeStage(.connected)
@@ -367,12 +588,12 @@ final class TunnelManager {
                 self.consecutiveKeepaliveFailures = 0
                 self.consecutiveNotEntitled = 0
                 self.probeWatchdog.noteConnectionEstablished()
-                self.startLivenessProbe()
+                self.startLivenessProbe(epoch: epoch)
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,
                     message: "connected via \(endpoint == .lan ? "local network" : "remote journal") on port \(localPort)",
-                    detail: self.connectionIdentityDetail(port: localPort, epoch: epoch)
+                    detail: self.connectionIdentityDetail(port: localPort, epoch: connectionEpoch)
                 )
                 if self.ownerConnectSuccessBannerArmed {
                     self.ownerConnectSuccessBannerArmed = false
@@ -380,7 +601,9 @@ final class TunnelManager {
                 }
                 self.reconnectBackoff.reset()
                 self.cancelReconnect()
-                Task {
+                let attemptEpoch = epoch
+                Task { @MainActor [weak self] in
+                    guard let self, self.isCurrentAttempt(attemptEpoch) else { return }
 #if DEBUG && targetEnvironment(simulator)
                     if self.integrationGateRelayOnlyCandidatePolicy != nil {
                         // why: relay-only gate runs must not repopulate LAN candidates after connect; production refresh still runs below.
@@ -390,12 +613,13 @@ final class TunnelManager {
                     try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
                 }
             } catch is CancellationError {
+                guard self.isCurrentAttempt(epoch) else { return }
                 self.cancelConnectWatchdog()
                 return
             } catch {
-                if Task.isCancelled { return }
+                if Task.isCancelled || !self.isCurrentAttempt(epoch) { return }
                 self.cancelConnectWatchdog()
-                self.cancelWaitingTimeout()
+                self.clearBrokerWaitEpisode()
                 log.error("[solstone-swift] connect() failed: \(String(describing: error), privacy: .public)")
                 await self.transport.disconnect()
                 await Task.yield()
@@ -424,7 +648,7 @@ final class TunnelManager {
 #if DEBUG && targetEnvironment(simulator)
                     self.integrationGateLastReconnectReasonBucket = .connectFailed
 #endif
-                    self.scheduleReconnect(for: tunnelError)
+                    self.scheduleReconnect(for: tunnelError, epoch: epoch)
                 }
             }
         }
@@ -433,6 +657,7 @@ final class TunnelManager {
             guard let self else { return }
             try? await Task.sleep(for: self.connectDeadline)
             guard !Task.isCancelled else { return }
+            guard self.isCurrentAttempt(epoch) else { return }
             guard case .connecting = self.state else { return }
             self.connectTask?.cancel()
             await self.transport.disconnect()
@@ -441,17 +666,17 @@ final class TunnelManager {
             self.state = .error(.unreachable)
             self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "connection timed out", detail: nil)
             self.pendingReconnectReason = .watchdogTimeout
-            self.scheduleReconnect(for: .unreachable)
+            self.scheduleReconnect(for: .unreachable, epoch: epoch)
         }
         await task.value
     }
 
-    private func connectWithReactiveTokenRefresh() async throws -> Int {
+    private func connectWithReactiveTokenRefresh(epoch: UInt64) async throws -> Int {
         var didAuthRefresh = false
         var retryPairing: StoredPairing?
         while true {
             do {
-                return try await self.connectTransportOnce(pairingOverride: retryPairing)
+                return try await self.connectTransportOnce(pairingOverride: retryPairing, epoch: epoch)
             } catch let error as SessionError where error == .authRefreshRequired || error == .revoked {
                 guard !didAuthRefresh else {
                     // why: a repeat auth challenge after one refresh is retryable unless the refresher confirms revocation.
@@ -472,8 +697,17 @@ final class TunnelManager {
         }
     }
 
-    private func connectTransportOnce(pairingOverride: StoredPairing? = nil) async throws -> Int {
+    private func connectTransportOnce(pairingOverride: StoredPairing? = nil, epoch: UInt64) async throws -> Int {
         self.appendStage(.prepareCandidates)
+        let pairingForIdentity: StoredPairing
+        if let pairingOverride {
+            pairingForIdentity = pairingOverride
+        } else if let pairing = try self.loadPairing() {
+            pairingForIdentity = pairing
+        } else {
+            throw TunnelError.revoked
+        }
+        self.updateJournalFingerprint(from: pairingForIdentity)
         let candidates = try await self.candidateList(pairingOverride: pairingOverride)
         self.completeStage(.prepareCandidates, detail: Self.candidateCountDetail(candidates.count))
 
@@ -482,25 +716,39 @@ final class TunnelManager {
             onDisconnect: { [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    guard self.isCurrentAttempt(epoch) else { return }
                     if case .inboundClosed(let fault) = (error as? SessionError) {
                         self.inboundClosedFaultCounts[fault ?? "<unspecified>", default: 0] += 1
                     }
                     if let sessionError = error as? SessionError,
                        sessionError == .directKeepaliveMissed || sessionError == .relayKeepaliveMissed {
-                        await self.forceReconnect(reason: .keepaliveMissed)
+                        await self.forceReconnect(reason: .keepaliveMissed, epoch: epoch)
                     } else {
                         await self.forceReconnect(
-                            reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown)
+                            reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown),
+                            epoch: epoch
                         )
                     }
                 }
             },
             onStageChange: { [weak self] event in
                 Task { @MainActor [weak self] in
-                    self?.handleStageChange(event)
+                    guard let self, self.isCurrentAttempt(epoch) else { return }
+                    self.handleStageChange(event, epoch: epoch)
                 }
             }
         )
+    }
+
+    private func updateJournalFingerprint(from pairing: StoredPairing) {
+        let digest = SHA256.hash(data: Data(pairing.instanceID.utf8))
+        let fingerprint = digest.map { String(format: "%02x", $0) }.joined().prefix(12)
+        let value = String(fingerprint)
+        if self.journalFingerprint != value {
+            self.journalFingerprint = value
+            self.latestListenerObservation = nil
+            self.latestStartedProbeSequenceByEpoch = [:]
+        }
     }
 
     private func refreshAfterAuthChallenge() async -> ReactiveTokenRefreshDecision {
@@ -534,7 +782,7 @@ final class TunnelManager {
         let active = self.activeConnection
         self.cancelReconnect()
         self.cancelConnectWatchdog()
-        self.cancelWaitingTimeout()
+        self.clearBrokerWaitEpisode()
         self.stopLivenessProbe()
         self.state = .disconnected
         self.lastProbeAlive = nil
@@ -550,6 +798,7 @@ final class TunnelManager {
         self.connectionStages = []
         self.connectTask?.cancel()
         self.connectTask = nil
+        self.retireAttempt()
         await self.transport.disconnect()
         self.diagnosticLog?.append(
             category: .tunnel,
@@ -560,10 +809,11 @@ final class TunnelManager {
 
     func cancelConnect() {
         self.cancelConnectWatchdog()
-        self.cancelWaitingTimeout()
+        self.clearBrokerWaitEpisode()
         self.stopLivenessProbe()
         self.connectTask?.cancel()
         self.connectTask = nil
+        self.retireAttempt()
         if case .connecting = self.state {
             self.state = .disconnected
         }
@@ -576,29 +826,52 @@ final class TunnelManager {
         self.cancelReconnect()
         self.reconnectBackoff.reset()
         self.consecutiveNotEntitled = 0
+        if case .waitingForHome = self.state {
+            await self.redriveFromWaitingForHome(reason: .manual)
+            return
+        }
         await self.connect()
     }
 
     func redriveFromWaitingForHome(reason: RedriveTrigger) async {
         guard case .waitingForHome = self.state else { return }
+        if let waitingRedriveTask {
+            await waitingRedriveTask.value
+            return
+        }
+        self.nextWaitingRedriveID &+= 1
+        let redriveID = self.nextWaitingRedriveID
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performWaitingRedrive(reason: reason, redriveID: redriveID)
+        }
+        self.waitingRedriveTask = task
+        self.waitingRedriveID = redriveID
+        await task.value
+    }
 
-        self.cancelWaitingTimeout()
-
+    private func performWaitingRedrive(reason: RedriveTrigger, redriveID: UInt64) async {
+        defer {
+            if self.waitingRedriveID == redriveID {
+                self.waitingRedriveTask = nil
+                self.waitingRedriveID = nil
+            }
+        }
+        guard case .waitingForHome = self.state else { return }
+        guard self.scenePhase == .active else { return }
+        self.cancelBrokerWaitCadence()
+        self.cancelStage(.raceCandidates)
+        self.markUnfinishedCandidates(.rerace)
+        self.brokerWaitEpisode?.reraceCount += 1
         let stalled = self.connectTask
+        self.connectTask = nil
+        self.retireAttempt()
         stalled?.cancel()
-
         await self.transport.disconnect()
         await stalled?.value
-
-        guard case .waitingForHome = self.state else { return }
-
-        self.diagnosticLog?.append(
-            category: .tunnel,
-            message: "re-dialing",
-            detail: reason.label
-        )
+        guard case .waitingForHome = self.state, self.scenePhase == .active else { return }
+        self.diagnosticLog?.append(category: .tunnel, message: "re-dialing", detail: reason.label)
         self.consecutiveNotEntitled = 0
-
         await self.connect()
     }
 
@@ -613,6 +886,9 @@ final class TunnelManager {
 
     // Integration tests use this to bypass real tunnel startup.
     func forceConnected(port: Int, via: ConnectionEndpoint) {
+        if self.activeAttemptEpoch == nil {
+            _ = self.beginAttempt()
+        }
         self.connectionEpoch += 1
         self.state = .connected(localPort: port, via: via)
     }
@@ -645,28 +921,29 @@ final class TunnelManager {
         self.connectWatchdogTask = nil
     }
 
-    private func startWaitingTimeout() {
-        self.cancelWaitingTimeout()
-        self.waitingTimeoutTask = Task { @MainActor [weak self] in
+    private func armBrokerWaitCadence() {
+        guard self.scenePhase == .active,
+              self.brokerWaitEpisode?.pausedBecauseInactive == false,
+              self.brokerWaitCadenceTask == nil
+        else { return }
+        let deadline = self.clock.monotonicNow() + brokerWaitCadence
+        self.brokerWaitEpisode?.nextCadenceDeadline = deadline
+        self.brokerWaitCadenceTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            try? await Task.sleep(for: self.waitingDeadline)
-            guard !Task.isCancelled else { return }
-            guard case .waitingForHome = self.state else { return }
-            self.connectTask?.cancel()
-            await self.transport.disconnect()
-            guard !Task.isCancelled else { return }
-            guard case .waitingForHome = self.state else { return }
-            self.waitingTimeoutTask = nil
-            self.scheduleWaitingRedial()
+            await self.clock.sleep(for: brokerWaitCadence)
+            guard !Task.isCancelled, self.scenePhase == .active else { return }
+            self.brokerWaitCadenceTask = nil
+            await self.redriveFromWaitingForHome(reason: .cadence)
         }
     }
 
-    private func cancelWaitingTimeout() {
-        self.waitingTimeoutTask?.cancel()
-        self.waitingTimeoutTask = nil
+    private func cancelBrokerWaitCadence() {
+        self.brokerWaitCadenceTask?.cancel()
+        self.brokerWaitCadenceTask = nil
+        self.brokerWaitEpisode?.nextCadenceDeadline = nil
     }
 
-    private func startLivenessProbe() {
+    private func startLivenessProbe(epoch: UInt64) {
         self.stopLivenessProbe()
         let healthyProbeInterval = self.healthyProbeInterval
         self.livenessProbeTask = Task { @MainActor [weak self] in
@@ -680,12 +957,18 @@ final class TunnelManager {
                 guard !Task.isCancelled else {
                     return
                 }
+                guard self.isCurrentAttempt(epoch) else {
+                    return
+                }
                 guard case .connected = self.state else {
                     return
                 }
                 let inboundBeforeProbe = await self.transport.inboundActivitySnapshot()
                 let result = await self.probeConnection()
                 guard let result else {
+                    return
+                }
+                guard self.isCurrentAttempt(epoch) else {
                     return
                 }
                 let inboundAfterProbe = await self.transport.inboundActivitySnapshot()
@@ -708,7 +991,7 @@ final class TunnelManager {
                             detail: "activeUploads=\(activeLocalTransfers) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
                         )
                     }
-                    await self.forceReconnect(reason: .probeFailed)
+                    await self.forceReconnect(reason: .probeFailed, epoch: epoch)
                     return
                 }
             }
@@ -720,7 +1003,10 @@ final class TunnelManager {
         self.livenessProbeTask = nil
     }
 
-    private func forceReconnect(reason: ReconnectReason) async {
+    private func forceReconnect(reason: ReconnectReason, epoch: UInt64? = nil) async {
+        if let epoch {
+            guard self.isCurrentAttempt(epoch) else { return }
+        }
         guard case .connected = self.state else { return }
         let active = self.activeConnection
         self.pendingReconnectReason = reason.bucket
@@ -742,7 +1028,7 @@ final class TunnelManager {
         self.connectTask = nil
         self.state = .error(tunnelError)
         await self.transport.disconnect()
-        self.scheduleReconnect(for: tunnelError)
+        self.scheduleReconnect(for: tunnelError, epoch: epoch)
     }
 
     func startNetworkMonitoring() {
@@ -767,7 +1053,7 @@ final class TunnelManager {
                     if status.isSatisfied,
                        let previousBucket,
                        previousBucket != self.pathInterfaceBucket(status) {
-                        await self.forceReconnect(reason: .pathChanged)
+                        await self.forceReconnect(reason: .pathChanged, epoch: self.activeAttemptEpoch)
                     }
                 case .error(let error) where error.isRetryable:
                     if status.isSatisfied {
@@ -807,19 +1093,31 @@ final class TunnelManager {
     func probeConnection() async -> (alive: Bool, latency: Duration)? {
         guard case .connected(let localPort, _) = self.state else { return nil }
         let active = self.activeConnection
+        guard let attemptEpoch = self.activeAttemptEpoch else { return nil }
+        let fingerprint = self.journalFingerprint
+        self.latestProbeSequence &+= 1
+        let probeSequence = self.latestProbeSequence
+        self.latestStartedProbeSequenceByEpoch[attemptEpoch] = probeSequence
         let clock = ContinuousClock()
         let start = clock.now
         let alive: Bool
         let detail: String
+        var listenerGeneration: Int?
         if let url = self.probeURLBuilder(localPort) {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = 3
             do {
-                let (_, response) = try await self.probeSession.data(for: request)
+                let (data, response) = try await self.probeSession.data(for: request)
                 if let http = response as? HTTPURLResponse {
                     alive = 200..<300 ~= http.statusCode
                     detail = "endpoint: /app/network/api/status; status: \(http.statusCode)"
+                    if alive,
+                       let payload = try? JSONDecoder().decode(NetworkStatusPayload.self, from: data),
+                       let generation = payload.relayListenGeneration,
+                       generation >= 0 {
+                        listenerGeneration = generation
+                    }
                 } else {
                     alive = false
                     detail = "endpoint: /app/network/api/status; non-http response"
@@ -833,7 +1131,20 @@ final class TunnelManager {
             detail = "endpoint unavailable"
         }
         let elapsed = clock.now - start
+        guard self.isCurrentAttempt(attemptEpoch), self.journalFingerprint == fingerprint else { return nil }
         self.lastProbeAlive = alive
+        if let listenerGeneration,
+           let fingerprint,
+           self.latestStartedProbeSequenceByEpoch[attemptEpoch] == probeSequence,
+           self.connectionEpoch == active?.epoch {
+            self.latestListenerObservation = HomeListenerObservation(
+                journalFingerprint: fingerprint,
+                connectionEpoch: active?.epoch ?? self.connectionEpoch,
+                probeSequence: probeSequence,
+                generation: listenerGeneration,
+                observedAt: self.clock.monotonicNow()
+            )
+        }
         self.diagnosticLog?.append(
             category: .tunnel,
             message: alive ? "probe available" : "probe not reachable",
@@ -846,8 +1157,45 @@ final class TunnelManager {
         "port=\(port.map(String.init) ?? "none") epoch=\(epoch.map(String.init) ?? "none")"
     }
 
-    private func scheduleReconnect(for error: TunnelError) {
+    func diagnosticSnapshotLines() -> [String] {
+        let now = self.clock.monotonicNow()
+        var lines = ["journal fingerprint: \(self.journalFingerprint ?? "unavailable")"]
+        lines.append("scene phase: \(self.scenePhase.rawValue)")
+        if let episode = self.brokerWaitEpisode {
+            let age = max(episode.startedAt.duration(to: now).components.seconds, 0)
+            let next: String
+            if let deadline = episode.nextCadenceDeadline {
+                next = "\(max(deadline.duration(to: now).components.seconds, 0))s"
+            } else {
+                next = "unavailable"
+            }
+            lines.append("broker wait: active \(age)s, reraces \(episode.reraceCount), next in \(next)")
+        } else {
+            lines.append("broker wait: inactive")
+        }
+        if let observation = self.latestListenerObservation,
+           observation.journalFingerprint == self.journalFingerprint,
+           observation.connectionEpoch == self.connectionEpoch {
+            let age = max(observation.observedAt.duration(to: now).components.seconds, 0)
+            lines.append("last known home listener: \(observation.generation) seen \(age)s ago")
+        } else {
+            lines.append("last known home listener: unavailable")
+        }
+        lines.append("candidate telemetry: \(self.telemetryCompleteness.rawValue)")
+        let candidates = self.candidateTelemetry.values.sorted { $0.ordinal < $1.ordinal }
+        for candidate in candidates.prefix(maximumSnapshotCandidateLines) {
+            lines.append(self.candidateLine(for: candidate.ordinal))
+        }
+        let omitted = self.candidateTelemetryTotal - candidates.count
+        if omitted > 0 {
+            lines.append("candidate outcomes omitted: \(omitted)")
+        }
+        return lines
+    }
+
+    private func scheduleReconnect(for error: TunnelError, epoch: UInt64? = nil) {
         guard error.isRetryable, self.isNetworkSatisfied != false else { return }
+        let scheduledEpoch = epoch ?? self.activeAttemptEpoch
         self.cancelReconnect()
         let step = self.reconnectBackoff.nextDelay()
         self.lastScheduledReconnectDelay = step.delay
@@ -864,11 +1212,13 @@ final class TunnelManager {
             }
             for remaining in stride(from: wholeSeconds, through: 1, by: -1) {
                 guard let self else { return }
+                if let scheduledEpoch, !self.isCurrentAttempt(scheduledEpoch) { return }
                 self.reconnectCountdown = remaining
                 try? await Task.sleep(for: .seconds(1))
                 if Task.isCancelled { return }
             }
             guard let self else { return }
+            if let scheduledEpoch, !self.isCurrentAttempt(scheduledEpoch) { return }
             self.reconnectCountdown = nil
             await self.connect()
         }
@@ -878,23 +1228,6 @@ final class TunnelManager {
         let components = duration.components
         let seconds = Int(components.seconds) + (components.attoseconds > 0 ? 1 : 0)
         return max(seconds, 1)
-    }
-
-    private func scheduleWaitingRedial() {
-        self.cancelReconnect()
-        self.reconnectCountdown = waitingRedialDelaySeconds
-        self.retryTask = Task { [weak self] in
-            for remaining in stride(from: waitingRedialDelaySeconds, through: 1, by: -1) {
-                guard let self else { return }
-                self.reconnectCountdown = remaining
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { return }
-            }
-            guard let self else { return }
-            self.reconnectCountdown = nil
-            guard case .waitingForHome = self.state else { return }
-            await self.connect()
-        }
     }
 
     private func applyPathStatus(_ status: NetworkPathStatus) {
@@ -1024,7 +1357,7 @@ final class TunnelManager {
         return "\(host)|\(port)|\(scope)|unpinned=\(unpinnedInterface)"
     }
 
-    private func handleStageChange(_ event: TransportStage) {
+    private func handleStageChange(_ event: TransportStage, epoch: UInt64) {
 #if DEBUG && targetEnvironment(simulator)
         self.integrationGateLastTransportStage = event
 #endif
@@ -1034,13 +1367,17 @@ final class TunnelManager {
         case .racing:
             self.appendStage(.raceCandidates)
         case .awaitingBroker:
-            self.completeStage(.raceCandidates)
             self.redriveBaselineSignature = self.currentPathStatus.map(self.pathMeaningfulSignature)
             self.state = .waitingForHome
             self.cancelConnectWatchdog()
-            self.startWaitingTimeout()
+            self.startBrokerWaitEpisodeIfNeeded()
+            self.waitingRedriveTask = nil
+            self.waitingRedriveID = nil
+            self.diagnosticLog?.append(category: .tunnel, message: "relay candidate waiting for home")
         case .tlsHandshaking:
-            self.completeStage(.raceCandidates)
+            if self.telemetryCompleteness == .complete || self.telemetryCompleteness == .unavailable {
+                self.completeStage(.raceCandidates)
+            }
             self.appendStage(.tlsHandshake)
         case .muxReady:
             self.completeStage(.tlsHandshake)
@@ -1049,7 +1386,15 @@ final class TunnelManager {
         case .loopbackReady(let port):
             self.appendStage(.loopback, detail: "port \(port)")
         case .failed(let message):
-            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "couldn't reach your journal", detail: message)
+            _ = message
+            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "couldn't reach your journal")
+        case .attemptEvent(let event):
+            self.handleAttemptEvent(event, epoch: epoch)
+        case .attemptUpdatesFinished:
+            self.handleAttemptUpdatesFinished(epoch: epoch)
+        case .attemptUpdatesUnavailable:
+            self.telemetryCompleteness = .unavailable
+            self.completeStage(.raceCandidates)
         }
     }
 

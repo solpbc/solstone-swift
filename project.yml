@@ -31,7 +31,7 @@ packages:
     from: "3.0.0"
   spl-swift:
     url: https://github.com/solpbc/spl-swift.git
-    exactVersion: "0.3.1"
+    exactVersion: "0.3.2"
   Opus:
     url: https://github.com/alta/swift-opus.git
     from: "0.0.2"

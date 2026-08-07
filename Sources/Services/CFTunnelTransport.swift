@@ -110,6 +110,8 @@ final class CFTunnelTransport: Transporting {
     private var stateTask: Task<Void, Never>?
     @ObservationIgnored
     private var connectionModeTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var attemptUpdatesTask: Task<Void, Never>?
 
     init(
         appConfig: AppConfig? = nil,
@@ -157,6 +159,7 @@ final class CFTunnelTransport: Transporting {
             connectWindow: connectWindow
         )
         observeConnectionModeUpdates(session.connectionModeUpdates)
+        observeAttemptUpdates(session, onStageChange: onStageChange)
 
         do {
             let port = try await raceStartupAgainstConnectWindow(
@@ -237,6 +240,7 @@ final class CFTunnelTransport: Transporting {
     ) async throws -> Int {
         onStageChange(.racing)
         _ = try await session.connect(endpoints: candidates)
+        await self.attemptUpdatesTask?.value
         self.connectionMode = await session.connectionMode
         onStageChange(.tlsHandshaking)
         onStageChange(.muxReady)
@@ -263,6 +267,8 @@ final class CFTunnelTransport: Transporting {
         await proxy?.stop()
         proxy = nil
         await session?.disconnect()
+        await attemptUpdatesTask?.value
+        attemptUpdatesTask = nil
         session = nil
         connectionMode = nil
         if let closingGeneration {
@@ -312,6 +318,27 @@ final class CFTunnelTransport: Transporting {
         connectionModeTask = Task { @MainActor [weak self] in
             for await mode in updates {
                 self?.connectionMode = mode
+            }
+        }
+    }
+
+    private func observeAttemptUpdates(
+        _ session: any TunnelSessioning,
+        onStageChange: @Sendable @escaping (TransportStage) -> Void
+    ) {
+        guard let observing = session as? any TunnelAttemptObserving else {
+            onStageChange(.attemptUpdatesUnavailable)
+            return
+        }
+        attemptUpdatesTask?.cancel()
+        attemptUpdatesTask = Task { @MainActor in
+            for await event in observing.attemptUpdates {
+                onStageChange(.attemptEvent(event))
+            }
+            if Task.isCancelled {
+                onStageChange(.attemptUpdatesUnavailable)
+            } else {
+                onStageChange(.attemptUpdatesFinished)
             }
         }
     }

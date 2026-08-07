@@ -215,6 +215,12 @@ extension TransportStage {
             return "loopbackReady"
         case .failed:
             return "failed"
+        case .attemptEvent:
+            return "attemptEvent"
+        case .attemptUpdatesFinished:
+            return "attemptUpdatesFinished"
+        case .attemptUpdatesUnavailable:
+            return "attemptUpdatesUnavailable"
         }
     }
 }

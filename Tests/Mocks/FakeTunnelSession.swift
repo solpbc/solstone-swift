@@ -3,15 +3,18 @@
 
 import SPLTunnel
 
-actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
+actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserving {
     nonisolated let stateUpdates: AsyncStream<TunnelState>
     nonisolated let connectionModeUpdates: AsyncStream<ConnectionMode?>
+    nonisolated let attemptUpdates: AsyncStream<TunnelAttemptEvent>
 
     private let stateContinuation: AsyncStream<TunnelState>.Continuation
     private let connectionModeContinuation: AsyncStream<ConnectionMode?>.Continuation
+    private let attemptUpdatesContinuation: AsyncStream<TunnelAttemptEvent>.Continuation
     private let connectedVia: ConnectedVia
     private let connectedMode: ConnectionMode
     private let yieldAwaitingBrokerDuringConnect: Bool
+    private let finishAttemptUpdatesAfterConnect: Bool
     private var failureDuringConnect: SessionError?
     private var thrownDuringConnect: (any Error & Sendable)?
     private var inboundActivitySnapshotValue: UInt64 = 0
@@ -24,7 +27,8 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         connectedMode: ConnectionMode = .plDirect,
         failureDuringConnect: SessionError? = nil,
         thrownDuringConnect: (any Error & Sendable)? = nil,
-        yieldAwaitingBrokerDuringConnect: Bool = false
+        yieldAwaitingBrokerDuringConnect: Bool = false,
+        finishAttemptUpdatesAfterConnect: Bool = true
     ) {
         let state = AsyncStream<TunnelState>.makeStream()
         self.stateUpdates = state.stream
@@ -32,9 +36,13 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         let mode = AsyncStream<ConnectionMode?>.makeStream()
         self.connectionModeUpdates = mode.stream
         self.connectionModeContinuation = mode.continuation
+        let attempts = AsyncStream<TunnelAttemptEvent>.makeStream()
+        self.attemptUpdates = attempts.stream
+        self.attemptUpdatesContinuation = attempts.continuation
         self.connectedVia = connectedVia
         self.connectedMode = connectedMode
         self.yieldAwaitingBrokerDuringConnect = yieldAwaitingBrokerDuringConnect
+        self.finishAttemptUpdatesAfterConnect = finishAttemptUpdatesAfterConnect
         self.failureDuringConnect = failureDuringConnect
         self.thrownDuringConnect = thrownDuringConnect
     }
@@ -56,6 +64,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         connectionMode = connectedMode
         connectionModeContinuation.yield(connectedMode)
         stateContinuation.yield(.connected(via: connectedVia))
+        if finishAttemptUpdatesAfterConnect {
+            attemptUpdatesContinuation.finish()
+        }
         return connectedVia
     }
 
@@ -66,6 +77,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
         stateContinuation.yield(.disconnected)
         stateContinuation.finish()
         connectionModeContinuation.finish()
+        attemptUpdatesContinuation.finish()
     }
 
     func openStream() async throws -> MuxStream {
@@ -94,5 +106,13 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening {
 
     func pushDisconnected() {
         stateContinuation.yield(.disconnected)
+    }
+
+    func pushAttempt(_ event: TunnelAttemptEvent) {
+        attemptUpdatesContinuation.yield(event)
+    }
+
+    func finishAttemptUpdates() {
+        attemptUpdatesContinuation.finish()
     }
 }

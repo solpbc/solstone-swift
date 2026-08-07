@@ -44,6 +44,7 @@ enum ConnectionStageStatus: Sendable, Equatable {
     case active
     case done
     case failed
+    case cancelled
 }
 
 struct ConnectionStage: Sendable {
