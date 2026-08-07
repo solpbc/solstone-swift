@@ -945,9 +945,17 @@ final class OmiLaunchCaptureCommitCoordinator {
             sealedEndOffset: cursor.acknowledgedPrefixEndOffset,
             reservedGenerationID: UUID()
         )
-        guard let rootURL,
-              case .committed = OmiLaunchCaptureCutReservationStore(rootURL: rootURL, io: self.io).commit(reservation)
-        else {
+        guard let rootURL else {
+            self.requestReconciliation()
+            return
+        }
+        switch OmiLaunchCaptureCutReservationStore(rootURL: rootURL, io: self.io).commit(reservation) {
+        case .committed:
+            break
+        case .refused(let reason):
+            // Retrying preserves the sealed route and makes no reserved claim, so this
+            // records the typed durable cause without creating noisy attention.
+            self.log.error("omi cut reservation commit refused: \(String(describing: reason), privacy: .public)")
             self.requestReconciliation()
             return
         }

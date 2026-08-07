@@ -12,26 +12,38 @@ func makeOmiSourceManager(
     clock: any ObserverClock = SystemObserverClock(),
     bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort()
 ) -> OmiSourceManager {
-    let captureRoot = try? appGroupRoot().appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)
-    let reservationOutcome = captureRoot.map { OmiLaunchCaptureCutReservationStore(rootURL: $0, io: io).read() }
     let reservation: OmiLaunchCaptureCutReservation?
     let ingress: OmiLaunchCaptureIngress?
     let hasReservationDefect: Bool
-    switch reservationOutcome {
-    case .some(.valid(let value)):
-        reservation = value
-        ingress = OmiLaunchCaptureIngress(
-            captureRoot: { OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: try appGroupRoot().appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true)) },
-            generationID: value.reservedGenerationID,
-            clock: clock,
-            io: io
-        )
-        hasReservationDefect = false
-    case .some(.unreadable):
-        reservation = nil
-        ingress = nil
-        hasReservationDefect = true
-    case .some(.absent), .none:
+    if let captureRoot = try? appGroupRoot().appendingPathComponent(
+        OmiLaunchCaptureFormat.rootDirectoryName,
+        isDirectory: true
+    ) {
+        switch OmiLaunchCaptureCutReservationStore(rootURL: captureRoot, io: io).read() {
+        case .valid(let value):
+            reservation = value
+            ingress = OmiLaunchCaptureIngress(
+                captureRoot: { OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: captureRoot) },
+                generationID: value.reservedGenerationID,
+                clock: clock,
+                io: io
+            )
+            hasReservationDefect = false
+        case .unreadable:
+            reservation = nil
+            ingress = nil
+            hasReservationDefect = true
+        case .absent:
+            reservation = nil
+            ingress = OmiLaunchCaptureIngress(
+                appGroupRoot: appGroupRoot,
+                generationID: generationID,
+                clock: clock,
+                io: io
+            )
+            hasReservationDefect = false
+        }
+    } else {
         reservation = nil
         ingress = OmiLaunchCaptureIngress(
             appGroupRoot: appGroupRoot,

@@ -4,6 +4,14 @@
 import Foundation
 
 nonisolated enum OmiLaunchCaptureCutReservationFormat {
+    // Fixed 76-byte layout (all integers little-endian):
+    //   0: 10-byte magic "solcutres1"
+    //  10:  2-byte version
+    //  12: 16-byte sealed generation UUID
+    //  28:  8-byte sealed next sequence
+    //  36:  8-byte sealed end offset
+    //  44: 16-byte reserved generation UUID
+    //  60: 16-byte truncated digest over bytes 0 through 59
     static let fileName = "cut-reservation.cut"
     static let magic = Data("solcutres1".utf8)
     static let version: UInt16 = 1
@@ -148,6 +156,8 @@ nonisolated struct OmiLaunchCaptureCutReservationStore: Sendable {
         var shouldClose = true
         do {
             try self.io.append(reservation.encoded(), to: token)
+            // Synchronize the complete temp before close; a crash before replacement
+            // leaves no claim, while replacement publishes only this synced payload.
             try self.io.fullSynchronize(token)
             try self.io.close(token)
             shouldClose = false
@@ -157,6 +167,8 @@ nonisolated struct OmiLaunchCaptureCutReservationStore: Sendable {
             return .refused(.writeFailed)
         }
         do {
+            // Same-directory replacement is the claim boundary: before it the canonical
+            // file is absent; after it, readers observe the complete synchronized record.
             try self.io.atomicReplaceItem(at: tempURL, with: self.fileURL)
             return .committed
         } catch {

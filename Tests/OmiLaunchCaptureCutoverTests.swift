@@ -521,7 +521,9 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         await freshCoordinator.reconcile()
         let tag = Data("restart-reserved-B".utf8)
         freshManager.handleAudioData(.payload(tag), peripheralID: peripheralID)
+        let sealedURL = OmiLaunchCaptureFormat.fileURL(rootURL: self.captureRoot, generationID: generation)
         let reservedURL = OmiLaunchCaptureFormat.fileURL(rootURL: OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot), generationID: committed.reservedGenerationID)
+        XCTAssertEqual(Self.occurrences(of: tag, in: try Data(contentsOf: sealedURL)), 0)
         XCTAssertEqual(Self.occurrences(of: tag, in: try Data(contentsOf: reservedURL)), 1)
         await barrier.resume()
         await pass.value
@@ -632,23 +634,28 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let world = try await self.makeReservedCaptureWorld(io: io)
         let snapshots = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let payload = Data("reserved-write-failure".utf8)
         io.failNext(.write)
-        world.manager.handleAudioData(.payload(Data("reserved-write-failure".utf8)), peripheralID: world.peripheralID)
+        world.manager.handleAudioData(.payload(payload), peripheralID: world.peripheralID)
         XCTAssertTrue(world.manager.writerFaulted)
         let snapshotsAfter = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(snapshotsAfter, snapshots)
-        XCTAssertEqual(Self.occurrences(of: Data("reserved-write-failure".utf8), in: try Data(contentsOf: world.reservedURL)), 0)
+        XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.sealedURL)), 0)
+        XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.reservedURL)), 0)
     }
 
     @MainActor func testReservedAppendBarrierFailureTriggersFlowControlWithoutTransportOwner() async throws {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let world = try await self.makeReservedCaptureWorld(io: io)
         let snapshots = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let payload = Data("reserved-barrier-failure".utf8)
         io.failNext(.barrier)
-        world.manager.handleAudioData(.payload(Data("reserved-barrier-failure".utf8)), peripheralID: world.peripheralID)
+        world.manager.handleAudioData(.payload(payload), peripheralID: world.peripheralID)
         XCTAssertTrue(world.manager.writerFaulted)
         let snapshotsAfter = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(snapshotsAfter, snapshots)
+        XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.sealedURL)), 0)
+        XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.reservedURL)), 0)
     }
 
     @MainActor func testReservedOverLimitPayloadTriggersFlowControlWithoutTransportOwner() async throws {
@@ -660,6 +667,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertTrue(world.manager.writerFaulted)
         let snapshotsAfter = await world.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(snapshotsAfter, snapshots)
+        XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.sealedURL)), 0)
         XCTAssertEqual(Self.occurrences(of: payload, in: try Data(contentsOf: world.reservedURL)), 0)
     }
 
