@@ -50,6 +50,19 @@ final class OmiLaunchCaptureCommitCoordinator {
         let token: TransferGateToken
     }
 
+    private struct SettlementHandoff {
+        let generationID: UUID
+        let envelopeURL: URL
+        let partitionOrdinal: UInt64
+    }
+
+    private struct SettlementOwner {
+        let itemID: UUID
+        let token: TransferGateToken
+        let handoffs: [SettlementHandoff]
+        let isAcknowledged: Bool
+    }
+
     private enum CoordinatorGateOwner {
         case linked(TransferGateToken)
         case registered(PendingOwner)
@@ -88,6 +101,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     private var isResumingAfterExplicitEnable = false
     private var pendingGateOwnersByItemID: [UUID: CoordinatorGateOwner] = [:]
     private var cleanupProvenPendingItemIDs: Set<UUID> = []
+    private var cleanupProvenHandoffsByItemID: [UUID: SettlementHandoff] = [:]
     private var enumeratedHandoffs: [LinkedHandoff] = []
     private var materializerSession: (generationID: UUID, materializer: OmiLaunchCaptureMaterializer)?
     private static let reconciliationNoProgressDelay: Duration = .seconds(1)
@@ -236,15 +250,36 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     func conservativelyGateOmi() async {
         for item in await self.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi) {
+            // A successful restoration proves a different subsystem already owns this
+            // lifetime hold. Put it back without recording a coordinator reason.
+            switch await self.engine.restoreGateFromHold(itemID: item.itemID) {
+            case .gated(let existingHold):
+                switch await self.engine.convertGateToHold(existingHold) {
+                case .settled, .alreadyConverted:
+                    break
+                case .alreadyReleased, .unknownToken, .mismatchedToken:
+                    // The restoration issued this process-local token. Retain it for
+                    // retry rather than leaving an active gate without an owner.
+                    self.pendingGateOwnersByItemID[item.itemID] = .linked(existingHold)
+                }
+                continue
+            case .alreadyGated:
+                continue
+            case .notHeld, .engineNotInitialized:
+                break
+            }
             switch await self.engine.gateExisting(itemID: item.itemID) {
             case .gated(let token):
-                _ = await self.convertGateToHold(token, itemID: item.itemID, reason: .conservative)
+                if !(await self.convertGateToHold(token, itemID: item.itemID, reason: .conservative)) {
+                    self.pendingGateOwnersByItemID[item.itemID] = .linked(token)
+                }
             case .alreadyGated:
+                continue
+            case .dispatchAlreadyEnabled:
                 await self.engine.hold(itemID: item.itemID)
                 self.coordinatorHoldReasonsByItemID[item.itemID] = .conservative
-            case .dispatchAlreadyEnabled, .engineNotInitialized:
+            case .engineNotInitialized:
                 await self.engine.hold(itemID: item.itemID)
-                self.coordinatorHoldReasonsByItemID[item.itemID] = .conservative
             }
         }
     }
@@ -375,7 +410,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             await self.commitSettlementAttention(pending, generationID: generationID, action: "acknowledgment")
             return .failed
         }
-        guard await self.settleAcknowledgedOwners(pending, generationID: generationID) else { return .failed }
+        guard (await self.settleOwners(self.settlementOwners(for: pending, generationID: generationID))).isEmpty else { return .failed }
 
         if scan.boundaryReason != nil {
             return await self.commitBoundary(scan: scan, generationID: generationID) ? .boundary : .failed
@@ -453,7 +488,7 @@ final class OmiLaunchCaptureCommitCoordinator {
             await self.commitSettlementAttention(pending, generationID: generationID, action: "acknowledgment")
             return .failed
         }
-        guard await self.settleAcknowledgedOwners(pending, generationID: generationID) else { return .failed }
+        guard (await self.settleOwners(self.settlementOwners(for: pending, generationID: generationID))).isEmpty else { return .failed }
         return .failed
     }
 
@@ -532,7 +567,9 @@ final class OmiLaunchCaptureCommitCoordinator {
                 return nil
             }
             guard (try? self.io.fileExists(at: partition.audioURL)) == false else {
-                _ = await self.convertGateToHold(token, itemID: partition.itemID, reason: .settlementRetry)
+                if !(await self.convertGateToHold(token, itemID: partition.itemID, reason: .settlementRetry)) {
+                    self.pendingGateOwnersByItemID[partition.itemID] = .linked(token)
+                }
                 return nil
             }
             if let onReconciliationPhase {
@@ -545,36 +582,76 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private func settleAcknowledgedOwners(_ pending: [PendingOwner], generationID: UUID) async -> Bool {
-        var allReleased = true
-        for owner in pending.sorted(by: { $0.partition.itemID.uuidString < $1.partition.itemID.uuidString }) {
-            let itemID = owner.partition.itemID
-            do {
-                if try self.io.fileExists(at: owner.partition.envelopeURL) {
-                    try self.io.removeItem(at: owner.partition.envelopeURL)
-                }
-            } catch {
-                allReleased = false
-                if !(await self.convertGateToHold(owner.token, itemID: itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[itemID] = .registered(owner)
-                    await self.commitSettlementAttention(generationID: generationID, owner: owner, action: "gate_conversion")
+    private func settlementOwners(for pending: [PendingOwner], generationID: UUID) -> [SettlementOwner] {
+        pending.map { owner in
+            SettlementOwner(
+                itemID: owner.partition.itemID,
+                token: owner.token,
+                handoffs: [
+                    SettlementHandoff(
+                        generationID: generationID,
+                        envelopeURL: owner.partition.envelopeURL,
+                        partitionOrdinal: owner.partition.nextPartitionOrdinal - 1
+                    ),
+                ],
+                isAcknowledged: true
+            )
+        }
+    }
+
+    /// Settles every owner in stable item order. A failed owner is held or retained
+    /// for retry, but never short-circuits settlement of later owners.
+    private func settleOwners(_ owners: [SettlementOwner]) async -> Set<UUID> {
+        var unsettledGenerationIDs: Set<UUID> = []
+        for owner in owners.sorted(by: { $0.itemID.uuidString < $1.itemID.uuidString }) {
+            let generationIDs = Set(owner.handoffs.map(\.generationID))
+            guard owner.isAcknowledged else {
+                unsettledGenerationIDs.formUnion(generationIDs)
+                if !(await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .settlementRetry)) {
+                    self.pendingGateOwnersByItemID[owner.itemID] = .linked(owner.token)
+                    await self.commitSettlementAttention(owner, action: "gate_conversion")
                 } else {
-                    self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
+                    self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
                 }
-                await self.commitSettlementAttention(generationID: generationID, owner: owner, action: "cleanup")
                 continue
             }
-            self.cleanupProvenPendingItemIDs.insert(itemID)
-            if await self.release(owner.token, itemID: itemID) {
-                self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-                self.cleanupProvenPendingItemIDs.remove(itemID)
+
+            var cleaned = true
+            for handoff in owner.handoffs.sorted(by: { $0.envelopeURL.path < $1.envelopeURL.path }) {
+                do {
+                    if try self.io.fileExists(at: handoff.envelopeURL) {
+                        try self.io.removeItem(at: handoff.envelopeURL)
+                    }
+                } catch {
+                    cleaned = false
+                    await self.commitSettlementAttention(owner, action: "cleanup")
+                    break
+                }
+            }
+            guard cleaned else {
+                unsettledGenerationIDs.formUnion(generationIDs)
+                if !(await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .settlementRetry)) {
+                    self.pendingGateOwnersByItemID[owner.itemID] = .linked(owner.token)
+                    await self.commitSettlementAttention(owner, action: "gate_conversion")
+                } else {
+                    self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
+                }
+                continue
+            }
+
+            self.cleanupProvenPendingItemIDs.insert(owner.itemID)
+            self.cleanupProvenHandoffsByItemID[owner.itemID] = owner.handoffs[0]
+            if await self.release(owner.token, itemID: owner.itemID) {
+                self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
+                self.cleanupProvenPendingItemIDs.remove(owner.itemID)
+                self.cleanupProvenHandoffsByItemID.removeValue(forKey: owner.itemID)
             } else {
-                allReleased = false
-                self.pendingGateOwnersByItemID[itemID] = .registered(owner)
-                await self.commitSettlementAttention(generationID: generationID, owner: owner, action: "release")
+                unsettledGenerationIDs.formUnion(generationIDs)
+                self.pendingGateOwnersByItemID[owner.itemID] = .linked(owner.token)
+                await self.commitSettlementAttention(owner, action: "release")
             }
         }
-        return allReleased
+        return unsettledGenerationIDs
     }
 
     private func release(_ token: TransferGateToken, itemID: UUID) async -> Bool {
@@ -650,13 +727,13 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     private func settleAcknowledgedLinkedHandoffs() async -> Set<UUID> {
         guard let rootURL else { return Set(self.enumeratedHandoffs.map(\.generationID)) }
-        var unsettledGenerationIDs: Set<UUID> = []
         let linkedOwners = self.pendingGateOwnersByItemID.compactMap { itemID, owner -> (UUID, TransferGateToken)? in
             switch owner {
             case .linked(let token): (itemID, token)
             case .registered: nil
             }
         }.sorted { $0.0.uuidString < $1.0.uuidString }
+        var owners: [SettlementOwner] = []
         for (itemID, token) in linkedOwners {
             let handoffs = self.enumeratedHandoffs
                 .filter { $0.itemID == itemID }
@@ -667,7 +744,7 @@ final class OmiLaunchCaptureCommitCoordinator {
                     return lhs.envelopeURL.path < rhs.envelopeURL.path
                 }
             guard !handoffs.isEmpty else { continue }
-            var settled = true
+            var acknowledged = true
             for handoff in handoffs {
                 let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: handoff.generationID, io: self.io)
                 guard reader.hasDurableAcknowledgment(),
@@ -675,36 +752,29 @@ final class OmiLaunchCaptureCommitCoordinator {
                       let envelope = try? OmiPendingHandoffStore.read(from: handoff.envelopeURL),
                       envelope.isSupported
                 else {
-                    settled = false
+                    acknowledged = false
                     continue
                 }
                 let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: handoff.itemID, sidecar: envelope.sidecar, metadata: envelope.metadata)
                 guard let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:]),
                       ownership == .ownedInQueued || ownership == .ownedInAttention
                 else {
-                    settled = false
+                    acknowledged = false
                     continue
                 }
-                do {
-                    if try self.io.fileExists(at: handoff.envelopeURL) {
-                        try self.io.removeItem(at: handoff.envelopeURL)
-                    }
-                } catch {
-                    settled = false
-                }
             }
-            if settled {
-                self.cleanupProvenPendingItemIDs.insert(itemID)
-            }
-            let released = settled ? await self.release(token, itemID: itemID) : false
-            if !released {
-                unsettledGenerationIDs.formUnion(handoffs.map(\.generationID))
-                continue
-            }
-            self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-            self.cleanupProvenPendingItemIDs.remove(itemID)
+            owners.append(
+                SettlementOwner(
+                    itemID: itemID,
+                    token: token,
+                    handoffs: handoffs.map {
+                        SettlementHandoff(generationID: $0.generationID, envelopeURL: $0.envelopeURL, partitionOrdinal: 0)
+                    },
+                    isAcknowledged: acknowledged
+                )
+            )
         }
-        return unsettledGenerationIDs
+        return await self.settleOwners(owners)
     }
 
     private func holdPendingGateOwners() async {
@@ -713,18 +783,40 @@ final class OmiLaunchCaptureCommitCoordinator {
             guard !self.cleanupProvenPendingItemIDs.contains(itemID) else { continue }
             if await self.convertGateToHold(owner.token, itemID: itemID, reason: .settlementRetry) {
                 self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
+            } else if let settlementOwner = self.settlementOwner(itemID: itemID, owner: owner) {
+                await self.commitSettlementAttention(settlementOwner, action: "gate_conversion")
             }
         }
     }
 
-    private func releaseCleanupProvenPendingOwners() async {
-        let owners = self.pendingGateOwnersByItemID.sorted { $0.key.uuidString < $1.key.uuidString }
-        for (itemID, owner) in owners where self.cleanupProvenPendingItemIDs.contains(itemID) {
-            if await self.release(owner.token, itemID: itemID) {
-                self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-                self.cleanupProvenPendingItemIDs.remove(itemID)
-            }
+    private func settlementOwner(itemID: UUID, owner: CoordinatorGateOwner) -> SettlementOwner? {
+        switch owner {
+        case .registered(let pending):
+            guard let generationID = self.materializerSession?.generationID else { return nil }
+            return self.settlementOwners(for: [pending], generationID: generationID)[0]
+        case .linked(let token):
+            let handoffs = self.enumeratedHandoffs
+                .filter { $0.itemID == itemID }
+                .map {
+                    SettlementHandoff(
+                        generationID: $0.generationID,
+                        envelopeURL: $0.envelopeURL,
+                        partitionOrdinal: 0
+                    )
+                }
+            guard !handoffs.isEmpty else { return nil }
+            return SettlementOwner(itemID: itemID, token: token, handoffs: handoffs, isAcknowledged: false)
         }
+    }
+
+    private func releaseCleanupProvenPendingOwners() async {
+        let owners = self.pendingGateOwnersByItemID.compactMap { itemID, owner -> SettlementOwner? in
+            guard self.cleanupProvenPendingItemIDs.contains(itemID),
+                  let handoff = self.cleanupProvenHandoffsByItemID[itemID]
+            else { return nil }
+            return SettlementOwner(itemID: itemID, token: owner.token, handoffs: [handoff], isAcknowledged: true)
+        }
+        _ = await self.settleOwners(owners)
     }
 
     private func commitSettlementAttention(
@@ -732,30 +824,32 @@ final class OmiLaunchCaptureCommitCoordinator {
         generationID: UUID,
         action: String
     ) async {
-        for owner in owners.sorted(by: { $0.partition.itemID.uuidString < $1.partition.itemID.uuidString }) {
-            await self.commitSettlementAttention(generationID: generationID, owner: owner, action: action)
+        for owner in self.settlementOwners(for: owners, generationID: generationID) {
+            await self.commitSettlementAttention(owner, action: action)
         }
     }
 
-    private func commitSettlementAttention(
-        generationID: UUID,
-        owner: PendingOwner,
-        action: String
-    ) async {
+    private func commitSettlementAttention(_ owner: SettlementOwner, action: String) async {
+        for handoff in owner.handoffs.sorted(by: { $0.envelopeURL.path < $1.envelopeURL.path }) {
+            await self.commitSettlementAttention(handoff, ownerItemID: owner.itemID, action: action)
+        }
+    }
+
+    private func commitSettlementAttention(_ handoff: SettlementHandoff, ownerItemID: UUID, action: String) async {
         let itemID = Self.settlementFailureItemID(
-            generationID: generationID,
-            ordinal: owner.partition.nextPartitionOrdinal - 1,
-            ownerItemID: owner.partition.itemID,
+            generationID: handoff.generationID,
+            ordinal: handoff.partitionOrdinal,
+            ownerItemID: ownerItemID,
             action: action
         )
         let startedAt = Date(timeIntervalSince1970: 0)
         let sidecar = ChunkSidecar(
             segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
             day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int(owner.partition.nextPartitionOrdinal - 1),
+            chunkIndex: Int(handoff.partitionOrdinal),
             startedAt: startedAt,
             durationS: 0,
-            sessionID: generationID,
+            sessionID: handoff.generationID,
             mode: .meeting,
             locationJSONL: nil
         )
@@ -772,7 +866,7 @@ final class OmiLaunchCaptureCommitCoordinator {
                     manifest: manifest,
                     payloadFileURLs: [:],
                     reason: "launch_capture_settlement_\(action)_failed",
-                    detail: "generation=\(generationID.uuidString.lowercased()) partition=\(owner.partition.nextPartitionOrdinal - 1) item=\(owner.partition.itemID.uuidString.lowercased()) action=\(action)"
+                    detail: "generation=\(handoff.generationID.uuidString.lowercased()) partition=\(handoff.partitionOrdinal) item=\(ownerItemID.uuidString.lowercased()) action=\(action)"
                 )
             } catch {
                 self.log.error("launch capture settlement attention failed")
