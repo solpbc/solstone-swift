@@ -521,10 +521,6 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 }
 
 extension OmiSourceManager {
-    func handleAudioData(_ data: Data, peripheralID: UUID) {
-        self.handleAudioData(.payload(data), peripheralID: peripheralID)
-    }
-
     func handleAudioData(
         _ input: OmiLaunchCaptureIngressInput,
         peripheralID: UUID,
@@ -533,24 +529,27 @@ extension OmiSourceManager {
         guard !self.isOmiWorkDisabled else { return }
         if self.audioRoute == .launchCapture, let launchCaptureIngress {
             let wasLatched = launchCaptureIngress.isLatched
+            let hadCommittedBoundary = launchCaptureIngress.hasCommittedBoundary
             switch launchCaptureIngress.ingest(input) {
             case .retainedContiguous:
                 break
             case .boundaryCommitted(let reason):
-                if !wasLatched {
+                if !hadCommittedBoundary {
                     self.noteWriterFault()
                     self.launchCaptureRotationState = .awaitingBoundaryDisconnect
                     self.log.error("omi launch capture boundary: \(reason.rawValue, privacy: .public)")
-                    self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
+                    if !wasLatched {
+                        self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
+                    }
                 } else {
                     self.synchronizeWriterFaultState()
                 }
             case .suffixRetainedNoncontiguous:
                 self.synchronizeWriterFaultState()
-            case .notRetained(let reason):
+            case .notRetained:
                 if !wasLatched {
                     self.noteWriterFault()
-                    self.log.error("omi launch capture boundary: \(reason.rawValue, privacy: .public)")
+                    self.log.error("omi launch capture boundary: reservation_not_retained")
                     self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
                 } else {
                     self.synchronizeWriterFaultState()
@@ -866,6 +865,12 @@ extension OmiSourceManager {
                     appendAdoptedLatency: true
                 )
             }
+            guard self.rotateLaunchCaptureAfterResubscriptionIfNeeded(
+                for: peripheral,
+                characteristic: audioCharacteristic
+            ) else {
+                return
+            }
             self.isAudioSubscribed = true
             if self.opusDecoder == nil {
                 self.buildOpusDecoder()
@@ -1145,23 +1150,11 @@ extension OmiSourceManager {
         }
 
         if characteristic.isNotifying {
-            if self.launchCaptureRotationState == .awaitingResubscription {
-                guard self.enabled,
-                      self.isLaunchReady,
-                      let launchCaptureIngress,
-                      launchCaptureIngress.isLatched,
-                      launchCaptureIngress.hasCommittedBoundary
-                else {
-                    return
-                }
-                guard launchCaptureIngress.rotateAfterCommittedBoundary() else {
-                    self.noteWriterFault()
-                    self.log.error("omi launch capture rotation: generation_rotation_failed")
-                    self.requestLaunchCaptureFlowControl(peripheralID: peripheral.id, characteristic: characteristic)
-                    return
-                }
-                self.launchCaptureRotationState = .none
-                self.synchronizeWriterFaultState()
+            guard self.rotateLaunchCaptureAfterResubscriptionIfNeeded(
+                for: peripheral,
+                characteristic: characteristic
+            ) else {
+                return
             }
             self.isAudioSubscribed = true
             self.audioUnsubscribedWhileConnected = false
@@ -1469,6 +1462,32 @@ private extension OmiSourceManager {
             self.setAudioNotify(enabled: false, characteristic: characteristic)
         }
         self.bluetoothPort.cancelConnection(peripheralID: peripheralID)
+    }
+
+    func rotateLaunchCaptureAfterResubscriptionIfNeeded(
+        for peripheral: OmiPeripheralDescriptor,
+        characteristic: OmiCharacteristicDescriptor?
+    ) -> Bool {
+        guard self.launchCaptureRotationState == .awaitingResubscription else { return true }
+        guard self.connectedPeripheralID == peripheral.id,
+              self.connectionState == .connected,
+              self.enabled,
+              self.isLaunchReady,
+              let launchCaptureIngress,
+              launchCaptureIngress.isLatched,
+              launchCaptureIngress.hasCommittedBoundary
+        else {
+            return false
+        }
+        guard launchCaptureIngress.rotateAfterCommittedBoundary() else {
+            self.noteWriterFault()
+            self.log.error("omi launch capture rotation: generation_rotation_failed")
+            self.requestLaunchCaptureFlowControl(peripheralID: peripheral.id, characteristic: characteristic)
+            return false
+        }
+        self.launchCaptureRotationState = .none
+        self.synchronizeWriterFaultState()
+        return true
     }
 
     func clearAudioState() {

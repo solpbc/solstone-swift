@@ -29,8 +29,10 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/Omi/OmiSourceManager.swift"),
             encoding: .utf8
         )
-        let body = try XCTUnwrap(text.range(of: "func handleAudioData(\n        _ input:"))
-        let captureBody = text[body.lowerBound...]
+        let start = try XCTUnwrap(text.range(of: "func handleAudioData(\n        _ input:"))
+        let remainder = text[start.lowerBound...]
+        let end = remainder.dropFirst().range(of: "\n    func ")?.lowerBound ?? text.endIndex
+        let captureBody = text[start.lowerBound..<end]
         let routePredicate = try XCTUnwrap(captureBody.range(of: "self.audioRoute == .launchCapture"))
         let route = try XCTUnwrap(captureBody.range(of: "launchCaptureIngress.ingest(input)"))
         let captureReturn = try XCTUnwrap(captureBody[route.upperBound...].range(of: "return"))

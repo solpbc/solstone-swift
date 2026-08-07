@@ -41,8 +41,8 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         manager.buildOpusDecoder()
         await manager.openLaunchReadiness()
         let peripheralID = UUID()
-        manager.handleAudioData(Self.marker(packet: 0, epoch: 2_000), peripheralID: peripheralID)
-        manager.handleAudioData(Self.packet(1, index: 0, body: frame), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: frame)), peripheralID: peripheralID)
         let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
         try await harness.engine.initialize()
         let barrier = CutoverBarrier()
@@ -60,15 +60,15 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         )
         let recovery = Task { @MainActor in await coordinator.reconcile() }
         try await transferTestWaitFor("prefix owner gated") { await barrier.waiting() }
-        manager.handleAudioData(Self.packet(2, index: 0, body: frame), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(2, index: 0, body: frame)), peripheralID: peripheralID)
         XCTAssertEqual(decodedHandoffs, 0)
         await barrier.resume()
         await recovery.value
         try await transferTestWaitFor("coordinator cutover") {
             await MainActor.run { manager.lastMarkerDate == Date(timeIntervalSince1970: 2_000) }
         }
-        manager.handleAudioData(Self.packet(3, index: 0, body: frame), peripheralID: peripheralID)
-        manager.handleAudioData(Self.packet(4, index: 0, body: frame), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(3, index: 0, body: frame)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(4, index: 0, body: frame)), peripheralID: peripheralID)
         XCTAssertEqual(decodedHandoffs, 1)
         let capturedCallbackCount: Int
         switch OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation).lease(
@@ -108,8 +108,8 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         let sizeBefore = try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int ?? 0
         let peripheralID = UUID()
         let frame = try Self.opusFrame()
-        manager.handleAudioData(Self.packet(0, index: 0, body: frame), peripheralID: peripheralID)
-        manager.handleAudioData(Self.packet(1, index: 0, body: frame), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(0, index: 0, body: frame)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: frame)), peripheralID: peripheralID)
         XCTAssertEqual(decodedHandoffs, 0)
         XCTAssertGreaterThan(try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int ?? 0, sizeBefore)
     }
@@ -128,7 +128,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
 
         let restarted = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: fileURL), clock: clock, bluetoothPort: MockOmiBluetoothPort())
         restarted.completeLaunchCaptureCutover(markers: markers)
-        restarted.handleAudioData(Self.marker(packet: 0, epoch: 1_001), peripheralID: UUID())
+        restarted.handleAudioData(.payload(Self.marker(packet: 0, epoch: 1_001)), peripheralID: UUID())
         XCTAssertEqual(restarted.diagnostics.payload.pendantRebootEvents?.count, 1)
         XCTAssertEqual(restarted.lastMarkerDate, Date(timeIntervalSince1970: 1_001))
     }
@@ -148,8 +148,8 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         Self.assertRetained(inactiveWriter.append(Self.packet(1, index: 0, body: frame)))
         clock.advance(by: 1)
         let peripheralID = UUID()
-        manager.handleAudioData(Self.marker(packet: 0, epoch: 1_000), peripheralID: peripheralID)
-        manager.handleAudioData(Self.packet(1, index: 0, body: frame), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 1_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: frame)), peripheralID: peripheralID)
 
         let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("transfer", isDirectory: true))
         try await harness.engine.initialize()
@@ -213,8 +213,8 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(snapshots, snapshotsBefore)
         XCTAssertFalse(FileManager.default.fileExists(atPath: reader.cursorURL.path))
         XCTAssertNil(manager.lastMarkerDate)
-        manager.handleAudioData(Self.marker(packet: 2, epoch: 1_000), peripheralID: UUID())
-        manager.handleAudioData(Self.packet(3, index: 0, body: try Self.opusFrame()), peripheralID: UUID())
+        manager.handleAudioData(.payload(Self.marker(packet: 2, epoch: 1_000)), peripheralID: UUID())
+        manager.handleAudioData(.payload(Self.packet(3, index: 0, body: try Self.opusFrame())), peripheralID: UUID())
         XCTAssertEqual(decodedHandoffs, 0)
         XCTAssertNil(manager.lastMarkerDate)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int, sourceSizeBefore)
@@ -227,7 +227,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         )
 
         manager.enable()
-        manager.handleAudioData(Self.packet(4, index: 0, body: try Self.opusFrame()), peripheralID: UUID())
+        manager.handleAudioData(.payload(Self.packet(4, index: 0, body: try Self.opusFrame())), peripheralID: UUID())
         XCTAssertGreaterThan(try FileManager.default.attributesOfItem(atPath: reader.fileURL.path)[.size] as? Int ?? 0, sourceSizeBefore ?? 0)
         XCTAssertEqual(decodedHandoffs, 0)
     }

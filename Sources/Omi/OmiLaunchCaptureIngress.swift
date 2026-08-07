@@ -14,12 +14,10 @@ enum OmiLaunchCaptureIngressInput: Equatable {
 enum OmiLaunchCaptureIngressBoundaryReason: String, Equatable {
     case streamError = "stream_error"
     case invalidValue = "invalid_value"
-    case reservationNotRetained = "reservation_not_retained"
-}
-
-@MainActor
-enum OmiLaunchCaptureIngressNotRetainedReason: String, Equatable {
-    case reservationNotRetained = "reservation_not_retained"
+    case payloadNotRetained = "payload_not_retained"
+    case payloadWriteFailed = "payload_write_failed"
+    case recordTagWriteFailed = "record_tag_write_failed"
+    case commitBarrierFailed = "commit_barrier_failed"
 }
 
 @MainActor
@@ -27,7 +25,7 @@ enum OmiLaunchCaptureIngressResult: Equatable {
     case retainedContiguous
     case boundaryCommitted(reason: OmiLaunchCaptureIngressBoundaryReason)
     case suffixRetainedNoncontiguous
-    case notRetained(reason: OmiLaunchCaptureIngressNotRetainedReason)
+    case notRetained
 }
 
 @MainActor
@@ -86,10 +84,13 @@ final class OmiLaunchCaptureIngress {
     func ingest(_ input: OmiLaunchCaptureIngressInput) -> OmiLaunchCaptureIngressResult {
         guard let writer else {
             self.isLatched = true
-            return .notRetained(reason: .reservationNotRetained)
+            return .notRetained
         }
         switch input {
         case .payload(let payload):
+            if self.isLatched, !self.hasCommittedBoundary {
+                return self.routeReservation(writer.reserveGap(), reason: .payloadNotRetained)
+            }
             return self.routeAppend(writer.append(payload), writer: writer)
         case .streamError:
             return self.routeReservation(writer.reserveGap(), reason: .streamError)
@@ -128,17 +129,17 @@ final class OmiLaunchCaptureIngress {
         case .retained:
             return self.isLatched ? .suffixRetainedNoncontiguous : .retainedContiguous
         case .notRetained:
-            return self.routeReservation(writer.reserveGap(), reason: .reservationNotRetained)
-        case .visibleGap:
+            return self.routeReservation(writer.reserveGap(), reason: .payloadNotRetained)
+        case .visibleGap(_, let reason):
             self.isLatched = true
             self.hasCommittedBoundary = true
-            return .boundaryCommitted(reason: .reservationNotRetained)
+            return .boundaryCommitted(reason: Self.boundaryReason(for: reason))
         case .rejected(let reason):
             if case .pendingSlotOccupied = reason {
-                return self.routeReservation(writer.reserveGap(), reason: .reservationNotRetained)
+                return self.routeReservation(writer.reserveGap(), reason: .payloadNotRetained)
             }
             self.isLatched = true
-            return .notRetained(reason: .reservationNotRetained)
+            return .notRetained
         }
     }
 
@@ -153,7 +154,20 @@ final class OmiLaunchCaptureIngress {
             return .boundaryCommitted(reason: reason)
         case .retained, .notRetained, .rejected:
             self.isLatched = true
-            return .notRetained(reason: .reservationNotRetained)
+            return .notRetained
+        }
+    }
+
+    private static func boundaryReason(for reason: OmiLaunchCaptureGapReason) -> OmiLaunchCaptureIngressBoundaryReason {
+        switch reason {
+        case .payloadWriteFailed:
+            .payloadWriteFailed
+        case .recordTagWriteFailed:
+            .recordTagWriteFailed
+        case .commitBarrierFailed:
+            .commitBarrierFailed
+        case .intentionalGap:
+            .payloadNotRetained
         }
     }
 }
