@@ -267,7 +267,13 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertTrue(cachedDirectEndpoints.contains(.lan(host: "10.0.0.20", port: 7657, scope: "local")))
         XCTAssertTrue(cachedDirectEndpoints.contains(.lan(host: "10.0.0.21", port: 7657, scope: "local")))
 
-        let canary = await Self.actionResult(manager: manager, action: .canary)
+        let clock = MockObserverClock()
+        let canaryTask = Task {
+            await Self.actionResult(manager: manager, action: .canary, clock: clock)
+        }
+        await Self.drainUntil { clock.pendingSleeperCount == 1 }
+        clock.advance(by: 2)
+        let canary = await canaryTask.value
         XCTAssertEqual(canary.verdict, .fail)
         XCTAssertEqual(canary.reasonCode, .noActiveGeneration)
         await manager.disconnect()
@@ -377,9 +383,9 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
 
     private static func actionResult(
         manager: TunnelManager,
-        action: IntegrationGateAction
+        action: IntegrationGateAction,
+        clock: MockObserverClock = MockObserverClock()
     ) async -> IntegrationGateActionRunResult {
-        let clock = MockObserverClock()
         let httpClient = IntegrationGateHTTPClient(
             tunnelManager: manager,
             sessionConfiguration: Self.emptyLocalEndpointsConfiguration(),
@@ -411,6 +417,17 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
             writeRunning: { _ in }
         )
         return await actions.run(manifest: Self.manifest(action: action))
+    }
+
+    private static func drainUntil(
+        timeoutIterations: Int = 200,
+        _ condition: @MainActor () -> Bool
+    ) async {
+        for _ in 0..<timeoutIterations {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("condition did not become true")
     }
 
     private static func cachedLanEndpoints(in cache: EndpointCache) async -> [TransportEndpoint] {
