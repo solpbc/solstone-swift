@@ -427,17 +427,24 @@ final class TunnelManager {
         self.diagnosticLog?.append(category: .tunnel, message: "stage: \(kind.rawValue) cancelled")
     }
 
-    private func markUnfinishedCandidates(_ reason: UnfinishedAttemptReason) {
+    @discardableResult
+    private func markUnfinishedCandidates(_ reason: UnfinishedAttemptReason) -> Bool {
+        var markedAny = false
         for ordinal in self.candidateTelemetry.keys {
-            guard self.candidateTelemetry[ordinal]?.unfinishedReason == nil else { continue }
-            if case .started = self.candidateTelemetry[ordinal]?.phase {
+            guard let candidate = self.candidateTelemetry[ordinal], candidate.unfinishedReason == nil else { continue }
+            switch candidate.phase {
+            case .selected, .failed, .cancelled:
+                continue
+            case .started, .waitingForBroker, .transportReady:
+                markedAny = true
                 self.candidateTelemetry[ordinal]?.unfinishedReason = reason
-                self.diagnosticLog?.append(
-                    category: .tunnel,
-                    message: self.candidateLine(for: ordinal, elapsed: self.elapsedCandidateMilliseconds(ordinal))
-                )
             }
+            self.diagnosticLog?.append(
+                category: .tunnel,
+                message: self.candidateLine(for: ordinal, elapsed: self.elapsedCandidateMilliseconds(ordinal))
+            )
         }
+        return markedAny
     }
 
     private func elapsedCandidateMilliseconds(_ ordinal: Int) -> Int {
@@ -509,8 +516,13 @@ final class TunnelManager {
     private func handleAttemptUpdatesFinished(epoch: UInt64) {
         guard self.isCurrentAttempt(epoch), self.currentTelemetryEpoch == epoch else { return }
         self.markUnfinishedCandidates(.ended)
-        self.telemetryCompleteness = .complete
-        self.diagnosticLog?.append(category: .tunnel, message: "candidate telemetry: complete")
+        let hadUnfinishedCandidate = self.candidateTelemetry.values.contains { $0.unfinishedReason != nil }
+        let hadOmittedCandidate = self.candidateTelemetryTotal > self.candidateTelemetry.count
+        self.telemetryCompleteness = hadUnfinishedCandidate || hadOmittedCandidate ? .unavailable : .complete
+        self.diagnosticLog?.append(
+            category: .tunnel,
+            message: "candidate telemetry: \(self.telemetryCompleteness.rawValue)"
+        )
     }
 
     nonisolated static func candidateCountDetail(_ count: Int) -> String {
@@ -808,6 +820,12 @@ final class TunnelManager {
             message: "disconnected",
             detail: self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch)
         )
+    }
+
+    func reconnectAfterPairingChange() async {
+        await self.disconnect()
+        guard (try? self.loadPairing()) != nil else { return }
+        await self.connect()
     }
 
     func cancelConnect() {
@@ -1168,7 +1186,7 @@ final class TunnelManager {
             let age = max(episode.startedAt.duration(to: now).components.seconds, 0)
             let next: String
             if let deadline = episode.nextCadenceDeadline {
-                next = "\(max(deadline.duration(to: now).components.seconds, 0))s"
+                next = "\(max(now.duration(to: deadline).components.seconds, 0))s"
             } else {
                 next = "unavailable"
             }

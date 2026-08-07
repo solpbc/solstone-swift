@@ -7,6 +7,12 @@ import UIKit
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "ui")
 
+private struct ContentPairingIdentity: Equatable {
+    let instanceID: String
+    let certificateFingerprint: String
+    let pairedAt: Date?
+}
+
 struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
@@ -38,6 +44,15 @@ struct ContentView: View {
             return true
         }
         return false
+    }
+
+    private var pairingIdentity: ContentPairingIdentity? {
+        guard self.appConfig.isPaired else { return nil }
+        return ContentPairingIdentity(
+            instanceID: self.appConfig.deviceID,
+            certificateFingerprint: self.appConfig.caFingerprintHex,
+            pairedAt: self.appConfig.pairedAt
+        )
     }
 
     var body: some View {
@@ -111,8 +126,10 @@ struct ContentView: View {
                 break
             }
         }
-        .onChange(of: self.appConfig.pairedAt) { _, _ in
-            self.startTunnelIfPaired()
+        .onChange(of: self.pairingIdentity) { priorPairing, currentPairing in
+            self.startTunnelIfPaired(
+                replacingExistingPairing: priorPairing != nil && currentPairing != nil
+            )
         }
         .task(id: PairingHandoffPresentation.shouldPresent(
             pairURL: self.pairingHandoff.pairURL,
@@ -292,7 +309,7 @@ private extension ContentView {
         }
     }
 
-    func startTunnelIfPaired() {
+    func startTunnelIfPaired(replacingExistingPairing: Bool = false) {
         let arguments = ProcessInfo.processInfo.arguments
         guard !arguments.contains("--ui-test"),
               !arguments.contains("--integration-test"),
@@ -304,6 +321,13 @@ private extension ContentView {
         }
         self.tunnelManager.startNetworkMonitoring()
         log.info("[solstone-swift] tunnel start check state=\(self.tunnelManager.state)")
+        if replacingExistingPairing {
+            log.info("[solstone-swift] replacing active tunnel pairing")
+            Task {
+                await self.tunnelManager.reconnectAfterPairingChange()
+            }
+            return
+        }
         switch self.tunnelManager.state {
         case .disconnected, .error(.revoked):
             log.info("[solstone-swift] launching connect task")

@@ -166,11 +166,11 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
         await manager.connect()
 
         let didDrainTelemetry = await Self.waitUntil {
-            diagnostics.snapshot(tunnel: manager).contains("candidate telemetry: complete")
+            diagnostics.snapshot(tunnel: manager).contains("candidate telemetry: unavailable")
         }
         XCTAssertTrue(didDrainTelemetry)
         let snapshot = diagnostics.snapshot(tunnel: manager)
-        XCTAssertTrue(snapshot.contains("candidate 0: direct pinned waiting for broker 4ms"))
+        XCTAssertTrue(snapshot.contains("candidate 0: direct pinned unfinished (ended) 4ms"))
         XCTAssertTrue(snapshot.contains("candidate 1: relay failed transport 7ms"))
         XCTAssertTrue(snapshot.contains("candidate 2: direct unpinned selected 11ms"))
         XCTAssertTrue(snapshot.contains("candidate 3: relay cancelled 13ms"))
