@@ -65,7 +65,7 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
         if index == 0xFF {
             guard fragment.count >= 4 else {
                 self.malformed += 1
-                return OmiReassemblyOutput()
+                return OmiReassemblyOutput(discardedStartedFrame: discardedStartedFrame)
             }
 
             let bytes = Array(fragment.prefix(4))
@@ -95,10 +95,12 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
         }
 
         guard self.frameStarted, index == self.expectedNextIndex else {
-            let discardedStartedFrame = self.frameStarted
+            let discardedCurrentFrame = self.frameStarted
             self.outOfOrder += 1
             self.dropInProgressFrame()
-            return OmiReassemblyOutput(discardedStartedFrame: discardedStartedFrame)
+            return OmiReassemblyOutput(
+                discardedStartedFrame: discardedStartedFrame || discardedCurrentFrame
+            )
         }
 
         self.frameBytes.append(contentsOf: fragment)

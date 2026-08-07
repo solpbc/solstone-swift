@@ -119,7 +119,6 @@ final class OmiLaunchCaptureMaterializer {
         var markers: [OmiLaunchCaptureMarkerObservation] = []
         var sampleOffset: UInt64 = 0
         var nextOrdinal = 0
-        var decodeFailures: Set<Int> = []
         var verifiedPrefixEndOffset = position.offset
         var coveredThroughSequence: UInt64?
         var failure: OmiLaunchCaptureMaterializationFailure?
@@ -135,7 +134,7 @@ final class OmiLaunchCaptureMaterializer {
                     break materialization
                 }
                 markers.append(contentsOf: output.markers.map { OmiLaunchCaptureMarkerObservation(epoch: $0.epoch, acquiredAt: acquiredAt, sequence: record.sequence) })
-                if let consumeFailure = self.consume(output.completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence) {
+                if let consumeFailure = self.consume(output.completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence) {
                     failure = consumeFailure
                     break materialization
                 }
@@ -144,7 +143,7 @@ final class OmiLaunchCaptureMaterializer {
             verifiedPrefixEndOffset = lease.endOffset
         }
         if failure == nil {
-            failure = self.consume(reassembler.flushFinalFrame().completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, decodeFailures: &decodeFailures, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence)
+            failure = self.consume(reassembler.flushFinalFrame().completedFrames, current: &current, sampleOffset: &sampleOffset, nextOrdinal: &nextOrdinal, outputs: &outputs, coveredThroughSequence: &coveredThroughSequence)
         }
         if failure == nil, let current, !current.samples.isEmpty {
             switch self.persist(current) {
@@ -157,12 +156,12 @@ final class OmiLaunchCaptureMaterializer {
         return OmiLaunchCaptureMaterializationResult(partitions: outputs, coveredThroughSequence: coveredThroughSequence, failure: failure, markers: markers, verifiedPrefixEndOffset: verifiedPrefixEndOffset, orphanRepairFailures: self.orphanRepairFailures)
     }
 
-    private func consume(_ frames: [OmiReassembledFrame], current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, decodeFailures: inout Set<Int>, outputs: inout [OmiLaunchCaptureMaterializedPartition], coveredThroughSequence: inout UInt64?) -> OmiLaunchCaptureMaterializationFailure? {
+    private func consume(_ frames: [OmiReassembledFrame], current: inout Partition?, sampleOffset: inout UInt64, nextOrdinal: inout Int, outputs: inout [OmiLaunchCaptureMaterializedPartition], coveredThroughSequence: inout UInt64?) -> OmiLaunchCaptureMaterializationFailure? {
         for frame in frames {
             guard let startSequence = frame.startSequence else { continue }
             guard let decoded = decode(frame.data), !decoded.isEmpty else {
                 let ordinal = current?.ordinal ?? nextOrdinal
-                if decodeFailures.insert(ordinal).inserted { self.noteAttention(ordinal, reason: "decode") }
+                self.noteAttention(ordinal, reason: "decode")
                 return OmiLaunchCaptureMaterializationFailure(partitionOrdinal: ordinal, reason: "decode")
             }
             if let currentPartition = current,

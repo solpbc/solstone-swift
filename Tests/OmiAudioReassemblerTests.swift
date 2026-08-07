@@ -87,6 +87,24 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
         XCTAssertFalse(final.flushFinalFrame().discardedStartedFrame)
     }
 
+    func testContinuationPacketDiscontinuitySignalsDroppedStartedFrame() {
+        var reassembler = OmiAudioReassembler()
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast, recordSequence: 0)
+
+        let output = reassembler.ingest(Self.packet(2, index: 1, payload: Data("continuation".utf8)), acquiredAt: .distantFuture, recordSequence: 1)
+
+        XCTAssertTrue(output.discardedStartedFrame)
+    }
+
+    func testMalformedMarkerPacketDiscontinuitySignalsDroppedStartedFrame() {
+        var reassembler = OmiAudioReassembler()
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast, recordSequence: 0)
+
+        let output = reassembler.ingest(Self.packet(2, index: 0xFF, payload: Data([0, 0, 0])), acquiredAt: .distantFuture, recordSequence: 1)
+
+        XCTAssertTrue(output.discardedStartedFrame)
+    }
+
     private static func packet(_ packetNumber: UInt16, index: UInt8, payload: Data) -> Data {
         var data = Data([
             UInt8(packetNumber & 0x00FF),

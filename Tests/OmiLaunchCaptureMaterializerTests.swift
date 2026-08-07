@@ -299,6 +299,29 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         XCTAssertEqual(result.failure?.reason, "reassembly-discarded-frame")
     }
 
+    func testContinuationPacketGapStopsBeforeLaterFrame() {
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generation, clock: clock)
+        for (packet, index) in [(0, UInt8(0)), (1, 0), (2, 0), (4, 1), (5, 0), (6, 0)] {
+            Self.append(Self.packet(UInt16(packet), index: index, body: Data([UInt8(packet)])), to: writer)
+            clock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
+        }
+        let store = MaterializedSamples()
+
+        let result = OmiLaunchCaptureMaterializer(
+            rootURL: rootURL,
+            generationID: generation,
+            makeWriter: { RecordingOmiAACChunkWriter(store: store) },
+            decode: { _ in [1] }
+        ).materialize()
+
+        XCTAssertEqual(result.partitions.count, 1)
+        XCTAssertEqual(result.coveredThroughSequence, 0)
+        XCTAssertEqual(result.failure, OmiLaunchCaptureMaterializationFailure(partitionOrdinal: 1, reason: "reassembly-discarded-frame"))
+        XCTAssertEqual(store.chunks, [[1]])
+    }
+
     func testRemovingFailureReconvergesABCExactlyOnceWithStableIdentities() {
         let generation = UUID()
         let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000))
