@@ -26,7 +26,7 @@ final class WatchCaptureTests: XCTestCase {
     func testRolloverKeepsAudioSessionActiveUntilOwnerStop() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.clock.advance(by: 300)
         await self.drain(until: { harness.recorder.startURLs.count == 2 })
@@ -34,7 +34,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.recorder.startURLs.count, 2)
         XCTAssertFalse(harness.audioSession.setActiveCalls.contains(false))
 
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         XCTAssertEqual(harness.audioSession.setActiveCalls, [true, false])
     }
@@ -42,7 +42,7 @@ final class WatchCaptureTests: XCTestCase {
     func testClockRolloverFinalizesCurrentSegmentAndOpensNext() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.clock.advance(by: 300)
         await self.drain(until: {
@@ -67,7 +67,7 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } && self.pendingSleeperCount(in: harness.clock) >= 2 })
         let initial = try XCTUnwrap(statuses.last)
         harness.clock.advance(by: 15)
@@ -88,7 +88,7 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } && self.pendingSleeperCount(in: harness.clock) >= 2 })
         let initial = try XCTUnwrap(statuses.last)
         statuses.removeAll()
@@ -175,9 +175,9 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         XCTAssertEqual(statuses.first?.phase, .observing)
         XCTAssertEqual(statuses.suffix(2).map(\.phase), [.stopping, .idle])
@@ -194,7 +194,7 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         statuses.removeAll()
         harness.clock.advance(by: 300)
@@ -211,7 +211,7 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         statuses.removeAll()
         harness.notificationCenter.post(
@@ -247,7 +247,7 @@ final class WatchCaptureTests: XCTestCase {
             sensors: [.audio]
         )
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let published = try XCTUnwrap(statuses.last)
         XCTAssertEqual(statuses.count, 1)
@@ -282,7 +282,7 @@ final class WatchCaptureTests: XCTestCase {
             sensors: [.audio]
         )
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let published = try XCTUnwrap(statuses.last)
         XCTAssertEqual(statuses.count, 1)
@@ -298,7 +298,7 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let published = try XCTUnwrap(statuses.last)
         XCTAssertEqual(statuses.count, 1)
@@ -314,7 +314,7 @@ final class WatchCaptureTests: XCTestCase {
             statuses.append(status)
         }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let published = try XCTUnwrap(statuses.last)
         XCTAssertEqual(statuses.count, 1)
@@ -328,7 +328,7 @@ final class WatchCaptureTests: XCTestCase {
     func testStartRefusesWhenMicrophoneDeniedWithoutWritingSegmentAndPresentationRoutesToSettings() async throws {
         let harness = try self.makeHarness(audioPermission: false, locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         XCTAssertTrue(try harness.storage.scanManifests().isEmpty)
         XCTAssertEqual(harness.engine.ownerPresentation.queuedCount, 0)
@@ -342,7 +342,7 @@ final class WatchCaptureTests: XCTestCase {
     func testDeniedMicrophoneDoesNotRequestPermissionPrompt() async throws {
         let harness = try self.makeHarness(audioPermission: false, locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         XCTAssertEqual(harness.recorder.requestPermissionCallCount, 0)
         XCTAssertTrue(harness.audioSession.setActiveCalls.isEmpty)
@@ -354,14 +354,14 @@ final class WatchCaptureTests: XCTestCase {
             locationAuthorization: .authorized
         )
         notDetermined.recorder.requestPermissionResult = .denied
-        await notDetermined.engine.start()
+        notDetermined.engine.start(); await notDetermined.engine.settled()
 
         let denied = try self.makeHarness(audioPermission: false, locationAuthorization: .authorized)
-        await denied.engine.start()
+        denied.engine.start(); await denied.engine.settled()
 
         let armFailure = try self.makeHarness(locationAuthorization: .authorized)
         armFailure.recorder.startError = ObserverError.unavailable(reason: "audio unavailable")
-        await armFailure.engine.start()
+        armFailure.engine.start(); await armFailure.engine.settled()
 
         XCTAssertEqual(notDetermined.engine.ownerPresentation.startRefusalReason, .microphonePermissionNotDetermined)
         XCTAssertEqual(denied.engine.ownerPresentation.startRefusalReason, .microphonePermissionDenied)
@@ -375,7 +375,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationCenter.post(
             name: AVAudioSession.interruptionNotification,
@@ -399,14 +399,14 @@ final class WatchCaptureTests: XCTestCase {
         )
         started.notificationScheduler.requestAuthorizationResult = .authorized
 
-        await started.engine.start()
+        started.engine.start(); await started.engine.settled()
 
         XCTAssertEqual(started.notificationScheduler.calls.filter { $0 == .requestAuthorization }.count, 1)
 
         let detected = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
         detected.engine.onPublishStatus = { statuses.append($0) }
-        await detected.engine.start()
+        detected.engine.start(); await detected.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         detected.notificationScheduler.calls.removeAll()
         detected.notificationScheduler.authorizationStatusValue = .notDetermined
@@ -432,7 +432,7 @@ final class WatchCaptureTests: XCTestCase {
         )
         try reconciled.storage.writeSessionRecord(record)
 
-        await reconciled.engine.reconcileOnLaunch()
+        reconciled.engine.reconcileOnLaunch(); await reconciled.engine.settled()
 
         XCTAssertEqual(reconciled.notificationScheduler.calls.filter { $0 == .requestAuthorization }.count, 0)
     }
@@ -445,7 +445,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationCenter.post(
             name: AVAudioSession.interruptionNotification,
@@ -472,23 +472,23 @@ final class WatchCaptureTests: XCTestCase {
         )
 
         let enabled = try self.makeHarness(locationAuthorization: .denied)
-        await enabled.engine.start()
+        enabled.engine.start(); await enabled.engine.settled()
         XCTAssertEqual(enabled.engine.ownerPresentation.wristAlertAssurance, .willTap)
 
         let disabled = try self.makeHarness(
             locationAuthorization: .denied,
             notificationAlertSetting: .disabled
         )
-        await disabled.engine.start()
+        disabled.engine.start(); await disabled.engine.settled()
         XCTAssertEqual(disabled.engine.ownerPresentation.wristAlertAssurance, .alertsOff)
     }
 
     func testCleanOwnerStopRemovesLeaseWithoutSubmittingNotice() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         let callsBeforeStop = harness.notificationScheduler.calls
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         XCTAssertTrue(callsBeforeStop.allSatisfy { call in
             call != .removePending(identifier: WatchNoticeIdentifiers.lease)
@@ -504,7 +504,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationScheduler.calls.removeAll()
         harness.notificationCenter.post(
@@ -535,7 +535,7 @@ final class WatchCaptureTests: XCTestCase {
             triggerDate: oldDeadline
         )
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         let lease = try XCTUnwrap(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
         XCTAssertEqual(harness.notificationScheduler.pendingRequests.filter {
@@ -561,7 +561,7 @@ final class WatchCaptureTests: XCTestCase {
             triggerDate: Date(timeIntervalSince1970: 1_713_624_123)
         )
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         XCTAssertNotNil(harness.notificationScheduler.calls.firstIndex(
             of: .removePending(identifier: WatchNoticeIdentifiers.lease)
@@ -574,9 +574,9 @@ final class WatchCaptureTests: XCTestCase {
         let fileWriter = FailingWatchFileWriter(failAppend: false)
         let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: fileWriter)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         fileWriter.failAtomicReplace = true
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
         XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
@@ -587,7 +587,7 @@ final class WatchCaptureTests: XCTestCase {
         let counterURL = harness.storage.rootURL.appendingPathComponent(WatchCaptureSessionHistoryStore.counterFileName)
         try harness.storage.fileWriter.atomicReplaceFile(at: counterURL, with: Data("bad counter".utf8))
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
         XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
@@ -600,7 +600,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         statuses.removeAll()
         harness.audioSession.hasSuitableInput = false
@@ -616,7 +616,7 @@ final class WatchCaptureTests: XCTestCase {
         let lost = try self.makeHarness(locationAuthorization: .denied)
         var lostStatuses: [WatchStatusContext] = []
         lost.engine.onPublishStatus = { lostStatuses.append($0) }
-        await lost.engine.start()
+        lost.engine.start(); await lost.engine.settled()
         await self.drain(until: { lostStatuses.contains { $0.phase == .observing } })
         lostStatuses.removeAll()
         lost.notificationCenter.post(name: AVAudioSession.mediaServicesWereLostNotification, object: nil)
@@ -625,7 +625,7 @@ final class WatchCaptureTests: XCTestCase {
         let reset = try self.makeHarness(locationAuthorization: .denied)
         var resetStatuses: [WatchStatusContext] = []
         reset.engine.onPublishStatus = { resetStatuses.append($0) }
-        await reset.engine.start()
+        reset.engine.start(); await reset.engine.settled()
         await self.drain(until: { resetStatuses.contains { $0.phase == .observing } })
         resetStatuses.removeAll()
         reset.notificationCenter.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
@@ -639,7 +639,7 @@ final class WatchCaptureTests: XCTestCase {
         let finished = try self.makeHarness(locationAuthorization: .denied)
         var finishedStatuses: [WatchStatusContext] = []
         finished.engine.onPublishStatus = { finishedStatuses.append($0) }
-        await finished.engine.start()
+        finished.engine.start(); await finished.engine.settled()
         await self.drain(until: { finishedStatuses.contains { $0.phase == .observing } })
         finishedStatuses.removeAll()
         finished.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
@@ -648,7 +648,7 @@ final class WatchCaptureTests: XCTestCase {
         let encoded = try self.makeHarness(locationAuthorization: .denied)
         var encodedStatuses: [WatchStatusContext] = []
         encoded.engine.onPublishStatus = { encodedStatuses.append($0) }
-        await encoded.engine.start()
+        encoded.engine.start(); await encoded.engine.settled()
         await self.drain(until: { encodedStatuses.contains { $0.phase == .observing } })
         encodedStatuses.removeAll()
         encoded.recorder.eventSink?.audioRecorderEncodeError(nil)
@@ -662,7 +662,7 @@ final class WatchCaptureTests: XCTestCase {
         let stopped = try self.makeHarness(locationAuthorization: .denied)
         var stoppedStatuses: [WatchStatusContext] = []
         stopped.engine.onPublishStatus = { stoppedStatuses.append($0) }
-        await stopped.engine.start()
+        stopped.engine.start(); await stopped.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: stopped.clock) >= 2 })
         stopped.recorder.isRecording = false
         stopped.clock.advance(by: 15)
@@ -671,7 +671,7 @@ final class WatchCaptureTests: XCTestCase {
         let stalled = try self.makeHarness(locationAuthorization: .denied)
         var stalledStatuses: [WatchStatusContext] = []
         stalled.engine.onPublishStatus = { stalledStatuses.append($0) }
-        await stalled.engine.start()
+        stalled.engine.start(); await stalled.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: stalled.clock) >= 2 })
         stalled.recorder.currentTime = 5
         stalled.clock.advance(by: 15)
@@ -691,7 +691,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         statuses.removeAll()
         harness.notificationScheduler.calls.removeAll()
@@ -716,9 +716,9 @@ final class WatchCaptureTests: XCTestCase {
 
     func testTerminalHistorySurvivesRelaunchAndReconcileWritesProcessDeathEntry() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
         let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
         guard case let .available(stopped) = history.read(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
         XCTAssertEqual(stopped.count, 1)
@@ -742,7 +742,7 @@ final class WatchCaptureTests: XCTestCase {
             notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(), notificationCenter: NotificationCenter()
         )
-        await relaunch.reconcileOnLaunch()
+        relaunch.reconcileOnLaunch(); await relaunch.settled()
         guard case let .available(reconciled) = history.read(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
         let entry = try XCTUnwrap(reconciled.first { $0.sessionID == "process-death" })
         XCTAssertEqual(entry.terminalReason, .processExitedWhileActive)
@@ -754,7 +754,7 @@ final class WatchCaptureTests: XCTestCase {
         let harness = try self.makeHarness(
             locationAuthorization: .denied, notificationAuthorizationStatus: .denied, notificationAlertSetting: .disabled
         )
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.notificationCenter.post(name: AVAudioSession.interruptionNotification, object: nil,
             userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
@@ -771,7 +771,7 @@ final class WatchCaptureTests: XCTestCase {
 
     func testLeaseRenewsOnlyForPositiveDecodableFinalizedAudio() async throws {
         let decodable = try self.makeHarness(locationAuthorization: .denied)
-        await decodable.engine.start()
+        decodable.engine.start(); await decodable.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: decodable.clock) >= 2 })
         decodable.notificationScheduler.calls.removeAll()
         decodable.clock.advance(by: 300)
@@ -779,7 +779,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(decodable.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.lease).count, 1)
 
         let zeroLength = try self.makeHarness(locationAuthorization: .denied)
-        await zeroLength.engine.start()
+        zeroLength.engine.start(); await zeroLength.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: zeroLength.clock) >= 2 })
         let zeroAudioURL = try XCTUnwrap(zeroLength.recorder.url)
         zeroLength.audioProbe.durations[zeroAudioURL.path] = 0
@@ -789,7 +789,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(zeroLength.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.lease).count, 0)
 
         let undecodable = try self.makeHarness(locationAuthorization: .denied)
-        await undecodable.engine.start()
+        undecodable.engine.start(); await undecodable.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: undecodable.clock) >= 2 })
         let undecodableAudioURL = try XCTUnwrap(undecodable.recorder.url)
         undecodable.audioProbe.durations[undecodableAudioURL.path] = .some(nil)
@@ -802,7 +802,7 @@ final class WatchCaptureTests: XCTestCase {
     func testAppendFixInCallbackDurablyWritesBeforeFinalize() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         let first = Self.fix(time: Date(timeIntervalSince1970: 1_713_624_010))
         let second = Self.fix(time: Date(timeIntervalSince1970: 1_713_624_020), lat: 39.8)
         harness.locationProvider.emitFix(first)
@@ -819,10 +819,10 @@ final class WatchCaptureTests: XCTestCase {
     func testFinalizeRewritesHeaderFromDurableFixLog() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix())
         harness.locationProvider.emitFix(Self.fix(lat: 39.8))
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let entry = try XCTUnwrap(harness.storage.scanManifests().first)
         let header = try XCTUnwrap(self.jsonLines(at: harness.storage.locationURL(directory: entry.directoryURL)).first)
@@ -836,28 +836,28 @@ final class WatchCaptureTests: XCTestCase {
 
     func testNotArmedStationaryCarryForwardAndStalledGapAreDistinct() async throws {
         let notArmed = try self.makeHarness(audioPermission: true, locationAuthorization: .denied)
-        await notArmed.engine.start()
-        await notArmed.engine.stop()
+        notArmed.engine.start(); await notArmed.engine.settled()
+        notArmed.engine.stop(); await notArmed.engine.settled()
         let notArmedEntry = try XCTUnwrap(notArmed.storage.scanManifests().first)
         XCTAssertFalse(notArmedEntry.manifest.sensors.contains(.location))
         XCTAssertFalse(notArmed.storage.fileWriter.fileExists(at: notArmed.storage.locationURL(directory: notArmedEntry.directoryURL)))
 
         let stalled = try self.makeHarness(locationAuthorization: .authorized)
-        await stalled.engine.start()
-        await stalled.engine.stop()
+        stalled.engine.start(); await stalled.engine.settled()
+        stalled.engine.stop(); await stalled.engine.settled()
         let stalledManifest = try XCTUnwrap(stalled.storage.scanManifests().first?.manifest)
         XCTAssertEqual(stalledManifest.fixCount, 0)
         XCTAssertTrue(stalledManifest.gap)
 
         let stationary = try self.makeHarness(locationAuthorization: .authorized)
-        await stationary.engine.start()
+        stationary.engine.start(); await stationary.engine.settled()
         stationary.locationProvider.emitFix(Self.fix())
         await self.drain(until: { self.pendingSleeperCount(in: stationary.clock) >= 2 })
         stationary.clock.advance(by: 300)
         await self.drain(until: {
             (try? stationary.storage.scanManifests().count) == 2
         })
-        await stationary.engine.stop()
+        stationary.engine.stop(); await stationary.engine.settled()
         let entries = try stationary.storage.scanManifests()
         let locationLines = try entries.flatMap { entry in
             try self.jsonLines(at: stationary.storage.locationURL(directory: entry.directoryURL))
@@ -880,7 +880,7 @@ final class WatchCaptureTests: XCTestCase {
         try Data("aac".utf8).write(to: audioURL)
         harness.audioProbe.durations[audioURL.path] = 12.3
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let manifest = try XCTUnwrap(harness.storage.scanManifests().first?.manifest)
         XCTAssertEqual(manifest.state, .queued)
@@ -901,7 +901,7 @@ final class WatchCaptureTests: XCTestCase {
         try Data().write(to: audioURL)
         harness.audioProbe.durations[audioURL.path] = .some(nil)
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let entry = try XCTUnwrap(harness.storage.scanManifests().first)
         XCTAssertEqual(entry.manifest.state, .queued)
@@ -913,11 +913,11 @@ final class WatchCaptureTests: XCTestCase {
     func testFinalizeProbeMarksUndecodableAudioLost() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix())
         let audioURL = try XCTUnwrap(harness.recorder.url)
         harness.audioProbe.durations[audioURL.path] = .some(nil)
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let entry = try XCTUnwrap(harness.storage.scanManifests().first)
         XCTAssertEqual(entry.manifest.state, .queued)
@@ -930,10 +930,10 @@ final class WatchCaptureTests: XCTestCase {
     func testDecodableNonZeroAudioFinalizesHealthyWithoutLostPartial() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         let audioURL = try XCTUnwrap(harness.recorder.url)
         harness.audioProbe.durations[audioURL.path] = 123
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let manifest = try XCTUnwrap(harness.storage.scanManifests().first?.manifest)
         XCTAssertEqual(manifest.state, .queued)
@@ -947,7 +947,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix())
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.recorder.startError = ObserverError.unavailable(reason: "audio unavailable")
@@ -969,7 +969,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix())
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.recorder.microphonePermission = .denied
@@ -991,9 +991,9 @@ final class WatchCaptureTests: XCTestCase {
     func testElapsedLocationCoverageSegmentIsNeverDiscarded() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix())
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let entries = try harness.storage.scanManifests()
         XCTAssertEqual(entries.count, 1)
@@ -1008,13 +1008,13 @@ final class WatchCaptureTests: XCTestCase {
             fileWriter: fileWriter
         )
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix())
         let degraded = harness.engine.ownerPresentation
         XCTAssertEqual(degraded.status, .active)
         XCTAssertEqual(degraded.locationAdvisory, .writeFailed)
         XCTAssertTrue(degraded.isSessionRunning)
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let presentation = harness.engine.ownerPresentation
         XCTAssertEqual(presentation.status, .off)
@@ -1029,7 +1029,7 @@ final class WatchCaptureTests: XCTestCase {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
         harness.recorder.startError = ObserverError.unavailable(reason: "audio unavailable")
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         XCTAssertEqual(
             harness.engine.ownerPresentation.status,
@@ -1069,7 +1069,7 @@ final class WatchCaptureTests: XCTestCase {
             fileWriter: FailingWatchFileWriter(failAppend: true)
         )
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.locationProvider.emitFix(Self.fix())
         harness.clock.advance(by: 300)
@@ -1085,7 +1085,7 @@ final class WatchCaptureTests: XCTestCase {
     func testLocationAuthorizationLossKeepsAudioRunningAndFlagsLocationCoverage() async throws {
         let harness = try self.makeHarness(audioPermission: true, locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         harness.locationProvider.emitAuthorization(.denied)
         harness.clock.advance(by: 300)
@@ -1102,12 +1102,12 @@ final class WatchCaptureTests: XCTestCase {
     func testLocationCoverageClearsOnlyAfterSuccessfulFixAppend() async throws {
         let harness = try self.makeHarness(audioPermission: true, locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFailure(NSError(domain: "WatchCaptureTests.location", code: 1))
         XCTAssertEqual(harness.engine.ownerPresentation.locationAdvisory, .providerFailed)
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
         XCTAssertEqual(harness.engine.ownerPresentation.locationAdvisory, .providerFailed)
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         XCTAssertEqual(harness.engine.ownerPresentation.locationAdvisory, .providerFailed)
         harness.locationProvider.emitFix(Self.fix())
         XCTAssertNil(harness.engine.ownerPresentation.locationAdvisory)
@@ -1119,15 +1119,15 @@ final class WatchCaptureTests: XCTestCase {
             locationAuthorization: .authorized,
             fileWriter: FailingWatchFileWriter(failAppend: true)
         )
-        await writeFailure.engine.start()
+        writeFailure.engine.start(); await writeFailure.engine.settled()
         writeFailure.locationProvider.emitFix(Self.fix())
 
         let authorization = try self.makeHarness(audioPermission: true, locationAuthorization: .authorized)
-        await authorization.engine.start()
+        authorization.engine.start(); await authorization.engine.settled()
         authorization.locationProvider.emitAuthorization(.denied)
 
         let provider = try self.makeHarness(audioPermission: true, locationAuthorization: .authorized)
-        await provider.engine.start()
+        provider.engine.start(); await provider.engine.settled()
         provider.locationProvider.emitFailure(NSError(domain: "WatchCaptureTests.location", code: 1))
 
         XCTAssertEqual(writeFailure.engine.ownerPresentation.status, .active)
@@ -1141,8 +1141,8 @@ final class WatchCaptureTests: XCTestCase {
     func testOwnerStopFinalizesCurrentSegmentAndDeactivatesSessionOnce() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
 
-        await harness.engine.start()
-        await harness.engine.stop()
+        harness.engine.start(); await harness.engine.settled()
+        harness.engine.stop(); await harness.engine.settled()
 
         XCTAssertEqual(harness.audioSession.setActiveCalls, [true, false])
         let manifest = try XCTUnwrap(harness.storage.scanManifests().first?.manifest)
@@ -1162,7 +1162,7 @@ final class WatchCaptureTests: XCTestCase {
         try Data("aac".utf8).write(to: audioURL)
         harness.audioProbe.durations[audioURL.path] = 42
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertTrue(harness.recorder.startURLs.isEmpty)
         XCTAssertTrue(harness.audioSession.setActiveCalls.isEmpty)
@@ -1173,7 +1173,7 @@ final class WatchCaptureTests: XCTestCase {
         let fileWriter = FailingWatchFileWriter(failAppend: false)
         let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: fileWriter)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
 
         let recordURL = harness.storage.sessionRecordURL()
         XCTAssertTrue(fileWriter.atomicReplaceURLs.contains(recordURL))
@@ -1185,9 +1185,9 @@ final class WatchCaptureTests: XCTestCase {
         let fileWriter = FailingWatchFileWriter(failAppend: false)
         let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: fileWriter)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         fileWriter.failAtomicReplace = true
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
         XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
@@ -1211,7 +1211,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertEqual(statuses.last?.audioTerminalReason, .processExitedWhileActive)
         XCTAssertEqual(statuses.last?.audioTerminalDisposition, .inferredStoppedItself)
@@ -1226,12 +1226,12 @@ final class WatchCaptureTests: XCTestCase {
         harness.engine.onPublishStatus = { statuses.append($0) }
         harness.engine.onPresentationChanged = { presentations.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         statuses.removeAll()
         presentations.removeAll()
         fileWriter.failWriteData = true
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let record = try XCTUnwrap(try harness.storage.readSessionRecord())
         XCTAssertEqual(record.terminalReason, .ownerStopped)
@@ -1251,7 +1251,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         fileWriter.failAtomicReplace = true
         harness.notificationCenter.post(
@@ -1272,7 +1272,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationScheduler.addError = NSError(domain: "WatchCaptureTests.notification", code: 1)
         harness.notificationCenter.post(
@@ -1295,7 +1295,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationCenter.post(
             name: AVAudioSession.interruptionNotification,
@@ -1321,7 +1321,7 @@ final class WatchCaptureTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        await relaunchEngine.reconcileOnLaunch()
+        relaunchEngine.reconcileOnLaunch(); await relaunchEngine.settled()
 
         XCTAssertEqual(relaunchScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 0)
     }
@@ -1335,7 +1335,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertEqual(statuses.last?.audioTerminalReason, .processExitedWhileActive)
         XCTAssertEqual(statuses.last?.audioTerminalDisposition, .inferredStoppedItself)
@@ -1367,7 +1367,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertEqual(statuses.last?.sessionID, "session-1")
         XCTAssertEqual(statuses.last?.audioTerminalReason, .processExitedWhileActive)
@@ -1399,7 +1399,7 @@ final class WatchCaptureTests: XCTestCase {
         )
         try harness.storage.writeSessionRecord(record)
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
     }
@@ -1419,7 +1419,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertNotEqual(statuses.last?.audioTerminalDisposition, .inferredStoppedItself)
         XCTAssertEqual(try harness.storage.readSessionRecord()?.noticeOwed, false)
@@ -1430,7 +1430,7 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         XCTAssertNil(statuses.last?.audioTerminalReason)
         XCTAssertNil(statuses.last?.audioTerminalDisposition)
@@ -1453,12 +1453,12 @@ final class WatchCaptureTests: XCTestCase {
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
         let afterFirst = try XCTUnwrap(try harness.storage.readSessionRecord())
         let noticeCountAfterFirst = harness.notificationScheduler.submittedRequests.filter {
             $0.identifier == WatchNoticeIdentifiers.notice
         }.count
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
         let afterSecond = try XCTUnwrap(try harness.storage.readSessionRecord())
         let noticeCountAfterSecond = harness.notificationScheduler.submittedRequests.filter {
             $0.identifier == WatchNoticeIdentifiers.notice
@@ -1490,7 +1490,7 @@ final class WatchCaptureTests: XCTestCase {
         )
         try harness.storage.writeSessionRecord(record)
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let afterReconcile = try XCTUnwrap(try harness.storage.readSessionRecord())
         XCTAssertEqual(afterReconcile.terminalReason, .processExitedWhileActive)
@@ -1510,10 +1510,10 @@ final class WatchCaptureTests: XCTestCase {
         try harness.storage.writeSessionRecord(record)
         let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
         harness.notificationScheduler.onAddCallback = {
-            await harness.engine.start()
+            harness.engine.start()
         }
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         guard case let .available(entries) = history.read(asOf: terminalAt) else { return XCTFail("history unreadable") }
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.sessionID, $0) })
@@ -1529,6 +1529,543 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertNil(concurrent.noticeDelivered)
     }
 
+    func testStartThenStopBeforePumpHasNoStartEffects() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+
+        harness.engine.start()
+        harness.engine.stop()
+        await harness.engine.settled()
+
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        XCTAssertTrue(harness.recorder.startURLs.isEmpty)
+        XCTAssertTrue(harness.audioSession.setActiveCalls.isEmpty)
+        XCTAssertEqual(harness.locationProvider.startCallCount, 0)
+        XCTAssertNil(try harness.storage.readSessionRecord())
+        XCTAssertTrue(try harness.storage.scanManifests().isEmpty)
+        XCTAssertEqual(history.read(asOf: harness.clock.now()), .available([]))
+        XCTAssertNil(history.readCounter())
+        XCTAssertEqual(self.pendingSleeperCount(in: harness.clock), 0)
+        XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+    }
+
+    func testNewStartAfterStopBeginsFreshSession() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        harness.engine.start(); await harness.engine.settled()
+        let first = try XCTUnwrap(try harness.storage.readSessionRecord())
+
+        harness.engine.stop()
+        harness.engine.start()
+        await harness.engine.settled()
+
+        let current = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertNotEqual(current.sessionID, first.sessionID)
+        XCTAssertEqual(current.state, .active)
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        guard case let .available(entries) = history.read(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        XCTAssertEqual(entries.first { $0.sessionID == first.sessionID }?.terminalReason, .ownerStopped)
+        XCTAssertEqual(entries.filter { $0.sessionID == current.sessionID }.count, 1)
+    }
+
+    func testOverlappingStartsAtPermissionGateBeginExactlyOneCapture() async throws {
+        let harness = try self.makeHarness(
+            microphonePermission: .notDetermined,
+            locationAuthorization: .authorized
+        )
+        let gate = WatchCaptureHoldGate()
+        harness.recorder.requestPermissionGate = gate
+        harness.recorder.requestPermissionResult = .granted
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        harness.engine.start()
+        harness.recorder.requestPermissionGate = nil
+        await gate.release()
+        await harness.engine.settled()
+
+        let current = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(current.state, .active)
+        XCTAssertEqual(harness.recorder.startURLs.count, 1)
+        XCTAssertEqual(harness.locationProvider.startCallCount, 1)
+        XCTAssertEqual(try harness.storage.scanManifests().count, 1)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        XCTAssertEqual(history.readCounter()?.lifetimeSessionsStarted, 1)
+        guard case let .available(entries) = history.read(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        XCTAssertEqual(entries.filter { $0.sessionID == current.sessionID }.count, 1)
+    }
+
+    func testPermissionGateSuspendsAndSupersededStartTerminalizesMintedSession() async throws {
+        let harness = try self.makeHarness(
+            microphonePermission: .notDetermined,
+            locationAuthorization: .authorized
+        )
+        let gate = WatchCaptureHoldGate()
+        harness.recorder.requestPermissionGate = gate
+        harness.recorder.requestPermissionResult = .granted
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        let permissionWaiting = await gate.waiting()
+        XCTAssertTrue(permissionWaiting)
+
+        harness.engine.stop()
+        await gate.release()
+        await harness.engine.settled()
+
+        let abandoned = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(abandoned.terminalReason, .ownerStopped)
+        XCTAssertEqual(abandoned.terminalDisposition, .ownerStopped)
+        XCTAssertNotNil(abandoned.terminalAt)
+        XCTAssertFalse(abandoned.noticeOwed)
+        XCTAssertEqual(harness.recorder.startURLs.count, 0)
+        XCTAssertFalse(harness.audioSession.setActiveCalls.contains(true))
+        XCTAssertEqual(harness.locationProvider.startCallCount, 0)
+        XCTAssertNil(harness.engine.ownerPresentation.startRefusalReason)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+
+        harness.recorder.requestPermissionGate = nil
+        harness.engine.start()
+        await harness.engine.settled()
+        let fresh = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertNotEqual(fresh.sessionID, abandoned.sessionID)
+        XCTAssertEqual(fresh.state, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+    }
+
+    func testNotificationGatesSuspendAtEveryOwnerStartAwait() async throws {
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            notificationAuthorizationStatus: .notDetermined
+        )
+        harness.notificationScheduler.requestAuthorizationResult = .authorized
+        let authorization = WatchCaptureHoldGate()
+        let request = WatchCaptureHoldGate()
+        let alert = WatchCaptureHoldGate()
+        let add = WatchCaptureHoldGate()
+        harness.notificationScheduler.authorizationStatusGate = authorization
+        harness.notificationScheduler.requestAuthorizationGate = request
+        harness.notificationScheduler.alertSettingGate = alert
+        harness.notificationScheduler.addGate = add
+
+        harness.engine.start()
+        await self.waitForGate(authorization)
+        let authorizationWaiting = await authorization.waiting()
+        XCTAssertTrue(authorizationWaiting)
+        await authorization.release()
+        harness.notificationScheduler.authorizationStatusGate = nil
+
+        await self.waitForGate(request)
+        let requestWaiting = await request.waiting()
+        XCTAssertTrue(requestWaiting)
+        await request.release()
+        harness.notificationScheduler.requestAuthorizationGate = nil
+
+        await self.waitForGate(alert)
+        let alertWaiting = await alert.waiting()
+        XCTAssertTrue(alertWaiting)
+        await alert.release()
+        harness.notificationScheduler.alertSettingGate = nil
+
+        await self.waitForGate(add)
+        let addWaiting = await add.waiting()
+        XCTAssertTrue(addWaiting)
+        await add.release()
+        await harness.engine.settled()
+
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+    }
+
+    func testNotificationGateSupersededStartCannotArmResources() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.authorizationStatusGate = gate
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        let waiting = await gate.waiting()
+        XCTAssertTrue(waiting)
+        harness.engine.stop()
+        await gate.release()
+        await harness.engine.settled()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .ownerStopped)
+        XCTAssertEqual(record.terminalDisposition, .ownerStopped)
+        XCTAssertNotNil(record.terminalAt)
+        XCTAssertFalse(record.noticeOwed)
+        XCTAssertTrue(harness.recorder.startURLs.isEmpty)
+        XCTAssertFalse(harness.audioSession.setActiveCalls.contains(true))
+        XCTAssertEqual(harness.locationProvider.startCallCount, 0)
+        XCTAssertNil(harness.engine.ownerPresentation.startRefusalReason)
+    }
+
+    func testReconcileNoticeGateDefersStartUntilTerminalFactsSettle() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        let prior = WatchCaptureSessionRecord(
+            sessionID: "reconcile-prior",
+            startedAt: harness.clock.now().addingTimeInterval(-30),
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try harness.storage.writeSessionRecord(prior)
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+
+        harness.engine.reconcileOnLaunch()
+        await self.waitForGate(gate)
+        let waiting = await gate.waiting()
+        XCTAssertTrue(waiting)
+        harness.engine.start()
+        XCTAssertTrue(harness.recorder.startURLs.isEmpty)
+
+        harness.notificationScheduler.addGate = nil
+        await gate.release()
+        await harness.engine.settled()
+
+        let current = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertNotEqual(current.sessionID, prior.sessionID)
+        XCTAssertEqual(current.state, .active)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        guard case let .available(entries) = history.read(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        XCTAssertEqual(entries.first { $0.sessionID == prior.sessionID }?.terminalReason, .processExitedWhileActive)
+        XCTAssertFalse(try harness.storage.scanManifests().contains {
+            $0.manifest.failureReason == WatchCaptureTerminalReason.processExitedWhileActive.observerError.message
+        })
+    }
+
+    func testTerminalizeTearsDownBeforeNoticeGateAndFirstClaimWins() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        harness.engine.start(); await harness.engine.settled()
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        await self.waitForGate(gate)
+        let noticeWaiting = await gate.waiting()
+        XCTAssertTrue(noticeWaiting)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
+        XCTAssertEqual(harness.locationProvider.stopCallCount, 1)
+
+        harness.recorder.eventSink?.audioRecorderEncodeError(nil)
+        await gate.release()
+        await harness.engine.settled()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .audioFinishUnsuccessful)
+        XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+    }
+
+    func testReverseDetectedClaimAndOwnerStopKeepTheirFirstTerminalFacts() async throws {
+        let detected = try self.makeHarness(locationAuthorization: .authorized)
+        detected.engine.start(); await detected.engine.settled()
+        detected.recorder.eventSink?.audioRecorderEncodeError(nil)
+        detected.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        await detected.engine.settled()
+
+        let detectedRecord = try XCTUnwrap(try detected.storage.readSessionRecord())
+        XCTAssertEqual(detectedRecord.terminalReason, .audioEncodeError)
+        XCTAssertEqual(detectedRecord.terminalDisposition, .detectedStoppedItself)
+        XCTAssertNotNil(detectedRecord.terminalAt)
+        XCTAssertEqual(detected.recorder.stopCallCount, 1)
+        XCTAssertEqual(detected.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+
+        let owner = try self.makeHarness(locationAuthorization: .authorized)
+        owner.engine.start(); await owner.engine.settled()
+        owner.engine.stop()
+        owner.recorder.eventSink?.audioRecorderDidFinish(successfully: false)
+        await owner.engine.settled()
+
+        let ownerRecord = try XCTUnwrap(try owner.storage.readSessionRecord())
+        XCTAssertEqual(ownerRecord.terminalReason, .ownerStopped)
+        XCTAssertEqual(ownerRecord.terminalDisposition, .ownerStopped)
+        XCTAssertNotNil(ownerRecord.terminalAt)
+        XCTAssertEqual(owner.recorder.stopCallCount, 1)
+        XCTAssertEqual(owner.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 0)
+    }
+
+    func testTerminalizeContinuesCleanupWhenRecorderStopThrows() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        harness.engine.start(); await harness.engine.settled()
+        harness.recorder.stopError = NSError(domain: "WatchCaptureTests.recorder", code: 1)
+
+        harness.engine.stop()
+        await harness.engine.settled()
+
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
+        XCTAssertEqual(harness.locationProvider.stopCallCount, 1)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
+    }
+
+    func testTerminalDurabilityAttemptsBothStoresIndependently() async throws {
+        let sessionOnly = FailingWatchFileWriter(failAppend: false)
+        let first = try self.makeHarness(locationAuthorization: .denied, fileWriter: sessionOnly)
+        first.engine.start(); await first.engine.settled()
+        sessionOnly.failNextAtomicReplace(at: first.storage.sessionRecordURL())
+        first.engine.stop(); await first.engine.settled()
+
+        let firstHistoryURL = first.storage.rootURL.appendingPathComponent(
+            WatchCaptureSessionHistoryStore.historyFileName,
+            isDirectory: false
+        )
+        XCTAssertTrue(sessionOnly.atomicReplaceURLs.contains(firstHistoryURL))
+        XCTAssertEqual(first.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
+        let sessionOnlyNotices = first.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count
+        let repairedEngine = WatchCaptureEngine(
+            audioRecorder: first.recorder,
+            audioSession: first.audioSession,
+            locationProvider: first.locationProvider,
+            storage: first.storage,
+            clock: first.clock,
+            audioProbe: first.audioProbe,
+            notificationScheduler: first.notificationScheduler,
+            notificationCenter: first.notificationCenter
+        )
+        repairedEngine.reconcileOnLaunch(); await repairedEngine.settled()
+        let repaired = try XCTUnwrap(try first.storage.readSessionRecord())
+        XCTAssertEqual(repaired.state, .terminal)
+        XCTAssertEqual(repaired.terminalReason, .ownerStopped)
+        XCTAssertEqual(first.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, sessionOnlyNotices)
+
+        let historyOnly = FailingWatchFileWriter(failAppend: false)
+        let second = try self.makeHarness(locationAuthorization: .denied, fileWriter: historyOnly)
+        second.engine.start(); await second.engine.settled()
+        let secondHistoryURL = second.storage.rootURL.appendingPathComponent(
+            WatchCaptureSessionHistoryStore.historyFileName,
+            isDirectory: false
+        )
+        historyOnly.failNextAtomicReplace(at: secondHistoryURL)
+        second.engine.stop(); await second.engine.settled()
+
+        let terminal = try XCTUnwrap(try second.storage.readSessionRecord())
+        XCTAssertEqual(terminal.terminalReason, .ownerStopped)
+        XCTAssertEqual(terminal.terminalDisposition, .ownerStopped)
+        XCTAssertNotNil(terminal.terminalAt)
+        XCTAssertEqual(second.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
+        let historyOnlyNotices = second.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count
+        let historyRepairedEngine = WatchCaptureEngine(
+            audioRecorder: second.recorder,
+            audioSession: second.audioSession,
+            locationProvider: second.locationProvider,
+            storage: second.storage,
+            clock: second.clock,
+            audioProbe: second.audioProbe,
+            notificationScheduler: second.notificationScheduler,
+            notificationCenter: second.notificationCenter
+        )
+        historyRepairedEngine.reconcileOnLaunch(); await historyRepairedEngine.settled()
+        XCTAssertEqual(second.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, historyOnlyNotices)
+
+        let both = FailingWatchFileWriter(failAppend: false)
+        let third = try self.makeHarness(locationAuthorization: .denied, fileWriter: both)
+        third.engine.start(); await third.engine.settled()
+        both.failNextAtomicReplace(at: third.storage.sessionRecordURL())
+        let thirdHistoryURL = third.storage.rootURL.appendingPathComponent(
+            WatchCaptureSessionHistoryStore.historyFileName,
+            isDirectory: false
+        )
+        both.failNextAtomicReplace(at: thirdHistoryURL)
+        third.engine.stop(); await third.engine.settled()
+
+        XCTAssertFalse(third.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(third.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
+        XCTAssertEqual(third.engine.ownerPresentation.terminalReason, .ownerStopped)
+        XCTAssertEqual(third.engine.ownerPresentation.terminalDisposition, .ownerStopped)
+    }
+
+    func testRolloverEnsureDirectoryFailureTerminalizesWithoutSuccessor() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let successor = self.successorDirectory(in: harness)
+        try harness.storage.fileWriter.createDirectory(at: successor)
+
+        harness.clock.advance(by: 300)
+        await self.drain(until: { !harness.engine.ownerPresentation.isSessionRunning })
+        await harness.engine.settled()
+
+        try self.assertTerminalRolloverFailure(in: harness, successorStarts: 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: successor.path))
+        XCTAssertEqual(try harness.storage.scanManifests().filter { $0.manifest.state == .queued }.count, 1)
+    }
+
+    func testRolloverFirstManifestFailureDeletesProvenEmptySuccessor() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let successor = self.successorDirectory(in: harness)
+        writer.failWriteData(at: harness.storage.manifestURL(directory: successor), ordinal: 1)
+
+        harness.clock.advance(by: 300)
+        await self.drain(until: { !harness.engine.ownerPresentation.isSessionRunning })
+        await harness.engine.settled()
+
+        try self.assertTerminalRolloverFailure(in: harness, successorStarts: 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: successor.path))
+        XCTAssertTrue(writer.removeItemURLs.contains(successor))
+    }
+
+    func testRolloverRecorderStartFailureRetainsOnlyMediaThatCannotBeProvenEmpty() async throws {
+        let zeroWriter = FailingWatchFileWriter(failAppend: false)
+        let zero = try self.makeHarness(locationAuthorization: .denied, fileWriter: zeroWriter)
+        zero.engine.start(); await zero.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: zero.clock) >= 2 })
+        let zeroSuccessor = self.successorDirectory(in: zero)
+        zero.recorder.startError = NSError(domain: "WatchCaptureTests.recorder", code: 1)
+        zero.clock.advance(by: 300)
+        await self.drain(until: { !zero.engine.ownerPresentation.isSessionRunning })
+        await zero.engine.settled()
+
+        try self.assertTerminalRolloverFailure(in: zero, successorStarts: 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zeroSuccessor.path))
+        XCTAssertTrue(zeroWriter.removeItemURLs.contains(zeroSuccessor))
+
+        let bytesWriter = FailingWatchFileWriter(failAppend: false)
+        let bytes = try self.makeHarness(locationAuthorization: .denied, fileWriter: bytesWriter)
+        bytes.engine.start(); await bytes.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: bytes.clock) >= 2 })
+        let bytesSuccessor = self.successorDirectory(in: bytes)
+        let bytesAudioURL = bytes.storage.audioURL(directory: bytesSuccessor)
+        bytes.recorder.startError = NSError(domain: "WatchCaptureTests.recorder", code: 2)
+        bytes.recorder.writesBeforeStartError = true
+        bytes.clock.advance(by: 300)
+        await self.drain(until: { !bytes.engine.ownerPresentation.isSessionRunning })
+        await bytes.engine.settled()
+
+        try self.assertTerminalRolloverFailure(in: bytes, successorStarts: 1)
+        XCTAssertFalse(bytesWriter.removeItemURLs.contains(bytesSuccessor))
+        let retainedBytes = try XCTUnwrap(try bytes.storage.scanManifests().first {
+            $0.manifest.startedAt == bytes.clock.now()
+        })
+        XCTAssertEqual(try bytesWriter.fileSize(at: bytes.storage.audioURL(directory: retainedBytes.directoryURL)), 5)
+        XCTAssertTrue(retainedBytes.manifest.sensors.contains(.audio))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bytesAudioURL.path))
+
+        let unknownWriter = FailingWatchFileWriter(failAppend: false)
+        let unknown = try self.makeHarness(locationAuthorization: .denied, fileWriter: unknownWriter)
+        unknown.engine.start(); await unknown.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: unknown.clock) >= 2 })
+        let unknownSuccessor = self.successorDirectory(in: unknown)
+        unknown.recorder.startError = NSError(domain: "WatchCaptureTests.recorder", code: 3)
+        unknownWriter.failFileSize(at: unknown.storage.audioURL(directory: unknownSuccessor))
+        unknown.clock.advance(by: 300)
+        await self.drain(until: { !unknown.engine.ownerPresentation.isSessionRunning })
+        await unknown.engine.settled()
+
+        try self.assertTerminalRolloverFailure(in: unknown, successorStarts: 1)
+        XCTAssertFalse(unknownWriter.removeItemURLs.contains(unknownSuccessor))
+        let unknownManifestCount = try unknown.storage.scanManifests().count
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unknownSuccessor.path) || unknownManifestCount == 2)
+    }
+
+    func testRolloverPersistedManifestFailureStopsAndRetainsSuccessorMedia() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let successor = self.successorDirectory(in: harness)
+        writer.failWriteData(at: harness.storage.manifestURL(directory: successor), ordinal: 2)
+
+        harness.clock.advance(by: 300)
+        await self.drain(until: { !harness.engine.ownerPresentation.isSessionRunning })
+        await harness.engine.settled()
+
+        try self.assertTerminalRolloverFailure(in: harness, successorStarts: 2)
+        XCTAssertFalse(writer.removeItemURLs.contains(successor))
+        let retained = try XCTUnwrap(try harness.storage.scanManifests().first {
+            $0.manifest.startedAt == harness.clock.now()
+        })
+        XCTAssertEqual(try writer.fileSize(at: harness.storage.audioURL(directory: retained.directoryURL)), 5)
+        XCTAssertTrue(retained.manifest.sensors.contains(.audio))
+    }
+
+    func testInitialStartPersistedManifestFailureStopsRecorderAndRetainsMedia() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
+        let initialDirectory = self.initialDirectory(in: harness)
+        writer.failWriteData(at: harness.storage.manifestURL(directory: initialDirectory), ordinal: 2)
+
+        harness.engine.start()
+        await harness.engine.settled()
+
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        XCTAssertFalse(harness.recorder.isRecording)
+        XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.engine.ownerPresentation.startRefusalReason, .audioArmFailed)
+        XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
+        XCTAssertNil(try harness.storage.readSessionRecord())
+        let retained = try XCTUnwrap(try harness.storage.scanManifests().first)
+        XCTAssertEqual(try writer.fileSize(at: harness.storage.audioURL(directory: retained.directoryURL)), 5)
+    }
+
+    func testStopSupersedesSuspendedRolloverWithoutLeaseOrObservingPublication() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        harness.clock.advance(by: 300)
+        await self.waitForGate(gate)
+        let waiting = await gate.waiting()
+        XCTAssertTrue(waiting)
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+        harness.engine.stop()
+        statuses.removeAll()
+        await gate.release()
+        await harness.engine.settled()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .ownerStopped)
+        XCTAssertEqual(record.terminalDisposition, .ownerStopped)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
+        XCTAssertEqual(harness.recorder.stopCallCount, 2)
+        XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
+        XCTAssertFalse(statuses.contains { $0.phase == .observing })
+        XCTAssertEqual(try harness.storage.scanManifests().filter { $0.manifest.state == .queued }.count, 2)
+    }
+
+    func testQueuedRolloverDoesNotConsumeItsNextCadenceWake() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+
+        harness.clock.advance(by: 300)
+        await self.waitForGate(gate)
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+
+        harness.clock.advance(by: 300)
+        await Task.yield()
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+
+        await gate.release()
+        await harness.engine.settled()
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+    }
+
     func testFinalizedUnsentSegmentsBecomeQueuedOnRelaunch() async throws {
         let harness = try self.makeHarness()
         _ = try self.writeManifest(
@@ -1538,7 +2075,7 @@ final class WatchCaptureTests: XCTestCase {
             sensors: [.audio]
         )
 
-        await harness.engine.reconcileOnLaunch()
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
 
         let manifest = try XCTUnwrap(harness.storage.scanManifests().first?.manifest)
         XCTAssertEqual(manifest.state, .queued)
@@ -1623,9 +2160,9 @@ final class WatchCaptureTests: XCTestCase {
     func testManifestAndLocationSchemas() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
 
-        await harness.engine.start()
+        harness.engine.start(); await harness.engine.settled()
         harness.locationProvider.emitFix(Self.fix(alt: nil, vAcc: nil, speed: nil, course: nil))
-        await harness.engine.stop()
+        harness.engine.stop(); await harness.engine.settled()
 
         let entry = try XCTUnwrap(harness.storage.scanManifests().first)
         XCTAssertNotNil(entry.manifest.segment.range(of: #"^\d{6}_\d+$"#, options: .regularExpression))
@@ -1748,6 +2285,45 @@ private extension WatchCaptureTests {
         }
     }
 
+    func waitForGate(_ gate: WatchCaptureHoldGate, maxYields: Int = 10_000) async {
+        var yields = 0
+        while !(await gate.waiting()) && yields < maxYields {
+            await Task.yield()
+            yields += 1
+        }
+    }
+
+    func initialDirectory(in harness: Harness) -> URL {
+        let startedAt = harness.clock.now()
+        return harness.storage.segmentDirectoryURL(
+            day: harness.storage.dayString(for: startedAt),
+            segment: harness.storage.provisionalSegmentString(for: startedAt)
+        )
+    }
+
+    func successorDirectory(in harness: Harness) -> URL {
+        let startedAt = harness.clock.now().addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds)
+        return harness.storage.segmentDirectoryURL(
+            day: harness.storage.dayString(for: startedAt),
+            segment: harness.storage.provisionalSegmentString(for: startedAt)
+        )
+    }
+
+    func assertTerminalRolloverFailure(in harness: Harness, successorStarts: Int) throws {
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.state, .terminal)
+        XCTAssertEqual(record.terminalReason, .audioStartFailed)
+        XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
+        XCTAssertNotNil(record.terminalAt)
+        XCTAssertFalse(record.noticeOwed)
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.recorder.startURLs.count, successorStarts)
+        XCTAssertFalse(harness.recorder.isRecording)
+        XCTAssertEqual(harness.audioSession.setActiveCalls.last, false)
+        XCTAssertNil(harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease])
+        XCTAssertGreaterThanOrEqual(harness.locationProvider.stopCallCount, 1)
+    }
+
     func pendingSleeperCount(in clock: MockObserverClock) -> Int {
         guard let sleepers = Mirror(reflecting: clock).children.first(where: { $0.label == "sleepers" }) else {
             return 0
@@ -1814,6 +2390,26 @@ private extension WatchCaptureTests {
     }
 }
 
+private actor WatchCaptureHoldGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isWaitingForResume = false
+
+    func suspend() async {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            self.isWaitingForResume = true
+        }
+        self.isWaitingForResume = false
+    }
+
+    func waiting() -> Bool { self.isWaitingForResume }
+
+    func release() {
+        self.continuation?.resume()
+        self.continuation = nil
+    }
+}
+
 @MainActor
 private final class MockWatchNotificationScheduler: WatchNotificationScheduling {
     enum Call: Equatable {
@@ -1836,6 +2432,10 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
     var requestAuthorizationResult: WatchNotificationAuthorizationStatus
     var addError: (any Error)?
     var onAddCallback: (@MainActor () async -> Void)?
+    var authorizationStatusGate: WatchCaptureHoldGate?
+    var alertSettingGate: WatchCaptureHoldGate?
+    var requestAuthorizationGate: WatchCaptureHoldGate?
+    var addGate: WatchCaptureHoldGate?
     var calls: [Call] = []
     var pendingRequests: [String: PendingRequest] = [:]
     var submittedRequests: [PendingRequest] = []
@@ -1851,22 +2451,34 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
 
     func authorizationStatus() async -> WatchNotificationAuthorizationStatus {
         self.calls.append(.authorizationStatus)
+        if let authorizationStatusGate {
+            await authorizationStatusGate.suspend()
+        }
         return self.authorizationStatusValue
     }
 
     func alertSetting() async -> WatchNotificationAlertSetting {
         self.calls.append(.alertSetting)
+        if let alertSettingGate {
+            await alertSettingGate.suspend()
+        }
         return self.alertSettingValue
     }
 
     func requestAuthorization() async throws -> WatchNotificationAuthorizationStatus {
         self.calls.append(.requestAuthorization)
+        if let requestAuthorizationGate {
+            await requestAuthorizationGate.suspend()
+        }
         self.authorizationStatusValue = self.requestAuthorizationResult
         return self.requestAuthorizationResult
     }
 
     func add(identifier: String, title: String, body: String, triggerDate: Date?) async throws {
         self.calls.append(.add(identifier: identifier, title: title, body: body, triggerDate: triggerDate))
+        if let addGate {
+            await addGate.suspend()
+        }
         if let addError {
             throw addError
         }
@@ -1932,6 +2544,9 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
     var requestPermissionCallCount = 0
     var nextStopDuration: TimeInterval = 300
     var startError: (any Error)?
+    var writesBeforeStartError = false
+    var stopError: (any Error)?
+    var requestPermissionGate: WatchCaptureHoldGate?
 
     init(microphonePermission: WatchMicrophonePermission) {
         self.microphonePermission = microphonePermission
@@ -1939,14 +2554,18 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
 
     func requestPermission() async -> WatchMicrophonePermission {
         self.requestPermissionCallCount += 1
+        if let requestPermissionGate {
+            await requestPermissionGate.suspend()
+        }
         self.microphonePermission = self.requestPermissionResult
         return self.requestPermissionResult
     }
 
     func start(url: URL) throws {
-        if let startError { throw startError }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let startError, !self.writesBeforeStartError { throw startError }
         try Data("audio".utf8).write(to: url)
+        if let startError { throw startError }
         self.url = url
         self.currentTime = 0
         self.isRecording = true
@@ -1955,6 +2574,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
 
     func stop() throws -> TimeInterval {
         self.stopCallCount += 1
+        if let stopError { throw stopError }
         self.currentTime = self.nextStopDuration
         self.isRecording = false
         return self.nextStopDuration
@@ -2022,6 +2642,14 @@ private final class FailingWatchFileWriter: WatchFileWriting {
     var writeDataURLs: [URL] = []
     var readDataURLs: [URL] = []
     var atomicReplaceURLs: [URL] = []
+    var removeItemURLs: [URL] = []
+    var moveItems: [(source: URL, destination: URL)] = []
+    var fileSizeURLs: [URL] = []
+    private var atomicReplaceOrdinals: [String: Int] = [:]
+    private var writeDataOrdinals: [String: Int] = [:]
+    private var atomicReplaceFailures: [String: Set<Int>] = [:]
+    private var writeDataFailures: [String: Set<Int>] = [:]
+    private var fileSizeFailures: Set<String> = []
 
     init(
         failAppend: Bool,
@@ -2047,6 +2675,14 @@ private final class FailingWatchFileWriter: WatchFileWriting {
         self.base.fileExists(at: url)
     }
 
+    func fileSize(at url: URL) throws -> Int64 {
+        self.fileSizeURLs.append(url)
+        if self.fileSizeFailures.contains(url.path) {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        }
+        return try self.base.fileSize(at: url)
+    }
+
     func readData(from url: URL) throws -> Data {
         self.readDataURLs.append(url)
         return try self.base.readData(from: url)
@@ -2054,7 +2690,8 @@ private final class FailingWatchFileWriter: WatchFileWriting {
 
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         self.writeDataURLs.append(url)
-        if self.failWriteData {
+        let ordinal = self.nextOrdinal(for: url, in: &self.writeDataOrdinals)
+        if self.failWriteData || self.writeDataFailures[url.path]?.contains(ordinal) == true {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
         }
         try self.base.writeData(data, to: url, options: options)
@@ -2069,17 +2706,20 @@ private final class FailingWatchFileWriter: WatchFileWriting {
 
     func atomicReplaceFile(at url: URL, with data: Data) throws {
         self.atomicReplaceURLs.append(url)
-        if self.failAtomicReplace {
+        let ordinal = self.nextOrdinal(for: url, in: &self.atomicReplaceOrdinals)
+        if self.failAtomicReplace || self.atomicReplaceFailures[url.path]?.contains(ordinal) == true {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
         }
         try self.base.atomicReplaceFile(at: url, with: data)
     }
 
     func removeItem(at url: URL) throws {
+        self.removeItemURLs.append(url)
         try self.base.removeItem(at: url)
     }
 
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        self.moveItems.append((source: sourceURL, destination: destinationURL))
         try self.base.moveItem(at: sourceURL, to: destinationURL)
     }
 
@@ -2088,5 +2728,33 @@ private final class FailingWatchFileWriter: WatchFileWriting {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
         }
         return try self.base.contentsOfDirectory(at: url)
+    }
+
+    func failNextAtomicReplace(at url: URL) {
+        let next = (self.atomicReplaceOrdinals[url.path] ?? 0) + 1
+        self.failAtomicReplace(at: url, ordinal: next)
+    }
+
+    func failNextWriteData(at url: URL) {
+        let next = (self.writeDataOrdinals[url.path] ?? 0) + 1
+        self.failWriteData(at: url, ordinal: next)
+    }
+
+    func failAtomicReplace(at url: URL, ordinal: Int) {
+        self.atomicReplaceFailures[url.path, default: []].insert(ordinal)
+    }
+
+    func failWriteData(at url: URL, ordinal: Int) {
+        self.writeDataFailures[url.path, default: []].insert(ordinal)
+    }
+
+    func failFileSize(at url: URL) {
+        self.fileSizeFailures.insert(url.path)
+    }
+
+    private func nextOrdinal(for url: URL, in ordinals: inout [String: Int]) -> Int {
+        let ordinal = (ordinals[url.path] ?? 0) + 1
+        ordinals[url.path] = ordinal
+        return ordinal
     }
 }

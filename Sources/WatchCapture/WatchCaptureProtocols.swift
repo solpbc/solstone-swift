@@ -57,6 +57,7 @@ protocol WatchFileWriting: AnyObject {
     func createDirectory(at url: URL) throws
     func createFileIfNeeded(at url: URL) throws
     func fileExists(at url: URL) -> Bool
+    func fileSize(at url: URL) throws -> Int64
     func readData(from url: URL) throws -> Data
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     func appendLine(_ line: Data, to url: URL) throws
@@ -92,6 +93,19 @@ final class FoundationWatchFileWriter: WatchFileWriting {
 
     func fileExists(at url: URL) -> Bool {
         self.fileManager.fileExists(atPath: url.path)
+    }
+
+    func fileSize(at url: URL) throws -> Int64 {
+        guard self.fileManager.fileExists(atPath: url.path) else { return 0 }
+        let attributes = try self.fileManager.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadUnknownError,
+                userInfo: [NSFilePathErrorKey: url.path]
+            )
+        }
+        return size.int64Value
     }
 
     func readData(from url: URL) throws -> Data {

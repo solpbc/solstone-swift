@@ -9,6 +9,20 @@ private let watchCaptureLog = Logger(subsystem: "app.solstone.swift", category: 
 
 @MainActor
 final class WatchCaptureEngine {
+    private enum LifecycleState: Equatable, Sendable {
+        case idle
+        case reconciling
+        case starting
+        case running(sessionID: String)
+        case stopping(sessionID: String)
+    }
+
+    private struct TerminalClaim: Sendable {
+        let reason: WatchCaptureTerminalReason
+        let disposition: WatchCaptureTerminalDisposition
+        let at: Date
+    }
+
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
     var onRelayDrainRequested: (@MainActor () -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
@@ -24,8 +38,15 @@ final class WatchCaptureEngine {
     private let notificationCenter: NotificationCenter
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     private let sessionHistoryStore: WatchCaptureSessionHistoryStore
+    private let lifecycleSerializer: WatchCaptureLifecycleSerializer
 
     private var activeSegment: ActiveSegment?
+    private var openingSegment: ActiveSegment?
+    /// The first manifest made it to disk. Its media must remain recoverable if
+    /// opening the fully-persisted successor later fails.
+    private var openingSegmentHasPersistedManifest = false
+    private var rolloverPriorSegment: ActiveSegment?
+    private var rolloverPriorAudioDuration: TimeInterval?
     private var segmentationTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var audioSessionObservers: [NSObjectProtocol] = []
@@ -55,6 +76,10 @@ final class WatchCaptureEngine {
     private var handedOffCount = 0
     private var zeroAudioCurrentTimeObservationCount = 0
     private var terminalEnvironmentSnapshot: WatchRelayDiagnosticsEnvironmentSnapshot?
+    private var lifecycleState: LifecycleState = .idle
+    private var lifecycleGeneration = 0
+    private var executingLifecycleIntent: WatchCaptureLifecycleSerializer.Intent?
+    private var terminalClaims: [String: TerminalClaim] = [:]
 
     init(
         audioRecorder: any WatchAudioRecording,
@@ -77,6 +102,7 @@ final class WatchCaptureEngine {
         self.environmentProvider = environmentProvider
         self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
         self.notificationCenter = notificationCenter
+        self.lifecycleSerializer = WatchCaptureLifecycleSerializer()
 
         self.audioRecorder.eventSink = self
         self.locationProvider.onFix = { [weak self] fix in
@@ -88,6 +114,11 @@ final class WatchCaptureEngine {
         self.locationProvider.onFailure = { [weak self] error in
             self?.handleLocationFailure(error)
         }
+        self.lifecycleSerializer.configure(
+            owner: self,
+            admission: { engine, intent in engine.admitLifecycleIntent(intent) },
+            executor: { engine, intent in await engine.executeLifecycleIntent(intent) }
+        )
     }
 
     var ownerPresentation: WatchCaptureOwnerPresentation {
@@ -125,10 +156,27 @@ final class WatchCaptureEngine {
         self.notifyPresentationChanged()
     }
 
-    func reconcileOnLaunch() async {
+    func reconcileOnLaunch() {
+        self.lifecycleSerializer.submit(.reconcile)
+    }
+
+    func start() {
+        self.lifecycleSerializer.submit(.start)
+    }
+
+    func stop() {
+        self.lifecycleSerializer.submit(.stop)
+    }
+
+    func settled() async {
+        await self.lifecycleSerializer.settled()
+    }
+
+    private func reconcileOnLaunchInner(generation: Int) async {
         self.terminalReason = nil
         self.terminalDisposition = nil
-        let reconciledSessionID = await self.reconcileSessionRecord()
+        let reconciledSessionID = await self.reconcileSessionRecord(generation: generation)
+        guard await self.continueLifecycleOperation(generation) else { return }
         do {
             let entries = try self.storage.scanManifests()
             for entry in entries {
@@ -154,8 +202,7 @@ final class WatchCaptureEngine {
         self.requestRelayDrain()
     }
 
-    func start() async {
-        guard self.activeSegment == nil else { return }
+    private func startInner(generation: Int) async {
         self.clearTransientStateForStart()
         guard self.mintSessionIdentity(startedAt: self.clock.now()) else {
             self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
@@ -164,13 +211,19 @@ final class WatchCaptureEngine {
         }
         self.status = .enrolling
         self.notifyPresentationChanged()
-        await self.refreshWristAlertState(requestIfNotDetermined: true)
+        guard await self.refreshWristAlertState(
+            requestIfNotDetermined: true,
+            generation: generation
+        ) != nil else { return }
 
-        guard await self.prepareAudioForOwnerStart() else {
-            self.publishStatus(.idle)
-            self.notifyPresentationChanged()
+        guard await self.prepareAudioForOwnerStart(generation: generation) else {
+            if self.isLifecycleGenerationCurrent(generation) {
+                self.publishStatus(.idle)
+                self.notifyPresentationChanged()
+            }
             return
         }
+        guard await self.continueLifecycleOperation(generation) else { return }
 
         self.locationArmed = self.armLocation()
         if self.locationArmed {
@@ -191,39 +244,30 @@ final class WatchCaptureEngine {
                 return
             }
             try self.openSegment(startedAt: startedAt)
-            guard let segment = self.activeSegment else {
-                self.refuseStart(.audioArmFailed, error: .unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable))
-                self.publishStatus(.idle)
-                self.notifyPresentationChanged()
-                return
-            }
+            guard let segment = self.activeSegment else { return }
             if !segment.hasLiveSensor {
-                self.refuseStart(.audioArmFailed, error: self.errorForNonRunningSegment(segment))
-                self.activeSegment = nil
-                try? self.storage.fileWriter.removeItem(at: segment.directoryURL)
-                self.publishStatus(.idle)
-                self.notifyPresentationChanged()
+                self.refuseInitialStartAfterSegmentOpen(
+                    error: .unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable)
+                )
                 return
             }
             self.writeActiveSessionRecord(startedAt: startedAt)
-            await self.replaceAudioTruthLease(verifiedAt: startedAt)
+            await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
+            guard await self.continueLifecycleOperation(generation) else { return }
             self.installAudioSessionObservers()
             self.status = self.statusForRunningSegment(segment)
             self.startSegmentationTask()
         } catch WatchCaptureEngineError.audioStartFailed {
-            let observerError = WatchCaptureTerminalReason.audioStartFailed.observerError
-            self.refuseStart(.audioArmFailed, error: observerError)
-            if let segment = self.activeSegment {
-                self.activeSegment = nil
-                try? self.storage.fileWriter.removeItem(at: segment.directoryURL)
-            }
+            self.refuseInitialStartAfterSegmentOpen(
+                error: WatchCaptureTerminalReason.audioStartFailed.observerError
+            )
+            return
         } catch {
-            let observerError = WatchCaptureFailureMapper.observerError(for: error)
-            self.refuseStart(.audioArmFailed, error: observerError)
-            if let segment = self.activeSegment {
-                self.activeSegment = nil
-                try? self.storage.fileWriter.removeItem(at: segment.directoryURL)
-            }
+            self.refuseInitialStartAfterSegmentOpen(
+                error: WatchCaptureFailureMapper.observerError(for: error),
+                persistenceFailed: self.openingSegmentHasPersistedManifest
+            )
+            return
         }
         if self.activeSegment != nil {
             self.publishStatus(.observing)
@@ -234,11 +278,9 @@ final class WatchCaptureEngine {
         self.notifyPresentationChanged()
     }
 
-    func stop() async {
-        if self.activeSegment != nil {
-            self.publishStatus(.stopping)
-        }
-        await self.terminateCurrentSession(
+    private func stopInner() async {
+        self.publishStatus(.stopping)
+        await self.terminalize(
             reason: .ownerStopped,
             disposition: .ownerStopped,
             at: self.clock.now()
@@ -249,6 +291,110 @@ final class WatchCaptureEngine {
         let phase: WatchStatusContext.Phase = self.activeSegment == nil ? .idle : .observing
         self.publishStatus(phase)
     }
+
+    private func admitLifecycleIntent(
+        _ intent: WatchCaptureLifecycleSerializer.Intent
+    ) -> WatchCaptureLifecycleSerializer.AdmissionDecision {
+        if case .stop = intent, self.executingIntentCanBeSupersededByStop {
+            self.lifecycleGeneration &+= 1
+        }
+        return .enqueue
+    }
+
+    private func executeLifecycleIntent(_ intent: WatchCaptureLifecycleSerializer.Intent) async {
+        self.lifecycleGeneration &+= 1
+        let generation = self.lifecycleGeneration
+        self.executingLifecycleIntent = intent
+        defer { self.executingLifecycleIntent = nil }
+
+        switch intent {
+        case .reconcile:
+            guard case .idle = self.lifecycleState else { return }
+            self.lifecycleState = .reconciling
+            await self.reconcileOnLaunchInner(generation: generation)
+            guard self.isLifecycleGenerationCurrent(generation) else { return }
+            if case .reconciling = self.lifecycleState {
+                self.lifecycleState = .idle
+            }
+
+        case .start:
+            guard case .idle = self.lifecycleState else { return }
+            self.lifecycleState = .starting
+            await self.startInner(generation: generation)
+            guard self.isLifecycleGenerationCurrent(generation) else {
+                self.lifecycleState = .idle
+                return
+            }
+            if let sessionID = self.currentSessionID, self.activeSegment != nil {
+                self.lifecycleState = .running(sessionID: sessionID)
+            } else {
+                self.lifecycleState = .idle
+            }
+
+        case .stop:
+            guard case let .running(sessionID) = self.lifecycleState else { return }
+            self.lifecycleState = .stopping(sessionID: sessionID)
+            await self.stopInner()
+            self.lifecycleState = .idle
+
+        case .rollover:
+            guard case let .running(sessionID) = self.lifecycleState else { return }
+            await self.rolloverInner(generation: generation)
+            guard self.isLifecycleGenerationCurrent(generation) else {
+                self.lifecycleState = .idle
+                return
+            }
+            if self.activeSegment == nil {
+                self.lifecycleState = .idle
+            } else {
+                self.lifecycleState = .running(sessionID: sessionID)
+            }
+
+        case let .terminal(terminal):
+            guard case let .running(sessionID) = self.lifecycleState else { return }
+            self.lifecycleState = .stopping(sessionID: sessionID)
+            await self.terminalize(
+                reason: terminal.reason,
+                disposition: terminal.disposition,
+                at: self.clock.now(),
+                liveness: terminal.livenessEvidence
+            )
+            self.lifecycleState = .idle
+        }
+
+    }
+
+    private var executingIntentCanBeSupersededByStop: Bool {
+        guard let executingLifecycleIntent else { return false }
+        switch executingLifecycleIntent {
+        case .start, .rollover:
+            return true
+        case .reconcile, .stop, .terminal:
+            return false
+        }
+    }
+
+    private func isLifecycleGenerationCurrent(_ generation: Int) -> Bool {
+        self.lifecycleGeneration == generation
+    }
+
+    /// A stale lifecycle continuation may only leave through terminalization. This
+    /// keeps a superseded start from writing a refusal-shaped history row.
+    private func continueLifecycleOperation(_ generation: Int) async -> Bool {
+        guard !self.isLifecycleGenerationCurrent(generation) else { return true }
+        guard self.currentSessionID != nil else {
+            self.status = .off
+            self.publishStatus(.idle)
+            self.notifyPresentationChanged()
+            return false
+        }
+        await self.terminalize(
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            at: self.clock.now()
+        )
+        return false
+    }
 }
 
 private enum WatchCaptureEngineError: Error {
@@ -258,28 +404,20 @@ private enum WatchCaptureEngineError: Error {
 extension WatchCaptureEngine: WatchAudioRecorderEventSink {
     func audioRecorderDidFinish(successfully: Bool) {
         guard !successfully else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.terminateCurrentSession(
-                reason: .audioFinishUnsuccessful,
-                disposition: .detectedStoppedItself,
-                at: self.clock.now()
-            )
-        }
+        self.submitTerminalIntent(
+            reason: .audioFinishUnsuccessful,
+            disposition: .detectedStoppedItself
+        )
     }
 
     func audioRecorderEncodeError(_ error: (any Error)?) {
         if let error {
             watchCaptureLog.error("watch audio encode failed: \(String(describing: error), privacy: .public)")
         }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.terminateCurrentSession(
-                reason: .audioEncodeError,
-                disposition: .detectedStoppedItself,
-                at: self.clock.now()
-            )
-        }
+        self.submitTerminalIntent(
+            reason: .audioEncodeError,
+            disposition: .detectedStoppedItself
+        )
     }
 }
 
@@ -314,7 +452,7 @@ private extension WatchCaptureEngine {
         self.zeroAudioCurrentTimeObservationCount = 0
     }
 
-    func prepareAudioForOwnerStart() async -> Bool {
+    func prepareAudioForOwnerStart(generation: Int) async -> Bool {
         switch self.audioRecorder.microphonePermission {
         case .granted:
             break
@@ -323,6 +461,7 @@ private extension WatchCaptureEngine {
             return false
         case .notDetermined:
             let requested = await self.audioRecorder.requestPermission()
+            guard await self.continueLifecycleOperation(generation) else { return false }
             guard requested == .granted else {
                 self.refuseStart(.microphonePermissionNotDetermined, error: .permissionDenied, settingsRoute: .microphone)
                 return false
@@ -373,6 +512,32 @@ private extension WatchCaptureEngine {
         }
     }
 
+    /// Start-time setup never became a live session. Shut down any recorder the
+    /// failed open may have touched, retain non-empty owner media, then preserve
+    /// the established refusal-shaped lifecycle fact.
+    func refuseInitialStartAfterSegmentOpen(
+        error: ObserverError,
+        persistenceFailed: Bool = false
+    ) {
+        let segment = self.activeSegment ?? self.openingSegment
+        self.activeSegment = nil
+        self.openingSegment = nil
+        self.openingSegmentHasPersistedManifest = false
+        if self.audioArmed, segment?.audioURL != nil {
+            _ = try? self.audioRecorder.stop()
+        }
+        if let segment {
+            _ = self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL)
+        }
+        self.removeAudioTruthLease()
+        if persistenceFailed {
+            self.persistenceAdvisory = .sessionRecordWriteFailed
+        }
+        self.refuseStart(.audioArmFailed, error: error)
+        self.publishStatus(.idle)
+        self.notifyPresentationChanged()
+    }
+
     func armLocation() -> Bool {
         switch self.locationProvider.authorizationStatus {
         case .authorized:
@@ -386,6 +551,8 @@ private extension WatchCaptureEngine {
     }
 
     func openSegment(startedAt: Date) throws {
+        self.openingSegment = nil
+        self.openingSegmentHasPersistedManifest = false
         let day = self.storage.dayString(for: startedAt)
         let segmentKey = self.storage.provisionalSegmentString(for: startedAt)
         let directory = try self.storage.ensureSegmentDirectory(day: day, segment: segmentKey)
@@ -403,8 +570,6 @@ private extension WatchCaptureEngine {
             state: .captured,
             failureReason: nil
         )
-        try self.storage.writeManifest(manifest, in: directory)
-
         var active = ActiveSegment(
             directoryURL: directory,
             manifest: manifest,
@@ -414,20 +579,22 @@ private extension WatchCaptureEngine {
             partialError: nil,
             hasElapsedLocationCoverage: false
         )
+        self.openingSegment = active
+        try self.storage.writeManifest(manifest, in: directory)
+        self.openingSegmentHasPersistedManifest = true
 
         if self.audioArmed {
             let audioURL = self.storage.audioURL(directory: directory)
+            active.audioURL = audioURL
+            manifest.sensors.append(.audio)
+            active.manifest = manifest
+            self.openingSegment = active
             do {
                 try self.audioRecorder.start(url: audioURL)
-                active.audioURL = audioURL
-                manifest.sensors.append(.audio)
                 self.lastAudioCurrentTime = self.audioRecorder.currentTime
                 self.zeroAudioCurrentTimeObservationCount = 0
             } catch {
-                self.audioArmed = false
-                self.activeSegment = active
                 watchCaptureLog.error("watch audio start failed: \(String(describing: error), privacy: .public)")
-                try? self.storage.fileWriter.removeItem(at: directory)
                 throw WatchCaptureEngineError.audioStartFailed
             }
         }
@@ -443,10 +610,12 @@ private extension WatchCaptureEngine {
                 active.locationURL = locationURL
                 active.locationLog = locationLog
                 manifest.sensors.append(.location)
+                self.openingSegment = active
             } catch {
                 self.locationArmed = false
                 self.locationProvider.stop()
                 self.markPartial(&active, error: WatchCaptureFailureMapper.observerError(for: error))
+                self.openingSegment = active
             }
         }
 
@@ -454,14 +623,54 @@ private extension WatchCaptureEngine {
         manifest.failureReason = active.partialError?.message
         manifest.state = .persisted
         active.manifest = manifest
-        self.activeSegment = active
+        self.openingSegment = active
         do {
             try self.storage.writeManifest(manifest, in: directory)
         } catch {
             var failedActive = active
             self.markPartial(&failedActive, error: WatchCaptureFailureMapper.observerError(for: error))
-            self.activeSegment = failedActive
+            self.openingSegment = failedActive
             throw error
+        }
+        self.activeSegment = active
+        self.openingSegment = nil
+        self.openingSegmentHasPersistedManifest = false
+    }
+
+    func adoptOpeningFailureSegment(
+        _ explicitSegment: ActiveSegment? = nil,
+        removeIfEmpty: Bool = true
+    ) {
+        let segment = explicitSegment ?? self.openingSegment
+        self.openingSegment = nil
+        self.openingSegmentHasPersistedManifest = false
+        self.activeSegment = nil
+        guard let segment else { return }
+        if removeIfEmpty, self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL) {
+            return
+        }
+        self.activeSegment = segment
+    }
+
+    /// A directory is disposable only when every owner-media path is known empty.
+    /// A size-query failure deliberately retains the directory for reconciliation.
+    func removeSegmentDirectoryIfMediaIsProvablyEmpty(_ directory: URL) -> Bool {
+        let mediaURLs = [
+            self.storage.audioURL(directory: directory),
+            self.storage.locationURL(directory: directory),
+        ]
+        for url in mediaURLs {
+            do {
+                guard try self.storage.fileWriter.fileSize(at: url) == 0 else { return false }
+            } catch {
+                return false
+            }
+        }
+        do {
+            try self.storage.fileWriter.removeItem(at: directory)
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -476,12 +685,13 @@ private extension WatchCaptureEngine {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                await self.rollover()
+                self.lifecycleSerializer.submit(.rollover)
+                await self.settled()
             }
         }
     }
 
-    func rollover() async {
+    func rolloverInner(generation: Int) async {
         guard var segment = self.activeSegment else { return }
         let end = self.clock.now()
         self.activeSegment = nil
@@ -496,94 +706,104 @@ private extension WatchCaptureEngine {
         } else {
             audioDuration = nil
         }
+        self.rolloverPriorSegment = segment
+        self.rolloverPriorAudioDuration = audioDuration
 
         var rolloverTerminalReason: WatchCaptureTerminalReason?
+        var discardEmptySuccessorAfterStop = false
         do {
             try self.openSegment(startedAt: end)
-            if let newSegment = self.activeSegment {
-                if newSegment.hasLiveSensor {
-                    self.status = self.statusForRunningSegment(newSegment)
-                } else {
-                    self.status = .needsAttention(self.errorForNonRunningSegment(newSegment))
-                    self.activeSegment = nil
-                    try? self.storage.fileWriter.removeItem(at: newSegment.directoryURL)
-                    rolloverTerminalReason = self.reopenFailureTerminalReason()
-                }
+            guard let newSegment = self.activeSegment, newSegment.hasLiveSensor else {
+                self.adoptOpeningFailureSegment(self.activeSegment)
+                rolloverTerminalReason = self.reopenFailureTerminalReason()
+                throw WatchCaptureEngineError.audioStartFailed
             }
+            self.status = self.statusForRunningSegment(newSegment)
         } catch WatchCaptureEngineError.audioStartFailed {
-            self.activeSegment = nil
+            self.adoptOpeningFailureSegment(removeIfEmpty: false)
             rolloverTerminalReason = self.reopenFailureTerminalReason()
+            discardEmptySuccessorAfterStop = true
         } catch {
-            self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
-        }
-
-        if let newSegment = self.activeSegment, !newSegment.hasLiveSensor {
-            self.status = .needsAttention(self.errorForNonRunningSegment(newSegment))
-            self.activeSegment = nil
-            try? self.storage.fileWriter.removeItem(at: newSegment.directoryURL)
+            self.adoptOpeningFailureSegment(
+                removeIfEmpty: !self.openingSegmentHasPersistedManifest
+            )
             rolloverTerminalReason = self.reopenFailureTerminalReason()
         }
 
         if let rolloverTerminalReason {
-            await self.recordTerminalFact(reason: rolloverTerminalReason, disposition: .detectedStoppedItself, at: end)
-            self.segmentationTask?.cancel()
-            self.segmentationTask = nil
-            self.cancelHeartbeatTask()
-            self.locationArmed = false
-            self.locationProvider.stop()
-            self.audioArmed = false
-            self.removeAudioSessionObservers()
-            if self.audioSessionIsActive {
-                try? self.audioSession.setActive(false, options: [])
-                self.audioSessionIsActive = false
-            }
-            await self.finalize(segment: segment, audioDuration: audioDuration, end: end, renewLease: false)
-            self.status = .needsAttention(
-                rolloverTerminalReason.observerError(disposition: .detectedStoppedItself)
+            await self.terminalize(
+                reason: rolloverTerminalReason,
+                disposition: .detectedStoppedItself,
+                at: end,
+                discardEmptyActiveSegment: discardEmptySuccessorAfterStop
             )
-            self.lastAudioCurrentTime = nil
-            self.zeroAudioCurrentTimeObservationCount = 0
-            self.publishStatus(.idle)
-        } else {
-            if self.activeSegment == nil {
-                self.segmentationTask?.cancel()
-                self.segmentationTask = nil
-                self.cancelHeartbeatTask()
-                self.locationArmed = false
-                self.locationProvider.stop()
-                self.audioArmed = false
-            }
-
-            await self.finalize(segment: segment, audioDuration: audioDuration, end: end)
-            if self.activeSegment == nil {
-                self.publishStatus(.idle)
-            } else {
-                self.publishStatus(.observing)
-            }
+            return
         }
+        guard await self.finalize(
+            segment: segment,
+            audioDuration: audioDuration,
+            end: end,
+            generation: generation
+        ) else { return }
+        self.rolloverPriorSegment = nil
+        self.rolloverPriorAudioDuration = nil
+        guard await self.continueLifecycleOperation(generation) else { return }
+        self.publishStatus(.observing)
         self.notifyPresentationChanged()
     }
 
+    @discardableResult
     func finalize(
         segment: ActiveSegment,
         audioDuration: TimeInterval?,
         end: Date,
-        renewLease: Bool = true
-    ) async {
+        renewLease: Bool = true,
+        generation: Int? = nil
+    ) async -> Bool {
+        let prepared = self.prepareFinalization(
+            segment: segment,
+            audioDuration: audioDuration,
+            end: end
+        )
+        if renewLease, let verifiedAt = prepared.verifiedAudioAt {
+            await self.replaceAudioTruthLease(verifiedAt: verifiedAt, generation: generation)
+            if let generation, !self.isLifecycleGenerationCurrent(generation) {
+                return false
+            }
+        }
+        self.persistFinalization(segment: prepared.segment, manifest: prepared.manifest)
+        return true
+    }
+
+    func finalizeTerminalSegment(
+        _ segment: ActiveSegment,
+        audioDuration: TimeInterval?,
+        end: Date
+    ) {
+        let prepared = self.prepareFinalization(
+            segment: segment,
+            audioDuration: audioDuration,
+            end: end
+        )
+        self.persistFinalization(segment: prepared.segment, manifest: prepared.manifest)
+    }
+
+    func prepareFinalization(
+        segment: ActiveSegment,
+        audioDuration: TimeInterval?,
+        end: Date
+    ) -> (segment: ActiveSegment, manifest: WatchSegmentManifest, verifiedAudioAt: Date?) {
         var segment = segment
         var manifest = segment.manifest
         var duration = max(audioDuration ?? end.timeIntervalSince(manifest.startedAt), 0)
         manifest.duration = duration
+        var verifiedAudioAt: Date?
 
         if manifest.sensors.contains(.audio), let audioURL = segment.audioURL {
             if let probedDuration = self.audioProbe.decodableDuration(at: audioURL), probedDuration > 0 {
                 duration = probedDuration
                 manifest.duration = probedDuration
-                if renewLease {
-                    await self.replaceAudioTruthLease(
-                        verifiedAt: manifest.startedAt.addingTimeInterval(probedDuration)
-                    )
-                }
+                verifiedAudioAt = manifest.startedAt.addingTimeInterval(probedDuration)
             } else {
                 manifest.partial = true
                 manifest.lost = true
@@ -616,7 +836,15 @@ private extension WatchCaptureEngine {
             manifest.failureReason = partialError.message
         }
 
-        let finalSegment = self.storage.segmentString(for: manifest.startedAt, durationSeconds: max(duration, 1))
+        return (segment, manifest, verifiedAudioAt)
+    }
+
+    func persistFinalization(segment: ActiveSegment, manifest: WatchSegmentManifest) {
+        let finalSegment = self.storage.segmentString(
+            for: manifest.startedAt,
+            durationSeconds: max(manifest.duration, 1)
+        )
+        var manifest = manifest
         do {
             let finalDirectory = try self.storage.moveSegmentDirectoryIfNeeded(
                 currentURL: segment.directoryURL,
@@ -783,10 +1011,6 @@ private extension WatchCaptureEngine {
         return .active
     }
 
-    func errorForNonRunningSegment(_ segment: ActiveSegment) -> ObserverError {
-        segment.partialError ?? .unavailable(reason: "no sensors available")
-    }
-
     func installAudioSessionObservers() {
         self.removeAudioSessionObservers()
         self.audioSessionObservers.append(self.notificationCenter.addObserver(
@@ -807,7 +1031,7 @@ private extension WatchCaptureEngine {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.handleRouteChange()
+                self?.handleRouteChange()
             }
         })
         self.audioSessionObservers.append(self.notificationCenter.addObserver(
@@ -816,10 +1040,9 @@ private extension WatchCaptureEngine {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.terminateCurrentSession(
+                self?.submitTerminalIntent(
                     reason: .audioMediaServicesLost,
-                    disposition: .detectedStoppedItself,
-                    at: self?.clock.now() ?? Date()
+                    disposition: .detectedStoppedItself
                 )
             }
         })
@@ -829,10 +1052,9 @@ private extension WatchCaptureEngine {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.terminateCurrentSession(
+                self?.submitTerminalIntent(
                     reason: .audioMediaServicesReset,
-                    disposition: .detectedStoppedItself,
-                    at: self?.clock.now() ?? Date()
+                    disposition: .detectedStoppedItself
                 )
             }
         })
@@ -848,14 +1070,10 @@ private extension WatchCaptureEngine {
     func handleInterruption(_ type: AVAudioSession.InterruptionType) {
         switch type {
         case .began:
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.terminateCurrentSession(
-                    reason: .audioInterrupted,
-                    disposition: .detectedStoppedItself,
-                    at: self.clock.now()
-                )
-            }
+            self.submitTerminalIntent(
+                reason: .audioInterrupted,
+                disposition: .detectedStoppedItself
+            )
         case .ended:
             break
         @unknown default:
@@ -863,13 +1081,24 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func handleRouteChange() async {
+    func handleRouteChange() {
         guard self.activeSegment != nil, !self.audioSession.hasSuitableInput else { return }
-        await self.terminateCurrentSession(
+        self.submitTerminalIntent(
             reason: .audioRouteUnavailable,
-            disposition: .detectedStoppedItself,
-            at: self.clock.now()
+            disposition: .detectedStoppedItself
         )
+    }
+
+    func submitTerminalIntent(
+        reason: WatchCaptureTerminalReason,
+        disposition: WatchCaptureTerminalDisposition,
+        livenessEvidence: WatchCaptureLivenessEvidence? = nil
+    ) {
+        self.lifecycleSerializer.submit(.terminal(.init(
+            reason: reason,
+            disposition: disposition,
+            livenessEvidence: livenessEvidence
+        )))
     }
 
     func notifyPresentationChanged() {
@@ -971,17 +1200,27 @@ private extension WatchCaptureEngine {
 
     @discardableResult
     func refreshWristAlertState(
-        requestIfNotDetermined: Bool
-    ) async -> (WatchNotificationAuthorizationStatus, WatchNotificationAlertSetting) {
+        requestIfNotDetermined: Bool,
+        generation: Int? = nil
+    ) async -> (WatchNotificationAuthorizationStatus, WatchNotificationAlertSetting)? {
         var authorization = await self.notificationScheduler.authorizationStatus()
+        if let generation {
+            guard await self.continueLifecycleOperation(generation) else { return nil }
+        }
         if authorization == .notDetermined, requestIfNotDetermined {
             do {
                 authorization = try await self.notificationScheduler.requestAuthorization()
+                if let generation {
+                    guard await self.continueLifecycleOperation(generation) else { return nil }
+                }
             } catch {
                 watchCaptureLog.error("watch notification authorization failed: \(String(describing: error), privacy: .public)")
             }
         }
         let alertSetting = await self.notificationScheduler.alertSetting()
+        if let generation {
+            guard await self.continueLifecycleOperation(generation) else { return nil }
+        }
         self.notificationAuthorizationStatus = authorization
         self.notificationAlertSetting = alertSetting
         self.wristAlertAssurance = watchWristAlertAssurance(
@@ -1104,9 +1343,12 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func replaceAudioTruthLease(verifiedAt: Date) async {
+    func replaceAudioTruthLease(verifiedAt: Date, generation: Int? = nil) async {
         self.lastVerifiedAudioAt = verifiedAt
-        let (authorization, alertSetting) = await self.refreshWristAlertState(requestIfNotDetermined: false)
+        guard let (authorization, alertSetting) = await self.refreshWristAlertState(
+            requestIfNotDetermined: false,
+            generation: generation
+        ) else { return }
         let decision = watchNoticeDecision(
             authorizationStatus: authorization,
             alertSetting: alertSetting,
@@ -1122,8 +1364,14 @@ private extension WatchCaptureEngine {
                 copy: copy,
                 triggerDate: deadline
             ) {
+                if let generation {
+                    guard await self.continueLifecycleOperation(generation) else { return }
+                }
                 self.leaseIsArmed = true
             } else {
+                if let generation {
+                    guard await self.continueLifecycleOperation(generation) else { return }
+                }
                 self.removeAudioTruthLease()
             }
         case let .cannotSchedule(route):
@@ -1143,7 +1391,9 @@ private extension WatchCaptureEngine {
               let copy = WatchNoticeCopy(reason: reason, disposition: disposition)
         else { return }
 
-        let (authorization, alertSetting) = await self.refreshWristAlertState(requestIfNotDetermined: false)
+        guard let (authorization, alertSetting) = await self.refreshWristAlertState(requestIfNotDetermined: false) else {
+            return
+        }
         let decision = watchNoticeDecision(
             authorizationStatus: authorization,
             alertSetting: alertSetting,
@@ -1216,7 +1466,7 @@ private extension WatchCaptureEngine {
                     return
                 }
                 guard !Task.isCancelled, self.activeSegment != nil else { return }
-                guard await self.evaluateAudioLiveness() else { return }
+                guard self.evaluateAudioLiveness() else { return }
                 self.publishStatus(.observing)
             }
         }
@@ -1248,22 +1498,23 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func recordTerminalFact(
+    @discardableResult
+    func persistTerminalFact(
         reason: WatchCaptureTerminalReason,
         disposition: WatchCaptureTerminalDisposition,
         at date: Date,
-        liveness: WatchCaptureLivenessEvidence? = nil
-    ) async {
+        liveness: WatchCaptureLivenessEvidence? = nil,
+        sessionID: String? = nil,
+        startedAt: Date? = nil
+    ) -> WatchCaptureSessionRecord? {
         self.terminalReason = reason
         self.terminalDisposition = disposition
         if reason == .microphonePermissionRevoked {
             self.setSettingsRouteIfVacant(.microphone)
         }
-        self.removeAudioTruthLease()
-        guard let currentSessionID, let sessionStartedAt else {
-            await self.submitTerminalNotice(reason: reason, disposition: disposition, sessionID: nil)
-            return
-        }
+        guard let currentSessionID = sessionID ?? self.currentSessionID,
+              let sessionStartedAt = startedAt ?? self.sessionStartedAt
+        else { return nil }
         let priorRecord = try? self.storage.readSessionRecord()
         let record = WatchCaptureSessionRecord(
             sessionID: currentSessionID,
@@ -1275,59 +1526,77 @@ private extension WatchCaptureEngine {
             noticeOwed: disposition != .ownerStopped,
             segmentsProduced: priorRecord?.segmentsProduced ?? 0
         )
+        let environment = self.environmentProvider.snapshot()
+        self.terminalEnvironmentSnapshot = environment
         do {
             try self.storage.writeSessionRecord(record)
-            let environment = self.environmentProvider.snapshot()
-            self.terminalEnvironmentSnapshot = environment
-            self.upsertSessionHistory(
-                record: record,
-                liveness: liveness,
-                environment: environment
-            )
         } catch {
             watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
-        await self.submitTerminalNotice(reason: reason, disposition: disposition, sessionID: record.sessionID)
+        if !self.upsertSessionHistory(
+            record: record,
+            liveness: liveness,
+            environment: environment
+        ) {
+            self.persistenceAdvisory = .sessionRecordWriteFailed
+        }
+        return record
     }
 
-    func reconcileSessionRecord() async -> String? {
+    func reconcileSessionRecord(generation: Int) async -> String? {
         do {
-            guard var record = try self.storage.readSessionRecord() else {
+            guard let record = try self.storage.readSessionRecord() else {
                 return nil
             }
             self.currentSessionID = record.sessionID
             self.sessionStartedAt = record.startedAt
             switch record.state {
             case .active:
+                if let history = self.sessionHistoryStore.entry(
+                    sessionID: record.sessionID,
+                    asOf: self.clock.now()
+                ), let terminalAt = history.terminalAt {
+                    let repaired = WatchCaptureSessionRecord(
+                        sessionID: record.sessionID,
+                        startedAt: record.startedAt,
+                        state: .terminal,
+                        terminalReason: history.terminalReason,
+                        terminalDisposition: history.terminalDisposition,
+                        terminalAt: terminalAt,
+                        noticeOwed: history.noticeOwed
+                    )
+                    do {
+                        try self.storage.writeSessionRecord(repaired)
+                    } catch {
+                        self.persistenceAdvisory = .sessionRecordWriteFailed
+                    }
+                    self.terminalReason = repaired.terminalReason
+                    self.terminalDisposition = repaired.terminalDisposition
+                    self.removeAudioTruthLease()
+                    return record.sessionID
+                }
                 let terminalAt = self.clock.now()
-                self.terminalReason = .processExitedWhileActive
-                self.terminalDisposition = .inferredStoppedItself
                 self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
                 self.removeAudioTruthLease()
-                record.state = .terminal
-                record.terminalReason = .processExitedWhileActive
-                record.terminalDisposition = .inferredStoppedItself
-                record.terminalAt = terminalAt
-                record.noticeOwed = true
-                do {
-                    try self.storage.writeSessionRecord(record)
-                    let environment = self.environmentProvider.snapshot()
-                    self.terminalEnvironmentSnapshot = environment
-                    self.upsertSessionHistory(
-                        record: record,
-                        liveness: nil,
-                        environment: environment
-                    )
-                } catch {
-                    watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
-                    self.persistenceAdvisory = .sessionRecordWriteFailed
-                }
+                self.terminalClaims[record.sessionID] = TerminalClaim(
+                    reason: .processExitedWhileActive,
+                    disposition: .inferredStoppedItself,
+                    at: terminalAt
+                )
+                _ = self.persistTerminalFact(
+                    reason: .processExitedWhileActive,
+                    disposition: .inferredStoppedItself,
+                    at: terminalAt,
+                    sessionID: record.sessionID,
+                    startedAt: record.startedAt
+                )
                 await self.submitTerminalNotice(
                     reason: .processExitedWhileActive,
                     disposition: .inferredStoppedItself,
                     sessionID: record.sessionID
                 )
+                guard self.isLifecycleGenerationCurrent(generation) else { return nil }
             case .terminal:
                 self.removeAudioTruthLease()
                 if record.terminalDisposition == .ownerStopped {
@@ -1346,6 +1615,7 @@ private extension WatchCaptureEngine {
                         disposition: disposition,
                         sessionID: record.sessionID
                     )
+                    guard self.isLifecycleGenerationCurrent(generation) else { return nil }
                 }
             }
             return record.sessionID
@@ -1361,38 +1631,29 @@ private extension WatchCaptureEngine {
                   let currentSessionID,
                   let sessionStartedAt
             else { return nil }
-            let record = WatchCaptureSessionRecord(
-                sessionID: currentSessionID,
-                startedAt: sessionStartedAt,
-                state: .terminal,
-                terminalReason: .processExitedWhileActive,
-                terminalDisposition: .inferredStoppedItself,
-                terminalAt: now,
-                noticeOwed: true
+            self.terminalClaims[currentSessionID] = TerminalClaim(
+                reason: .processExitedWhileActive,
+                disposition: .inferredStoppedItself,
+                at: now
             )
-            do {
-                try self.storage.writeSessionRecord(record)
-                let environment = self.environmentProvider.snapshot()
-                self.terminalEnvironmentSnapshot = environment
-                self.upsertSessionHistory(
-                    record: record,
-                    liveness: nil,
-                    environment: environment
-                )
-            } catch {
-                watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
-                self.persistenceAdvisory = .sessionRecordWriteFailed
-            }
+            _ = self.persistTerminalFact(
+                reason: .processExitedWhileActive,
+                disposition: .inferredStoppedItself,
+                at: now,
+                sessionID: currentSessionID,
+                startedAt: sessionStartedAt
+            )
             await self.submitTerminalNotice(
                 reason: .processExitedWhileActive,
                 disposition: .inferredStoppedItself,
-                sessionID: record.sessionID
+                sessionID: currentSessionID
             )
-            return record.sessionID
+            guard self.isLifecycleGenerationCurrent(generation) else { return nil }
+            return currentSessionID
         }
     }
 
-    func evaluateAudioLiveness() async -> Bool {
+    func evaluateAudioLiveness() -> Bool {
         guard self.activeSegment != nil, self.audioArmed else {
             self.zeroAudioCurrentTimeObservationCount = 0
             self.lastAudioCurrentTime = nil
@@ -1404,11 +1665,10 @@ private extension WatchCaptureEngine {
                 zeroAudioCurrentTimeObservationCount: self.zeroAudioCurrentTimeObservationCount
             )
             self.zeroAudioCurrentTimeObservationCount = 0
-            await self.terminateCurrentSession(
+            self.submitTerminalIntent(
                 reason: .audioRecorderStopped,
                 disposition: .detectedStoppedItself,
-                at: self.clock.now(),
-                liveness: liveness
+                livenessEvidence: liveness
             )
             return false
         }
@@ -1437,31 +1697,44 @@ private extension WatchCaptureEngine {
             zeroAudioCurrentTimeObservationCount: self.zeroAudioCurrentTimeObservationCount
         )
         self.zeroAudioCurrentTimeObservationCount = 0
-        await self.terminateCurrentSession(
+        self.submitTerminalIntent(
             reason: .audioClockStalled,
             disposition: .detectedStoppedItself,
-            at: self.clock.now(),
-            liveness: liveness
+            livenessEvidence: liveness
         )
         return false
     }
 
-    func terminateCurrentSession(
+    func terminalize(
         reason: WatchCaptureTerminalReason,
         disposition: WatchCaptureTerminalDisposition,
         at date: Date,
-        liveness: WatchCaptureLivenessEvidence? = nil
+        liveness: WatchCaptureLivenessEvidence? = nil,
+        discardEmptyActiveSegment: Bool = false
     ) async {
-        guard self.activeSegment != nil || self.audioArmed || self.locationArmed else { return }
-        await self.recordTerminalFact(reason: reason, disposition: disposition, at: date, liveness: liveness)
+        let sessionID = self.currentSessionID
+        if let sessionID {
+            guard self.terminalClaims[sessionID] == nil else { return }
+            self.terminalClaims[sessionID] = TerminalClaim(
+                reason: reason,
+                disposition: disposition,
+                at: date
+            )
+            self.lifecycleState = .stopping(sessionID: sessionID)
+        }
+
+        var segment = self.activeSegment
+        self.activeSegment = nil
+        let rolloverSegment = self.rolloverPriorSegment
+        let rolloverAudioDuration = self.rolloverPriorAudioDuration
+        self.rolloverPriorSegment = nil
+        self.rolloverPriorAudioDuration = nil
         self.cancelHeartbeatTask()
         self.segmentationTask?.cancel()
         self.segmentationTask = nil
         self.removeAudioSessionObservers()
         self.locationProvider.stop()
 
-        var segment = self.activeSegment
-        self.activeSegment = nil
         let audioDuration: TimeInterval?
         if self.audioArmed, segment?.audioURL != nil {
             do {
@@ -1477,6 +1750,12 @@ private extension WatchCaptureEngine {
             audioDuration = nil
         }
 
+        if discardEmptyActiveSegment,
+           let activeSegment = segment,
+           self.removeSegmentDirectoryIfMediaIsProvablyEmpty(activeSegment.directoryURL) {
+            segment = nil
+        }
+
         self.audioArmed = false
         self.locationArmed = false
         self.lastAudioCurrentTime = nil
@@ -1485,9 +1764,11 @@ private extension WatchCaptureEngine {
             try? self.audioSession.setActive(false, options: [])
             self.audioSessionIsActive = false
         }
-
-        if let segment {
-            await self.finalize(segment: segment, audioDuration: audioDuration, end: date, renewLease: false)
+        self.removeAudioTruthLease()
+        self.terminalReason = reason
+        self.terminalDisposition = disposition
+        if reason == .microphonePermissionRevoked {
+            self.setSettingsRouteIfVacant(.microphone)
         }
 
         switch disposition {
@@ -1498,6 +1779,33 @@ private extension WatchCaptureEngine {
         }
         self.publishStatus(.idle)
         self.notifyPresentationChanged()
+
+        let record = self.persistTerminalFact(
+            reason: reason,
+            disposition: disposition,
+            at: date,
+            liveness: liveness,
+            sessionID: sessionID,
+            startedAt: self.sessionStartedAt
+        )
+        self.notifyPresentationChanged()
+
+        if let segment {
+            self.finalizeTerminalSegment(segment, audioDuration: audioDuration, end: date)
+        }
+        if let rolloverSegment {
+            self.finalizeTerminalSegment(
+                rolloverSegment,
+                audioDuration: rolloverAudioDuration,
+                end: date
+            )
+        }
+        self.notifyPresentationChanged()
+        await self.submitTerminalNotice(
+            reason: reason,
+            disposition: disposition,
+            sessionID: record?.sessionID ?? sessionID
+        )
     }
 
     func refreshRelayCountsFromDiskThrowing() throws {

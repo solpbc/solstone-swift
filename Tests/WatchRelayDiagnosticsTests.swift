@@ -98,6 +98,30 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue(appSource.contains("diagnosticsCollector: diagnosticsCollector"))
     }
 
+    func testWatchCaptureLifecycleSourceHasNoModelOrEngineBypass() throws {
+        let root = Self.worktreeRoot()
+        let modelURL = root.appendingPathComponent("Watch/Sources/WatchCaptureModel.swift")
+        let engineURL = root.appendingPathComponent("Sources/WatchCapture/WatchCaptureEngine.swift")
+        let modelSource = try String(contentsOf: modelURL, encoding: .utf8)
+        let engineSource = try String(contentsOf: engineURL, encoding: .utf8)
+
+        XCTAssertFalse(modelSource.contains("Task {"))
+        XCTAssertFalse(modelSource.contains("WatchCaptureLifecycleSerializer"))
+        XCTAssertFalse(modelSource.contains("reconcileOnLaunchInner"))
+        XCTAssertFalse(modelSource.contains("startInner"))
+        XCTAssertFalse(modelSource.contains("stopInner"))
+        XCTAssertTrue(modelSource.contains("engine.reconcileOnLaunch()"))
+        XCTAssertTrue(modelSource.contains("self.engine?.start()"))
+        XCTAssertTrue(modelSource.contains("self.engine?.stop()"))
+
+        XCTAssertTrue(engineSource.contains("func reconcileOnLaunch() {\n        self.lifecycleSerializer.submit(.reconcile)"))
+        XCTAssertTrue(engineSource.contains("func start() {\n        self.lifecycleSerializer.submit(.start)"))
+        XCTAssertTrue(engineSource.contains("func stop() {\n        self.lifecycleSerializer.submit(.stop)"))
+        XCTAssertTrue(engineSource.contains("private func reconcileOnLaunchInner"))
+        XCTAssertTrue(engineSource.contains("private func startInner"))
+        XCTAssertTrue(engineSource.contains("private func stopInner"))
+    }
+
     func testOriginalPayloadFactsCoverAllStatesAndAggregateReadableBytes() throws {
         let now = Self.now
         let writer = ForcedExistingWatchFileWriter()
@@ -1963,6 +1987,10 @@ private final class CountingWatchFileWriter: WatchFileWriting {
         self.base.fileExists(at: url)
     }
 
+    func fileSize(at url: URL) throws -> Int64 {
+        try self.base.fileSize(at: url)
+    }
+
     func readData(from url: URL) throws -> Data {
         try self.base.readData(from: url)
     }
@@ -2009,6 +2037,10 @@ private final class WriteFailingWatchFileWriter: WatchFileWriting {
 
     func fileExists(at url: URL) -> Bool {
         self.base.fileExists(at: url)
+    }
+
+    func fileSize(at url: URL) throws -> Int64 {
+        try self.base.fileSize(at: url)
     }
 
     func readData(from url: URL) throws -> Data {
@@ -2068,6 +2100,10 @@ private final class ForcedExistingWatchFileWriter: WatchFileWriting {
 
     func fileExists(at url: URL) -> Bool {
         self.forcedExistingPaths.contains(url.standardizedFileURL.path) || self.base.fileExists(at: url)
+    }
+
+    func fileSize(at url: URL) throws -> Int64 {
+        try self.base.fileSize(at: url)
     }
 
     func readData(from url: URL) throws -> Data {
@@ -2134,6 +2170,10 @@ private final class MutatingWatchFileWriter: WatchFileWriting {
             mutation?()
         }
         return self.base.fileExists(at: url)
+    }
+
+    func fileSize(at url: URL) throws -> Int64 {
+        try self.base.fileSize(at: url)
     }
 
     func readData(from url: URL) throws -> Data {

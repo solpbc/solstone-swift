@@ -86,10 +86,8 @@ final class WatchCaptureModel {
             }
         }
         self.engine = engine
-        Task { @MainActor [weak self, engine] in
-            await engine.reconcileOnLaunch()
-            self?.presentation = engine.ownerPresentation
-        }
+        engine.reconcileOnLaunch()
+        self.presentation = engine.ownerPresentation
         self.publishComplicationSnapshot()
     }
 
@@ -114,20 +112,16 @@ final class WatchCaptureModel {
     }
 
     func start() {
-        Task { @MainActor [weak self] in
-            await self?.engine?.start()
-            if let engine = self?.engine {
-                self?.presentation = engine.ownerPresentation
-            }
+        self.engine?.start()
+        if let engine = self.engine {
+            self.presentation = engine.ownerPresentation
         }
     }
 
     func stop() {
-        Task { @MainActor [weak self] in
-            await self?.engine?.stop()
-            if let engine = self?.engine {
-                self?.presentation = engine.ownerPresentation
-            }
+        self.engine?.stop()
+        if let engine = self.engine {
+            self.presentation = engine.ownerPresentation
         }
     }
 
