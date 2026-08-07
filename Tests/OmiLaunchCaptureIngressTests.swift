@@ -1157,11 +1157,16 @@ final class OmiLaunchCaptureIngressTests: XCTestCase {
         io.failWrite(onCall: 1, afterBytes: OmiLaunchCaptureFormat.headerByteCount - 1)
         io.failNext(.truncate)
         manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
+        let token = try io.openOrCreateAppendFile(at: self.captureURL(rootURL: rootURL, generation: generation))
+        try io.fullSynchronize(token)
+        try io.close(token)
+        try io.restoreLastSynchronizedState()
 
-        _ = makeOmiSourceManager(
+        let restartedManager = makeOmiSourceManager(
             appGroupRoot: { rootURL }, io: io, generationID: generation,
             defaults: defaults, clock: MockObserverClock(), bluetoothPort: MockOmiBluetoothPort()
         )
+        XCTAssertEqual(restartedManager.activeLaunchCaptureGenerationID, generation)
         let recovery = self.recovery(rootURL: rootURL, generation: generation, io: io)
         XCTAssertEqual(recovery.verifiedPrefixNextSequence, 1)
         XCTAssertEqual(recovery.boundaryReason, .incompleteHeader)
