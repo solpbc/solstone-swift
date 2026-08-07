@@ -1600,6 +1600,33 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(entries.filter { $0.sessionID == current.sessionID }.count, 1)
     }
 
+    func testOverlappingStartsAtNotificationGateBeginExactlyOneCapture() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.authorizationStatusGate = gate
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        let waiting = await gate.waiting()
+        XCTAssertTrue(waiting)
+        harness.engine.start()
+        harness.notificationScheduler.authorizationStatusGate = nil
+        await gate.release()
+        await harness.engine.settled()
+
+        let current = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(current.state, .active)
+        XCTAssertEqual(harness.recorder.startURLs.count, 1)
+        XCTAssertEqual(harness.locationProvider.startCallCount, 1)
+        XCTAssertEqual(try harness.storage.scanManifests().count, 1)
+        let history = WatchCaptureSessionHistoryStore(storage: harness.storage)
+        XCTAssertEqual(history.readCounter()?.lifetimeSessionsStarted, 1)
+        guard case let .available(entries) = history.read(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        XCTAssertEqual(entries.filter { $0.sessionID == current.sessionID }.count, 1)
+    }
+
     func testPermissionGateSuspendsAndSupersededStartTerminalizesMintedSession() async throws {
         let harness = try self.makeHarness(
             microphonePermission: .notDetermined,
@@ -1703,6 +1730,37 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertFalse(harness.audioSession.setActiveCalls.contains(true))
         XCTAssertEqual(harness.locationProvider.startCallCount, 0)
         XCTAssertNil(harness.engine.ownerPresentation.startRefusalReason)
+    }
+
+    func testThrowingAuthorizationGateSupersededStartTerminalizesBeforeAlertSetting() async throws {
+        let harness = try self.makeHarness(
+            locationAuthorization: .authorized,
+            notificationAuthorizationStatus: .notDetermined
+        )
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.requestAuthorizationGate = gate
+        harness.notificationScheduler.requestAuthorizationError = NSError(
+            domain: "WatchCaptureTests.notification",
+            code: 1
+        )
+
+        harness.engine.start()
+        await self.waitForGate(gate)
+        let waiting = await gate.waiting()
+        XCTAssertTrue(waiting)
+        harness.engine.stop()
+        await gate.release()
+        await harness.engine.settled()
+
+        let record = try XCTUnwrap(try harness.storage.readSessionRecord())
+        XCTAssertEqual(record.terminalReason, .ownerStopped)
+        XCTAssertEqual(record.terminalDisposition, .ownerStopped)
+        XCTAssertNotNil(record.terminalAt)
+        XCTAssertFalse(record.noticeOwed)
+        XCTAssertFalse(harness.notificationScheduler.calls.contains(.alertSetting))
+        XCTAssertTrue(harness.recorder.startURLs.isEmpty)
+        XCTAssertFalse(harness.audioSession.setActiveCalls.contains(true))
+        XCTAssertEqual(harness.locationProvider.startCallCount, 0)
     }
 
     func testReconcileNoticeGateDefersStartUntilTerminalFactsSettle() async throws {
@@ -1843,6 +1901,22 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(repaired.terminalReason, .ownerStopped)
         XCTAssertEqual(first.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, sessionOnlyNotices)
 
+        let historyMerge = FailingWatchFileWriter(failAppend: false)
+        let merged = try self.makeHarness(locationAuthorization: .denied, fileWriter: historyMerge)
+        merged.engine.start(); await merged.engine.settled()
+        let mergedHistoryURL = merged.storage.rootURL.appendingPathComponent(
+            WatchCaptureSessionHistoryStore.historyFileName,
+            isDirectory: false
+        )
+        historyMerge.failAtomicReplace(at: mergedHistoryURL, ordinal: 2)
+        merged.engine.stop(); await merged.engine.settled()
+        let mergedTerminal = try XCTUnwrap(try merged.storage.readSessionRecord())
+        let mergedHistory = WatchCaptureSessionHistoryStore(storage: merged.storage)
+        let mergedEntry = try XCTUnwrap(mergedHistory.entry(sessionID: mergedTerminal.sessionID, asOf: merged.clock.now()))
+        XCTAssertEqual(mergedEntry.terminalReason, mergedTerminal.terminalReason)
+        XCTAssertEqual(mergedEntry.terminalDisposition, mergedTerminal.terminalDisposition)
+        XCTAssertEqual(mergedEntry.terminalAt, mergedTerminal.terminalAt)
+
         let historyOnly = FailingWatchFileWriter(failAppend: false)
         let second = try self.makeHarness(locationAuthorization: .denied, fileWriter: historyOnly)
         second.engine.start(); await second.engine.settled()
@@ -1850,7 +1924,8 @@ final class WatchCaptureTests: XCTestCase {
             WatchCaptureSessionHistoryStore.historyFileName,
             isDirectory: false
         )
-        historyOnly.failNextAtomicReplace(at: secondHistoryURL)
+        historyOnly.failAtomicReplace(at: secondHistoryURL, ordinal: 2)
+        historyOnly.failAtomicReplace(at: secondHistoryURL, ordinal: 3)
         second.engine.stop(); await second.engine.settled()
 
         let terminal = try XCTUnwrap(try second.storage.readSessionRecord())
@@ -1870,6 +1945,17 @@ final class WatchCaptureTests: XCTestCase {
             notificationCenter: second.notificationCenter
         )
         historyRepairedEngine.reconcileOnLaunch(); await historyRepairedEngine.settled()
+        XCTAssertEqual(second.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, historyOnlyNotices)
+        let repairedHistory = WatchCaptureSessionHistoryStore(storage: second.storage)
+        let repairedEntry = try XCTUnwrap(repairedHistory.entry(sessionID: terminal.sessionID, asOf: second.clock.now()))
+        XCTAssertEqual(repairedEntry.terminalReason, terminal.terminalReason)
+        XCTAssertEqual(repairedEntry.terminalDisposition, terminal.terminalDisposition)
+        XCTAssertEqual(repairedEntry.terminalAt, terminal.terminalAt)
+        XCTAssertEqual(repairedEntry.noticeOwed, terminal.noticeOwed)
+
+        historyRepairedEngine.reconcileOnLaunch(); await historyRepairedEngine.settled()
+        let repairedAgain = try XCTUnwrap(repairedHistory.entry(sessionID: terminal.sessionID, asOf: second.clock.now()))
+        XCTAssertEqual(repairedAgain, repairedEntry)
         XCTAssertEqual(second.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, historyOnlyNotices)
 
         let both = FailingWatchFileWriter(failAppend: false)
@@ -2430,6 +2516,7 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
     var authorizationStatusValue: WatchNotificationAuthorizationStatus
     var alertSettingValue: WatchNotificationAlertSetting
     var requestAuthorizationResult: WatchNotificationAuthorizationStatus
+    var requestAuthorizationError: (any Error)?
     var addError: (any Error)?
     var onAddCallback: (@MainActor () async -> Void)?
     var authorizationStatusGate: WatchCaptureHoldGate?
@@ -2469,6 +2556,9 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
         self.calls.append(.requestAuthorization)
         if let requestAuthorizationGate {
             await requestAuthorizationGate.suspend()
+        }
+        if let requestAuthorizationError {
+            throw requestAuthorizationError
         }
         self.authorizationStatusValue = self.requestAuthorizationResult
         return self.requestAuthorizationResult

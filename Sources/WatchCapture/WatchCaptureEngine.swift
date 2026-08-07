@@ -17,12 +17,6 @@ final class WatchCaptureEngine {
         case stopping(sessionID: String)
     }
 
-    private struct TerminalClaim: Sendable {
-        let reason: WatchCaptureTerminalReason
-        let disposition: WatchCaptureTerminalDisposition
-        let at: Date
-    }
-
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
     var onRelayDrainRequested: (@MainActor () -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
@@ -79,7 +73,7 @@ final class WatchCaptureEngine {
     private var lifecycleState: LifecycleState = .idle
     private var lifecycleGeneration = 0
     private var executingLifecycleIntent: WatchCaptureLifecycleSerializer.Intent?
-    private var terminalClaims: [String: TerminalClaim] = [:]
+    private var terminalClaimedSessionIDs: Set<String> = []
 
     init(
         audioRecorder: any WatchAudioRecording,
@@ -939,6 +933,17 @@ private extension WatchCaptureEngine {
             }
         }
         guard var entry = self.sessionHistoryStore.entry(sessionID: sessionID, asOf: self.clock.now()) else { return }
+        if let record = try? self.storage.readSessionRecord(),
+           record.sessionID == sessionID,
+           record.state == .terminal,
+           let terminalReason = record.terminalReason,
+           let terminalDisposition = record.terminalDisposition,
+           let terminalAt = record.terminalAt {
+            entry.terminalReason = terminalReason
+            entry.terminalDisposition = terminalDisposition
+            entry.terminalAt = terminalAt
+            entry.noticeOwed = record.noticeOwed
+        }
         entry.segmentsProduced += 1
         do {
             try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
@@ -1215,6 +1220,9 @@ private extension WatchCaptureEngine {
                 }
             } catch {
                 watchCaptureLog.error("watch notification authorization failed: \(String(describing: error), privacy: .public)")
+                if let generation {
+                    guard await self.continueLifecycleOperation(generation) else { return nil }
+                }
             }
         }
         let alertSetting = await self.notificationScheduler.alertSetting()
@@ -1544,6 +1552,27 @@ private extension WatchCaptureEngine {
         return record
     }
 
+    func repairTerminalHistoryIfNeeded(_ record: WatchCaptureSessionRecord) {
+        guard record.state == .terminal,
+              let terminalReason = record.terminalReason,
+              let terminalDisposition = record.terminalDisposition,
+              let terminalAt = record.terminalAt,
+              var entry = self.sessionHistoryStore.entry(sessionID: record.sessionID, asOf: self.clock.now()),
+              entry.terminalAt == nil
+        else { return }
+
+        entry.terminalReason = terminalReason
+        entry.terminalDisposition = terminalDisposition
+        entry.terminalAt = terminalAt
+        entry.noticeOwed = record.noticeOwed
+        do {
+            try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
+        } catch {
+            watchCaptureLog.error("watch terminal history repair failed: \(String(describing: error), privacy: .public)")
+            self.persistenceAdvisory = .sessionRecordWriteFailed
+        }
+    }
+
     func reconcileSessionRecord(generation: Int) async -> String? {
         do {
             guard let record = try self.storage.readSessionRecord() else {
@@ -1579,11 +1608,7 @@ private extension WatchCaptureEngine {
                 let terminalAt = self.clock.now()
                 self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
                 self.removeAudioTruthLease()
-                self.terminalClaims[record.sessionID] = TerminalClaim(
-                    reason: .processExitedWhileActive,
-                    disposition: .inferredStoppedItself,
-                    at: terminalAt
-                )
+                self.terminalClaimedSessionIDs.insert(record.sessionID)
                 _ = self.persistTerminalFact(
                     reason: .processExitedWhileActive,
                     disposition: .inferredStoppedItself,
@@ -1599,6 +1624,7 @@ private extension WatchCaptureEngine {
                 guard self.isLifecycleGenerationCurrent(generation) else { return nil }
             case .terminal:
                 self.removeAudioTruthLease()
+                self.repairTerminalHistoryIfNeeded(record)
                 if record.terminalDisposition == .ownerStopped {
                     self.terminalReason = record.terminalReason
                     self.terminalDisposition = record.terminalDisposition
@@ -1631,11 +1657,7 @@ private extension WatchCaptureEngine {
                   let currentSessionID,
                   let sessionStartedAt
             else { return nil }
-            self.terminalClaims[currentSessionID] = TerminalClaim(
-                reason: .processExitedWhileActive,
-                disposition: .inferredStoppedItself,
-                at: now
-            )
+            self.terminalClaimedSessionIDs.insert(currentSessionID)
             _ = self.persistTerminalFact(
                 reason: .processExitedWhileActive,
                 disposition: .inferredStoppedItself,
@@ -1714,12 +1736,8 @@ private extension WatchCaptureEngine {
     ) async {
         let sessionID = self.currentSessionID
         if let sessionID {
-            guard self.terminalClaims[sessionID] == nil else { return }
-            self.terminalClaims[sessionID] = TerminalClaim(
-                reason: reason,
-                disposition: disposition,
-                at: date
-            )
+            guard !self.terminalClaimedSessionIDs.contains(sessionID) else { return }
+            self.terminalClaimedSessionIDs.insert(sessionID)
             self.lifecycleState = .stopping(sessionID: sessionID)
         }
 
