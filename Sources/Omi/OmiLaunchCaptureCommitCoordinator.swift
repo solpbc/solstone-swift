@@ -1084,6 +1084,11 @@ final class OmiLaunchCaptureCommitCoordinator {
             case .absent:
                 self.cutLifecycle = .sealedSettlement(intent)
             case .valid(let final) where final.sealedGenerationID == intent.sealedGenerationID && final.reservedGenerationID == intent.reservedGenerationID:
+                guard self.finalMatchesSealedCapture(final, rootURL: rootURL) else {
+                    self.cutLifecycle = .defect
+                    self.sourceManager.markCutReservationDefect()
+                    return
+                }
                 self.cutLifecycle = .reservedSettlement(intent, final)
             case .valid, .unreadable:
                 self.cutLifecycle = .defect
@@ -1107,15 +1112,16 @@ final class OmiLaunchCaptureCommitCoordinator {
         result: OmiLaunchCaptureMaterializationResult,
         reader: OmiLaunchCaptureLeaseReader
     ) async -> Bool {
-        guard let rootURL,
-              case .empty = reader.lease(),
+        guard let rootURL else { return false }
+        let scan = OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: intent.sealedGenerationID, io: self.io).recover()
+        guard case .empty = reader.lease(),
               let cursor = reader.cursor(),
               cursor.acknowledgedPrefixNextSequence == cursor.materializedPrefixNextSequence,
               cursor.acknowledgedPrefixEndOffset == cursor.materializedPrefixEndOffset,
               result.verifiedPrefixEndOffset == cursor.acknowledgedPrefixEndOffset,
-              OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: intent.sealedGenerationID, io: self.io).recover().boundaryReason == nil,
-              OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: intent.sealedGenerationID, io: self.io).recover().verifiedPrefixNextSequence == cursor.acknowledgedPrefixNextSequence,
-              OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: intent.sealedGenerationID, io: self.io).recover().verifiedPrefixEndOffset == cursor.acknowledgedPrefixEndOffset
+              scan.boundaryReason == nil,
+              scan.verifiedPrefixNextSequence == cursor.acknowledgedPrefixNextSequence,
+              scan.verifiedPrefixEndOffset == cursor.acknowledgedPrefixEndOffset
         else { return false }
         guard let provenanceIDs = self.sealedProvenanceIDs(rootURL: rootURL, generationID: intent.sealedGenerationID) else { return false }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
@@ -1126,6 +1132,13 @@ final class OmiLaunchCaptureCommitCoordinator {
         // out-of-band post-release drop also removes an item; this wave intentionally
         // does not distinguish that user/API discard from terminal delivery.
         return provenanceIDs.isDisjoint(with: snapshotIDs)
+    }
+
+    private func finalMatchesSealedCapture(_ final: OmiLaunchCaptureCutFinal, rootURL: URL) -> Bool {
+        let scan = OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: final.sealedGenerationID, io: self.io).recover()
+        return scan.boundaryReason == nil
+            && scan.verifiedPrefixNextSequence == final.sealedNextSequence
+            && scan.verifiedPrefixEndOffset == final.sealedEndOffset
     }
 
     private func sealedProvenanceIDs(rootURL: URL, generationID: UUID) -> Set<UUID>? {
