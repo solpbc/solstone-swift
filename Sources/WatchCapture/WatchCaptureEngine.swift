@@ -579,13 +579,20 @@ private extension WatchCaptureEngine {
         let day = self.storage.dayString(for: startedAt)
         let segmentKey = self.storage.provisionalSegmentString(for: startedAt)
         let directory = try self.storage.ensureSegmentDirectory(day: day, segment: segmentKey)
+        var sensors: [WatchSensor] = []
+        if self.audioArmed {
+            sensors.append(.audio)
+        }
+        if self.locationArmed {
+            sensors.append(.location)
+        }
         var manifest = WatchSegmentManifest(
             id: UUID(),
             day: day,
             segment: segmentKey,
             startedAt: startedAt,
             duration: 0,
-            sensors: [],
+            sensors: sensors,
             partial: false,
             lost: false,
             gap: false,
@@ -609,7 +616,6 @@ private extension WatchCaptureEngine {
         if self.audioArmed {
             let audioURL = self.storage.audioURL(directory: directory)
             active.audioURL = audioURL
-            manifest.sensors.append(.audio)
             active.manifest = manifest
             self.openingSegment = active
             do {
@@ -638,7 +644,6 @@ private extension WatchCaptureEngine {
                 }
                 active.locationURL = locationURL
                 active.locationLog = locationLog
-                manifest.sensors.append(.location)
                 self.openingSegment = active
             } catch {
                 self.locationArmed = false
@@ -825,11 +830,16 @@ private extension WatchCaptureEngine {
     ) -> (segment: ActiveSegment, manifest: WatchSegmentManifest, verifiedAudioAt: Date?) {
         var segment = segment
         var manifest = segment.manifest
+        let declaredSensors = self.retainDeclaredSensorsWhoseFilesExist(
+            &manifest,
+            directory: segment.directoryURL
+        )
         var duration = max(audioDuration ?? end.timeIntervalSince(manifest.startedAt), 0)
         manifest.duration = duration
         var verifiedAudioAt: Date?
 
-        if manifest.sensors.contains(.audio), let audioURL = segment.audioURL {
+        if declaredSensors.contains(.audio) {
+            let audioURL = self.storage.audioURL(directory: segment.directoryURL)
             if let probedDuration = self.audioProbe.decodableDuration(at: audioURL), probedDuration > 0 {
                 duration = probedDuration
                 manifest.duration = probedDuration
@@ -842,7 +852,8 @@ private extension WatchCaptureEngine {
             }
         }
 
-        if let locationURL = segment.locationURL, manifest.sensors.contains(.location) {
+        if declaredSensors.contains(.location) {
+            let locationURL = self.storage.locationURL(directory: segment.directoryURL)
             do {
                 let stats = try WatchCaptureLocationLog.reconcile(
                     url: locationURL,
@@ -903,19 +914,31 @@ private extension WatchCaptureEngine {
     func recoverUnclean(_ entry: WatchCaptureStorage.ManifestEntry, sessionID: String?) throws {
         var manifest = entry.manifest
         manifest.partial = true
-
-        if manifest.sensors.contains(.location) {
-            let locationURL = self.storage.locationURL(directory: entry.directoryURL)
-            let stats = try WatchCaptureLocationLog.reconcile(
-                url: locationURL,
-                armed: true,
-                fileWriter: self.storage.fileWriter
-            )
-            manifest.fixCount = stats.fixCount
-            manifest.gap = stats.gap
+        let declaredSensors = self.retainDeclaredSensorsWhoseFilesExist(
+            &manifest,
+            directory: entry.directoryURL
+        )
+        if declaredSensors.isEmpty,
+           self.removeSegmentDirectoryIfMediaIsProvablyEmpty(entry.directoryURL) {
+            return
         }
 
-        if manifest.sensors.contains(.audio) {
+        if declaredSensors.contains(.location) {
+            let locationURL = self.storage.locationURL(directory: entry.directoryURL)
+            do {
+                let stats = try WatchCaptureLocationLog.reconcile(
+                    url: locationURL,
+                    armed: true,
+                    fileWriter: self.storage.fileWriter
+                )
+                manifest.fixCount = stats.fixCount
+                manifest.gap = stats.gap
+            } catch {
+                manifest.failureReason = WatchCaptureFailureMapper.observerError(for: error).message
+            }
+        }
+
+        if declaredSensors.contains(.audio) {
             let audioURL = self.storage.audioURL(directory: entry.directoryURL)
             if let duration = self.audioProbe.decodableDuration(at: audioURL), duration > 0 {
                 manifest.duration = duration
@@ -954,6 +977,23 @@ private extension WatchCaptureEngine {
         self.queuedCount += 1
         self.incrementSegmentsProduced(sessionID: sessionID)
         self.requestRelayDrain()
+    }
+
+    func retainDeclaredSensorsWhoseFilesExist(
+        _ manifest: inout WatchSegmentManifest,
+        directory: URL
+    ) -> [WatchSensor] {
+        manifest.sensors = manifest.sensors.filter { sensor in
+            let url: URL
+            switch sensor {
+            case .audio:
+                url = self.storage.audioURL(directory: directory)
+            case .location:
+                url = self.storage.locationURL(directory: directory)
+            }
+            return self.storage.fileWriter.fileExists(at: url)
+        }
+        return manifest.sensors
     }
 
     func incrementSegmentsProduced(sessionID: String?) {
