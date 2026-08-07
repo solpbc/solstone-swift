@@ -273,8 +273,9 @@ final class OmiLaunchCaptureCommitCoordinator {
             )
             if case .held = outcome { return outcome }
             // A failed materialization may have durably persisted an earlier
-            // partition from this lease. Restart from the materialized frontier so
-            // that partition is recognized and settled before retrying the fault.
+            // partition from this lease. Its acknowledged and materialized
+            // prefixes moved together only after the owner was gated, so the
+            // retry resumes from that settled boundary.
             self.dropMaterializerSession(reason: "materialization retry")
             return .retryDelayed(result, reader)
         }
@@ -284,7 +285,13 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
 
         guard !pending.isEmpty else {
-            guard self.advanceMaterializedFrontier(result.materializedFrontier, reader: reader) else {
+            if let frontier = result.materializedFrontier,
+               !self.commitSettled(
+                    reader: reader,
+                    throughSequence: frontier.throughSequence,
+                    nextPartitionOrdinal: frontier.nextPartitionOrdinal,
+                    nextSampleOffset: frontier.nextSampleOffset
+               ) {
                 await self.conservativelyGateOmi()
                 return .failed
             }
@@ -316,14 +323,14 @@ final class OmiLaunchCaptureCommitCoordinator {
             await self.hold(pending, retainForExplicitResume: true)
             return .held
         }
-        // The artifacts and their gated owners are durable before this frontier
-        // advances. A restart before the next acknowledgement re-derives the same
-        // deterministic handoff instead of skipping an unsettled owner.
-        guard self.advanceMaterializedFrontier(result.materializedFrontier, reader: reader) else {
-            await self.hold(pending)
-            return .failed
-        }
-        guard self.acknowledge(reader: reader, throughSequence: coveredThroughSequence) else {
+        guard let partition = pending.last?.partition,
+              self.commitSettled(
+                reader: reader,
+                throughSequence: coveredThroughSequence,
+                nextPartitionOrdinal: partition.nextPartitionOrdinal,
+                nextSampleOffset: partition.nextSampleOffset
+              )
+        else {
             await self.hold(pending)
             return .failed
         }
@@ -353,16 +360,16 @@ final class OmiLaunchCaptureCommitCoordinator {
         return pending
     }
 
-    private func advanceMaterializedFrontier(
-        _ frontier: OmiLaunchCaptureMaterializedFrontier?,
-        reader: OmiLaunchCaptureLeaseReader
+    private func commitSettled(
+        reader: OmiLaunchCaptureLeaseReader,
+        throughSequence: UInt64,
+        nextPartitionOrdinal: UInt64,
+        nextSampleOffset: UInt64
     ) -> Bool {
-        guard let frontier else { return true }
-        switch reader.advanceMaterialized(
-            throughSequence: frontier.throughSequence,
-            endOffset: frontier.endOffset,
-            nextPartitionOrdinal: frontier.nextPartitionOrdinal,
-            nextSampleOffset: frontier.nextSampleOffset
+        switch reader.commitSettled(
+            throughSequence: throughSequence,
+            nextPartitionOrdinal: nextPartitionOrdinal,
+            nextSampleOffset: nextSampleOffset
         ) {
         case .advanced, .noOp:
             return true
@@ -390,7 +397,14 @@ final class OmiLaunchCaptureCommitCoordinator {
             await self.hold(pending, retainForExplicitResume: true)
             return .failed
         }
-        guard self.acknowledge(reader: reader, throughSequence: coveredThroughSequence) else {
+        guard let partition = pending.last?.partition,
+              self.commitSettled(
+                reader: reader,
+                throughSequence: coveredThroughSequence,
+                nextPartitionOrdinal: partition.nextPartitionOrdinal,
+                nextSampleOffset: partition.nextSampleOffset
+              )
+        else {
             await self.hold(pending)
             return .failed
         }
@@ -464,15 +478,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         case .stagingOnly, .salvageOnly, .conflict, .none:
             await self.engine.hold(itemID: partition.itemID)
             return nil
-        }
-    }
-
-    private func acknowledge(reader: OmiLaunchCaptureLeaseReader, throughSequence: UInt64) -> Bool {
-        switch reader.acknowledge(throughSequence: throughSequence) {
-        case .advanced, .noOp:
-            return true
-        case .refused:
-            return false
         }
     }
 

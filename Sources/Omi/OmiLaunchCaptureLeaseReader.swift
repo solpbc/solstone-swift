@@ -49,6 +49,12 @@ final class OmiLaunchCaptureLeaseReader {
     func materializedPosition() -> OmiLaunchCaptureReadPosition? {
         switch self.readCursor() {
         case .valid(let cursor):
+            // v2 commits both prefixes atomically. A divergent cursor can only be
+            // evidence from an interrupted earlier build, so re-derive from the
+            // acknowledged prefix rather than skipping an unsettled handoff.
+            if cursor.materializedPrefixNextSequence > cursor.acknowledgedPrefixNextSequence {
+                return OmiLaunchCaptureReadPosition(generationID: cursor.generationID, nextSequence: cursor.acknowledgedPrefixNextSequence, offset: cursor.acknowledgedPrefixEndOffset)
+            }
             return OmiLaunchCaptureReadPosition(generationID: cursor.generationID, nextSequence: cursor.materializedPrefixNextSequence, offset: cursor.materializedPrefixEndOffset)
         case .initial:
             return OmiLaunchCaptureReadPosition(generationID: self.generationID, nextSequence: 0, offset: 0)
@@ -116,6 +122,56 @@ final class OmiLaunchCaptureLeaseReader {
             replayMarkerNextSequence: cursor.replayMarkerNextSequence
         )
         return self.writeCursor(next)
+    }
+
+    func commitSettled(
+        throughSequence: UInt64,
+        nextPartitionOrdinal: UInt64,
+        nextSampleOffset: UInt64
+    ) -> OmiLaunchCaptureAcknowledgmentOutcome {
+        let cursorRead = self.readCursor()
+        let cursor: OmiLaunchCaptureCursor
+        switch cursorRead {
+        case .valid(let value): cursor = value
+        case .initial:
+            cursor = OmiLaunchCaptureCursor(generationID: self.generationID, acknowledgedPrefixNextSequence: 0, acknowledgedPrefixEndOffset: 0)
+        case .unreadable: return .refused(.cursorUnreadable)
+        }
+        if cursor.acknowledgedPrefixNextSequence > 0,
+           throughSequence == cursor.acknowledgedPrefixNextSequence - 1 {
+            return .noOp(.repeatedSequence)
+        }
+        guard throughSequence >= cursor.acknowledgedPrefixNextSequence else {
+            return .noOp(.lowerSequence)
+        }
+        guard let scan = self.scanCurrent(), throughSequence < scan.verifiedPrefixNextSequence else {
+            return .refused(.pastVerifiedPrefix)
+        }
+        do {
+            let token = try self.io.openForReading(at: self.fileURL)
+            defer { try? self.io.close(token) }
+            guard let endOffset = try OmiLaunchCaptureLeaseLogic.headerEnd(
+                generationID: self.generationID,
+                startSequence: cursor.acknowledgedPrefixNextSequence,
+                startOffset: cursor.acknowledgedPrefixEndOffset,
+                throughSequence: throughSequence,
+                read: { try self.io.read(token, offset: $0, count: $1) }
+            ) else { return .refused(.noncontiguousFutureSequence) }
+            // Owners are gated before this one atomic cursor replacement. A crash
+            // therefore exposes either neither prefix advance or both together.
+            return self.writeCursor(OmiLaunchCaptureCursor(
+                generationID: self.generationID,
+                acknowledgedPrefixNextSequence: throughSequence + 1,
+                acknowledgedPrefixEndOffset: endOffset,
+                materializedPrefixNextSequence: throughSequence + 1,
+                materializedPrefixEndOffset: endOffset,
+                nextPartitionOrdinal: nextPartitionOrdinal,
+                nextSampleOffset: nextSampleOffset,
+                replayMarkerNextSequence: cursor.replayMarkerNextSequence
+            ))
+        } catch {
+            return .refused(.cursorUnreadable)
+        }
     }
 
     func advanceReplayMarkers(through sequence: UInt64) -> OmiLaunchCaptureAcknowledgmentOutcome {

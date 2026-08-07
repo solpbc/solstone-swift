@@ -2,8 +2,33 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
 import Foundation
+import Opus
 import XCTest
+
+nonisolated private struct LeaseCoordinatorAvailableEndpointResolver: TransferEndpointResolver {
+    func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
+        .available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))
+    }
+}
+
+private actor LeaseCoordinatorBarrier {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isWaiting = false
+
+    func suspend() async {
+        self.isWaiting = true
+        await withCheckedContinuation { self.continuation = $0 }
+    }
+
+    func waiting() -> Bool { self.isWaiting }
+
+    func resume() {
+        self.continuation?.resume()
+        self.continuation = nil
+    }
+}
 
 @MainActor
 final class OmiLaunchCaptureLeaseTests: XCTestCase {
@@ -221,37 +246,76 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         XCTAssertEqual(suffix.startOffset, prefix.endOffset, "resume must begin at the committed frontier, not byte zero")
     }
 
-    func testAppendBehindFrozenLeaseKeepsBoundedOrderedSuccessors() throws {
+    func testActualV1CursorIsUnsupportedVersion() throws {
         let io = FaultInjectingOmiLaunchCaptureIO()
         let generation = UUID()
         let writer = self.writer(generation: generation, io: io)
-        for value in 0..<2 {
-            XCTAssertEqual(writer.append(Data([UInt8(value)])), .retained(sequence: UInt64(value), retriedPending: false))
-        }
+        XCTAssertEqual(writer.append(Data("prefix".utf8)), .retained(sequence: 0, retriedPending: false))
         let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
-        guard case .lease(let frozen) = reader.lease() else { return XCTFail("expected frozen lease") }
-        XCTAssertEqual(frozen.records.map(\.sequence), [0, 1])
-        for value in 2..<9 {
-            XCTAssertEqual(writer.append(Data([UInt8(value)])), .retained(sequence: UInt64(value), retriedPending: false))
+
+        var legacy = Data()
+        legacy.append(OmiLaunchCaptureCursorFormat.magic)
+        legacy.appendLittleEndian(UInt16(1))
+        legacy.append(uuidBytes: generation)
+        legacy.appendLittleEndian(UInt64(0))
+        legacy.appendLittleEndian(UInt64(0))
+        legacy.append(OmiLaunchCaptureDigest.truncated(legacy))
+        XCTAssertNotEqual(legacy.count, OmiLaunchCaptureCursorFormat.byteCount)
+        try legacy.write(to: reader.cursorURL)
+
+        XCTAssertEqual(OmiLaunchCaptureCursor.decode(legacy), .failure(.unsupportedVersion))
+        XCTAssertEqual(reader.cursorDefect()?.reason, .unsupportedVersion)
+        XCTAssertEqual(reader.lease(), .unavailable(.cursorUnreadable))
+    }
+
+    func testAppendBehindFrozenLeaseKeepsBoundedOrderedSuccessors() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let writer = OmiLaunchCaptureWriter(rootURL: self.rootURL, generationID: generation, clock: clock, io: io)
+        XCTAssertEqual(writer.append(Self.packet(0, index: 0, body: try Self.opusFrame())), .retained(sequence: 0, retriedPending: false))
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        let defaults = UserDefaults(suiteName: "OmiLaunchCaptureLeaseTests-\(UUID().uuidString)")!
+        defaults.set(true, forKey: OmiSourceManager.enabledKey)
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
+        let manager = OmiSourceManager(defaults: defaults, clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
+        let harness = makeTransferCutoverHarness(rootURL: transferRoot, sessionConfiguration: makeTransferTestURLSessionConfiguration(), endpointResolver: LeaseCoordinatorAvailableEndpointResolver())
+        try await harness.engine.initialize()
+        let barrier = LeaseCoordinatorBarrier()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: self.rootURL,
+            engine: harness.engine,
+            sourceManager: manager,
+            io: io,
+            onReconciliationPhase: { phase in
+                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+            }
+        )
+        let reconciliation = Task { @MainActor in await coordinator.reconcile() }
+        try await transferTestWaitFor("frozen coordinator lease") { await barrier.waiting() }
+        guard case .lease(let frozen) = reader.lease() else { return XCTFail("expected active frozen lease") }
+        XCTAssertEqual(frozen.records.map(\.sequence), [0])
+        for value in 1...7 {
+            XCTAssertEqual(writer.append(Self.marker(packet: UInt16(value), epoch: UInt32(2_000 - value))), .retained(sequence: UInt64(value), retriedPending: false))
         }
-        XCTAssertEqual(reader.advanceMaterialized(
-            throughSequence: frozen.throughSequence,
-            endOffset: frozen.endOffset,
-            nextPartitionOrdinal: 0,
-            nextSampleOffset: 0
-        ), .advanced)
-        XCTAssertEqual(reader.acknowledge(throughSequence: frozen.throughSequence), .advanced)
+        await barrier.resume()
+        await reconciliation.value
+        try await transferTestWaitFor("appended suffix settled") {
+            await MainActor.run { reader.lease() == .empty }
+        }
 
         var sequences: [UInt64] = []
-        var position = try XCTUnwrap(reader.materializedPosition())
+        var position = OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: 0, offset: 0)
         while case .lease(let lease) = reader.lease(from: position) {
             XCTAssertLessThanOrEqual(lease.records.count, OmiLaunchCaptureFormat.maximumRecordsPerLease)
             XCTAssertLessThanOrEqual(reader.peakLeaseResidentPayloadBytes, OmiLaunchCaptureFormat.maximumResidentPayloadBytes)
             sequences.append(contentsOf: lease.records.map(\.sequence))
             position = OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: lease.throughSequence + 1, offset: lease.endOffset)
         }
-        XCTAssertEqual(sequences, Array(2..<9))
-        XCTAssertEqual(frozen.endOffset, try XCTUnwrap(reader.materializedPosition()).offset)
+        XCTAssertEqual(sequences, Array(0...7))
+        XCTAssertGreaterThan(try XCTUnwrap(reader.cursor()).acknowledgedPrefixEndOffset, frozen.endOffset)
     }
 
     func testBoundaryPrefixIsLeasableThenQuarantinedOnlyAfterAcknowledgment() {
@@ -391,6 +455,27 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         var result = data
         result[result.startIndex + offset] = value
         return result
+    }
+
+    private static func packet(_ number: UInt16, index: UInt8, body: some DataProtocol) -> Data {
+        var packet = Data([UInt8(number & 0xff), UInt8(number >> 8), index])
+        packet.append(contentsOf: body)
+        return packet
+    }
+
+    private static func marker(packet: UInt16, epoch: UInt32) -> Data {
+        Self.packet(packet, index: 0xff, body: Data([UInt8(epoch & 0xff), UInt8((epoch >> 8) & 0xff), UInt8((epoch >> 16) & 0xff), UInt8((epoch >> 24) & 0xff)]))
+    }
+
+    private static func opusFrame() throws -> Data {
+        let format = try XCTUnwrap(AVAudioFormat(opusPCMFormat: .int16, sampleRate: OmiAudioChunkFormat.sampleRate, channels: OmiAudioChunkFormat.channelCount))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320))
+        buffer.frameLength = 320
+        for index in 0..<320 { buffer.int16ChannelData![0][index] = Int16(index % 128) }
+        let encoder = try Opus.Encoder(format: format)
+        var encoded = Data(repeating: 0, count: OmiLaunchCaptureFormat.maximumPayloadBytes)
+        _ = try encoder.encode(buffer, to: &encoded)
+        return encoded
     }
 
     private static func replacingUUID(in data: Data, at offset: Int, with value: UUID) -> Data {

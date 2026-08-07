@@ -16,6 +16,8 @@ nonisolated struct OmiLaunchCaptureMaterializedPartition: Equatable, Sendable {
     let coveredThroughSequence: UInt64?
     let endsAtSourceFrameBoundary: Bool
     let isExistingOwner: Bool
+    let nextPartitionOrdinal: UInt64
+    let nextSampleOffset: UInt64
 }
 
 nonisolated struct OmiLaunchCaptureOrphanRepairFailure: Equatable, Sendable {
@@ -202,10 +204,10 @@ final class OmiLaunchCaptureMaterializer {
         }
         self.session = session
         let frontier: OmiLaunchCaptureMaterializedFrontier?
-        if failure == nil, lease.endsAtVerifiedPrefix, session.current == nil {
-            // The final flush persisted every frame before this point.  Commit this
-            // frontier only after those artifacts are durable, so a restart never
-            // skips records that exist solely in the in-memory reassembly tail.
+        if failure == nil, !session.reassembler.hasInProgressFrame, session.current == nil {
+            // An empty reassembler is a source-frame boundary. Every artifact up
+            // to this lease is durable before this point, so the coordinator may
+            // atomically settle this frontier without skipping an in-memory tail.
             frontier = OmiLaunchCaptureMaterializedFrontier(
                 throughSequence: lease.throughSequence,
                 endOffset: lease.endOffset,
@@ -242,6 +244,9 @@ final class OmiLaunchCaptureMaterializer {
                 current = nil
             }
             var remaining = ArraySlice(decoded)
+            // One decoded frame can cross multiple audio-partition sample limits,
+            // so partitions are intentionally not bounded by the lease record
+            // ceiling. The per-partition sample limit remains the hard bound.
             while !remaining.isEmpty {
                 if let currentPartition = current, currentPartition.samples.isEmpty {
                     current = Partition(ordinal: currentPartition.ordinal, startSequence: startSequence, startSampleOffset: currentPartition.startSampleOffset, startedAt: currentPartition.startedAt, samples: [], terminalSequence: nil, sealedSampleCount: currentPartition.sealedSampleCount, isRecognizedOrphan: currentPartition.isRecognizedOrphan)
@@ -418,7 +423,9 @@ final class OmiLaunchCaptureMaterializer {
             envelopeURL: envelopeURL,
             coveredThroughSequence: partition.endsAtSourceFrameBoundary ? partition.terminalSequence : nil,
             endsAtSourceFrameBoundary: partition.endsAtSourceFrameBoundary,
-            isExistingOwner: isExistingOwner
+            isExistingOwner: isExistingOwner,
+            nextPartitionOrdinal: UInt64(partition.ordinal + 1),
+            nextSampleOffset: partition.startSampleOffset + UInt64(partition.samples.count)
         )
     }
 

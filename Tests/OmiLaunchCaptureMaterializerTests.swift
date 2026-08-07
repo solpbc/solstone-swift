@@ -78,6 +78,10 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
             // Markers originate in leased records, so their per-pass count shares
             // the record ceiling.
             XCTAssertLessThanOrEqual(result.markers.count, OmiLaunchCaptureFormat.maximumRecordsPerLease)
+            // A decoded source frame may split at the audio sample limit, so the
+            // structurally bounded output is each open partition's sample count,
+            // not the number of partitions emitted by this lease.
+            XCTAssertLessThanOrEqual(materializer.peakOpenPartitionSampleCount, OmiAudioChunkFormat.sampleLimit)
             observedMarkers.append(contentsOf: result.markers)
             partitions.append(contentsOf: result.partitions)
         }
@@ -130,6 +134,14 @@ final class OmiLaunchCaptureMaterializerTests: XCTestCase {
         XCTAssertEqual(firstBatch.consumedRecordCount, OmiLaunchCaptureFormat.maximumRecordsPerLease)
         XCTAssertTrue(firstBatch.partitions.isEmpty)
         XCTAssertNil(firstBatch.materializedFrontier)
+
+        // Continuing the same materializer must retain the mid-frame tail from the
+        // first lease; clearing that tail at a batch boundary makes the final
+        // fragment undecodable and turns this assertion red.
+        let continued = beforeCrash.materializeNextBatch()
+        XCTAssertEqual(continued.consumedRecordCount, 1)
+        XCTAssertEqual(try XCTUnwrap(continued.partitions.only).itemID, OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generation, partitionOrdinal: 0, startSequence: 2, startSampleOffset: 0))
+        XCTAssertEqual(store.totalSampleCount, 320)
         let readsBeforeRestart = io.readCallCount(at: writer.fileURL)
 
         // Reopening loses only the uncommitted in-memory tail; it must start at the

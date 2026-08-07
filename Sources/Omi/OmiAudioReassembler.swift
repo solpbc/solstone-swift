@@ -48,6 +48,8 @@ nonisolated struct OmiAudioReassembler: Equatable, Sendable {
     private var frameStartSequence: UInt64?
     private var frameEndSequence: UInt64?
 
+    var hasInProgressFrame: Bool { self.frameStarted }
+
     mutating func ingest(_ payload: Data, acquiredAt: Date, recordSequence: UInt64?) -> OmiReassemblyOutput {
         guard payload.count >= 3 else {
             self.malformed += 1

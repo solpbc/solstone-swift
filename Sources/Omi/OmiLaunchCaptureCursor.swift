@@ -88,7 +88,7 @@ nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
     }
 
     static func decode(_ data: Data) -> Result<Self, OmiLaunchCaptureCursorDefectReason> {
-        guard data.count == OmiLaunchCaptureCursorFormat.byteCount else {
+        guard data.count >= OmiLaunchCaptureCursorFormat.magic.count + OmiLaunchCaptureCursorFormat.versionByteCount else {
             return .failure(.invalidLength)
         }
         guard data.prefix(OmiLaunchCaptureCursorFormat.magic.count) == OmiLaunchCaptureCursorFormat.magic else {
@@ -97,6 +97,9 @@ nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
         let versionOffset = OmiLaunchCaptureCursorFormat.magic.count
         guard data.uint16LE(at: versionOffset) == OmiLaunchCaptureCursorFormat.version else {
             return .failure(.unsupportedVersion)
+        }
+        guard data.count == OmiLaunchCaptureCursorFormat.byteCount else {
+            return .failure(.invalidLength)
         }
         let digestOffset = data.count - OmiLaunchCaptureCursorFormat.digestByteCount
         guard OmiLaunchCaptureDigest.truncated(data.prefix(digestOffset)) == data.suffix(OmiLaunchCaptureCursorFormat.digestByteCount) else {

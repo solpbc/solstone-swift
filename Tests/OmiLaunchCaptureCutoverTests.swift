@@ -150,38 +150,64 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         XCTAssertEqual(restarted.lastMarkerDate, Date(timeIntervalSince1970: 1_001))
     }
 
-    @MainActor func testReplayMarkerHighWaterPreservesBoundaryOrderAndSameTimestampDistinctness() throws {
+    @MainActor func testReplayMarkerHighWaterPreservesBoundaryOrderAndSameTimestampDistinctness() async throws {
         let generation = UUID()
         let defaults = self.defaults(enabled: true)
         let diagnosticsURL = self.rootURL.appendingPathComponent("marker-diagnostics.json")
         let observedAt = Date(timeIntervalSince1970: 100)
-        let markers = [
-            OmiLaunchCaptureMarkerObservation(epoch: 3_000, acquiredAt: observedAt, sequence: 0),
-            OmiLaunchCaptureMarkerObservation(epoch: 1_000, acquiredAt: observedAt, sequence: 1),
-            OmiLaunchCaptureMarkerObservation(epoch: 3_000, acquiredAt: observedAt, sequence: 2),
-            OmiLaunchCaptureMarkerObservation(epoch: 999, acquiredAt: observedAt, sequence: 3),
-        ]
+        let clock = MockObserverClock(now: observedAt)
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
+        let manager = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: clock, bluetoothPort: MockOmiBluetoothPort(), launchCaptureIngress: ingress)
+        manager.enable()
+        // Prime a higher epoch so each coordinator-delivered marker transition is
+        // observable through the source manager's replay diagnostics.
+        manager.observeRecoveredLaunchCaptureMarkers([
+            OmiLaunchCaptureMarkerObservation(epoch: 5_000, acquiredAt: observedAt, sequence: nil),
+        ])
+        let writer = OmiLaunchCaptureWriter(rootURL: self.captureRoot, generationID: generation, clock: clock)
+        // Records 1 and 2 are an exact duplicate; all four carry the same source
+        // timestamp, so sequence is the only distinction at the batch boundary.
+        for (packet, epoch) in [(0, 3_000), (1, 1_000), (2, 1_000), (3, 999)] {
+            Self.assertRetained(writer.append(Self.marker(packet: UInt16(packet), epoch: UInt32(epoch))))
+        }
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("marker-transfer", isDirectory: true))
+        try await harness.engine.initialize()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager)
+        await coordinator.reconcile()
         let reader = OmiLaunchCaptureLeaseReader(rootURL: self.captureRoot, generationID: generation)
-        let first = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: MockObserverClock(now: observedAt), bluetoothPort: MockOmiBluetoothPort())
-        first.observeRecoveredLaunchCaptureMarkers(Array(markers.prefix(2)))
-        XCTAssertEqual(first.lastMarkerDate, Date(timeIntervalSince1970: 1_000))
-        XCTAssertEqual(first.diagnostics.payload.pendantRebootEvents?.count, 1)
-        XCTAssertEqual(reader.advanceReplayMarkers(through: 1), .advanced)
+        XCTAssertEqual(reader.cursor()?.replayMarkerNextSequence, 2)
 
-        let second = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: MockObserverClock(now: observedAt), bluetoothPort: MockOmiBluetoothPort())
-        let suffix = markers.filter { ($0.sequence ?? 0) >= (reader.cursor()?.replayMarkerNextSequence ?? 0) }
-        XCTAssertEqual(suffix.map(\.sequence), [2, 3])
-        second.observeRecoveredLaunchCaptureMarkers(suffix)
-        XCTAssertEqual(second.lastMarkerDate, Date(timeIntervalSince1970: 999))
-        XCTAssertEqual(second.diagnostics.payload.pendantRebootEvents?.count, 2)
-        XCTAssertEqual(reader.advanceReplayMarkers(through: 3), .advanced)
+        // This lands between the two bounded coordinator batches. The next replayed
+        // 1_000 marker is otherwise indistinguishable from its predecessor except
+        // for sequence, so its distinct diagnostic transition proves it arrived.
+        manager.observeRecoveredLaunchCaptureMarkers([
+            OmiLaunchCaptureMarkerObservation(epoch: 4_000, acquiredAt: observedAt, sequence: nil),
+        ])
+        await Task.yield()
+        await Task.yield()
 
-        let reopened = OmiSourceManager(defaults: defaults, diagnostics: OmiDiagnostics(fileURL: diagnosticsURL), clock: MockObserverClock(now: observedAt), bluetoothPort: MockOmiBluetoothPort())
-        let replay = markers.filter { ($0.sequence ?? 0) >= (reader.cursor()?.replayMarkerNextSequence ?? 0) }
-        XCTAssertTrue(replay.isEmpty)
-        reopened.observeRecoveredLaunchCaptureMarkers(replay)
-        XCTAssertEqual(reopened.diagnostics.payload.pendantRebootEvents?.count, 2)
+        // These are source-manager effects of coordinator-delivered markers. The
+        // second and third transitions have the same acquiredAt and epochAfter;
+        // only their source sequence distinguishes the two replayed entries.
+        XCTAssertEqual(
+            (manager.diagnostics.payload.pendantRebootEvents ?? []).map {
+                "\($0.epochBefore)->\($0.epochAfter)@\($0.observedAt.timeIntervalSince1970)"
+            },
+            [
+                "5000->3000@100.0",
+                "3000->1000@100.0",
+                "4000->1000@100.0",
+            ]
+        )
         XCTAssertEqual(reader.cursor()?.replayMarkerNextSequence, 4)
+        XCTAssertEqual(manager.lastMarkerDate, Date(timeIntervalSince1970: 999))
+        XCTAssertEqual(manager.diagnostics.payload.pendantRebootEvents?.count, 3)
+
+        // A fresh coordinator starts after the durable high-water mark; it cannot
+        // apply the already observed marker records again.
+        await OmiLaunchCaptureCommitCoordinator(rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager).reconcile()
+        XCTAssertEqual(reader.cursor()?.replayMarkerNextSequence, 4)
+        XCTAssertEqual(manager.diagnostics.payload.pendantRebootEvents?.count, 3)
     }
 
     @MainActor func testCutoverWaitsForAllGenerationsAndRetiresInactiveCaptureInCaptureOrder() async throws {

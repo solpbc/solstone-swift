@@ -657,12 +657,59 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
             let position = try XCTUnwrap(reader.acknowledgedPosition(), name)
             XCTAssertEqual(position.nextSequence, 1, name)
+            XCTAssertEqual(reader.cursor()?.nextPartitionOrdinal, 1, name)
+            XCTAssertEqual(reader.cursor()?.nextSampleOffset, 320, name)
             if case .lease(let lease) = reader.lease() {
                 XCTAssertEqual(lease.startSequence, 1, name)
             } else {
                 XCTFail("failure suffix must remain unacknowledged: \(name)")
             }
         }
+    }
+
+    @MainActor func testRestartSettlesLegacyMaterializedUnacknowledgedPrefix() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("legacy-frontier-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("legacy-frontier-transfer", isDirectory: true)
+        let generation = UUID()
+        let writer = OmiLaunchCaptureWriter(rootURL: captureRoot, generationID: generation)
+        self.append(Data([0, 0, 0xff, 0, 0, 0, 0]), to: writer)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation)
+        guard case .lease(let lease) = reader.lease() else { return XCTFail("expected marker lease") }
+
+        // This is the durable state left by the former two-write path if the
+        // process stopped after the materialized write and before acknowledgement.
+        let interrupted = OmiLaunchCaptureCursor(
+            generationID: generation,
+            acknowledgedPrefixNextSequence: 0,
+            acknowledgedPrefixEndOffset: 0,
+            materializedPrefixNextSequence: lease.throughSequence + 1,
+            materializedPrefixEndOffset: lease.endOffset
+        )
+        try interrupted.encoded().write(to: reader.cursorURL)
+
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let defaults = UserDefaults(suiteName: "OmiLaunchCaptureCommitCoordinatorTests-\(UUID().uuidString)")!
+        defaults.set(true, forKey: OmiSourceManager.enabledKey)
+        let ingress = OmiLaunchCaptureIngress(appGroupRoot: { captureRoot }, generationID: generation)
+        let manager = OmiSourceManager(
+            defaults: defaults,
+            clock: MockObserverClock(),
+            bluetoothPort: MockOmiBluetoothPort(),
+            launchCaptureIngress: ingress
+        )
+        manager.enable()
+        await OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: manager
+        ).reconcile()
+
+        let restarted = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation)
+        XCTAssertEqual(restarted.lease(), .empty)
+        let cursor = try XCTUnwrap(restarted.cursor())
+        XCTAssertEqual(cursor.acknowledgedPrefixNextSequence, lease.throughSequence + 1)
+        XCTAssertEqual(cursor.materializedPrefixNextSequence, cursor.acknowledgedPrefixNextSequence)
     }
 
     @MainActor func testMaterializationFailureAttentionDeduplicatesAcrossRestarts() async throws {
@@ -721,37 +768,64 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         XCTAssertFalse(snapshots.contains { $0.manifest.attention?.reason == "launch_capture_materialization_failed" })
     }
 
-    @MainActor func testCrashWindowsKeepDurableArtifactsReusableAndFrontierContiguous() throws {
-        for window in ["before-output", "after-output-before-frontier", "after-frontier-before-return", "before-next-batch"] {
+    @MainActor func testCrashWindowsKeepDurableArtifactsReusableAndFrontierContiguous() async throws {
+        for window in ["before-output", "after-output-before-settlement", "after-settlement-before-return", "before-next-batch"] {
             let captureRoot = self.rootURL.appendingPathComponent(window, isDirectory: true)
-            let io = FaultInjectingOmiLaunchCaptureIO()
+            let transferRoot = self.rootURL.appendingPathComponent("\(window)-transfer", isDirectory: true)
             let generation = try self.seedCapture(rootURL: captureRoot)
             let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
 
-            if window == "before-output" {
-                io.failNext(.open)
-                let decoder = try OmiOpusAudioDecoder()
-                XCTAssertTrue(OmiLaunchCaptureMaterializer(rootURL: captureRoot, generationID: generation, io: io, decode: { decoder.decode($0) }).materializeForTests().partitions.isEmpty, window)
+            switch window {
+            case "before-output":
+                let io = FaultInjectingOmiLaunchCaptureIO()
+                io.failReplace(at: paths.audioURL, fromCall: 1)
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io).reconcile()
+                XCTAssertFalse(FileManager.default.fileExists(atPath: paths.audioURL.path), window)
                 io.clearFaults()
-            } else {
-                let output = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first, window)
-                let audioBytes = try Data(contentsOf: output.audioURL)
-                let envelopeBytes = try Data(contentsOf: output.envelopeURL)
-                // The synchronized restore models loss of work after the named
-                // durability boundary without manufacturing any result in the test.
-                try io.restoreLastSynchronizedState()
-                let reopened = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first, window)
-                XCTAssertEqual(reopened.itemID, output.itemID, window)
-                XCTAssertEqual(try Data(contentsOf: paths.audioURL), audioBytes, window)
-                XCTAssertEqual(try Data(contentsOf: paths.envelopeURL), envelopeBytes, window)
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io).reconcile()
+
+            case "after-output-before-settlement":
+                let crashing = CrashAfterFinalAudioReplaceIO()
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: crashing).reconcile()
+                XCTAssertFalse(FileManager.default.fileExists(atPath: paths.envelopeURL.path), window)
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager()).reconcile()
+
+            case "after-settlement-before-return":
+                let barrier = CommitCoordinatorBarrier()
+                let coordinator = OmiLaunchCaptureCommitCoordinator(
+                    rootURL: captureRoot,
+                    engine: harness.engine,
+                    sourceManager: self.makeManager(),
+                    onReconciliationPhase: { phase in
+                        if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+                    }
+                )
+                let reconciliation = Task { @MainActor in await coordinator.reconcile() }
+                try await transferTestWaitFor("owner registration") { await barrier.waiting() }
+                let beforeCommit = try XCTUnwrap(OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation).cursor(), window)
+                XCTAssertEqual(beforeCommit.materializedPrefixNextSequence, beforeCommit.acknowledgedPrefixNextSequence, window)
+                await barrier.resume()
+                await reconciliation.value
+                // A fresh coordinator represents a process loss after the atomic
+                // settlement write but before any later successor can run.
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager()).reconcile()
+
+            default:
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager()).reconcile()
+                // Restart before a later batch is requested; a settled one-record
+                // generation must not rediscover or duplicate its owner.
+                await OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager()).reconcile()
             }
 
-            let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
-            if let cursor = reader.cursor() {
-                XCTAssertLessThanOrEqual(cursor.materializedPrefixNextSequence, cursor.acknowledgedPrefixNextSequence, window)
-            }
-            let recovered = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first, window)
-            XCTAssertEqual(recovered.itemID, OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generation, partitionOrdinal: 0, startSequence: 0, startSampleOffset: 0), window)
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation)
+            let cursor = try XCTUnwrap(reader.cursor(), window)
+            XCTAssertEqual(cursor.materializedPrefixNextSequence, cursor.acknowledgedPrefixNextSequence, window)
+            XCTAssertEqual(cursor.materializedPrefixEndOffset, cursor.acknowledgedPrefixEndOffset, window)
+            XCTAssertEqual(reader.lease(), .empty, window)
+            let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            XCTAssertEqual(snapshots.filter { $0.manifest.payloadParts.isEmpty == false }.count, 1, window)
         }
     }
 
@@ -762,12 +836,9 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         let clock = MockObserverClock()
         let generation = UUID()
         let writer = OmiLaunchCaptureWriter(rootURL: captureRoot, generationID: generation, clock: clock, io: io)
-        let frame = try Self.opusFrame()
-        let cut1 = max(1, frame.count / 3)
-        let cut2 = min(frame.count - 1, cut1 + max(1, frame.count / 3))
-        self.append(Data([0, 0, 0]) + Data(frame.prefix(cut1)), to: writer)
-        self.append(Data([1, 0, 1]) + Data(frame[cut1..<cut2]), to: writer)
-        self.append(Data([2, 0, 2]) + Data(frame[cut2...]), to: writer)
+        self.append(Self.packet(0, body: try Self.opusFrame()), to: writer)
+        let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+        io.failReplace(at: paths.audioURL, fromCall: 1)
         let harness = self.makeHarness(rootURL: transferRoot)
         try await harness.engine.initialize()
         let coordinator = OmiLaunchCaptureCommitCoordinator(
@@ -782,19 +853,26 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         await Task.yield()
         XCTAssertEqual(clock.pendingSleeperCount, 1)
         let firstSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-        XCTAssertEqual(firstSnapshots.filter { $0.manifest.attention?.reason == "launch_capture_no_progress" }.count, 1)
+        XCTAssertEqual(firstSnapshots.filter { $0.manifest.attention?.reason == "launch_capture_materialization_failed" }.count, 1)
         let callsWhileDelayed = io.performedIOCallCount
         await Task.yield()
         XCTAssertEqual(io.performedIOCallCount, callsWhileDelayed, "no immediate successor may spin while the clock delay is armed")
 
-        clock.advance(by: 1)
-        // The clock wake is itself a state-changing trigger. Re-enter through the
-        // public trigger to make the convergence assertion deterministic.
+        // A second state-changing trigger performs one more faulted attempt, but
+        // coalesces onto the already armed delayed successor.
         await coordinator.reconcile()
+        XCTAssertEqual(clock.pendingSleeperCount, 1)
+        let repeatedSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(repeatedSnapshots.filter { $0.manifest.attention?.reason == "launch_capture_materialization_failed" }.count, 1)
+
+        io.clearFaults()
+        clock.advance(by: 1)
         let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
-        XCTAssertEqual(reader.lease(), .empty)
+        try await transferTestWaitFor("clock-delayed recovery") {
+            await MainActor.run { reader.lease() == .empty }
+        }
         let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-        XCTAssertEqual(snapshots.filter { $0.manifest.attention?.reason == "launch_capture_no_progress" }.count, 1)
+        XCTAssertEqual(snapshots.filter { $0.manifest.attention?.reason == "launch_capture_materialization_failed" }.count, 1)
     }
 
     @MainActor func testOrphanRepairFailureAttentionDeduplicatesAcrossRestarts() async throws {
