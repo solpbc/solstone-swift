@@ -72,6 +72,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var peripheralsByID: [UUID: OmiPeripheralDescriptor] = [:]
     @ObservationIgnored private var characteristicsByID: [OmiCharacteristicID: OmiCharacteristicDescriptor] = [:]
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored nonisolated private let launchCaptureRecoverySettlementState: OSAllocatedUnfairLock<Bool>
     @ObservationIgnored private var reassembler = OmiAudioReassembler()
     @ObservationIgnored private var opusDecoder: OmiOpusAudioDecoder?
     @ObservationIgnored private var pendingConnectionID: UUID?
@@ -124,7 +125,9 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         initialCutReservation: OmiLaunchCaptureCutReservation? = nil,
         hasCutReservationDefect: Bool = false
     ) {
+        let persistedEnabled = defaults.bool(forKey: Self.enabledKey)
         self.defaults = defaults
+        self.launchCaptureRecoverySettlementState = OSAllocatedUnfairLock(initialState: persistedEnabled)
         self.diagnostics = diagnostics
         self.heardTally = heardTally
         self.clock = clock
@@ -133,7 +136,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.captureRequiresExplicitResume = launchCaptureIngress.map {
             $0.didAttemptInitialArm && !$0.isArmed
         } ?? false
-        self.enabled = defaults.bool(forKey: Self.enabledKey)
+        self.enabled = persistedEnabled
         self.lastKnownBattery = diagnostics.payload.pendantBatteryTrend.last.map {
             TimedReading(value: $0.level, at: $0.timestamp)
         }
@@ -281,6 +284,10 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     var isLaunchCaptureRecoveryEnabled: Bool {
         self.defaults.bool(forKey: Self.enabledKey)
+    }
+
+    nonisolated func isLaunchCaptureRecoveryEnabledForSettlement() -> Bool {
+        self.launchCaptureRecoverySettlementState.withLock { $0 }
     }
 
     var activeLaunchCaptureGenerationID: UUID? {
@@ -1642,6 +1649,7 @@ private extension OmiSourceManager {
     }
 
     func persistEnabled(_ enabled: Bool) {
+        self.launchCaptureRecoverySettlementState.withLock { $0 = enabled }
         self.defaults.set(enabled, forKey: Self.enabledKey)
     }
 

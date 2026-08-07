@@ -598,6 +598,17 @@ actor TransferEngine {
         }
     }
 
+    /// Evaluates the caller's live release permission inside the Transfer actor,
+    /// immediately before mutating the gate. `nil` leaves the gate active.
+    @discardableResult
+    func releaseGate(
+        _ token: TransferGateToken,
+        if permitted: @Sendable () -> Bool
+    ) -> TransferGateSettlementOutcome? {
+        guard permitted() else { return nil }
+        return self.releaseGate(token)
+    }
+
     /// Converts a process-local gate into the existing lifetime hold. Gates are
     /// lost on process death; callers re-establish them from durable evidence
     /// before dispatch opens, then settle only the newly-issued token.

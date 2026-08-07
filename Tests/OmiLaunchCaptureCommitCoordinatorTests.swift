@@ -303,6 +303,32 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         }
     }
 
+    @MainActor func testMultiOwnerSettlementReleasesInCaptureOrder() async throws {
+        TransferURLProtocol.reset()
+        let captureRoot = self.rootURL.appendingPathComponent("capture-order-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("capture-order-transfer", isDirectory: true)
+        let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        await harness.engine.enableDispatch()
+
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: self.makeManager()
+        )
+        await coordinator.reconcile()
+        try await transferTestWaitFor("capture-ordered owner release") {
+            TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:)).count == 3
+        }
+
+        let requestIDs = TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))
+        XCTAssertEqual(requestIDs, fixture.orderedOwnerIDs)
+        for itemID in fixture.orderedOwnerIDs {
+            XCTAssertEqual(requestIDs.filter { $0 == itemID }.count, 1)
+        }
+    }
+
     @MainActor func testConservativeEnumerationHoldRestoresAttachedOwnersWithoutRestart() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("conservative-capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("conservative-transfer", isDirectory: true)
@@ -709,7 +735,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
     }
 
-    @MainActor func testRestartAfterCleanupBeforeReleaseDeliversProvenOwnersOnce() async throws {
+    @MainActor func testRestartAfterReleaseFailureRestoresOwnerLinkAndDeliversProvenOwnersOnce() async throws {
         for position in 0..<3 {
             TransferURLProtocol.reset()
             let captureRoot = self.rootURL.appendingPathComponent("restart-before-release-\(position)-capture", isDirectory: true)
@@ -739,7 +765,9 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 generationID: fixture.generationID,
                 ordinal: fixture.ordinal(for: ownerID)
             )
+            let settlementURL = OmiPendingHandoffStore.settlementURL(for: paths.envelopeURL)
             XCTAssertFalse(FileManager.default.fileExists(atPath: paths.envelopeURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: settlementURL.path))
             XCTAssertFalse(FileManager.default.fileExists(atPath: paths.audioURL.path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: paths.provenanceURL.path))
             let storedAudioURL = await first.engine.payloadFileURL(itemID: ownerID, partID: "audio")
@@ -765,13 +793,57 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             XCTAssertFalse(registeredAttachedOwner)
             XCTAssertEqual(TransferURLProtocol.requests.count, 0)
             await restarted.engine.enableDispatch()
-            try await transferTestWaitFor("cleanup-before-release restart \(position)") {
+            try await transferTestWaitFor("restored-owner-link restart \(position)") {
                 Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs)
             }
             XCTAssertTrue(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID })
             await self.assertFixtureOwnerSettlement(fixture, engine: restarted.engine, requests: TransferURLProtocol.requests)
             XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
         }
+    }
+
+    @MainActor func testSettlementMarkerRetriesAfterCaptureEvidenceIsGone() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("marker-only-retry-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("marker-only-retry-transfer", isDirectory: true)
+        let generation = try self.seedCapture(rootURL: captureRoot)
+        let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+        let settlementURL = OmiPendingHandoffStore.settlementURL(for: paths.envelopeURL)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        io.failRemove(at: settlementURL, fromCall: 1)
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let first = self.makeHarness(rootURL: transferRoot)
+        try await first.engine.initialize()
+
+        await OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: first.engine,
+            sourceManager: self.makeManager(),
+            io: io,
+            clock: clock
+        ).reconcile()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: settlementURL.path))
+        let captureURL = OmiLaunchCaptureFormat.fileURL(rootURL: captureRoot, generationID: generation)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: captureURL.path))
+
+        // The marker is itself post-acknowledgment evidence. Prove restart does
+        // not depend on the original capture or cursor surviving until retry.
+        try FileManager.default.removeItem(at: captureURL)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
+        try? FileManager.default.removeItem(at: reader.cursorURL)
+        io.clearFaults()
+
+        let restarted = self.makeHarness(rootURL: transferRoot)
+        try await restarted.engine.initialize()
+        await OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: restarted.engine,
+            sourceManager: self.makeManager(),
+            io: io,
+            clock: clock
+        ).reconcile()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: settlementURL.path))
     }
 
     @MainActor func testAcknowledgmentIsRequiredBeforeOwnerRelease() async throws {
@@ -1594,7 +1666,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         }
 
         var orderedOwnerIDs: [UUID] {
-            self.ownerIDs.sorted { $0.uuidString < $1.uuidString }
+            (0..<3).map { self.ownerID(at: $0) }
         }
 
         func ownerID(at ordinal: Int) -> UUID {

@@ -34,9 +34,22 @@ nonisolated struct OmiPendingHandoffEnvelope: Codable, Equatable, Sendable {
 @MainActor
 enum OmiPendingHandoffStore {
     private static let log = Logger(subsystem: "app.solstone.swift", category: "omi-handoff")
+    nonisolated private static let settlementMarkerComponent = "settlement"
 
     nonisolated static func url(for audioURL: URL) -> URL {
         audioURL.deletingPathExtension().appendingPathExtension(OmiPendingHandoffEnvelope.pathExtension)
+    }
+
+    nonisolated static func settlementURL(for envelopeURL: URL) -> URL {
+        envelopeURL
+            .deletingPathExtension()
+            .appendingPathExtension(Self.settlementMarkerComponent)
+            .appendingPathExtension(OmiPendingHandoffEnvelope.pathExtension)
+    }
+
+    nonisolated static func isSettlementURL(_ url: URL) -> Bool {
+        url.pathExtension == OmiPendingHandoffEnvelope.pathExtension
+            && url.deletingPathExtension().pathExtension == Self.settlementMarkerComponent
     }
 
     static func encode(_ envelope: OmiPendingHandoffEnvelope) throws -> Data {

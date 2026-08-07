@@ -106,6 +106,31 @@ final class TransferOwnerGateTests: XCTestCase {
         XCTAssertTrue(convertedEvents.allSatisfy { !$0.shortDetail.contains("/") })
     }
 
+    func testConditionalGateReleaseLeavesTokenActiveUntilPermissionIsGranted() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 204), Data())
+        }
+        let harness = self.makeHarness()
+        try await harness.engine.initialize()
+        await harness.engine.enableDispatch()
+        let itemID = UUID()
+        let token = try await harness.engine.enqueueGated(
+            manifest: self.manifest(itemID: itemID, chunkIndex: 0),
+            payloadFileURLs: try self.payloadFileURLs(contents: "conditional")
+        )
+
+        let refused = await harness.engine.releaseGate(token, if: { false })
+        XCTAssertNil(refused)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(TransferURLProtocol.requests.isEmpty)
+
+        let released = await harness.engine.releaseGate(token, if: { true })
+        XCTAssertEqual(released, .settled)
+        try await transferTestWaitFor("conditionally released gate dispatch") {
+            TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:)) == [itemID]
+        }
+    }
+
     func testZeroPayloadAttentionSurvivesRestartAndQueuedCopyIsRejected() async throws {
         let spool = TransferSpool(rootURL: self.rootURL)
         var attentionManifest = self.manifest(itemID: UUID(), chunkIndex: 90)
