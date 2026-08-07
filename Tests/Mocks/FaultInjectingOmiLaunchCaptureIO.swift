@@ -35,6 +35,8 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     private var failingReadFromCall: (url: URL, call: Int)?
     private var replaceCallCountByURL: [URL: Int] = [:]
     private var failingReplaceFromCall: (url: URL, call: Int)?
+    private var removeCallCountByURL: [URL: Int] = [:]
+    private var failingRemoveFromCall: (url: URL, call: Int)?
     private var tokenURLs: [Int32: URL] = [:]
     private var synchronizedState: [URL: Data] = [:]
     private var trackedURLs: Set<URL> = []
@@ -96,6 +98,12 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         }
     }
 
+    func failRemove(at url: URL, fromCall call: Int) {
+        self.lock.withLock {
+            self.failingRemoveFromCall = (url, call)
+        }
+    }
+
     func clearFaults() {
         self.lock.withLock {
             self.failingOperations.removeAll()
@@ -110,6 +118,8 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
             self.failingReadFromCall = nil
             self.replaceCallCountByURL.removeAll()
             self.failingReplaceFromCall = nil
+            self.removeCallCountByURL.removeAll()
+            self.failingRemoveFromCall = nil
         }
     }
 
@@ -290,7 +300,16 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
 
     func removeItem(at url: URL) throws {
         self.recordIOCall()
-        try self.throwIfNeeded(.remove)
+        let shouldFail = self.lock.withLock { () -> Bool in
+            self.removeCallCountByURL[url, default: 0] += 1
+            if let failure = self.failingRemoveFromCall,
+               failure.url == url,
+               self.removeCallCountByURL[url, default: 0] >= failure.call {
+                return true
+            }
+            return self.consumeFailure(.remove)
+        }
+        if shouldFail { throw CocoaError(.fileWriteUnknown) }
         try self.base.removeItem(at: url)
         self.lock.withLock {
             self.synchronizedState.removeValue(forKey: url)

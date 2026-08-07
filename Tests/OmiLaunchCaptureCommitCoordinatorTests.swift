@@ -30,6 +30,18 @@ private actor CommitCoordinatorBarrier {
     }
 }
 
+@MainActor
+private final class SettlementInjectionState {
+    var isEnabled = true
+    let itemID: UUID
+    let action: OmiLaunchCaptureCommitCoordinator.SettlementAction
+
+    init(itemID: UUID, action: OmiLaunchCaptureCommitCoordinator.SettlementAction) {
+        self.itemID = itemID
+        self.action = action
+    }
+}
+
 final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
     private var rootURL: URL!
 
@@ -200,7 +212,488 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         await OmiLaunchCaptureCommitCoordinator(rootURL: heldCaptureRoot, engine: heldHarness.engine, sourceManager: self.makeManager(), io: io).reconcile()
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
         let heldSnapshots = await heldHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-        XCTAssertEqual(heldSnapshots.count, 1)
+        XCTAssertEqual(heldSnapshots.filter { $0.manifest.payloadParts.isEmpty == false }.count, 1)
+        XCTAssertEqual(heldSnapshots.filter { $0.manifest.attention?.reason == "launch_capture_settlement_cleanup_failed" }.count, 1)
+    }
+
+    @MainActor func testInjectedSettlementFailuresKeepOwnerIneligibleAndDoNotBlockUnrelatedWork() async throws {
+        for (name, injectedAction, cleanupFault) in [
+            ("release", OmiLaunchCaptureCommitCoordinator.SettlementAction.release, false),
+            ("conversion", OmiLaunchCaptureCommitCoordinator.SettlementAction.gateConversion, true),
+        ] {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("\(name)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("\(name)-transfer", isDirectory: true)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let generation = try self.seedCapture(rootURL: captureRoot)
+            let ownerID = OmiLaunchCaptureMaterializationIdentity.itemID(
+                generationID: generation,
+                partitionOrdinal: 0,
+                startSequence: 0,
+                startSampleOffset: 0
+            )
+            if cleanupFault {
+                let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+                io.failRemove(at: paths.envelopeURL, fromCall: 1)
+            }
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            let unrelatedID = UUID()
+            _ = try await harness.engine.enqueue(
+                manifest: self.unrelatedManifest(itemID: unrelatedID),
+                payloads: ["audio": Data("unrelated".utf8)]
+            )
+            let coordinator = OmiLaunchCaptureCommitCoordinator(
+                rootURL: captureRoot,
+                engine: harness.engine,
+                sourceManager: self.makeManager(),
+                io: io,
+                onSettlementAction: { _, action in
+                    action == injectedAction ? .unknownToken : nil
+                }
+            )
+
+            await coordinator.reconcile()
+            await harness.engine.enableDispatch()
+            try await transferTestWaitFor("unrelated \(name) delivery") { TransferURLProtocol.requests.count == 1 }
+            XCTAssertEqual(transferTestBoundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.first)), unrelatedID, name)
+            XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == ownerID }, name)
+            let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            XCTAssertEqual(snapshots.filter { $0.itemID == ownerID }.count, 1, name)
+            XCTAssertEqual(
+                snapshots.filter { $0.manifest.attention?.reason == "launch_capture_settlement_\(injectedAction == .release ? "release" : "gate_conversion")_failed" }.count,
+                1,
+                name
+            )
+        }
+    }
+
+    @MainActor func testCleanupFailureAtAnyOwnerPositionSettlesEveryOtherOwner() async throws {
+        for position in 0..<3 {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("cleanup-\(position)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("cleanup-\(position)-transfer", isDirectory: true)
+            let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            try await self.stageThreeOwnerFixture(fixture, rootURL: captureRoot, engine: harness.engine)
+            let settledOwnerID = fixture.orderedOwnerIDs[position]
+            let paths = OmiLaunchCaptureMaterializedArtifactPaths(
+                rootURL: captureRoot,
+                generationID: fixture.generationID,
+                ordinal: fixture.ordinal(for: settledOwnerID)
+            )
+            io.failRemove(at: paths.envelopeURL, fromCall: 1)
+            let unrelatedID = UUID()
+            _ = try await harness.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+
+            let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io)
+            await coordinator.reconcile()
+            await harness.engine.enableDispatch()
+            try await transferTestWaitFor("cleanup peers \(settledOwnerID)") {
+                TransferURLProtocol.requests.count == 3
+            }
+            XCTAssertTrue(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID })
+            let released = fixture.ownerIDs.subtracting([settledOwnerID])
+            self.assertFixtureOwnerSettlement(fixture, released: released, lifetimeHeld: [settledOwnerID], trackedPending: [])
+        }
+    }
+
+    @MainActor func testConservativeEnumerationHoldRestoresLinkedOwnersWithoutRestart() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("conservative-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("conservative-transfer", isDirectory: true)
+        let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let materialized = try self.materialize(rootURL: captureRoot, generation: fixture.generationID, io: FoundationOmiLaunchCaptureIO())
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        for partition in materialized.partitions {
+            let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
+            _ = try await harness.engine.enqueue(
+                manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: partition.itemID, sidecar: envelope.sidecar, metadata: envelope.metadata),
+                payloads: ["audio": Data(contentsOf: partition.audioURL)]
+            )
+        }
+        let unrelatedID = UUID()
+        _ = try await harness.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io)
+
+        io.failNext(.listDirectory)
+        await coordinator.reconcile()
+        await harness.engine.enableDispatch()
+        try await transferTestWaitFor("unrelated while conservative held") {
+            TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID }
+        }
+        XCTAssertFalse(TransferURLProtocol.requests.contains { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) })
+
+        io.clearFaults()
+        await coordinator.reconcile()
+        try await transferTestWaitFor("restored linked owners") {
+            Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs)
+        }
+        let delivered = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).intersection(fixture.ownerIDs)
+        self.assertFixtureOwnerSettlement(fixture, released: delivered, lifetimeHeld: [], trackedPending: [])
+        XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
+    }
+
+    @MainActor func testOnlyLinkedCoordinatorHoldsRestoreAndProofGatePrecedesDispatch() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("proof-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("proof-transfer", isDirectory: true)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = try self.seedCapture(rootURL: captureRoot)
+        let partition = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: io).partitions.first)
+        let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        _ = try await harness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: partition.itemID, sidecar: envelope.sidecar),
+            payloads: ["audio": Data(contentsOf: partition.audioURL)]
+        )
+        let foreignHeldID = UUID()
+        _ = try await harness.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: foreignHeldID, sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 44, startedAt: Date())),
+            payloads: ["audio": Data("foreign".utf8)]
+        )
+        await harness.engine.hold(itemID: foreignHeldID)
+        let unrelatedID = UUID()
+        _ = try await harness.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+        let barrier = CommitCoordinatorBarrier()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: self.makeManager(),
+            io: io,
+            onReconciliationPhase: { phase in
+                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+            }
+        )
+
+        io.failNext(.listDirectory)
+        await coordinator.reconcile()
+        await harness.engine.enableDispatch()
+        try await transferTestWaitFor("unrelated sends") { TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID } }
+        io.clearFaults()
+        let reconciliation = Task { @MainActor in await coordinator.reconcile() }
+        try await transferTestWaitFor("proof gate") { await barrier.waiting() }
+        XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == partition.itemID })
+        XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == foreignHeldID })
+        await barrier.resume()
+        await reconciliation.value
+        try await transferTestWaitFor("linked owner sends") { TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == partition.itemID } }
+        XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == foreignHeldID })
+    }
+
+    @MainActor func testSettlementAttentionReasonsArePayloadFreeAndDeduped() async throws {
+        let expectedReasons: Set<String> = [
+            "launch_capture_settlement_acknowledgment_failed",
+            "launch_capture_settlement_cleanup_failed",
+            "launch_capture_settlement_release_failed",
+            "launch_capture_settlement_gate_conversion_failed",
+        ]
+        for (name, configure) in [
+            ("acknowledgment", { (io: FaultInjectingOmiLaunchCaptureIO, reader: OmiLaunchCaptureLeaseReader, _: OmiLaunchCaptureMaterializedArtifactPaths) in
+                io.failReplace(at: reader.cursorURL, fromCall: 1)
+            }),
+            ("cleanup", { (io: FaultInjectingOmiLaunchCaptureIO, _: OmiLaunchCaptureLeaseReader, paths: OmiLaunchCaptureMaterializedArtifactPaths) in
+                io.failRemove(at: paths.envelopeURL, fromCall: 1)
+            }),
+        ] {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("attention-\(name)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("attention-\(name)-transfer", isDirectory: true)
+            let generation = try self.seedCapture(rootURL: captureRoot)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
+            let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+            configure(io, reader, paths)
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io)
+            await coordinator.reconcile()
+            await coordinator.reconcile()
+            let attention = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+                .filter { $0.manifest.attention?.reason.hasPrefix("launch_capture_settlement_") == true }
+            XCTAssertEqual(attention.count, 1, name)
+            let item = try XCTUnwrap(attention.first, name)
+            XCTAssertTrue(item.manifest.payloadParts.isEmpty, name)
+            XCTAssertTrue(expectedReasons.contains(item.manifest.attention?.reason ?? ""), name)
+            XCTAssertEqual(item.manifest.attention?.reason, "launch_capture_settlement_\(name)_failed", name)
+        }
+
+        let healthyCaptureRoot = self.rootURL.appendingPathComponent("attention-healthy-capture", isDirectory: true)
+        let healthyTransferRoot = self.rootURL.appendingPathComponent("attention-healthy-transfer", isDirectory: true)
+        _ = try self.seedCapture(rootURL: healthyCaptureRoot)
+        let healthy = self.makeHarness(rootURL: healthyTransferRoot)
+        try await healthy.engine.initialize()
+        await OmiLaunchCaptureCommitCoordinator(rootURL: healthyCaptureRoot, engine: healthy.engine, sourceManager: self.makeManager()).reconcile()
+        let healthySnapshots = await healthy.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertFalse(healthySnapshots.contains {
+            $0.manifest.attention?.reason.hasPrefix("launch_capture_settlement_") == true
+        })
+    }
+
+    @MainActor func testAcknowledgmentFailureAtEveryOwnerPositionRetriesWithoutDuplicateDelivery() async throws {
+        for ordinal in 0..<3 {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("ack-\(ordinal)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("ack-\(ordinal)-transfer", isDirectory: true)
+            let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: fixture.generationID, io: io)
+            io.failReplace(at: reader.cursorURL, fromCall: 1)
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            let unrelatedID = UUID()
+            _ = try await harness.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+            let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: harness.engine, sourceManager: self.makeManager(), io: io)
+
+            await coordinator.reconcile()
+            await harness.engine.enableDispatch()
+            try await transferTestWaitFor("unrelated after acknowledgment failure \(ordinal)") {
+                TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID }
+            }
+            self.assertFixtureOwnerSettlement(fixture, released: [], lifetimeHeld: fixture.ownerIDs, trackedPending: [])
+
+            io.clearFaults()
+            await coordinator.reconcile()
+            try await transferTestWaitFor("ack retry \(ordinal)") {
+                Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs)
+            }
+            let delivered = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).intersection(fixture.ownerIDs)
+            self.assertFixtureOwnerSettlement(fixture, released: delivered, lifetimeHeld: [], trackedPending: [])
+            XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
+        }
+    }
+
+    @MainActor func testReleaseAndConversionFailuresAtEveryOwnerPositionRetryWithoutDuplicates() async throws {
+        for action in [OmiLaunchCaptureCommitCoordinator.SettlementAction.release, .gateConversion] {
+            for position in 0..<3 {
+                TransferURLProtocol.reset()
+                let captureRoot = self.rootURL.appendingPathComponent("\(String(describing: action))-\(position)-capture", isDirectory: true)
+                let transferRoot = self.rootURL.appendingPathComponent("\(String(describing: action))-\(position)-transfer", isDirectory: true)
+                let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+                let unsafeOwner = fixture.orderedOwnerIDs[position]
+                let io = FaultInjectingOmiLaunchCaptureIO()
+                let harness = self.makeHarness(rootURL: transferRoot)
+                try await harness.engine.initialize()
+                try await self.stageThreeOwnerFixture(fixture, rootURL: captureRoot, engine: harness.engine)
+                if action == .gateConversion {
+                    let paths = OmiLaunchCaptureMaterializedArtifactPaths(
+                        rootURL: captureRoot,
+                        generationID: fixture.generationID,
+                        ordinal: fixture.ordinal(for: unsafeOwner)
+                    )
+                    io.failRemove(at: paths.envelopeURL, fromCall: 1)
+                }
+                let unrelatedID = UUID()
+                _ = try await harness.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+                let injection = SettlementInjectionState(itemID: unsafeOwner, action: action)
+                let coordinator = OmiLaunchCaptureCommitCoordinator(
+                    rootURL: captureRoot,
+                    engine: harness.engine,
+                    sourceManager: self.makeManager(),
+                    io: io,
+                    onSettlementAction: { itemID, candidate in
+                        injection.isEnabled && itemID == injection.itemID && candidate == injection.action ? .unknownToken : nil
+                    }
+                )
+
+                await coordinator.reconcile()
+                await harness.engine.enableDispatch()
+                try await transferTestWaitFor("unrelated \(position)") { TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID } }
+                let released = fixture.ownerIDs.subtracting([unsafeOwner])
+                self.assertFixtureOwnerSettlement(fixture, released: released, lifetimeHeld: [], trackedPending: [unsafeOwner])
+
+                injection.isEnabled = false
+                io.clearFaults()
+                await coordinator.reconcile()
+                try await transferTestWaitFor("settled \(position)") { Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs) }
+                let delivered = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).intersection(fixture.ownerIDs)
+                self.assertFixtureOwnerSettlement(fixture, released: delivered, lifetimeHeld: [], trackedPending: [])
+                XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
+            }
+        }
+    }
+
+    @MainActor func testRestartAfterEachCleanupWindowReconstructsOwnersBeforeDispatch() async throws {
+        for position in 0..<3 {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("restart-\(position)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("restart-\(position)-transfer", isDirectory: true)
+            let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let first = self.makeHarness(rootURL: transferRoot)
+            try await first.engine.initialize()
+            try await self.stageThreeOwnerFixture(fixture, rootURL: captureRoot, engine: first.engine)
+            let heldOwner = fixture.orderedOwnerIDs[position]
+            let paths = OmiLaunchCaptureMaterializedArtifactPaths(
+                rootURL: captureRoot,
+                generationID: fixture.generationID,
+                ordinal: fixture.ordinal(for: heldOwner)
+            )
+            io.failRemove(at: paths.envelopeURL, fromCall: 1)
+            let unrelatedID = UUID()
+            _ = try await first.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+            let firstCoordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: first.engine, sourceManager: self.makeManager(), io: io)
+            await firstCoordinator.reconcile()
+            try io.restoreLastSynchronizedState()
+
+            io.clearFaults()
+            let restarted = self.makeHarness(rootURL: transferRoot)
+            try await restarted.engine.initialize()
+            let restartedCoordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: restarted.engine, sourceManager: self.makeManager(), io: io)
+            await restartedCoordinator.reconcile()
+            await restarted.engine.enableDispatch()
+            try await transferTestWaitFor("restart owners \(position)") { Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs) }
+            XCTAssertTrue(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID })
+            let delivered = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).intersection(fixture.ownerIDs)
+            self.assertFixtureOwnerSettlement(fixture, released: delivered, lifetimeHeld: [], trackedPending: [])
+            XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
+        }
+    }
+
+    @MainActor func testRestartBeforeAcknowledgmentRegatesOwnersBeforeDispatch() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("restart-before-ack-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("restart-before-ack-transfer", isDirectory: true)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = try self.seedCapture(rootURL: captureRoot)
+        let partition = try XCTUnwrap(self.materialize(rootURL: captureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO()).partitions.first)
+        let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
+        let first = self.makeHarness(rootURL: transferRoot)
+        try await first.engine.initialize()
+        _ = try await first.engine.enqueueGated(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+                itemID: partition.itemID,
+                sidecar: envelope.sidecar,
+                metadata: envelope.metadata
+            ),
+            payloadFileURLs: ["audio": partition.audioURL]
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partition.audioURL.path))
+        let unrelatedID = UUID()
+        _ = try await first.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+        try io.restoreLastSynchronizedState()
+
+        let restarted = self.makeHarness(rootURL: transferRoot)
+        try await restarted.engine.initialize()
+        let barrier = CommitCoordinatorBarrier()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: restarted.engine,
+            sourceManager: self.makeManager(),
+            io: io,
+            onReconciliationPhase: { phase in
+                if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                    await barrier.suspend()
+                }
+            }
+        )
+        let reconciliation = Task { @MainActor in await coordinator.reconcile() }
+        try await transferTestWaitFor("re-gated owner before acknowledgment") { await barrier.waiting() }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        await restarted.engine.enableDispatch()
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        await barrier.resume()
+        await reconciliation.value
+        try await transferTestWaitFor("unacknowledged restart owners") {
+            TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == partition.itemID }
+        }
+        XCTAssertTrue(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID })
+        XCTAssertEqual(TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) == partition.itemID }.count, 1)
+    }
+
+    @MainActor func testRestartAfterAcknowledgmentCleansAndReleasesEveryLinkedOwner() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("restart-after-ack-capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("restart-after-ack-transfer", isDirectory: true)
+        let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let first = self.makeHarness(rootURL: transferRoot)
+        try await first.engine.initialize()
+        try await self.stageThreeOwnerFixture(fixture, rootURL: captureRoot, engine: first.engine)
+        let unrelatedID = UUID()
+        _ = try await first.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+        try io.restoreLastSynchronizedState()
+
+        let restarted = self.makeHarness(rootURL: transferRoot)
+        try await restarted.engine.initialize()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(rootURL: captureRoot, engine: restarted.engine, sourceManager: self.makeManager(), io: io)
+        await coordinator.reconcile()
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        await restarted.engine.enableDispatch()
+        try await transferTestWaitFor("acknowledged restart owners") {
+            Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs)
+        }
+        XCTAssertTrue(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID })
+        let delivered = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).intersection(fixture.ownerIDs)
+        self.assertFixtureOwnerSettlement(fixture, released: delivered, lifetimeHeld: [], trackedPending: [])
+        XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
+    }
+
+    @MainActor func testRestartAfterCleanupBeforeReleaseDeliversProvenOwnersOnce() async throws {
+        for position in 0..<3 {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("restart-before-release-\(position)-capture", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("restart-before-release-\(position)-transfer", isDirectory: true)
+            let fixture = try self.seedThreeOwnerCapture(rootURL: captureRoot)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let first = self.makeHarness(rootURL: transferRoot)
+            try await first.engine.initialize()
+            try await self.stageThreeOwnerFixture(fixture, rootURL: captureRoot, engine: first.engine)
+            let ownerID = fixture.orderedOwnerIDs[position]
+            let injection = SettlementInjectionState(itemID: ownerID, action: .release)
+            let unrelatedID = UUID()
+            _ = try await first.engine.enqueue(manifest: self.unrelatedManifest(itemID: unrelatedID), payloads: ["audio": Data("unrelated".utf8)])
+            let firstCoordinator = OmiLaunchCaptureCommitCoordinator(
+                rootURL: captureRoot,
+                engine: first.engine,
+                sourceManager: self.makeManager(),
+                io: io,
+                onSettlementAction: { itemID, action in
+                    injection.isEnabled && itemID == injection.itemID && action == injection.action ? .unknownToken : nil
+                }
+            )
+            await firstCoordinator.reconcile()
+
+            let paths = OmiLaunchCaptureMaterializedArtifactPaths(
+                rootURL: captureRoot,
+                generationID: fixture.generationID,
+                ordinal: fixture.ordinal(for: ownerID)
+            )
+            XCTAssertFalse(FileManager.default.fileExists(atPath: paths.envelopeURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: paths.audioURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: paths.provenanceURL.path))
+            let storedAudioURL = await first.engine.payloadFileURL(itemID: ownerID, partID: "audio")
+            let spoolAudioURL = try XCTUnwrap(storedAudioURL)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: spoolAudioURL.path))
+            try io.restoreLastSynchronizedState()
+
+            let restarted = self.makeHarness(rootURL: transferRoot)
+            try await restarted.engine.initialize()
+            var registeredLinkedOwner = false
+            let restartedCoordinator = OmiLaunchCaptureCommitCoordinator(
+                rootURL: captureRoot,
+                engine: restarted.engine,
+                sourceManager: self.makeManager(),
+                io: io,
+                onReconciliationPhase: { phase in
+                    if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                        registeredLinkedOwner = true
+                    }
+                }
+            )
+            await restartedCoordinator.reconcile()
+            XCTAssertFalse(registeredLinkedOwner)
+            XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+            await restarted.engine.enableDispatch()
+            try await transferTestWaitFor("cleanup-before-release restart \(position)") {
+                Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).isSuperset(of: fixture.ownerIDs)
+            }
+            XCTAssertTrue(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == unrelatedID })
+            let delivered = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))).intersection(fixture.ownerIDs)
+            self.assertFixtureOwnerSettlement(fixture, released: delivered, lifetimeHeld: [], trackedPending: [])
+            XCTAssertEqual(TransferURLProtocol.requests.filter { fixture.ownerIDs.contains(transferTestBoundaryItemID(from: $0) ?? UUID()) }.count, 3)
+        }
     }
 
     @MainActor func testAcknowledgmentIsRequiredBeforeOwnerRelease() async throws {
@@ -256,11 +749,12 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             await failureCoordinator.reconcile()
             XCTAssertEqual(TransferURLProtocol.requests.count, 0)
             let failureSnapshots = await failureHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-            XCTAssertEqual(failureSnapshots.count, 1)
+            XCTAssertEqual(failureSnapshots.filter { $0.manifest.payloadParts.isEmpty == false }.count, 1)
+            XCTAssertEqual(failureSnapshots.filter { $0.manifest.attention?.reason == "launch_capture_settlement_acknowledgment_failed" }.count, 1)
             XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
             let repeated = try self.materialize(rootURL: failureCaptureRoot, generation: generation, io: FoundationOmiLaunchCaptureIO())
             XCTAssertEqual(repeated.partitions.count, 1)
-            XCTAssertEqual(repeated.partitions.first?.itemID, failureSnapshots.first?.itemID)
+            XCTAssertEqual(repeated.partitions.first?.itemID, failureSnapshots.first { $0.manifest.payloadParts.isEmpty == false }?.itemID)
         }
     }
 
@@ -1012,6 +1506,114 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         clock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
         self.append(Self.packet(1, body: try Self.opusFrame()), to: writer)
         return generation
+    }
+
+    private struct ThreeOwnerFixture {
+        let generationID: UUID
+
+        var ownerIDs: Set<UUID> {
+            [self.ownerID(at: 0), self.ownerID(at: 1), self.ownerID(at: 2)]
+        }
+
+        var orderedOwnerIDs: [UUID] {
+            self.ownerIDs.sorted { $0.uuidString < $1.uuidString }
+        }
+
+        func ownerID(at ordinal: Int) -> UUID {
+            OmiLaunchCaptureMaterializationIdentity.itemID(
+                generationID: self.generationID,
+                partitionOrdinal: ordinal,
+                startSequence: UInt64(ordinal),
+                startSampleOffset: UInt64(ordinal * 320)
+            )
+        }
+
+        func ordinal(for itemID: UUID) -> Int {
+            precondition((0..<3).contains { self.ownerID(at: $0) == itemID })
+            return (0..<3).first { self.ownerID(at: $0) == itemID }!
+        }
+    }
+
+    @MainActor private func seedThreeOwnerCapture(rootURL: URL) throws -> ThreeOwnerFixture {
+        let generationID = UUID()
+        let clock = MockObserverClock()
+        let writer = OmiLaunchCaptureWriter(rootURL: rootURL, generationID: generationID, clock: clock)
+        for sequence in 0..<3 {
+            self.append(Self.packet(UInt16(sequence), body: try Self.opusFrame()), to: writer)
+            clock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
+        }
+        return ThreeOwnerFixture(generationID: generationID)
+    }
+
+    @MainActor private func stageThreeOwnerFixture(
+        _ fixture: ThreeOwnerFixture,
+        rootURL: URL,
+        engine: TransferEngine,
+        acknowledged: Bool = true,
+        releaseGates: Bool = true
+    ) async throws {
+        let result = try self.materialize(rootURL: rootURL, generation: fixture.generationID, io: FoundationOmiLaunchCaptureIO())
+        XCTAssertNil(result.failure)
+        XCTAssertEqual(result.partitions.count, 3)
+        XCTAssertEqual(Set(result.partitions.map(\.itemID)), fixture.ownerIDs)
+        XCTAssertEqual(Set(result.partitions.map(\.audioURL)).count, 3)
+        XCTAssertEqual(Set(result.partitions.map(\.envelopeURL)).count, 3)
+
+        for partition in result.partitions.sorted(by: { $0.itemID.uuidString < $1.itemID.uuidString }) {
+            let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
+            let token = try await engine.enqueueGated(
+                manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+                    itemID: partition.itemID,
+                    sidecar: envelope.sidecar,
+                    metadata: envelope.metadata
+                ),
+                payloadFileURLs: ["audio": partition.audioURL]
+            )
+            if releaseGates {
+                let release = await engine.releaseGate(token)
+                XCTAssertEqual(release, .settled)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: partition.audioURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: partition.envelopeURL.path))
+            let paths = OmiLaunchCaptureMaterializedArtifactPaths(
+                rootURL: rootURL,
+                generationID: fixture.generationID,
+                ordinal: fixture.ordinal(for: partition.itemID)
+            )
+            XCTAssertTrue(FileManager.default.fileExists(atPath: paths.provenanceURL.path))
+        }
+
+        guard acknowledged else { return }
+        let last = try XCTUnwrap(result.partitions.last)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: fixture.generationID)
+        XCTAssertEqual(
+            reader.commitSettled(
+                throughSequence: try XCTUnwrap(result.coveredThroughSequence),
+                nextPartitionOrdinal: last.nextPartitionOrdinal,
+                nextSampleOffset: last.nextSampleOffset
+            ),
+            .advanced
+        )
+    }
+
+    @MainActor private func assertFixtureOwnerSettlement(
+        _ fixture: ThreeOwnerFixture,
+        released: Set<UUID>,
+        lifetimeHeld: Set<UUID>,
+        trackedPending: Set<UUID>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let originalOwners = fixture.ownerIDs
+        XCTAssertEqual(originalOwners, released.union(lifetimeHeld).union(trackedPending), file: file, line: line)
+        XCTAssertTrue(released.isDisjoint(with: lifetimeHeld), file: file, line: line)
+        XCTAssertTrue(released.isDisjoint(with: trackedPending), file: file, line: line)
+        XCTAssertTrue(lifetimeHeld.isDisjoint(with: trackedPending), file: file, line: line)
+        let unsafeOwners = lifetimeHeld.union(trackedPending)
+        XCTAssertFalse(TransferURLProtocol.requests.contains { request in
+            guard let itemID = transferTestBoundaryItemID(from: request) else { return false }
+            return unsafeOwners.contains(itemID)
+        }, file: file, line: line)
     }
 
     @MainActor private func unrelatedManifest(itemID: UUID) -> TransferManifest {
