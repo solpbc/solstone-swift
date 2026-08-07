@@ -289,14 +289,20 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
             }
         )
 
-        let result = await actions.run(
-            manifest: Self.manifest(
-                expectedContentLength: expectedTotal,
-                expectedDigest: expectedDigest,
-                rangeStart: rangeStart,
-                rangeLength: rangeLength
+        let actionTask = Task {
+            await actions.run(
+                manifest: Self.manifest(
+                    expectedContentLength: expectedTotal,
+                    expectedDigest: expectedDigest,
+                    rangeStart: rangeStart,
+                    rangeLength: rangeLength
+                )
             )
-        )
+        }
+        await Self.drainUntil { clock.pendingSleeperCount == 1 }
+        clock.advance(by: 45)
+
+        let result = await actionTask.value
 
         XCTAssertEqual(result.verdict, .fail)
         XCTAssertEqual(result.reasonCode, .completedFirstAttempt)
@@ -305,6 +311,18 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
         let request = try XCTUnwrap(IntegrationGateRangeHeaderURLProtocol.capturedRequests.first)
         let rangeEnd = rangeStart + rangeLength - 1
         XCTAssertEqual(request.value(forHTTPHeaderField: "Range"), "bytes=\(rangeStart)-\(rangeEnd)")
+    }
+
+    private static func drainUntil(
+        _ condition: @escaping @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<10_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Condition did not become true", file: file, line: line)
     }
 
     private static func facts(

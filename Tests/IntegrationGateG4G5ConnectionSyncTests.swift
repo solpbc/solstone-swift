@@ -7,6 +7,10 @@ import XCTest
 // criterion 8: G4/G5 connection-sync observation and co-bound canary classification.
 @MainActor
 final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
+    func testReconnectObservationWindowCoversForegroundReraceCadence() {
+        XCTAssertEqual(IntegrationGateConstants.observationWindowMilliseconds, 30_000)
+    }
+
     func testReachabilityMappingCoversAllConnectionSyncStatuses() {
         XCTAssertFalse(isJournalReachable(.offline))
         XCTAssertFalse(isJournalReachable(.connecting))

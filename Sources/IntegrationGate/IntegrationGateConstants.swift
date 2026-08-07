@@ -25,7 +25,10 @@ enum IntegrationGateConstants {
     static let streamCeilingMilliseconds: UInt64 = 20_000
     static let progressCeilingMilliseconds: UInt64 = 30_000
     static let reconnectCeilingMilliseconds: UInt64 = 60_000
-    static let observationWindowMilliseconds: UInt64 = 20_000
+    // Match the app's bounded foreground re-race window. The first live G4 run
+    // recovered at 21.8s, so a 20s observer could stop immediately before the
+    // recovery the product intentionally permits.
+    static let observationWindowMilliseconds: UInt64 = 30_000
     // Bounded extension past `observationWindowMilliseconds`, entered only while the raw
     // status has recovered and the published one has not caught up yet. Publishing lags
     // raw by up to `pollCadence + debounceInterval` (2.5s), so a window that ends the

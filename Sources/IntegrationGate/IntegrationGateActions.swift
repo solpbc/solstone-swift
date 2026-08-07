@@ -406,7 +406,7 @@ final class IntegrationGateActions {
                 rangeStart: rangeStart,
                 rangeLength: rangeLength,
                 expectedTotal: expectedLength,
-                ceilingMilliseconds: IntegrationGateConstants.streamCeilingMilliseconds,
+                ceilingMilliseconds: IntegrationGateConstants.g3StreamCeilingMilliseconds,
                 progress: { [weak self] byteCount in
                     guard let self, !runningPublished else { return }
                     try IntegrationGateOperationCeiling(
@@ -437,6 +437,7 @@ final class IntegrationGateActions {
                     } catch {
                         throw IntegrationGateValidationError(.runningRecordWriteFailed)
                     }
+                    await self.holdG3InterruptWindow(after: oldGeneration)
                 }
             )
             firstCompleted = true
@@ -650,6 +651,29 @@ final class IntegrationGateActions {
             try? await clock.sleep(for: .seconds(1))
         }
         return tunnelManager.transportGenerationSnapshot
+    }
+
+    private func holdG3InterruptWindow(after oldGeneration: UInt64?) async {
+        guard let oldGeneration else { return }
+        let startedAt = clock.now()
+        while true {
+            if let lastClosedGeneration = tunnelManager.transportGenerationSnapshot.lastClosedGeneration,
+               lastClosedGeneration >= oldGeneration {
+                return
+            }
+            let elapsed = IntegrationGateOperationCeiling(
+                startedAt: startedAt,
+                ceilingMilliseconds: IntegrationGateConstants.g3InterruptHoldMilliseconds
+            ).elapsedMillis(at: clock.now())
+            guard elapsed < IntegrationGateConstants.g3InterruptHoldMilliseconds else {
+                return
+            }
+            do {
+                try await clock.sleep(for: .milliseconds(100))
+            } catch {
+                return
+            }
+        }
     }
 
     private func waitForGateIssuedRequestBaseline(_ baseline: Int) async -> Int {
