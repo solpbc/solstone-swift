@@ -195,6 +195,90 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
         XCTAssertEqual(reader.lease(), .empty)
     }
 
+    func testCursorDefectFixtureMatrixFailsClosedWithoutChangingEvidence() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let generation = UUID()
+        let writer = self.writer(generation: generation, io: io)
+        XCTAssertEqual(writer.append(Data("one".utf8)), .retained(sequence: 0, retriedPending: false))
+        XCTAssertEqual(writer.append(Data("two".utf8)), .retained(sequence: 1, retriedPending: false))
+        let firstEndOffset = OmiLaunchCaptureFormat.headerByteCount + Data("one".utf8).count + OmiLaunchCaptureFormat.recordTagByteCount
+        let controlCursor = OmiLaunchCaptureCursor(
+            generationID: generation,
+            acknowledgedPrefixNextSequence: 1,
+            acknowledgedPrefixEndOffset: firstEndOffset
+        )
+        let controlData = controlCursor.encoded()
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+        let captureData = try Data(contentsOf: writer.fileURL)
+
+        XCTAssertNil(reader.cursorDefect())
+        XCTAssertEqual(reader.acknowledgedPosition(), OmiLaunchCaptureReadPosition(generationID: generation, nextSequence: 0, offset: 0))
+
+        try controlData.write(to: reader.cursorURL)
+        XCTAssertNil(reader.cursorDefect())
+        guard case .lease(let controlLease) = reader.lease() else { return XCTFail("expected valid control lease") }
+        XCTAssertEqual(controlLease.records.map(\.sequence), [1])
+
+        let foreignGeneration = UUID()
+        let fixtures: [(name: String, data: Data, reason: OmiLaunchCaptureCursorDefectReason)] = [
+            ("truncated", Data(controlData.dropLast()), .invalidLength),
+            ("extended", controlData + Data([0]), .invalidLength),
+            ("invalid_magic", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: 0, with: controlData[0] ^ 0x01)), .invalidMagic),
+            ("cursor_checksum", Self.replacingByte(in: controlData, at: controlData.count - 1, with: controlData[controlData.count - 1] ^ 0x01), .cursorChecksumMismatch),
+            ("unsupported_version", Self.recomputingCursorDigest(Self.replacingByte(in: controlData, at: OmiLaunchCaptureCursorFormat.magic.count, with: 2)), .unsupportedVersion),
+            ("foreign_generation", Self.recomputingCursorDigest(Self.replacingUUID(in: controlData, at: OmiLaunchCaptureCursorFormat.magic.count + OmiLaunchCaptureCursorFormat.versionByteCount, with: foreignGeneration)), .generationMismatch),
+            ("offset_out_of_range", Self.recomputingCursorDigest(Self.replacingAcknowledgedEnd(in: controlData, with: UInt64(Int.max) + 1)), .offsetOutOfRange),
+        ]
+
+        for fixture in fixtures {
+            try fixture.data.write(to: reader.cursorURL)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: reader.cursorURL.path), fixture.name)
+            XCTAssertEqual(try Data(contentsOf: writer.fileURL), captureData, fixture.name)
+            XCTAssertNotEqual(fixture.data, controlData, fixture.name)
+
+            let reopened = OmiLaunchCaptureLeaseReader(rootURL: self.rootURL, generationID: generation, io: io)
+            XCTAssertEqual(reopened.cursorDefect()?.reason, fixture.reason, fixture.name)
+            XCTAssertEqual(reopened.lease(), .unavailable(.cursorUnreadable), fixture.name)
+            XCTAssertNil(reopened.acknowledgedPosition(), fixture.name)
+            XCTAssertFalse(reopened.hasDurableAcknowledgment(), fixture.name)
+            XCTAssertEqual(reopened.retireIfEligible(activeGenerationID: nil), .refusedInvalidCursor, fixture.name)
+            XCTAssertEqual(reopened.acknowledge(throughSequence: 1), .refused(.cursorUnreadable), fixture.name)
+            let result = OmiLaunchCaptureMaterializer(
+                rootURL: self.rootURL,
+                generationID: generation,
+                io: io,
+                decode: { _ in [1] }
+            ).materialize()
+            XCTAssertTrue(result.partitions.isEmpty, fixture.name)
+            XCTAssertTrue(result.markers.isEmpty, fixture.name)
+            XCTAssertEqual(try Data(contentsOf: reader.cursorURL), fixture.data, fixture.name)
+            XCTAssertEqual(try Data(contentsOf: writer.fileURL), captureData, fixture.name)
+        }
+    }
+
+    func testCursorReadIOFailuresAreNamedAndFailClosed() throws {
+        for name in ["open", "read"] {
+            let caseRoot = self.rootURL.appendingPathComponent(name, isDirectory: true)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let generation = UUID()
+            let writer = OmiLaunchCaptureWriter(rootURL: caseRoot, generationID: generation, clock: MockObserverClock(), io: io)
+            XCTAssertEqual(writer.append(Data("one".utf8)), .retained(sequence: 0, retriedPending: false))
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: caseRoot, generationID: generation, io: io)
+            try OmiLaunchCaptureCursor(generationID: generation, acknowledgedPrefixNextSequence: 0, acknowledgedPrefixEndOffset: 0).encoded().write(to: reader.cursorURL)
+            if name == "open" {
+                io.failOpenForReading(at: reader.cursorURL, fromCall: 1)
+            } else {
+                io.failRead(at: reader.cursorURL, fromCall: 1)
+            }
+
+            XCTAssertEqual(reader.lease(), .unavailable(.cursorUnreadable), name)
+            XCTAssertEqual(reader.cursorDefect()?.reason, .readFailed, name)
+            XCTAssertNil(reader.acknowledgedPosition(), name)
+            XCTAssertFalse(reader.hasDurableAcknowledgment(), name)
+            XCTAssertEqual(reader.acknowledge(throughSequence: 0), .refused(.cursorUnreadable), name)
+        }
+    }
+
     private func writer(generation: UUID, io: FaultInjectingOmiLaunchCaptureIO) -> OmiLaunchCaptureWriter {
         OmiLaunchCaptureWriter(
             rootURL: self.rootURL,
@@ -202,5 +286,38 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
             clock: MockObserverClock(now: Date(timeIntervalSince1970: 1_800_000_000)),
             io: io
         )
+    }
+
+    private static func replacingByte(in data: Data, at offset: Int, with value: UInt8) -> Data {
+        var result = data
+        result[result.startIndex + offset] = value
+        return result
+    }
+
+    private static func replacingUUID(in data: Data, at offset: Int, with value: UUID) -> Data {
+        var result = data
+        var uuidBytes = Data()
+        uuidBytes.append(uuidBytes: value)
+        result.replaceSubrange(offset..<(offset + OmiLaunchCaptureFormat.generationIDByteCount), with: uuidBytes)
+        return result
+    }
+
+    private static func replacingAcknowledgedEnd(in data: Data, with value: UInt64) -> Data {
+        let sequenceOffset = OmiLaunchCaptureCursorFormat.magic.count
+            + OmiLaunchCaptureCursorFormat.versionByteCount
+            + OmiLaunchCaptureFormat.generationIDByteCount
+        let endOffset = sequenceOffset + OmiLaunchCaptureCursorFormat.sequenceByteCount
+        var bytes = Data()
+        bytes.appendLittleEndian(value)
+        var result = data
+        result.replaceSubrange(endOffset..<(endOffset + OmiLaunchCaptureCursorFormat.offsetByteCount), with: bytes)
+        return result
+    }
+
+    private static func recomputingCursorDigest(_ data: Data) -> Data {
+        let digestOffset = data.count - OmiLaunchCaptureCursorFormat.digestByteCount
+        var result = data
+        result.replaceSubrange(digestOffset..<result.count, with: OmiLaunchCaptureDigest.truncated(result.prefix(digestOffset)))
+        return result
     }
 }

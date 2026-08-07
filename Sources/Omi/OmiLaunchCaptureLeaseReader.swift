@@ -8,7 +8,7 @@ final class OmiLaunchCaptureLeaseReader {
     private enum CursorRead {
         case valid(OmiLaunchCaptureCursor)
         case initial
-        case unreadable
+        case unreadable(OmiLaunchCaptureCursorDefect)
     }
 
     private let rootURL: URL
@@ -32,12 +32,18 @@ final class OmiLaunchCaptureLeaseReader {
     }
 
     func acknowledgedPosition() -> OmiLaunchCaptureReadPosition? {
-        guard let cursor = self.resolvedCursor(from: self.readCursor()) else { return nil }
-        return OmiLaunchCaptureReadPosition(
-            generationID: cursor.generationID,
-            nextSequence: cursor.acknowledgedPrefixNextSequence,
-            offset: cursor.acknowledgedPrefixEndOffset
-        )
+        switch self.readCursor() {
+        case .valid(let cursor):
+            return OmiLaunchCaptureReadPosition(
+                generationID: cursor.generationID,
+                nextSequence: cursor.acknowledgedPrefixNextSequence,
+                offset: cursor.acknowledgedPrefixEndOffset
+            )
+        case .initial:
+            return OmiLaunchCaptureReadPosition(generationID: self.generationID, nextSequence: 0, offset: 0)
+        case .unreadable:
+            return nil
+        }
     }
 
     func hasDurableAcknowledgment() -> Bool {
@@ -47,15 +53,23 @@ final class OmiLaunchCaptureLeaseReader {
         return false
     }
 
+    func cursorDefect() -> OmiLaunchCaptureCursorDefect? {
+        guard case .unreadable(let defect) = self.readCursor() else { return nil }
+        return defect
+    }
+
     func lease() -> OmiLaunchCaptureLeaseOutcome {
         guard let scan = self.scanCurrent() else { return .unavailable(.captureUnreadable) }
         let cursorRead = self.readCursor()
         switch cursorRead {
-        case .valid, .initial:
-            guard let cursor = self.resolvedCursor(from: cursorRead) else {
-                return .unavailable(.cursorUnreadable)
-            }
+        case .valid(let cursor):
             return self.makeLease(cursor: cursor, scan: scan)
+        case .initial:
+            return self.makeLease(cursor: OmiLaunchCaptureCursor(
+                generationID: self.generationID,
+                acknowledgedPrefixNextSequence: 0,
+                acknowledgedPrefixEndOffset: 0
+            ), scan: scan)
         case .unreadable:
             return .unavailable(.cursorUnreadable)
         }
@@ -77,11 +91,14 @@ final class OmiLaunchCaptureLeaseReader {
         }
         let cursorRead = self.readCursor()
         switch cursorRead {
-        case .valid, .initial:
-            guard let cursor = self.resolvedCursor(from: cursorRead) else {
-                return .refused(.cursorUnreadable)
-            }
+        case .valid(let cursor):
             return self.acknowledge(throughSequence: throughSequence, cursor: cursor)
+        case .initial:
+            return self.acknowledge(throughSequence: throughSequence, cursor: OmiLaunchCaptureCursor(
+                generationID: self.generationID,
+                acknowledgedPrefixNextSequence: 0,
+                acknowledgedPrefixEndOffset: 0
+            ))
         case .unreadable:
             return .refused(.cursorUnreadable)
         }
@@ -230,28 +247,24 @@ final class OmiLaunchCaptureLeaseReader {
             guard try self.io.fileExists(at: self.cursorURL) else { return .initial }
             let token = try self.io.openForReading(at: self.cursorURL)
             defer { try? self.io.close(token) }
-            guard try self.io.fileSize(at: self.cursorURL) == OmiLaunchCaptureCursorFormat.byteCount else { return .initial }
-            let data = try self.io.read(token, offset: 0, count: OmiLaunchCaptureCursorFormat.byteCount)
-            guard let cursor = OmiLaunchCaptureCursor.decode(data), cursor.generationID == self.generationID else { return .initial }
-            return .valid(cursor)
+            // Read one byte past the fixed format so a bounded read distinguishes short, exact, and extended cursor files.
+            let data = try self.io.read(token, offset: 0, count: OmiLaunchCaptureCursorFormat.byteCount + 1)
+            switch OmiLaunchCaptureCursor.decode(data) {
+            case .success(let cursor):
+                guard cursor.generationID == self.generationID else {
+                    return .unreadable(self.makeCursorDefect(reason: .generationMismatch, bytes: data))
+                }
+                return .valid(cursor)
+            case .failure(let reason):
+                return .unreadable(self.makeCursorDefect(reason: reason, bytes: data))
+            }
         } catch {
-            return .unreadable
+            return .unreadable(self.makeCursorDefect(reason: .readFailed, bytes: Data()))
         }
     }
 
-    private func resolvedCursor(from cursorRead: CursorRead) -> OmiLaunchCaptureCursor? {
-        switch cursorRead {
-        case .valid(let cursor):
-            return cursor
-        case .initial:
-            return OmiLaunchCaptureCursor(
-                generationID: self.generationID,
-                acknowledgedPrefixNextSequence: 0,
-                acknowledgedPrefixEndOffset: 0
-            )
-        case .unreadable:
-            return nil
-        }
+    private func makeCursorDefect(reason: OmiLaunchCaptureCursorDefectReason, bytes: Data) -> OmiLaunchCaptureCursorDefect {
+        OmiLaunchCaptureCursorDefect(reason: reason, contentDigest: OmiLaunchCaptureDigest.truncated(bytes))
     }
 
     private func readRecord(

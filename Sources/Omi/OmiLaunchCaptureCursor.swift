@@ -23,6 +23,21 @@ nonisolated enum OmiLaunchCaptureCursorFormat {
     }
 }
 
+nonisolated enum OmiLaunchCaptureCursorDefectReason: String, Error, Equatable, Sendable {
+    case invalidLength
+    case invalidMagic
+    case unsupportedVersion
+    case cursorChecksumMismatch
+    case generationMismatch
+    case offsetOutOfRange
+    case readFailed
+}
+
+nonisolated struct OmiLaunchCaptureCursorDefect: Equatable, Sendable {
+    let reason: OmiLaunchCaptureCursorDefectReason
+    let contentDigest: Data
+}
+
 nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
     let generationID: UUID
     let acknowledgedPrefixNextSequence: UInt64
@@ -39,27 +54,37 @@ nonisolated struct OmiLaunchCaptureCursor: Equatable, Sendable {
         return data
     }
 
-    static func decode(_ data: Data) -> Self? {
-        guard data.count == OmiLaunchCaptureCursorFormat.byteCount,
-              data.prefix(OmiLaunchCaptureCursorFormat.magic.count) == OmiLaunchCaptureCursorFormat.magic
-        else { return nil }
+    static func decode(_ data: Data) -> Result<Self, OmiLaunchCaptureCursorDefectReason> {
+        guard data.count == OmiLaunchCaptureCursorFormat.byteCount else {
+            return .failure(.invalidLength)
+        }
+        guard data.prefix(OmiLaunchCaptureCursorFormat.magic.count) == OmiLaunchCaptureCursorFormat.magic else {
+            return .failure(.invalidMagic)
+        }
         let versionOffset = OmiLaunchCaptureCursorFormat.magic.count
-        guard data.uint16LE(at: versionOffset) == OmiLaunchCaptureCursorFormat.version else { return nil }
+        guard data.uint16LE(at: versionOffset) == OmiLaunchCaptureCursorFormat.version else {
+            return .failure(.unsupportedVersion)
+        }
         let digestOffset = data.count - OmiLaunchCaptureCursorFormat.digestByteCount
         guard OmiLaunchCaptureDigest.truncated(data.prefix(digestOffset)) == data.suffix(OmiLaunchCaptureCursorFormat.digestByteCount) else {
-            return nil
+            return .failure(.cursorChecksumMismatch)
         }
         let generationOffset = versionOffset + OmiLaunchCaptureCursorFormat.versionByteCount
-        guard let generationID = data.uuid(at: generationOffset) else { return nil }
+        // `uuid(at:)` returns nil only for insufficient length, already guarded above.
+        guard let generationID = data.uuid(at: generationOffset) else {
+            return .failure(.invalidLength)
+        }
         let sequenceOffset = generationOffset + OmiLaunchCaptureFormat.generationIDByteCount
         let endOffset = sequenceOffset + OmiLaunchCaptureCursorFormat.sequenceByteCount
         let acknowledgedEnd = data.uint64LE(at: endOffset)
-        guard acknowledgedEnd <= UInt64(Int.max) else { return nil }
-        return Self(
+        guard acknowledgedEnd <= UInt64(Int.max) else {
+            return .failure(.offsetOutOfRange)
+        }
+        return .success(Self(
             generationID: generationID,
             acknowledgedPrefixNextSequence: data.uint64LE(at: sequenceOffset),
             acknowledgedPrefixEndOffset: Int(acknowledgedEnd)
-        )
+        ))
     }
 }
 

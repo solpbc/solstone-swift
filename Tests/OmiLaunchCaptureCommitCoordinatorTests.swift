@@ -487,6 +487,97 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: writer.fileURL.path))
     }
 
+    @MainActor func testUnreadableCursorAttentionDeduplicatesAcrossRestarts() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
+        let generation = try self.seedCapture(rootURL: captureRoot)
+        let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation)
+        let cursorData = Self.invalidMagicCursor(generationID: generation, mutation: 0x01)
+        try cursorData.write(to: reader.cursorURL)
+
+        var expectedItemID: UUID?
+        for restart in 0..<3 {
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            await OmiLaunchCaptureCommitCoordinator(
+                rootURL: captureRoot,
+                engine: harness.engine,
+                sourceManager: self.makeManager()
+            ).reconcile()
+            let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            let attention = try XCTUnwrap(snapshots.first)
+            XCTAssertEqual(attention.state, .attention, "restart=\(restart)")
+            XCTAssertTrue(attention.manifest.payloadParts.isEmpty, "restart=\(restart)")
+            XCTAssertEqual(attention.manifest.attention?.reason, "launch_capture_cursor_unreadable", "restart=\(restart)")
+            if let expectedItemID {
+                XCTAssertEqual(attention.itemID, expectedItemID, "restart=\(restart)")
+            } else {
+                expectedItemID = attention.itemID
+            }
+            XCTAssertEqual(TransferURLProtocol.requests.count, 0, "restart=\(restart)")
+            await harness.engine.enableDispatch()
+            XCTAssertEqual(TransferURLProtocol.requests.count, 0, "restart=\(restart)")
+        }
+        XCTAssertEqual(try Data(contentsOf: reader.cursorURL), cursorData)
+    }
+
+    @MainActor func testUnreadableCursorAttentionUsesObservablePrefixIdentityInProductionComposition() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
+        let firstGeneration = try self.seedCapture(rootURL: captureRoot)
+        let secondGeneration = try self.seedCapture(rootURL: captureRoot)
+        let firstReader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: firstGeneration)
+        let secondReader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: secondGeneration)
+        let firstCursor = Self.invalidMagicCursor(generationID: firstGeneration, mutation: 0x01)
+        let secondCursor = Self.invalidMagicCursor(generationID: secondGeneration, mutation: 0x01)
+        try firstCursor.write(to: firstReader.cursorURL)
+        try secondCursor.write(to: secondReader.cursorURL)
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: self.makeManager()
+        )
+
+        await coordinator.reconcile()
+        await coordinator.reconcile()
+        var snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.count, 2)
+        XCTAssertTrue(snapshots.allSatisfy { $0.state == .attention && $0.manifest.payloadParts.isEmpty })
+        XCTAssertTrue(snapshots.allSatisfy { $0.manifest.attention?.reason == "launch_capture_cursor_unreadable" })
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        await harness.engine.enableDispatch()
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+
+        let rewrittenFirstCursor = Self.invalidMagicCursor(generationID: firstGeneration, mutation: 0x02)
+        XCTAssertNotEqual(OmiLaunchCaptureDigest.truncated(firstCursor), OmiLaunchCaptureDigest.truncated(rewrittenFirstCursor))
+        try rewrittenFirstCursor.write(to: firstReader.cursorURL)
+        await coordinator.reconcile()
+        snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.count, 3)
+        XCTAssertEqual(snapshots.filter { $0.manifest.payloadParts.isEmpty && $0.state == .attention }.count, 3)
+
+        for name in ["absent", "valid"] {
+            let controlCaptureRoot = self.rootURL.appendingPathComponent("\(name)-capture", isDirectory: true)
+            let controlTransferRoot = self.rootURL.appendingPathComponent("\(name)-transfer", isDirectory: true)
+            let generation = try self.seedCapture(rootURL: controlCaptureRoot)
+            let controlReader = OmiLaunchCaptureLeaseReader(rootURL: controlCaptureRoot, generationID: generation)
+            if name == "valid" {
+                try OmiLaunchCaptureCursor(generationID: generation, acknowledgedPrefixNextSequence: 0, acknowledgedPrefixEndOffset: 0).encoded().write(to: controlReader.cursorURL)
+            }
+            let controlHarness = self.makeHarness(rootURL: controlTransferRoot)
+            try await controlHarness.engine.initialize()
+            await OmiLaunchCaptureCommitCoordinator(
+                rootURL: controlCaptureRoot,
+                engine: controlHarness.engine,
+                sourceManager: self.makeManager()
+            ).reconcile()
+            let controlSnapshots = await controlHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            XCTAssertFalse(controlSnapshots.contains { $0.manifest.attention?.reason == "launch_capture_cursor_unreadable" }, name)
+        }
+    }
+
     @MainActor private func makeHarness(rootURL: URL) -> (engine: TransferEngine, mirror: TransferStatusMirror, enqueuer: ObserverAudioTransferEnqueuer, omi: OmiUploaderHolder, watch: WatchUploaderHolder) {
         TransferURLProtocol.handler = { request, _ in (transferTestResponse(for: request, statusCode: 204), Data()) }
         return makeTransferCutoverHarness(rootURL: rootURL, sessionConfiguration: makeTransferTestURLSessionConfiguration(), endpointResolver: CommitCoordinatorAvailableEndpointResolver())
@@ -548,5 +639,17 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         var encoded = Data(repeating: 0, count: 512)
         _ = try encoder.encode(buffer, to: &encoded)
         return encoded
+    }
+
+    private static func invalidMagicCursor(generationID: UUID, mutation: UInt8) -> Data {
+        var data = OmiLaunchCaptureCursor(
+            generationID: generationID,
+            acknowledgedPrefixNextSequence: 0,
+            acknowledgedPrefixEndOffset: 0
+        ).encoded()
+        data[data.startIndex] ^= mutation
+        let digestOffset = data.count - OmiLaunchCaptureCursorFormat.digestByteCount
+        data.replaceSubrange(digestOffset..<data.count, with: OmiLaunchCaptureDigest.truncated(data.prefix(digestOffset)))
+        return data
     }
 }

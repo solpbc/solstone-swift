@@ -174,8 +174,11 @@ final class OmiLaunchCaptureCommitCoordinator {
         guard let rootURL else { return .failed }
         let reader = OmiLaunchCaptureLeaseReader(rootURL: rootURL, generationID: generationID, io: self.io)
         let scan = OmiLaunchCaptureRecovery(rootURL: rootURL, generationID: generationID, io: self.io).recover()
-        if case .unavailable = reader.lease() {
+        if case .unavailable(let reason) = reader.lease() {
             await self.conservativelyGateOmi()
+            if reason == .cursorUnreadable, let defect = reader.cursorDefect() {
+                await self.commitUnreadableCursor(defect: defect, generationID: generationID)
+            }
             return .failed
         }
 
@@ -507,6 +510,42 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
+    private func commitUnreadableCursor(defect: OmiLaunchCaptureCursorDefect, generationID: UUID) async {
+        let itemID = Self.unreadableCursorItemID(generationID: generationID, defect: defect)
+        let startedAt = Date(timeIntervalSince1970: 0)
+        let sidecar = ChunkSidecar(
+            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
+            day: ObserverSegmentNaming.dayString(for: startedAt),
+            chunkIndex: Int.max,
+            startedAt: startedAt,
+            durationS: 0,
+            sessionID: generationID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
+        manifest.payloadParts = []
+        manifest.diskState = .attention
+        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            return
+        case .notFound:
+            do {
+                _ = try await self.engine.enqueueAttention(
+                    manifest: manifest,
+                    payloadFileURLs: [:],
+                    reason: "launch_capture_cursor_unreadable",
+                    detail: "generation=\(generationID.uuidString.lowercased()) cursor_defect=\(defect.reason.rawValue)"
+                )
+            } catch {
+                self.log.error("launch capture cursor unreadable attention failed")
+            }
+        case .stagingOnly, .salvageOnly, .conflict, .none:
+            self.log.error("launch capture cursor unreadable ownership failed")
+        }
+    }
+
     private func enumerateLinkedIDs() -> EnumerationResult {
         guard let rootURL else { return .unknown }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
@@ -574,6 +613,18 @@ final class OmiLaunchCaptureCommitCoordinator {
         data.append(uuidBytes: generationID)
         data.appendLittleEndian(sequence)
         data.appendLittleEndian(UInt64(max(offset, 0)))
+        var bytes = Array(SHA256.hash(data: data).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    private static func unreadableCursorItemID(generationID: UUID, defect: OmiLaunchCaptureCursorDefect) -> UUID {
+        // Identity is intentionally bounded to the first cursor format plus one byte; changes beyond that prefix dedupe.
+        var data = Data("omi-launch-capture-cursor-unreadable-v1".utf8)
+        data.append(uuidBytes: generationID)
+        data.append(Data(defect.reason.rawValue.utf8))
+        data.append(defect.contentDigest)
         var bytes = Array(SHA256.hash(data: data).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80

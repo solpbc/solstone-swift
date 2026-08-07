@@ -29,6 +29,10 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     private var failingBarrierCall: Int?
     private var existsCallCountByURL: [URL: Int] = [:]
     private var failingExistsFromCall: (url: URL, call: Int)?
+    private var openForReadingCallCountByURL: [URL: Int] = [:]
+    private var failingOpenForReadingFromCall: (url: URL, call: Int)?
+    private var readCallCountByURL: [URL: Int] = [:]
+    private var failingReadFromCall: (url: URL, call: Int)?
     private var tokenURLs: [Int32: URL] = [:]
     private var synchronizedState: [URL: Data] = [:]
     private var trackedURLs: Set<URL> = []
@@ -68,6 +72,18 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         }
     }
 
+    func failOpenForReading(at url: URL, fromCall call: Int) {
+        self.lock.withLock {
+            self.failingOpenForReadingFromCall = (url, call)
+        }
+    }
+
+    func failRead(at url: URL, fromCall call: Int) {
+        self.lock.withLock {
+            self.failingReadFromCall = (url, call)
+        }
+    }
+
     func clearFaults() {
         self.lock.withLock {
             self.failingOperations.removeAll()
@@ -76,6 +92,10 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
             self.failingBarrierCall = nil
             self.existsCallCountByURL.removeAll()
             self.failingExistsFromCall = nil
+            self.openForReadingCallCountByURL.removeAll()
+            self.failingOpenForReadingFromCall = nil
+            self.readCallCountByURL.removeAll()
+            self.failingReadFromCall = nil
         }
     }
 
@@ -138,6 +158,16 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
 
     func openForReading(at url: URL) throws -> OmiLaunchCaptureFileToken {
         self.recordIOCall()
+        let shouldFail = self.lock.withLock { () -> Bool in
+            self.openForReadingCallCountByURL[url, default: 0] += 1
+            if let failure = self.failingOpenForReadingFromCall,
+               failure.url == url,
+               self.openForReadingCallCountByURL[url, default: 0] >= failure.call {
+                return true
+            }
+            return false
+        }
+        if shouldFail { throw CocoaError(.fileWriteUnknown) }
         try self.throwIfNeeded(.openForReading)
         let token = try self.base.openForReading(at: url)
         self.lock.withLock { self.tokenURLs[token.rawValue] = url }
@@ -200,10 +230,19 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
     }
 
     func read(_ file: OmiLaunchCaptureFileToken, offset: Int, count: Int) throws -> Data {
-        self.lock.withLock {
+        let shouldFail = self.lock.withLock { () -> Bool in
             self.ioCallCount += 1
             self.largestReadRequest = max(self.largestReadRequest, count)
+            guard let url = self.tokenURLs[file.rawValue] else { return false }
+            self.readCallCountByURL[url, default: 0] += 1
+            if let failure = self.failingReadFromCall,
+               failure.url == url,
+               self.readCallCountByURL[url, default: 0] >= failure.call {
+                return true
+            }
+            return false
         }
+        if shouldFail { throw CocoaError(.fileWriteUnknown) }
         try self.throwIfNeeded(.read)
         return try self.base.read(file, offset: offset, count: count)
     }
