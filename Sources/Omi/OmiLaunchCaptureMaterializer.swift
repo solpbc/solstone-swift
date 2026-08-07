@@ -60,6 +60,12 @@ final class OmiLaunchCaptureMaterializer {
         case recognizedOrphan
     }
 
+    private enum OrphanRecognition: Equatable {
+        case recognized
+        case mismatch
+        case ioFailure
+    }
+
     private let rootURL: URL
     private let generationID: UUID
     private let io: any OmiLaunchCaptureIO
@@ -172,14 +178,15 @@ final class OmiLaunchCaptureMaterializer {
         let envelopeURL = paths.envelopeURL
         let itemID = OmiLaunchCaptureMaterializationIdentity.itemID(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
         let sidecar = self.sidecar(for: partition)
+        let isRepair = partition.isRecognizedOrphan
         let existingOutput: ExistingOutput
         do {
             existingOutput = try self.existingOutput(audioURL: audioURL, envelopeURL: envelopeURL)
         } catch {
-            self.noteAttention(partition.ordinal, reason: "exists")
+            self.failPersist(partition, isRepair: isRepair, reason: "exists")
             return nil
         }
-        if let boundary = self.persistedBoundary(
+        if !isRepair, let boundary = self.persistedBoundary(
             itemID: itemID,
             ordinal: partition.ordinal,
             envelopeURL: envelopeURL,
@@ -201,10 +208,15 @@ final class OmiLaunchCaptureMaterializer {
                 isExistingOwner: !boundary.hasAudio
             )
         }
-        let isRepair = partition.isRecognizedOrphan
         if isRepair {
-            guard self.isRecognizedOrphan(paths: paths, itemID: itemID, partition: partition) else {
+            switch self.orphanRecognition(paths: paths, itemID: itemID, partition: partition, existingOutput: existingOutput) {
+            case .recognized:
+                break
+            case .mismatch:
                 self.noteAttention(partition.ordinal, reason: "sealed")
+                return nil
+            case .ioFailure:
+                self.failPersist(partition, isRepair: true, reason: "provenance")
                 return nil
             }
             guard self.quarantineIfPresent(audioURL, isPresent: true) else {
@@ -236,6 +248,7 @@ final class OmiLaunchCaptureMaterializer {
         }
         let provenance = OmiLaunchCaptureMaterializationProvenance(generationID: generationID, partitionOrdinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset, itemID: itemID)
         do {
+            // The record must be durable before its artifact can exist, so this crash window remains recognizable.
             try OmiLaunchCaptureMaterializationProvenanceStore.write(
                 try OmiLaunchCaptureMaterializationProvenanceStore.encode(provenance),
                 to: paths.provenanceURL,
@@ -254,7 +267,7 @@ final class OmiLaunchCaptureMaterializer {
             try OmiPendingHandoffStore.write(try OmiPendingHandoffStore.encode(envelope), to: envelopeURL, io: io)
         } catch {
             if isRepair {
-                self.noteRepairFailure(partition)
+                self.failPersist(partition, isRepair: true, reason: "envelope")
                 return nil
             }
             let existingOutput: ExistingOutput
@@ -271,6 +284,7 @@ final class OmiLaunchCaptureMaterializer {
             }
             return nil
         }
+        // The retained record is inert because recognition requires an absent envelope; deleting it consumed injected remove faults and changed convergence.
         return self.output(itemID: itemID, partition: partition, audioURL: audioURL, envelopeURL: envelopeURL, isExistingOwner: false)
     }
 
@@ -310,7 +324,14 @@ final class OmiLaunchCaptureMaterializer {
         let hasAudio = try io.fileExists(at: paths.audioURL)
         guard hasEnvelope else {
             guard hasAudio else { return .fresh }
-            guard self.isRecognizedOrphan(paths: paths, itemID: itemID, ordinal: ordinal, startSequence: startSequence, startSampleOffset: startSampleOffset) else {
+            guard self.orphanRecognition(
+                paths: paths,
+                itemID: itemID,
+                ordinal: ordinal,
+                startSequence: startSequence,
+                startSampleOffset: startSampleOffset,
+                existingOutput: ExistingOutput(hasAudio: hasAudio, hasEnvelope: hasEnvelope)
+            ) == .recognized else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             return .recognizedOrphan
@@ -345,20 +366,42 @@ final class OmiLaunchCaptureMaterializer {
         ExistingOutput(hasAudio: try io.fileExists(at: audioURL), hasEnvelope: try io.fileExists(at: envelopeURL))
     }
 
-    private func isRecognizedOrphan(paths: OmiLaunchCaptureMaterializedArtifactPaths, itemID: UUID, partition: Partition) -> Bool {
-        self.isRecognizedOrphan(paths: paths, itemID: itemID, ordinal: partition.ordinal, startSequence: partition.startSequence, startSampleOffset: partition.startSampleOffset)
+    private func orphanRecognition(paths: OmiLaunchCaptureMaterializedArtifactPaths, itemID: UUID, partition: Partition, existingOutput: ExistingOutput) -> OrphanRecognition {
+        self.orphanRecognition(
+            paths: paths,
+            itemID: itemID,
+            ordinal: partition.ordinal,
+            startSequence: partition.startSequence,
+            startSampleOffset: partition.startSampleOffset,
+            existingOutput: existingOutput
+        )
     }
 
-    private func isRecognizedOrphan(paths: OmiLaunchCaptureMaterializedArtifactPaths, itemID: UUID, ordinal: Int, startSequence: UInt64, startSampleOffset: UInt64) -> Bool {
-        guard (try? io.fileExists(at: paths.provenanceURL)) == true,
-              let provenance = try? OmiLaunchCaptureMaterializationProvenanceStore.read(from: paths.provenanceURL)
-        else { return false }
-        return provenance.isSupported
+    private func orphanRecognition(paths: OmiLaunchCaptureMaterializedArtifactPaths, itemID: UUID, ordinal: Int, startSequence: UInt64, startSampleOffset: UInt64, existingOutput: ExistingOutput) -> OrphanRecognition {
+        guard existingOutput.hasAudio, !existingOutput.hasEnvelope else { return .mismatch }
+        let hasProvenance: Bool
+        do {
+            hasProvenance = try io.fileExists(at: paths.provenanceURL)
+        } catch {
+            return .ioFailure
+        }
+        guard hasProvenance else { return .mismatch }
+        let provenance: OmiLaunchCaptureMaterializationProvenance
+        do {
+            provenance = try OmiLaunchCaptureMaterializationProvenanceStore.read(from: paths.provenanceURL)
+        } catch is DecodingError {
+            return .mismatch
+        } catch {
+            return .ioFailure
+        }
+        guard provenance.isSupported
             && provenance.generationID == generationID
             && provenance.partitionOrdinal == ordinal
             && provenance.startSequence == startSequence
             && provenance.startSampleOffset == startSampleOffset
             && provenance.itemID == itemID
+        else { return .mismatch }
+        return .recognized
     }
 
     private func isReusable(existingOutput: ExistingOutput, envelopeURL: URL, itemID: UUID, sidecar: ChunkSidecar) -> Bool {

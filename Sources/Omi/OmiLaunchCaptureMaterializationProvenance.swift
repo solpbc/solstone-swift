@@ -60,11 +60,15 @@ enum OmiLaunchCaptureMaterializationProvenanceStore {
         try JSONEncoder().encode(provenance)
     }
 
+    static func decode(_ data: Data) throws -> OmiLaunchCaptureMaterializationProvenance {
+        try JSONDecoder().decode(OmiLaunchCaptureMaterializationProvenance.self, from: data)
+    }
+
     static func write(_ data: Data, to url: URL, io: any OmiLaunchCaptureIO) throws {
         try OmiPendingHandoffStore.write(data, to: url, io: io)
     }
 
     static func read(from url: URL) throws -> OmiLaunchCaptureMaterializationProvenance {
-        try JSONDecoder().decode(OmiLaunchCaptureMaterializationProvenance.self, from: Data(contentsOf: url))
+        try self.decode(Data(contentsOf: url))
     }
 }

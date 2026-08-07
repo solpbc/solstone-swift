@@ -11,6 +11,7 @@ import XCTest
 @MainActor
 final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
     private enum RepairFault: CaseIterable {
+        case exists
         case isolation
         case provenance
         case temporaryCreate
@@ -110,6 +111,8 @@ final class OmiLaunchCaptureOrphanRepairTests: XCTestCase {
             let failingWriter = FaultInjectingOmiAACChunkWriter(io: io)
 
             switch fault {
+            case .exists:
+                io.failExists(at: seeded.paths.audioURL, fromCall: 2)
             case .isolation:
                 io.failNext(.move)
             case .provenance:
