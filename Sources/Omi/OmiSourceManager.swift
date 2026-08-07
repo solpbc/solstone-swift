@@ -15,7 +15,7 @@ private struct OmiPendingSubscribe: Sendable {
 private enum LaunchCaptureRotationState: Equatable {
     case none
     case awaitingDisconnect(peripheralID: UUID)
-    case awaitingResubscription(peripheralID: UUID, disconnectEpoch: UInt64)
+    case awaitingResubscription(peripheralID: UUID)
 }
 
 @MainActor
@@ -529,11 +529,12 @@ extension OmiSourceManager {
             switch launchCaptureIngress.ingest(input) {
             case .retainedContiguous:
                 break
-            case .boundaryCommitted:
+            case .boundaryCommitted(let boundaryReason):
                 self.armLaunchCaptureRecovery(
                     peripheralID: peripheralID,
                     characteristic: characteristic,
-                    reason: "recovery_armed_boundary"
+                    reason: "recovery_armed_boundary",
+                    boundaryReason: boundaryReason
                 )
             case .notRetained:
                 self.armLaunchCaptureRecovery(
@@ -961,10 +962,7 @@ extension OmiSourceManager {
         if case .awaitingDisconnect(let peripheralID) = self.launchCaptureRotationState,
            peripheral.id == peripheralID
         {
-            self.launchCaptureRotationState = .awaitingResubscription(
-                peripheralID: peripheralID,
-                disconnectEpoch: self.connectionEpoch
-            )
+            self.launchCaptureRotationState = .awaitingResubscription(peripheralID: peripheralID)
         }
         guard !self.isOmiWorkDisabled else { return }
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
@@ -1347,7 +1345,15 @@ private extension OmiSourceManager {
     }
 
     func isBeginningCurrentConnection(for peripheral: OmiPeripheralDescriptor) -> Bool {
-        self.connectedPeripheralID != peripheral.id || self.connectionState != .connected
+        guard self.connectedPeripheralID == peripheral.id else {
+            return true
+        }
+        switch self.connectionState {
+        case .disconnected, .connecting, .reconnecting:
+            return true
+        case .connected, .needsAttention:
+            return false
+        }
     }
 
     func noteConnectionEpochBegan() {
@@ -1496,12 +1502,14 @@ private extension OmiSourceManager {
     func armLaunchCaptureRecovery(
         peripheralID: UUID,
         characteristic: OmiCharacteristicDescriptor?,
-        reason: String
+        reason: String,
+        boundaryReason: OmiLaunchCaptureIngressBoundaryReason? = nil
     ) {
         guard self.launchCaptureRotationState == .none else { return }
         self.noteWriterFault()
         self.launchCaptureRotationState = .awaitingDisconnect(peripheralID: peripheralID)
-        self.log.error("omi launch capture recovery: \(reason, privacy: .public)")
+        let diagnostic = boundaryReason.map { "\(reason) \($0.rawValue)" } ?? reason
+        self.log.error("omi launch capture recovery: \(diagnostic, privacy: .public)")
         self.requestLaunchCaptureFlowControl(peripheralID: peripheralID, characteristic: characteristic)
     }
 
@@ -1509,14 +1517,14 @@ private extension OmiSourceManager {
         for peripheral: OmiPeripheralDescriptor,
         characteristic: OmiCharacteristicDescriptor?
     ) -> Bool {
-        guard case .awaitingResubscription(let affectedPeripheralID, let disconnectEpoch) = self.launchCaptureRotationState else {
+        guard case .awaitingResubscription(let affectedPeripheralID) = self.launchCaptureRotationState else {
             return true
         }
         guard affectedPeripheralID == peripheral.id else { return true }
         guard self.connectedPeripheralID == peripheral.id,
+              self.connectionState == .connected,
               self.enabled,
               self.isLaunchReady,
-              self.connectionEpoch > disconnectEpoch,
               self.launchCaptureSubscribeRequestEpoch == self.connectionEpoch,
               let launchCaptureIngress,
               launchCaptureIngress.isLatched
