@@ -123,6 +123,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         // `false_healthy` -- an app under-claiming its own health.
         harness.sync.refreshNow()
         harness.clock.advance(by: 1)
+        await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
+        harness.clock.advance(by: 2)
 
         let result = await task.value
 
@@ -160,6 +162,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
 
         harness.sync.refreshNow()
         harness.clock.advance(by: 1)
+        await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
+        harness.clock.advance(by: 2)
 
         let result = await task.value
 

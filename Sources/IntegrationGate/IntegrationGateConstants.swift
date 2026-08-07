@@ -39,6 +39,10 @@ enum IntegrationGateConstants {
     // observer has a window in which the correct label is actually on screen. Still
     // bounded by `syncRecoveryTailMilliseconds`.
     static let syncRecoverySettleSamples: Int = 2
+    // Terminal result publication stops the coordinator's AX polling. Keep a
+    // newly converged owner label visible long enough for one out-of-process
+    // observation before publishing terminal G1/G4 state.
+    static let ownerUISettleMilliseconds: UInt64 = 2_000
     // G3's mid-stream interrupt window, made explicit. It used to exist only as an
     // artifact of the per-byte drain defect (~10-12s for 2 MiB); repairing the drain
     // cut that to 498 ms and the window vanished, leaving G3 UNREACHABLE rather than

@@ -302,6 +302,9 @@ final class IntegrationGateActions {
             // fallback so a window that never converges still reports honestly.
             if observation.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
                 selectedSample = observation
+                try? await clock.sleep(
+                    for: .milliseconds(IntegrationGateConstants.ownerUISettleMilliseconds)
+                )
                 break
             }
             if observation.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive {
@@ -584,7 +587,9 @@ final class IntegrationGateActions {
         // `g4.recovered` was still unobserved -- the recovered "status: connected"
         // observation landed in G5's batch instead. Hold the converged label on screen
         // for a couple of samples so the observation has somewhere to land.
-        if tailIndex > UInt64(sampleCount),
+        if observations.contains(where: {
+            !$0.sample.rawConnectionSyncStatus.integrationGateStatusIsPositive
+        }),
            let last = observations.last,
            last.sample.publishedConnectionSyncStatus.integrationGateStatusIsPositive {
             for _ in 0..<IntegrationGateConstants.syncRecoverySettleSamples {

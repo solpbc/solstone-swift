@@ -9,6 +9,7 @@ import XCTest
 final class IntegrationGateG4G5ConnectionSyncTests: XCTestCase {
     func testReconnectObservationWindowCoversForegroundReraceCadence() {
         XCTAssertEqual(IntegrationGateConstants.observationWindowMilliseconds, 30_000)
+        XCTAssertEqual(IntegrationGateConstants.ownerUISettleMilliseconds, 2_000)
     }
 
     func testReachabilityMappingCoversAllConnectionSyncStatuses() {
