@@ -579,6 +579,147 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         }
     }
 
+    @MainActor func testMaterializationFailureAcknowledgesOnlyFrontierAndNeverSettlesSuffixOwner() async throws {
+        let frame = try Self.opusFrame()
+        for (name, stageThenRemoveSuffix) in [("never-staged", false), ("staged-then-removed", true)] {
+            TransferURLProtocol.reset()
+            let captureRoot = self.rootURL.appendingPathComponent("\(name)-capture", isDirectory: true)
+            let referenceRoot = self.rootURL.appendingPathComponent("\(name)-reference", isDirectory: true)
+            let transferRoot = self.rootURL.appendingPathComponent("\(name)-transfer", isDirectory: true)
+            let generation = UUID()
+            let start = Date(timeIntervalSince1970: 1_800_000_000)
+            let io = FaultInjectingOmiLaunchCaptureIO()
+            let captureClock = MockObserverClock(now: start)
+            let capture = OmiLaunchCaptureWriter(rootURL: captureRoot, generationID: generation, clock: captureClock, io: io)
+            let referenceClock = MockObserverClock(now: start)
+            let reference = OmiLaunchCaptureWriter(rootURL: referenceRoot, generationID: generation, clock: referenceClock)
+            for packet in 0..<4 {
+                self.append(Self.packet(UInt16(packet), body: frame), to: capture)
+                self.append(Self.packet(UInt16(packet), body: frame), to: reference)
+                captureClock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
+                referenceClock.advance(by: OmiAudioChunkFormat.chunkDurationSeconds + 1)
+            }
+
+            let frontierItemID = OmiLaunchCaptureMaterializationIdentity.itemID(
+                generationID: generation,
+                partitionOrdinal: 0,
+                startSequence: 0,
+                startSampleOffset: 0
+            )
+            let suffixItemID = OmiLaunchCaptureMaterializationIdentity.itemID(
+                generationID: generation,
+                partitionOrdinal: 2,
+                startSequence: 2,
+                startSampleOffset: 640
+            )
+            let referenceResult = try self.materialize(rootURL: referenceRoot, generation: generation, io: FoundationOmiLaunchCaptureIO())
+            let referenceSuffix = try XCTUnwrap(referenceResult.partitions.dropFirst(2).first, name)
+            XCTAssertEqual(referenceSuffix.itemID, suffixItemID, name)
+
+            if stageThenRemoveSuffix {
+                let envelope = try OmiPendingHandoffStore.read(from: referenceSuffix.envelopeURL)
+                let spool = TransferSpool(rootURL: transferRoot)
+                let staged = try spool.stage(
+                    manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+                        itemID: suffixItemID,
+                        sidecar: envelope.sidecar,
+                        metadata: envelope.metadata
+                    ),
+                    payloads: ["audio": Data(contentsOf: referenceSuffix.audioURL)]
+                )
+                let committed = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+                XCTAssertEqual(committed.manifest.itemID, suffixItemID, name)
+                try spool.removeCommittedItem(committed)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: committed.directoryURL.path), name)
+            }
+
+            let failedPaths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 1)
+            io.failReplace(at: failedPaths.audioURL, fromCall: 1)
+            let harness = self.makeHarness(rootURL: transferRoot)
+            try await harness.engine.initialize()
+            await harness.engine.enableDispatch()
+
+            await OmiLaunchCaptureCommitCoordinator(
+                rootURL: captureRoot,
+                engine: harness.engine,
+                sourceManager: self.makeManager(),
+                io: io
+            ).reconcile()
+
+            try await transferTestWaitFor("frontier delivery \(name)") {
+                TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == frontierItemID }
+            }
+            let suffixSnapshot = await harness.engine.itemSnapshot(itemID: suffixItemID)
+            XCTAssertNil(suffixSnapshot, name)
+            XCTAssertFalse(TransferURLProtocol.requests.contains { transferTestBoundaryItemID(from: $0) == suffixItemID }, name)
+
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: captureRoot, generationID: generation, io: io)
+            let position = try XCTUnwrap(reader.acknowledgedPosition(), name)
+            XCTAssertEqual(position.nextSequence, 1, name)
+            if case .lease(let lease) = reader.lease() {
+                XCTAssertEqual(lease.startSequence, 1, name)
+            } else {
+                XCTFail("failure suffix must remain unacknowledged: \(name)")
+            }
+        }
+    }
+
+    @MainActor func testMaterializationFailureAttentionDeduplicatesAcrossRestarts() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
+        let generation = try self.seedCapture(rootURL: captureRoot)
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let paths = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: generation, ordinal: 0)
+        io.failReplace(at: paths.audioURL, fromCall: 1)
+
+        let first = self.makeHarness(rootURL: transferRoot)
+        try await first.engine.initialize()
+        await OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: first.engine,
+            sourceManager: self.makeManager(),
+            io: io
+        ).reconcile()
+        var snapshots = await first.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.count, 1)
+        let firstAttention = try XCTUnwrap(snapshots.first { $0.state == .attention && $0.manifest.payloadParts.isEmpty })
+        XCTAssertEqual(firstAttention.manifest.attention?.reason, "launch_capture_materialization_failed")
+
+        let restarted = self.makeHarness(rootURL: transferRoot)
+        try await restarted.engine.initialize()
+        await OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: restarted.engine,
+            sourceManager: self.makeManager(),
+            io: io
+        ).reconcile()
+        snapshots = await restarted.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(snapshots.count, 1)
+        let restartedAttention = try XCTUnwrap(snapshots.first { $0.state == .attention && $0.manifest.payloadParts.isEmpty })
+        XCTAssertEqual(restartedAttention.manifest.attention?.reason, "launch_capture_materialization_failed")
+        XCTAssertEqual(restartedAttention.itemID, firstAttention.itemID)
+    }
+
+    @MainActor func testHealthyEmptyLaunchCaptureCreatesNoAttention() async throws {
+        let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
+        let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
+        let generation = UUID()
+        let writer = OmiLaunchCaptureWriter(rootURL: captureRoot, generationID: generation)
+        XCTAssertTrue(writer.arm())
+        let harness = self.makeHarness(rootURL: transferRoot)
+        try await harness.engine.initialize()
+
+        await OmiLaunchCaptureCommitCoordinator(
+            rootURL: captureRoot,
+            engine: harness.engine,
+            sourceManager: self.makeManager()
+        ).reconcile()
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertTrue(snapshots.isEmpty)
+        XCTAssertFalse(snapshots.contains { $0.manifest.attention?.reason == "launch_capture_materialization_failed" })
+    }
+
     @MainActor func testOrphanRepairFailureAttentionDeduplicatesAcrossRestarts() async throws {
         let captureRoot = self.rootURL.appendingPathComponent("capture", isDirectory: true)
         let transferRoot = self.rootURL.appendingPathComponent("transfer", isDirectory: true)
@@ -681,7 +822,9 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 .reduce(into: [String: Data]()) { $0[$1.lastPathComponent] = try Data(contentsOf: $1) }
             XCTAssertEqual(after, before, mismatch)
             let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-            XCTAssertTrue(snapshots.isEmpty, mismatch)
+            XCTAssertEqual(snapshots.count, 1, mismatch)
+            let attention = try XCTUnwrap(snapshots.first { $0.state == .attention && $0.manifest.payloadParts.isEmpty }, mismatch)
+            XCTAssertEqual(attention.manifest.attention?.reason, "launch_capture_materialization_failed", mismatch)
             XCTAssertEqual(try? Data(contentsOf: reader.cursorURL), cursorBytes, mismatch)
             XCTAssertEqual(TransferURLProtocol.requests.count, 0, mismatch)
         }

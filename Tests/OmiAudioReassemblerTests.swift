@@ -68,6 +68,41 @@ nonisolated final class OmiAudioReassemblerTests: XCTestCase {
         XCTAssertEqual(output, OmiReassemblyOutput())
         XCTAssertEqual(reassembler.malformed, 1)
         XCTAssertEqual(reassembler.packets, 0)
+        XCTAssertFalse(output.discardedStartedFrame)
+    }
+
+    func testPacketDiscontinuitySignalsOnlyWhenItDiscardsStartedFrame() {
+        var active = OmiAudioReassembler()
+        _ = active.ingest(Self.packet(0, index: 0, payload: Data("lost".utf8)), acquiredAt: .distantPast, recordSequence: 0)
+        let dropped = active.ingest(Self.packet(2, index: 0, payload: Data("next".utf8)), acquiredAt: .distantFuture, recordSequence: 1)
+        XCTAssertTrue(dropped.discardedStartedFrame)
+
+        var idle = OmiAudioReassembler()
+        _ = idle.ingest(Self.packet(0, index: 0xFF, payload: Data([0, 0, 0, 0])), acquiredAt: .distantPast, recordSequence: 0)
+        let skipped = idle.ingest(Self.packet(2, index: 0xFF, payload: Data([0, 0, 0, 0])), acquiredAt: .distantFuture, recordSequence: 1)
+        XCTAssertFalse(skipped.discardedStartedFrame)
+
+        var final = OmiAudioReassembler()
+        _ = final.ingest(Self.packet(0, index: 0, payload: Data("final".utf8)), acquiredAt: .distantPast, recordSequence: 0)
+        XCTAssertFalse(final.flushFinalFrame().discardedStartedFrame)
+    }
+
+    func testContinuationPacketDiscontinuitySignalsDroppedStartedFrame() {
+        var reassembler = OmiAudioReassembler()
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast, recordSequence: 0)
+
+        let output = reassembler.ingest(Self.packet(2, index: 1, payload: Data("continuation".utf8)), acquiredAt: .distantFuture, recordSequence: 1)
+
+        XCTAssertTrue(output.discardedStartedFrame)
+    }
+
+    func testMalformedMarkerPacketDiscontinuitySignalsDroppedStartedFrame() {
+        var reassembler = OmiAudioReassembler()
+        _ = reassembler.ingest(Self.packet(0, index: 0, payload: Data("first".utf8)), acquiredAt: .distantPast, recordSequence: 0)
+
+        let output = reassembler.ingest(Self.packet(2, index: 0xFF, payload: Data([0, 0, 0])), acquiredAt: .distantFuture, recordSequence: 1)
+
+        XCTAssertTrue(output.discardedStartedFrame)
     }
 
     private static func packet(_ packetNumber: UInt16, index: UInt8, payload: Data) -> Data {

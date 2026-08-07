@@ -7,6 +7,7 @@ import Foundation
 @MainActor
 final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
     private var recorder: AVAudioRecorder?
+    private var activeForwarder: WatchAudioRecorderTerminalForwarder?
     weak var eventSink: (any WatchAudioRecorderEventSink)?
 
     var url: URL? {
@@ -47,7 +48,7 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
         }
     }
 
-    func start(url: URL) throws {
+    func start(url: URL, source: WatchCaptureSourceToken) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -56,32 +57,21 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
             AVEncoderBitRateKey: 32_000,
         ]
         let recorder = try AVAudioRecorder(url: url, settings: settings)
-        recorder.delegate = self
+        let forwarder = WatchAudioRecorderTerminalForwarder(source: source, sink: self.eventSink)
+        recorder.delegate = forwarder
         guard recorder.record() else {
             throw ObserverError.unavailable(reason: "audio unavailable")
         }
         self.recorder = recorder
+        self.activeForwarder = forwarder
     }
 
     func stop() throws -> TimeInterval {
         let duration = self.recorder?.currentTime ?? 0
         self.recorder?.stop()
         self.recorder = nil
+        self.activeForwarder = nil
         return duration
-    }
-}
-
-extension LiveWatchAudioRecorder: AVAudioRecorderDelegate {
-    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        Task { @MainActor [weak self] in
-            self?.eventSink?.audioRecorderDidFinish(successfully: flag)
-        }
-    }
-
-    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: (any Error)?) {
-        Task { @MainActor [weak self] in
-            self?.eventSink?.audioRecorderEncodeError(error)
-        }
     }
 }
 
