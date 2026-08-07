@@ -13,9 +13,8 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
             in: path
         )
 
-        XCTAssertTrue(body.contains("WatchAudioRecorderTerminalForwarder(source: source, sink: self.eventSink)"))
-        XCTAssertTrue(body.contains("recorder.delegate = forwarder"))
-        XCTAssertTrue(body.contains("self.activeForwarder = forwarder"))
+        XCTAssertTrue(body.contains("self.terminalRetention.enroll(recorder: recorder, source: source, sink: self.eventSink)"))
+        XCTAssertTrue(body.contains("_ = self.terminalRetention.stopCurrent()"))
     }
 
     func testLiveRecorderDelegatesOnlyToForwarder() throws {
@@ -24,6 +23,10 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
 
         XCTAssertFalse(body.contains("LiveWatchAudioRecorder: AVAudioRecorderDelegate"))
         XCTAssertFalse(body.contains("recorder.delegate = self"))
+        XCTAssertFalse(body.contains("private var recorder"))
+        XCTAssertFalse(body.contains("private var activeForwarder"))
+        XCTAssertFalse(body.contains("self.recorder = nil"))
+        XCTAssertFalse(body.contains("self.activeForwarder = nil"))
     }
 
     func testForwarderDelegateMethodsOnlyCallDeliveryMethods() throws {
@@ -31,6 +34,21 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
 
         XCTAssertTrue(body.contains("self.deliverDidFinish(successfully: flag)"))
         XCTAssertTrue(body.contains("self.deliverEncodeError(error)"))
+    }
+
+    func testForwarderCapturesSourceBeforeReleasingRetention() throws {
+        let body = try self.contents("Sources/WatchCapture/WatchCaptureTerminalSource.swift")
+
+        for marker in ["func deliverDidFinish(successfully: Bool)", "func deliverEncodeError(_ error: (any Error)?)"] {
+            let section = try self.section(
+                from: marker,
+                to: "Task { @MainActor",
+                in: "Sources/WatchCapture/WatchCaptureTerminalSource.swift"
+            )
+            let release = try XCTUnwrap(section.range(of: "let released = self.releasePair(self.identity)"))
+            let source = try XCTUnwrap(section.range(of: "let source = self.source"))
+            XCTAssertLessThan(source.lowerBound, release.lowerBound, marker)
+        }
     }
 
     func testMicrophonePermissionIsReadOnlyAdapter() throws {
@@ -64,7 +82,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
             in: path
         )
 
-        XCTAssertTrue(body.contains("self.recorder?.currentTime"))
+        XCTAssertTrue(body.contains("self.terminalRetention.currentTime()"))
     }
 
     func testIsRecordingReadsLiveRecorderState() throws {
@@ -75,7 +93,7 @@ nonisolated final class WatchAudioAdapterGrepTests: XCTestCase {
             in: path
         )
 
-        XCTAssertTrue(body.contains("self.recorder?.isRecording"))
+        XCTAssertTrue(body.contains("self.terminalRetention.currentIsRecording()"))
     }
 
     func testRouteSuitabilityReadsLiveAudioSessionInputState() throws {

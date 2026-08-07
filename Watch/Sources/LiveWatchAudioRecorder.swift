@@ -6,20 +6,19 @@ import Foundation
 
 @MainActor
 final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
-    private var recorder: AVAudioRecorder?
-    private var activeForwarder: WatchAudioRecorderTerminalForwarder?
+    private let terminalRetention = WatchAudioRecorderTerminalRetention()
     weak var eventSink: (any WatchAudioRecorderEventSink)?
 
     var url: URL? {
-        self.recorder?.url
+        self.terminalRetention.currentURL()
     }
 
     var currentTime: TimeInterval {
-        self.recorder?.currentTime ?? 0
+        self.terminalRetention.currentTime()
     }
 
     var isRecording: Bool {
-        self.recorder?.isRecording ?? false
+        self.terminalRetention.currentIsRecording()
     }
 
     var microphonePermission: WatchMicrophonePermission {
@@ -57,21 +56,15 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
             AVEncoderBitRateKey: 32_000,
         ]
         let recorder = try AVAudioRecorder(url: url, settings: settings)
-        let forwarder = WatchAudioRecorderTerminalForwarder(source: source, sink: self.eventSink)
-        recorder.delegate = forwarder
+        self.terminalRetention.enroll(recorder: recorder, source: source, sink: self.eventSink)
         guard recorder.record() else {
+            _ = self.terminalRetention.stopCurrent()
             throw ObserverError.unavailable(reason: "audio unavailable")
         }
-        self.recorder = recorder
-        self.activeForwarder = forwarder
     }
 
     func stop() throws -> TimeInterval {
-        let duration = self.recorder?.currentTime ?? 0
-        self.recorder?.stop()
-        self.recorder = nil
-        self.activeForwarder = nil
-        return duration
+        self.terminalRetention.stopCurrent()
     }
 }
 

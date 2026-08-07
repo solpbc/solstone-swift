@@ -10,7 +10,13 @@ final class WatchAudioRecorderTerminalForwarderTests: XCTestCase {
         let expectation = self.expectation(description: "finish forwarded")
         let sink = ForwarderSink(expectation: expectation)
         let source = WatchCaptureSourceToken(sessionID: "finish-session")
-        let forwarder = WatchAudioRecorderTerminalForwarder(source: source, sink: sink)
+        let retention = WatchAudioRecorderTerminalRetention()
+        let forwarder = WatchAudioRecorderTerminalForwarder(
+            identity: UUID(),
+            source: source,
+            sink: sink,
+            releasePair: { retention.releasePair(identity: $0) }
+        )
 
         forwarder.deliverDidFinish(successfully: false)
         await self.fulfillment(of: [expectation], timeout: 1)
@@ -24,7 +30,13 @@ final class WatchAudioRecorderTerminalForwarderTests: XCTestCase {
         let expectation = self.expectation(description: "encode error forwarded")
         let sink = ForwarderSink(expectation: expectation)
         let source = WatchCaptureSourceToken(sessionID: "encode-session")
-        let forwarder = WatchAudioRecorderTerminalForwarder(source: source, sink: sink)
+        let retention = WatchAudioRecorderTerminalRetention()
+        let forwarder = WatchAudioRecorderTerminalForwarder(
+            identity: UUID(),
+            source: source,
+            sink: sink,
+            releasePair: { retention.releasePair(identity: $0) }
+        )
 
         forwarder.deliverEncodeError(nil)
         await self.fulfillment(of: [expectation], timeout: 1)
