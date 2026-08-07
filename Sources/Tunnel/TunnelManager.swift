@@ -791,6 +791,9 @@ final class TunnelManager {
         self.reconnectCount = 0
         self.reconnectReasonCounts = [:]
         self.pendingReconnectReason = nil
+        self.journalFingerprint = nil
+        self.latestListenerObservation = nil
+        self.latestStartedProbeSequenceByEpoch = [:]
 #if DEBUG && targetEnvironment(simulator)
         self.integrationGateLastReconnectReasonBucket = nil
         self.integrationGateLastTransportStage = nil

@@ -89,6 +89,8 @@ private actor ConnectWindowTerminalSignal {
 @MainActor
 @Observable
 final class CFTunnelTransport: Transporting {
+    private static let defaultAttemptUpdatesDrainDeadline = Duration.seconds(2)
+
     public private(set) var connectionMode: ConnectionMode?
     public private(set) var generationSnapshot = TransportGenerationSnapshot(
         currentGeneration: 0,
@@ -112,30 +114,19 @@ final class CFTunnelTransport: Transporting {
     private var connectionModeTask: Task<Void, Never>?
     @ObservationIgnored
     private var attemptUpdatesTask: Task<Void, Never>?
+    @ObservationIgnored
+    private let attemptUpdatesDrainDeadline: Duration
 
     init(
         appConfig: AppConfig? = nil,
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
-        makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening = {
-            TunnelSession(
-                pairing: $0,
-                clientInfo: SPLRuntime.clientInfo,
-                policy: SessionPolicy(
-                    keepalive: KeepalivePolicy(
-                        interval: .milliseconds(500),
-                        missedLimit: 3,
-                        // why: false is KeepalivePolicy's default; macOS is the deviator. iOS runs no mux work while
-                        // suspended, so relay keepalive would not have caught the reported case. Foreground validation
-                        // is the fix, and its 3s probe timeout bounds a dead-mux hang on resume.
-                        runsOnRelayPath: false
-                    )
-                )
-            )
-        }
+        makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening = CFTunnelTransport.makeProductionSession,
+        attemptUpdatesDrainDeadline: Duration = CFTunnelTransport.defaultAttemptUpdatesDrainDeadline
     ) {
         self.appConfig = appConfig
         self.loadPairing = loadPairing
         self.makeSession = makeSession
+        self.attemptUpdatesDrainDeadline = attemptUpdatesDrainDeadline
     }
 
     public func connect(
@@ -240,7 +231,7 @@ final class CFTunnelTransport: Transporting {
     ) async throws -> Int {
         onStageChange(.racing)
         _ = try await session.connect(endpoints: candidates)
-        await self.attemptUpdatesTask?.value
+        await self.drainAttemptUpdates()
         self.connectionMode = await session.connectionMode
         onStageChange(.tlsHandshaking)
         onStageChange(.muxReady)
@@ -267,7 +258,7 @@ final class CFTunnelTransport: Transporting {
         await proxy?.stop()
         proxy = nil
         await session?.disconnect()
-        await attemptUpdatesTask?.value
+        await self.drainAttemptUpdates()
         attemptUpdatesTask = nil
         session = nil
         connectionMode = nil
@@ -341,5 +332,51 @@ final class CFTunnelTransport: Transporting {
                 onStageChange(.attemptUpdatesFinished)
             }
         }
+    }
+
+    private func drainAttemptUpdates() async {
+        guard let task = self.attemptUpdatesTask else { return }
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await task.value
+                return true
+            }
+            group.addTask { [attemptUpdatesDrainDeadline] in
+                do {
+                    try await Task.sleep(for: attemptUpdatesDrainDeadline)
+                    return false
+                } catch {
+                    return true
+                }
+            }
+            let result = await group.next() ?? true
+            if !result {
+                task.cancel()
+            }
+            group.cancelAll()
+            await group.waitForAll()
+        }
+    }
+
+    nonisolated private static func makeProductionSession(
+        pairing: StoredPairing
+    ) -> any TunnelSessioning & MuxStreamOpening {
+        let session = TunnelSession(
+            pairing: pairing,
+            clientInfo: SPLRuntime.clientInfo,
+            policy: SessionPolicy(
+                keepalive: KeepalivePolicy(
+                    interval: .milliseconds(500),
+                    missedLimit: 3,
+                    // why: false is KeepalivePolicy's default; macOS is the deviator. iOS runs no mux work while
+                    // suspended, so relay keepalive would not have caught the reported case. Foreground validation
+                    // is the fix, and its 3s probe timeout bounds a dead-mux hang on resume.
+                    runsOnRelayPath: false
+                )
+            )
+        )
+        // Keep the runtime existential narrow while making an SDK conformance change a compile error.
+        let _: any TunnelAttemptObserving = session
+        return session
     }
 }

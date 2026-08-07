@@ -17,6 +17,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
     private let finishAttemptUpdatesAfterConnect: Bool
     private var failureDuringConnect: SessionError?
     private var thrownDuringConnect: (any Error & Sendable)?
+    private var attemptsOnDisconnect: [TunnelAttemptEvent] = []
     private var inboundActivitySnapshotValue: UInt64 = 0
     private(set) var connectionMode: ConnectionMode?
     private(set) var connectCallCount = 0
@@ -77,6 +78,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
         stateContinuation.yield(.disconnected)
         stateContinuation.finish()
         connectionModeContinuation.finish()
+        for event in attemptsOnDisconnect {
+            attemptUpdatesContinuation.yield(event)
+        }
         attemptUpdatesContinuation.finish()
     }
 
@@ -114,5 +118,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
 
     func finishAttemptUpdates() {
         attemptUpdatesContinuation.finish()
+    }
+
+    func pushAttemptOnDisconnect(_ event: TunnelAttemptEvent) {
+        attemptsOnDisconnect.append(event)
     }
 }

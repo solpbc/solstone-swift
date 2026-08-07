@@ -143,6 +143,101 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
     }
 
     @MainActor
+    func testAttemptUpdatesFlowThroughTransportIntoManager() async throws {
+        let fakeSession = FakeTunnelSession(finishAttemptUpdatesAfterConnect: false)
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .directPinned, ordinal: 0, phase: .started))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .directPinned, ordinal: 0, phase: .waitingForBroker(elapsedMilliseconds: 4)))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .relay, ordinal: 1, phase: .started))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .relay, ordinal: 1, phase: .failed(.transport, elapsedMilliseconds: 7)))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .directUnpinned, ordinal: 2, phase: .started))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .directUnpinned, ordinal: 2, phase: .transportReady(elapsedMilliseconds: 9)))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .directUnpinned, ordinal: 2, phase: .selected(elapsedMilliseconds: 11)))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .relay, ordinal: 3, phase: .started))
+        await fakeSession.pushAttempt(TunnelAttemptEvent(route: .relay, ordinal: 3, phase: .cancelled(elapsedMilliseconds: 13)))
+        await fakeSession.finishAttemptUpdates()
+
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession }
+        )
+        let diagnostics = DiagnosticLog()
+        let manager = Self.makeManager(transport: transport, diagnostics: diagnostics)
+
+        await manager.connect()
+
+        let didDrainTelemetry = await Self.waitUntil {
+            diagnostics.snapshot(tunnel: manager).contains("candidate telemetry: complete")
+        }
+        XCTAssertTrue(didDrainTelemetry)
+        let snapshot = diagnostics.snapshot(tunnel: manager)
+        XCTAssertTrue(snapshot.contains("candidate 0: direct pinned waiting for broker 4ms"))
+        XCTAssertTrue(snapshot.contains("candidate 1: relay failed transport 7ms"))
+        XCTAssertTrue(snapshot.contains("candidate 2: direct unpinned selected 11ms"))
+        XCTAssertTrue(snapshot.contains("candidate 3: relay cancelled 13ms"))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testRetiredAttemptUpdatesFromTransportDoNotAffectCurrentManagerEpoch() async throws {
+        let retiredSession = FakeTunnelSession(
+            yieldAwaitingBrokerDuringConnect: true,
+            finishAttemptUpdatesAfterConnect: false
+        )
+        await retiredSession.pushAttemptOnDisconnect(
+            TunnelAttemptEvent(route: .relay, ordinal: 77, phase: .started)
+        )
+        let freshSession = FakeTunnelSession()
+        let sessionIndex = OSAllocatedUnfairLock(initialState: 0)
+        let sessions = [retiredSession, freshSession]
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in
+                sessionIndex.withLock { index in
+                    defer { index += 1 }
+                    return sessions[index]
+                }
+            }
+        )
+        let diagnostics = DiagnosticLog()
+        let manager = Self.makeManager(transport: transport, diagnostics: diagnostics)
+        manager.receiveScenePhase(.active)
+        let firstConnect = Task { @MainActor in
+            await manager.connect()
+        }
+
+        let didEnterWait = await Self.waitUntil { manager.state == .waitingForHome }
+        XCTAssertTrue(didEnterWait)
+        await manager.redriveFromWaitingForHome(reason: .manual)
+        await firstConnect.value
+
+        let didConnectFreshEpoch = await Self.waitUntil { manager.state.isConnected }
+        XCTAssertTrue(didConnectFreshEpoch)
+        await Self.waitUntil {
+            diagnostics.snapshot(tunnel: manager).contains("candidate telemetry: complete")
+        }
+        XCTAssertFalse(diagnostics.snapshot(tunnel: manager).contains("candidate 77:"))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testAttemptDrainTimeoutReportsUnavailableWithoutBlockingConnect() async throws {
+        let fakeSession = FakeTunnelSession(finishAttemptUpdatesAfterConnect: false)
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession },
+            attemptUpdatesDrainDeadline: .milliseconds(20)
+        )
+        let diagnostics = DiagnosticLog()
+        let manager = Self.makeManager(transport: transport, diagnostics: diagnostics)
+
+        await manager.connect()
+
+        XCTAssertTrue(manager.state.isConnected)
+        XCTAssertTrue(diagnostics.snapshot(tunnel: manager).contains("candidate telemetry: unavailable"))
+        await manager.disconnect()
+    }
+
+    @MainActor
     func testFailedSessionStateRoutesToOnDisconnectError() async throws {
         let fakeSession = FakeTunnelSession()
         let transport = CFTunnelTransport(
@@ -221,6 +316,20 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
+    }
+
+    @MainActor
+    private static func makeManager(transport: any Transporting, diagnostics: DiagnosticLog) -> TunnelManager {
+        TunnelManager(
+            transport: transport,
+            endpointCache: EndpointCache(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                    .appendingPathComponent("endpoints.json")
+            ),
+            loadPairing: { Self.fixturePairing() },
+            diagnosticLog: diagnostics
         )
     }
 }

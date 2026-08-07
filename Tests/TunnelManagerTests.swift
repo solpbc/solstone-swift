@@ -351,6 +351,43 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testDisconnectClearsDiagnosticIdentityAfterPairingIsRemoved() async {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"relay_listen_generation":7}"#.utf8)
+            )
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+
+        let pairingStore = OSAllocatedUnfairLock(initialState: Self.fixturePairing() as StoredPairing?)
+        let transport = MockCFTunnelTransport()
+        transport.nextResult = .success(48123)
+        let diagnostics = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            loadPairing: { pairingStore.withLock { $0 } },
+            probeSession: session,
+            diagnosticLog: diagnostics
+        )
+
+        await manager.connect()
+        let probeResult = await manager.probeConnection()
+        XCTAssertEqual(probeResult?.alive, true)
+        pairingStore.withLock { $0 = nil }
+        await manager.disconnect()
+
+        let snapshot = diagnostics.snapshot(tunnel: manager)
+        XCTAssertTrue(snapshot.contains("journal fingerprint: unavailable"))
+        XCTAssertTrue(snapshot.contains("last known home listener: unavailable"))
+    }
+
+    @MainActor
     func testOwnerPairingCompletionArmsOwnerConnectSuccessBanner() {
         let manager = TunnelManager()
 
