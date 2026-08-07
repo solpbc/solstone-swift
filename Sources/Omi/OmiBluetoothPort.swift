@@ -80,7 +80,7 @@ protocol OmiBluetoothPort: AnyObject {
     func discoverCharacteristics(peripheralID: UUID, serviceID: String)
     func readValue(peripheralID: UUID, characteristicID: OmiCharacteristicID)
     func readRSSI(peripheralID: UUID)
-    func setNotify(peripheralID: UUID, characteristicID: OmiCharacteristicID, enabled: Bool)
+    func setNotify(peripheralID: UUID, characteristicID: OmiCharacteristicID, enabled: Bool) -> Bool
 }
 
 @MainActor
@@ -150,9 +150,10 @@ final class LiveOmiBluetoothPort: NSObject, OmiBluetoothPort {
 
     func readRSSI(peripheralID: UUID) { self.peripheralsByID[peripheralID]?.readRSSI() }
 
-    func setNotify(peripheralID: UUID, characteristicID: OmiCharacteristicID, enabled: Bool) {
-        guard let peripheral = self.peripheralsByID[peripheralID], let characteristic = Self.characteristic(characteristicID, in: peripheral) else { return }
+    func setNotify(peripheralID: UUID, characteristicID: OmiCharacteristicID, enabled: Bool) -> Bool {
+        guard let peripheral = self.peripheralsByID[peripheralID], let characteristic = Self.characteristic(characteristicID, in: peripheral) else { return false }
         peripheral.setNotifyValue(enabled, for: characteristic)
+        return true
     }
 
     private static func characteristic(_ id: OmiCharacteristicID, in peripheral: CBPeripheral) -> CBCharacteristic? {

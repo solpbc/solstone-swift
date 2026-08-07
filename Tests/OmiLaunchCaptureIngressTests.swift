@@ -195,15 +195,17 @@ final class OmiLaunchCaptureIngressTests: XCTestCase {
         XCTAssertEqual(manager.effectiveConnectionState(now: Date()), .needsAttention(.audioUnavailable))
     }
 
-    func testUnretainablePayloadReturnsTypedFaultInsteadOfDroppingSilently() {
+    func testUnretainablePayloadReturnsTypedNotRetainedInsteadOfDroppingSilently() {
         let rootURL = self.makeRootURL()
         defer { try? FileManager.default.removeItem(at: rootURL) }
         let io = FaultInjectingOmiLaunchCaptureIO()
         let ingress = OmiLaunchCaptureIngress(appGroupRoot: { rootURL }, io: io)
         XCTAssertTrue(ingress.arm())
         io.failNext(.open)
+        io.failNext(.open)
 
-        XCTAssertEqual(ingress.ingest(Data("lost".utf8)), .fault(shouldCancelConnection: true))
+        XCTAssertEqual(ingress.ingest(.payload(Data("lost".utf8))), .notRetained(reason: .reservationNotRetained))
+        XCTAssertTrue(ingress.isLatched)
     }
 
     func testReorderedCaptureCallbacksAccountForEachPayloadExactlyOnce() async throws {
@@ -234,6 +236,226 @@ final class OmiLaunchCaptureIngressTests: XCTestCase {
         XCTAssertFalse(manager.hasOpusDecoder)
         XCTAssertFalse(manager.didAttemptWriterStart)
         XCTAssertEqual(self.recovery(rootURL: rootURL, generation: generation, io: io).boundaryReason, nil)
+    }
+
+    func testTypedErrorCreatesOrderedDurableGapBeforeLaterPayload() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.peripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data()), error: Self.streamError)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8)), error: nil)
+
+        self.assertSingleBoundary(
+            rootURL: rootURL, generation: generation, io: io,
+            expectedPayloads: [Data("A".utf8)], port: port, manager: manager
+        )
+    }
+
+    func testEmptyValueCreatesOrderedDurableGapBeforeLaterPayload() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.peripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data()), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8)), error: nil)
+
+        self.assertSingleBoundary(
+            rootURL: rootURL, generation: generation, io: io,
+            expectedPayloads: [Data("A".utf8)], port: port, manager: manager
+        )
+    }
+
+    func testInFlightPayloadAfterBoundaryDoesNotCreateContiguousSuffix() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.peripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data()), error: Self.streamError)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8)), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C2".utf8)), error: nil)
+
+        self.assertSingleBoundary(
+            rootURL: rootURL, generation: generation, io: io,
+            expectedPayloads: [Data("A".utf8)], port: port, manager: manager
+        )
+    }
+
+    func testReservationAndFlowControlFailuresRemainIndependentlyObservable() async throws {
+        let reservationRootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: reservationRootURL) }
+        let reservationDefaults = try self.defaults(enabled: true)
+        defer { reservationDefaults.removePersistentDomain(forName: reservationDefaults.description) }
+        let reservationIO = FaultInjectingOmiLaunchCaptureIO()
+        let reservationPort = MockOmiBluetoothPort()
+        let reservationGeneration = UUID()
+        let reservationPeripheral = Self.peripheral()
+        reservationPort.seed(reservationPeripheral)
+        let reservationManager = makeOmiSourceManager(appGroupRoot: { reservationRootURL }, io: reservationIO, generationID: reservationGeneration, defaults: reservationDefaults, clock: MockObserverClock(), bluetoothPort: reservationPort)
+
+        await reservationManager.openLaunchReadiness()
+        reservationManager.handleConnected(reservationPeripheral)
+        reservationManager.handleUpdatedValue(reservationPeripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        reservationIO.failNext(.open)
+        reservationManager.handleUpdatedValue(reservationPeripheral, characteristic: Self.audio(Data()), error: Self.streamError)
+
+        let reservationRecovery = self.recovery(rootURL: reservationRootURL, generation: reservationGeneration, io: reservationIO)
+        XCTAssertEqual(reservationRecovery.verifiedPrefixNextSequence, 1)
+        XCTAssertNil(reservationRecovery.boundarySequence)
+        XCTAssertEqual(reservationManager.effectiveConnectionState(now: Date()), .needsAttention(.audioUnavailable))
+        XCTAssertEqual(reservationPort.cancelConnectionCallCount, 1)
+
+        let flowRootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: flowRootURL) }
+        let flowDefaults = try self.defaults(enabled: true)
+        defer { flowDefaults.removePersistentDomain(forName: flowDefaults.description) }
+        let flowIO = FaultInjectingOmiLaunchCaptureIO()
+        let flowPort = MockOmiBluetoothPort()
+        flowPort.setNotifySucceeds = false
+        let flowGeneration = UUID()
+        let flowPeripheral = Self.peripheral()
+        flowPort.seed(flowPeripheral)
+        let flowManager = makeOmiSourceManager(appGroupRoot: { flowRootURL }, io: flowIO, generationID: flowGeneration, defaults: flowDefaults, clock: MockObserverClock(), bluetoothPort: flowPort)
+
+        await flowManager.openLaunchReadiness()
+        flowManager.handleConnected(flowPeripheral)
+        flowManager.handleUpdatedValue(flowPeripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        flowManager.handleUpdatedValue(flowPeripheral, characteristic: Self.audio(Data()), error: Self.streamError)
+
+        XCTAssertEqual(self.recovery(rootURL: flowRootURL, generation: flowGeneration, io: flowIO).boundarySequence, 1)
+        XCTAssertEqual(flowPort.setNotifyCalls.filter { !$0.2 }.count, 1)
+        XCTAssertEqual(flowPort.cancelConnectionCallCount, 1)
+        XCTAssertEqual(flowManager.effectiveConnectionState(now: Date()), .needsAttention(.audioUnavailable))
+    }
+
+    func testLatchPersistsUntilEnabledReconnectSubscriptionRotatesGenerationOnce() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.reconnectPeripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8), isNotifying: false), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: Self.streamError)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8), isNotifying: true), error: nil)
+        XCTAssertEqual(manager.activeLaunchCaptureGenerationID, generation)
+        XCTAssertEqual(manager.effectiveConnectionState(now: Date()), .needsAttention(.audioUnavailable))
+
+        await manager.handleDisconnected(peripheral, timestamp: 0, isReconnecting: false, error: nil)
+        manager.disable()
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+        XCTAssertEqual(manager.activeLaunchCaptureGenerationID, generation)
+
+        manager.enable()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.codec(), error: nil)
+        manager.handleRestoredPeripheral(peripheral)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+
+        let rotatedGeneration = try XCTUnwrap(manager.activeLaunchCaptureGenerationID)
+        XCTAssertNotEqual(rotatedGeneration, generation)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8), isNotifying: true), error: nil)
+        XCTAssertEqual(self.recovery(rootURL: rootURL, generation: generation, io: io).boundarySequence, 1)
+        XCTAssertEqual(self.recovery(rootURL: rootURL, generation: rotatedGeneration, io: io).verifiedPrefixNextSequence, 1)
+        guard case .lease(let lease) = self.reader(rootURL: rootURL, generation: rotatedGeneration, io: io).lease() else {
+            return XCTFail("expected rotated capture lease")
+        }
+        XCTAssertEqual(lease.records.map(\.payload), [Data("C".utf8)])
+    }
+
+    func testContiguousPayloadTwinDoesNotRequestAttentionOrFlowControl() throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.peripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8)), error: nil)
+
+        let recovery = self.recovery(rootURL: rootURL, generation: generation, io: io)
+        XCTAssertEqual(recovery.verifiedPrefixNextSequence, 2)
+        XCTAssertNil(recovery.boundaryReason)
+        XCTAssertFalse(manager.writerFaulted)
+        XCTAssertEqual(port.cancelConnectionCallCount, 0)
+        XCTAssertTrue(port.setNotifyCalls.filter { !$0.2 }.isEmpty)
+    }
+
+    func testReorderedRepeatedCallbacksCreateAtMostOneBoundaryAndDisabledCallbacksStayInert() async throws {
+        let rootURL = self.makeRootURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let defaults = try self.defaults(enabled: true)
+        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let port = MockOmiBluetoothPort()
+        let generation = UUID()
+        let peripheral = Self.peripheral()
+        port.seed(peripheral)
+        let manager = makeOmiSourceManager(appGroupRoot: { rootURL }, io: io, generationID: generation, defaults: defaults, clock: MockObserverClock(), bluetoothPort: port)
+
+        await manager.openLaunchReadiness()
+        manager.handleConnected(peripheral)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("A".utf8)), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data()), error: Self.streamError)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data()), error: nil)
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data("C".utf8)), error: nil)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: false), error: nil)
+        await manager.handleDisconnected(peripheral, timestamp: 0, isReconnecting: false, error: Self.streamError)
+        await manager.openLaunchReadiness()
+        self.assertSingleBoundary(
+            rootURL: rootURL, generation: generation, io: io,
+            expectedPayloads: [Data("A".utf8)], port: port, manager: manager
+        )
+        let cancellationCountBeforeDisable = port.cancelConnectionCallCount
+        let notifyDisableCountBeforeDisable = port.setNotifyCalls.filter { !$0.2 }.count
+        manager.disable()
+        manager.handleUpdatedValue(peripheral, characteristic: Self.audio(Data()), error: Self.streamError)
+        manager.handleUpdatedNotificationState(peripheral, characteristic: Self.audio(Data(), isNotifying: true), error: nil)
+        XCTAssertEqual(port.cancelConnectionCallCount, cancellationCountBeforeDisable + 3)
+        XCTAssertEqual(port.setNotifyCalls.filter { !$0.2 }.count, notifyDisableCountBeforeDisable)
     }
 }
 
@@ -272,12 +494,52 @@ private extension OmiLaunchCaptureIngressTests {
         )
     }
 
+    func assertSingleBoundary(
+        rootURL: URL,
+        generation: UUID,
+        io: any OmiLaunchCaptureIO,
+        expectedPayloads: [Data],
+        port: MockOmiBluetoothPort,
+        manager: OmiSourceManager
+    ) {
+        let recovery = self.recovery(rootURL: rootURL, generation: generation, io: io)
+        XCTAssertEqual(recovery.verifiedPrefixNextSequence, UInt64(expectedPayloads.count))
+        XCTAssertEqual(recovery.boundarySequence, UInt64(expectedPayloads.count))
+        XCTAssertEqual(recovery.boundaryReason, .incompleteReservedRecord)
+        guard case .lease(let lease) = self.reader(rootURL: rootURL, generation: generation, io: io).lease() else {
+            return XCTFail("expected boundary prefix lease")
+        }
+        XCTAssertEqual(lease.records.map(\.payload), expectedPayloads)
+        XCTAssertEqual(manager.effectiveConnectionState(now: Date()), .needsAttention(.audioUnavailable))
+        XCTAssertEqual(port.setNotifyCalls.filter { !$0.2 }.count, 1)
+        XCTAssertEqual(port.cancelConnectionCallCount, 1)
+    }
+
     static func peripheral(audioNotifying: Bool = true) -> OmiPeripheralDescriptor {
         OmiPeripheralDescriptor(
             id: UUID(), name: "omi", state: .connected,
             services: [OmiServiceDescriptor(id: OmiUUIDs.audioServiceID, characteristics: [Self.audio(Data(), isNotifying: audioNotifying)])]
         )
     }
+
+    static func reconnectPeripheral() -> OmiPeripheralDescriptor {
+        OmiPeripheralDescriptor(
+            id: UUID(), name: "omi", state: .connected,
+            services: [OmiServiceDescriptor(
+                id: OmiUUIDs.audioServiceID,
+                characteristics: [Self.codec(), Self.audio(Data(), isNotifying: false)]
+            )]
+        )
+    }
+
+    static func codec() -> OmiCharacteristicDescriptor {
+        OmiCharacteristicDescriptor(
+            id: OmiCharacteristicID(serviceID: OmiUUIDs.audioServiceID, characteristicID: OmiUUIDs.codecCharacteristicID),
+            properties: [.read], isNotifying: false, value: Data([20])
+        )
+    }
+
+    static let streamError = NSError(domain: "OmiLaunchCaptureIngressTests", code: 1)
 
     static func audio(_ value: Data, isNotifying: Bool = true) -> OmiCharacteristicDescriptor {
         OmiCharacteristicDescriptor(

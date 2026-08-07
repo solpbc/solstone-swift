@@ -16,6 +16,7 @@ final class MockOmiBluetoothPort: OmiBluetoothPort {
     var readValueCalls: [(UUID, OmiCharacteristicID)] = []
     var readRSSICalls: [UUID] = []
     var setNotifyCalls: [(UUID, OmiCharacteristicID, Bool)] = []
+    var setNotifySucceeds = true
     var onStart: (@MainActor (any CBCentralManagerDelegate & CBPeripheralDelegate) -> Void)?
 
     var connectCallCount: Int { self.connectCalls.count }
@@ -55,7 +56,10 @@ final class MockOmiBluetoothPort: OmiBluetoothPort {
     func discoverCharacteristics(peripheralID: UUID, serviceID: String) { self.discoverCharacteristicsCalls.append((peripheralID, serviceID)) }
     func readValue(peripheralID: UUID, characteristicID: OmiCharacteristicID) { self.readValueCalls.append((peripheralID, characteristicID)) }
     func readRSSI(peripheralID: UUID) { self.readRSSICalls.append(peripheralID) }
-    func setNotify(peripheralID: UUID, characteristicID: OmiCharacteristicID, enabled: Bool) { self.setNotifyCalls.append((peripheralID, characteristicID, enabled)) }
+    func setNotify(peripheralID: UUID, characteristicID: OmiCharacteristicID, enabled: Bool) -> Bool {
+        self.setNotifyCalls.append((peripheralID, characteristicID, enabled))
+        return self.setNotifySucceeds
+    }
 
     func seed(_ descriptor: OmiPeripheralDescriptor) { self.peripheralsByID[descriptor.id] = descriptor }
 

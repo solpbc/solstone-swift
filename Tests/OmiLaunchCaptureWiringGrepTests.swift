@@ -29,14 +29,15 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/Omi/OmiSourceManager.swift"),
             encoding: .utf8
         )
-        let body = try Self.functionSlice(named: "handleAudioData", in: text)
-        let routePredicate = try XCTUnwrap(body.range(of: "self.audioRoute == .launchCapture"))
-        let route = try XCTUnwrap(body.range(of: "launchCaptureIngress.ingest(data)"))
-        let captureReturn = try XCTUnwrap(body[route.upperBound...].range(of: "return"))
-        let decode = try XCTUnwrap(body.range(of: "self.reassembler.ingest(data, acquiredAt: observedAt, recordSequence: nil)"))
-        XCTAssertLessThan(body.distance(from: body.startIndex, to: routePredicate.lowerBound), body.distance(from: body.startIndex, to: route.lowerBound))
-        XCTAssertLessThan(body.distance(from: body.startIndex, to: route.lowerBound), body.distance(from: body.startIndex, to: decode.lowerBound))
-        XCTAssertLessThan(body.distance(from: body.startIndex, to: captureReturn.lowerBound), body.distance(from: body.startIndex, to: decode.lowerBound))
+        let body = try XCTUnwrap(text.range(of: "func handleAudioData(\n        _ input:"))
+        let captureBody = text[body.lowerBound...]
+        let routePredicate = try XCTUnwrap(captureBody.range(of: "self.audioRoute == .launchCapture"))
+        let route = try XCTUnwrap(captureBody.range(of: "launchCaptureIngress.ingest(input)"))
+        let captureReturn = try XCTUnwrap(captureBody[route.upperBound...].range(of: "return"))
+        let decode = try XCTUnwrap(captureBody.range(of: "self.reassembler.ingest(data, acquiredAt: observedAt, recordSequence: nil)"))
+        XCTAssertLessThan(captureBody.distance(from: captureBody.startIndex, to: routePredicate.lowerBound), captureBody.distance(from: captureBody.startIndex, to: route.lowerBound))
+        XCTAssertLessThan(captureBody.distance(from: captureBody.startIndex, to: route.lowerBound), captureBody.distance(from: captureBody.startIndex, to: decode.lowerBound))
+        XCTAssertLessThan(captureBody.distance(from: captureBody.startIndex, to: captureReturn.lowerBound), captureBody.distance(from: captureBody.startIndex, to: decode.lowerBound))
     }
 
     func testIngressRequestsDurableGapForFailedAppend() throws {
@@ -45,14 +46,14 @@ nonisolated final class OmiLaunchCaptureWiringGrepTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/Omi/OmiLaunchCaptureIngress.swift"),
             encoding: .utf8
         )
-        let route = try Self.functionSlice(named: "route", in: text)
+        let route = try Self.functionSlice(named: "routeAppend", in: text)
         let notRetained = try XCTUnwrap(route.range(of: "case .notRetained:"))
         let visibleGap = try XCTUnwrap(route.range(of: "case .visibleGap:"))
-        XCTAssertTrue(route[notRetained.lowerBound..<visibleGap.lowerBound].contains("_ = writer.reserveGap()"))
+        XCTAssertTrue(route[notRetained.lowerBound..<visibleGap.lowerBound].contains("self.routeReservation(writer.reserveGap()"))
 
         let rejected = try XCTUnwrap(route.range(of: "case .rejected"))
         let pending = try XCTUnwrap(route[rejected.lowerBound...].range(of: "if case .pendingSlotOccupied = reason {"))
-        let pendingCall = try XCTUnwrap(route[pending.upperBound...].range(of: "_ = writer.reserveGap()"))
+        let pendingCall = try XCTUnwrap(route[pending.upperBound...].range(of: "self.routeReservation(writer.reserveGap()"))
         let pendingClose = try XCTUnwrap(route[pending.upperBound...].range(of: "\n            }"))
         XCTAssertLessThan(route.distance(from: route.startIndex, to: pendingCall.lowerBound), route.distance(from: route.startIndex, to: pendingClose.lowerBound))
     }

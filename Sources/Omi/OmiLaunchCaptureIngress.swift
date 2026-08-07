@@ -4,19 +4,41 @@
 import Foundation
 
 @MainActor
-enum OmiLaunchCaptureIngressAction: Equatable {
-    case none
-    case fault(shouldCancelConnection: Bool)
+enum OmiLaunchCaptureIngressInput: Equatable {
+    case payload(Data)
+    case streamError
+    case invalidValue
+}
+
+@MainActor
+enum OmiLaunchCaptureIngressBoundaryReason: String, Equatable {
+    case streamError = "stream_error"
+    case invalidValue = "invalid_value"
+    case reservationNotRetained = "reservation_not_retained"
+}
+
+@MainActor
+enum OmiLaunchCaptureIngressNotRetainedReason: String, Equatable {
+    case reservationNotRetained = "reservation_not_retained"
+}
+
+@MainActor
+enum OmiLaunchCaptureIngressResult: Equatable {
+    case retainedContiguous
+    case boundaryCommitted(reason: OmiLaunchCaptureIngressBoundaryReason)
+    case suffixRetainedNoncontiguous
+    case notRetained(reason: OmiLaunchCaptureIngressNotRetainedReason)
 }
 
 @MainActor
 final class OmiLaunchCaptureIngress {
     private let appGroupRoot: () throws -> URL
-    private let generationID: UUID
+    private var generationID: UUID
     private let clock: any ObserverClock
     private let io: any OmiLaunchCaptureIO
     private var writer: OmiLaunchCaptureWriter?
-    private var didRequestConnectionStop = false
+    private(set) var isLatched = false
+    private(set) var hasCommittedBoundary = false
     private var didConsumeResume = false
     private(set) var didAttemptInitialArm = false
 
@@ -61,44 +83,77 @@ final class OmiLaunchCaptureIngress {
         return self.arm()
     }
 
-    func ingest(_ payload: Data) -> OmiLaunchCaptureIngressAction {
-        guard let writer else { return self.faultAction() }
-        if self.didRequestConnectionStop {
-            // Cancellation is asynchronous, so retain pending-first ordering until it takes effect.
-            return self.route(writer.append(payload), writer: writer, shouldCancelConnection: false)
+    func ingest(_ input: OmiLaunchCaptureIngressInput) -> OmiLaunchCaptureIngressResult {
+        guard let writer else {
+            self.isLatched = true
+            return .notRetained(reason: .reservationNotRetained)
         }
-
-        return self.route(writer.append(payload), writer: writer, shouldCancelConnection: true)
+        switch input {
+        case .payload(let payload):
+            return self.routeAppend(writer.append(payload), writer: writer)
+        case .streamError:
+            return self.routeReservation(writer.reserveGap(), reason: .streamError)
+        case .invalidValue:
+            return self.routeReservation(writer.reserveGap(), reason: .invalidValue)
+        }
     }
 
-    private func route(
+    func rotateAfterCommittedBoundary() -> Bool {
+        guard self.isLatched, self.hasCommittedBoundary,
+              let rootURL = try? self.appGroupRoot()
+        else {
+            return false
+        }
+        let generationID = UUID()
+        let candidate = OmiLaunchCaptureWriter(
+            rootURL: rootURL.appendingPathComponent(OmiLaunchCaptureFormat.rootDirectoryName, isDirectory: true),
+            generationID: generationID,
+            clock: self.clock,
+            io: self.io
+        )
+        guard candidate.arm() else { return false }
+
+        self.writer = candidate
+        self.generationID = generationID
+        self.isLatched = false
+        self.hasCommittedBoundary = false
+        return true
+    }
+
+    private func routeAppend(
         _ outcome: OmiLaunchCaptureAppendOutcome,
-        writer: OmiLaunchCaptureWriter,
-        shouldCancelConnection: Bool
-    ) -> OmiLaunchCaptureIngressAction {
+        writer: OmiLaunchCaptureWriter
+    ) -> OmiLaunchCaptureIngressResult {
         switch outcome {
         case .retained:
-            return self.didRequestConnectionStop ? .fault(shouldCancelConnection: false) : .none
+            return self.isLatched ? .suffixRetainedNoncontiguous : .retainedContiguous
         case .notRetained:
-            // No durable reservation exists yet, so reserve this sequence as the restart-visible boundary.
-            _ = writer.reserveGap()
-            return self.faultAction(shouldCancelConnection: shouldCancelConnection)
+            return self.routeReservation(writer.reserveGap(), reason: .reservationNotRetained)
         case .visibleGap:
-            return self.faultAction(shouldCancelConnection: shouldCancelConnection)
+            self.isLatched = true
+            self.hasCommittedBoundary = true
+            return .boundaryCommitted(reason: .reservationNotRetained)
         case .rejected(let reason):
-            // Only pending P can become a new Q boundary; existing visible/recovery gaps already name one.
             if case .pendingSlotOccupied = reason {
-                _ = writer.reserveGap()
+                return self.routeReservation(writer.reserveGap(), reason: .reservationNotRetained)
             }
-            return self.faultAction(shouldCancelConnection: shouldCancelConnection)
+            self.isLatched = true
+            return .notRetained(reason: .reservationNotRetained)
         }
     }
 
-    private func faultAction(shouldCancelConnection: Bool = true) -> OmiLaunchCaptureIngressAction {
-        guard !self.didRequestConnectionStop else {
-            return .fault(shouldCancelConnection: false)
+    private func routeReservation(
+        _ outcome: OmiLaunchCaptureAppendOutcome,
+        reason: OmiLaunchCaptureIngressBoundaryReason
+    ) -> OmiLaunchCaptureIngressResult {
+        switch outcome {
+        case .visibleGap:
+            self.isLatched = true
+            self.hasCommittedBoundary = true
+            return .boundaryCommitted(reason: reason)
+        case .retained, .notRetained, .rejected:
+            self.isLatched = true
+            return .notRetained(reason: .reservationNotRetained)
         }
-        self.didRequestConnectionStop = true
-        return .fault(shouldCancelConnection: shouldCancelConnection)
     }
 }
