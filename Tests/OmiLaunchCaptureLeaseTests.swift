@@ -290,7 +290,7 @@ final class OmiLaunchCaptureLeaseTests: XCTestCase {
             sourceManager: manager,
             io: io,
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+                if phase == .afterSealedOwnershipVerified { await barrier.suspend() }
             }
         )
         let reconciliation = Task { @MainActor in await coordinator.reconcile() }

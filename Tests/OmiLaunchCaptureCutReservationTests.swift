@@ -20,11 +20,9 @@ final class OmiLaunchCaptureCutReservationTests: XCTestCase {
     func testFixedLayoutRoundTripsAndIsNotAGenerationName() {
         let reservation = OmiLaunchCaptureCutReservation(
             sealedGenerationID: UUID(),
-            sealedNextSequence: 42,
-            sealedEndOffset: 84,
             reservedGenerationID: UUID()
         )
-        XCTAssertEqual(reservation.encoded().count, 76)
+        XCTAssertEqual(reservation.encoded().count, 60)
         XCTAssertEqual(OmiLaunchCaptureCutReservation.decode(reservation.encoded()), .success(reservation))
         XCTAssertNotEqual(OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.rootURL).pathExtension, OmiLaunchCaptureFormat.fileExtension)
         XCTAssertFalse(OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: self.rootURL).lastPathComponent.hasPrefix(OmiLaunchCaptureFormat.filePrefix))
@@ -35,8 +33,6 @@ final class OmiLaunchCaptureCutReservationTests: XCTestCase {
         let store = OmiLaunchCaptureCutReservationStore(rootURL: self.rootURL, io: io)
         let reservation = OmiLaunchCaptureCutReservation(
             sealedGenerationID: UUID(),
-            sealedNextSequence: 1,
-            sealedEndOffset: 2,
             reservedGenerationID: UUID()
         )
         XCTAssertEqual(store.commit(reservation), .committed)
@@ -49,9 +45,25 @@ final class OmiLaunchCaptureCutReservationTests: XCTestCase {
         let store = OmiLaunchCaptureCutReservationStore(rootURL: self.rootURL, io: io)
         io.failNext(.barrier)
         XCTAssertEqual(
-            store.commit(OmiLaunchCaptureCutReservation(sealedGenerationID: UUID(), sealedNextSequence: 0, sealedEndOffset: 0, reservedGenerationID: UUID())),
+            store.commit(OmiLaunchCaptureCutReservation(sealedGenerationID: UUID(), reservedGenerationID: UUID())),
             .refused(.writeFailed)
         )
         XCTAssertEqual(store.read(), .absent)
+    }
+
+    func testFinalFixedLayoutRoundTripsAfterDurableBarrier() throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let final = OmiLaunchCaptureCutFinal(
+            sealedGenerationID: UUID(),
+            sealedNextSequence: 42,
+            sealedEndOffset: 84,
+            reservedGenerationID: UUID()
+        )
+        XCTAssertEqual(final.encoded().count, 76)
+        XCTAssertEqual(OmiLaunchCaptureCutFinal.decode(final.encoded()), .success(final))
+        let store = OmiLaunchCaptureCutFinalStore(rootURL: self.rootURL, io: io)
+        XCTAssertEqual(store.commit(final), .committed)
+        try io.restoreLastSynchronizedState()
+        XCTAssertEqual(store.read(), .valid(final))
     }
 }

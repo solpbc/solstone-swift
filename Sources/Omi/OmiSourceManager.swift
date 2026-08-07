@@ -284,7 +284,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     var activeLaunchCaptureGenerationID: UUID? {
-        guard self.audioRoute == .launchCapture else { return nil }
+        guard self.audioRoute != .cutReservationBlocked else { return nil }
         return self.launchCaptureIngress?.activeGenerationID
     }
 
@@ -304,11 +304,13 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
     }
 
-    func completeLaunchCaptureCutover(_ reservation: OmiLaunchCaptureCutReservation, ingress: OmiLaunchCaptureIngress) {
+    @discardableResult
+    func completeLaunchCaptureCutover(_ reservation: OmiLaunchCaptureCutReservation, ingress: OmiLaunchCaptureIngress) -> Bool {
         _ = reservation
-        _ = ingress.arm()
+        guard ingress.arm() else { return false }
         self.launchCaptureIngress = ingress
         self.audioRoute = .reservedCapture
+        return true
     }
 
     func restoreCommittedCutReservation(
@@ -323,7 +325,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             clock: self.clock,
             io: io
         )
-        self.completeLaunchCaptureCutover(reservation, ingress: ingress)
+        _ = self.completeLaunchCaptureCutover(reservation, ingress: ingress)
     }
 
     func markCutReservationDefect() {

@@ -87,7 +87,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             sourceManager: manager,
             io: io,
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+                if phase == .afterSealedOwnershipVerified { await barrier.suspend() }
             }
         )
         var opened = false
@@ -191,7 +191,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             engine: harness.engine,
             sourceManager: self.makeManager(),
             onReconciliationPhase: { phase in
-                if phase == .afterNewOwnerGated { await barrier.suspend() }
+                if phase == .afterSealedOwnerGatedEnqueued { await barrier.suspend() }
             }
         )
         let task = Task { @MainActor in await coordinator.reconcile() }
@@ -367,7 +367,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             sourceManager: self.makeManager(),
             io: io,
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+                if phase == .afterSealedOwnershipVerified { await barrier.suspend() }
             }
         )
 
@@ -664,7 +664,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             sourceManager: self.makeManager(),
             io: io,
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                if phase == .afterSealedOwnershipVerified {
                     await barrier.suspend()
                 }
             }
@@ -756,7 +756,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 sourceManager: self.makeManager(),
                 io: io,
                 onReconciliationPhase: { phase in
-                    if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                    if phase == .afterSealedOwnershipVerified {
                         registeredAttachedOwner = true
                     }
                 }
@@ -787,7 +787,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             engine: harness.engine,
             sourceManager: self.makeManager(),
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+                if phase == .afterSealedOwnershipVerified { await barrier.suspend() }
             }
         )
         let task = Task { @MainActor in await coordinator.reconcile() }
@@ -818,7 +818,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                 sourceManager: self.makeManager(),
                 io: io,
                 onReconciliationPhase: { phase in
-                    if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                    if phase == .afterSealedOwnershipVerified {
                         XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
                         io.failNext(operation)
                     }
@@ -904,7 +904,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             engine: harness.engine,
             sourceManager: self.makeManager(),
             onReconciliationPhase: { phase in
-                guard phase == .afterNewOwnerGated else { return }
+                guard phase == .afterSealedOwnerGatedEnqueued else { return }
                 gatedOwners += 1
                 if gatedOwners == 2 { await barrier.suspend() }
             }
@@ -943,7 +943,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
             engine: restarted.engine,
             sourceManager: self.makeManager(),
             onReconciliationPhase: { phase in
-                if phase == .afterOwnerRegisteredBeforeAcknowledgment {
+                if phase == .afterSealedOwnershipVerified {
                     reachedAcknowledgment = true
                 }
             }
@@ -1371,7 +1371,7 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
                     engine: harness.engine,
                     sourceManager: self.makeManager(),
                     onReconciliationPhase: { phase in
-                        if phase == .afterOwnerRegisteredBeforeAcknowledgment { await barrier.suspend() }
+                        if phase == .afterSealedOwnershipVerified { await barrier.suspend() }
                     }
                 )
                 let reconciliation = Task { @MainActor in await coordinator.reconcile() }
