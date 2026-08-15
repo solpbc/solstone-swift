@@ -91,8 +91,11 @@ enum WatchSegmentBundleCodec {
         }
     }
 
-    static func metadata(for manifest: WatchSegmentManifest) -> [String: Any] {
-        [
+    static func metadata(
+        for manifest: WatchSegmentManifest,
+        attempt: WatchRelayAttemptTag? = nil
+    ) -> [String: Any] {
+        var metadata: [String: Any] = [
             "id": manifest.id.uuidString,
             "day": manifest.day,
             "segment": manifest.segment,
@@ -104,6 +107,12 @@ enum WatchSegmentBundleCodec {
             "gap": manifest.gap,
             "fix_count": manifest.fixCount,
         ]
+        if let attempt {
+            metadata["generation"] = attempt.generation
+            metadata["attempt_id"] = attempt.attemptID.uuidString
+            metadata["attempt_started_at"] = ISO8601DateFormatter().string(from: attempt.attemptStartedAt)
+        }
+        return metadata
     }
 }
 

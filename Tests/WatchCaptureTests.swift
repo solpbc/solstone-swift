@@ -4889,7 +4889,7 @@ private final class MockWatchAudioProbe: WatchAudioProbing {
 }
 
 @MainActor
-private final class FailingWatchFileWriter: WatchFileWriting {
+final class FailingWatchFileWriter: WatchFileWriting {
     private let base = FoundationWatchFileWriter()
     private let failAppend: Bool
     private let failContents: Bool

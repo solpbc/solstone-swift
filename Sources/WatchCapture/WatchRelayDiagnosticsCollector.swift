@@ -195,7 +195,7 @@ private extension WatchRelayDiagnosticsCollector {
         let activeFacts = activeEntries.map { entry in
             self.activeManifestFact(entry: entry)
         }
-        let fileTransferSnapshots = self.session.outstandingFileTransferSnapshots
+        let fileTransferSnapshots = self.session.outstandingFileTransfers.map(\.snapshot)
         let userInfoSnapshots = self.session.outstandingUserInfoTransferSnapshots
         let activeIDs = Set(activeEntries.map(\.manifest.id))
         let reconciliation = Self.reconciliationCounts(

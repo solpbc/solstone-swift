@@ -47,8 +47,8 @@ final class WatchRelaySender {
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
         }
-        self.session.onFileTransferFinished = { [weak self] id, failure in
-            self?.handleFileTransferFinished(id: id, failure: failure)
+        self.session.onFileTransferFinished = { [weak self] completion in
+            self?.handleFileTransferFinished(completion)
         }
     }
 
@@ -69,8 +69,9 @@ final class WatchRelaySender {
             guard self.session.activationState == .activated else { return }
 
             let refreshedEntries = try self.storage.scanManifests()
-            let outstanding = self.groupedOutstandingFileTransfers()
-            self.recordQueueReconciliation(entries: refreshedEntries)
+            let observations = self.session.outstandingFileTransfers
+            let outstanding = self.groupedOutstandingFileTransfers(observations)
+            self.recordQueueReconciliation(entries: refreshedEntries, observations: observations)
             var manifestStatesByID: [UUID: WatchSegmentState] = [:]
             for entry in refreshedEntries {
                 manifestStatesByID[entry.manifest.id] = entry.manifest.state
@@ -139,12 +140,13 @@ private extension WatchRelaySender {
         }
     }
 
-    func handleFileTransferFinished(id: UUID, failure: WatchConnectivityTransferFailureSnapshot?) {
+    func handleFileTransferFinished(_ completion: WatchConnectivityFileTransferCompletion) {
         do {
+            guard let id = completion.segmentID else { return }
             let entries = try self.storage.scanManifests()
             guard let entry = entries.first(where: { $0.manifest.id == id }) else { return }
             var manifest = entry.manifest
-            if let failure {
+            if let failure = completion.failure {
                 guard manifest.state == .transferring else { return }
                 manifest.state = .queued
                 try self.storage.writeManifest(manifest, in: entry.directoryURL)
@@ -264,7 +266,25 @@ private extension WatchRelaySender {
             storage: self.storage,
             to: bundleURL
         )
-        self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest))
+        let attemptRecord = WatchRelayAttemptRecord(
+            segmentID: manifest.id,
+            generation: 0,
+            attemptID: UUID(),
+            attemptStartedAt: self.clock()
+        )
+        let attemptURL = self.attemptURL(directoryURL: directoryURL)
+        do {
+            let data = try WatchRelayAttemptRecord.makeEncoder().encode(attemptRecord)
+            try self.storage.fileWriter.writeData(data, to: attemptURL, options: .atomic)
+            self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest, attempt: attemptRecord.tag))
+        } catch {
+            try? self.storage.fileWriter.removeItem(at: attemptURL)
+            let failure = WatchConnectivityTransferFailureSnapshot(error: error)
+            watchRelaySenderLog.error(
+                "watch relay attempt record write failed id=\(manifest.id.uuidString, privacy: .public): \(failure.boundedRedactedDescription, privacy: .public)"
+            )
+            self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest))
+        }
         self.diagnosticsStore?.recordEnqueue(
             manifest: manifest,
             directoryURL: directoryURL,
@@ -278,38 +298,46 @@ private extension WatchRelaySender {
         self.storage.rootURL.appendingPathComponent(".relay-bundles", isDirectory: true)
     }
 
-    func groupedOutstandingFileTransfers() -> (
-        grouped: Dictionary<UUID?, [OutstandingFileTransfer]>,
+    func attemptURL(directoryURL: URL) -> URL {
+        directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
+    }
+
+    func groupedOutstandingFileTransfers(_ observations: [WatchConnectivityFileTransferObservation]) -> (
+        grouped: Dictionary<UUID?, [WatchConnectivityFileTransferObservation]>,
         orderedIDs: [UUID?]
     ) {
-        var grouped: Dictionary<UUID?, [OutstandingFileTransfer]> = [:]
+        var grouped: Dictionary<UUID?, [WatchConnectivityFileTransferObservation]> = [:]
         var orderedIDs: [UUID?] = []
-        for transfer in self.session.outstandingFileTransfers {
-            if grouped[transfer.id] == nil {
-                orderedIDs.append(transfer.id)
+        for observation in observations {
+            let id = observation.snapshot.segmentID
+            if grouped[id] == nil {
+                orderedIDs.append(id)
             }
-            grouped[transfer.id, default: []].append(transfer)
+            grouped[id, default: []].append(observation)
         }
         return (grouped, orderedIDs)
     }
 
-    func cancelRedundant(_ group: [OutstandingFileTransfer]) {
+    func cancelRedundant(_ group: [WatchConnectivityFileTransferObservation]) {
         guard group.count > 1 else { return }
         self.cancelAll(Array(group.dropFirst()))
     }
 
-    func cancelAll(_ transfers: [OutstandingFileTransfer]) {
+    func cancelAll(_ transfers: [WatchConnectivityFileTransferObservation]) {
         for transfer in transfers {
             transfer.cancel()
         }
     }
 
-    func recordQueueReconciliation(entries: [WatchCaptureStorage.ManifestEntry]) {
+    func recordQueueReconciliation(
+        entries: [WatchCaptureStorage.ManifestEntry],
+        observations: [WatchConnectivityFileTransferObservation]
+    ) {
         guard let diagnosticsStore else { return }
         let activeEntries = entries.filter { entry in
             entry.manifest.state == .queued || entry.manifest.state == .transferring
         }
-        let snapshots = self.session.outstandingFileTransferSnapshots
+        let snapshots = observations.map(\.snapshot)
         let counts = WatchRelayDiagnosticsCollector.reconciliationCounts(
             activeManifestIDs: Set(activeEntries.map(\.manifest.id)),
             fileTransfers: snapshots

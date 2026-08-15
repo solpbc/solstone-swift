@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import WatchConnectivity
 import XCTest
 
 @MainActor
@@ -724,7 +725,7 @@ final class WatchRelayTests: XCTestCase {
         sessionD.activate()
         senderD.drain()
         XCTAssertEqual(sessionD.cancelledSegmentIDs, [duplicateID])
-        XCTAssertEqual(sessionD.outstandingFileTransfers.map(\.id), [duplicateID])
+        XCTAssertEqual(sessionD.outstandingFileTransfers.map(\.snapshot.segmentID), [duplicateID])
         XCTAssertTrue(storageD.fileWriter.fileExists(at: duplicateDirectory))
 
         let storageE = try self.makeStorage("ac6-orphans")
@@ -795,6 +796,86 @@ final class WatchRelayTests: XCTestCase {
         watchSession.finishTransfer(id: id, failure: nil)
         watchSession.finishTransfer(id: id, failure: Self.transferFailure("late failure"))
         XCTAssertEqual(watchSession.transferredFiles.count, transferCount)
+    }
+
+    func testDrainUsesOneAdversarialOutstandingCaptureAndKeepsFirstDuplicate() throws {
+        let storage = try self.makeStorage("single-capture")
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let session = AdversarialOutstandingSession(segmentID: id)
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let sender = WatchRelaySender(storage: storage, session: session, diagnosticsStore: store)
+
+        sender.drain()
+
+        XCTAssertEqual(session.outstandingReadCount, 1)
+        XCTAssertEqual(session.cancelledRuntimeTokens, [1])
+        let reconciliation = try XCTUnwrap(store.readSummary().value?.lastQueueReconciliationObservation)
+        XCTAssertEqual(reconciliation.observedFileTransferCount, 2)
+        XCTAssertEqual(reconciliation.counts.duplicate, 1)
+        XCTAssertEqual(reconciliation.counts.orphaned, 0)
+    }
+
+    func testTransfersUseDistinctAttemptIDsWithFrozenClock() throws {
+        let storage = try self.makeStorage("distinct-attempts")
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0)
+        let session = MockWatchConnectivitySession()
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let sender = WatchRelaySender(storage: storage, session: session, clock: { now })
+        session.activate()
+
+        sender.drain()
+        session.outstandingFileTransfers.first?.cancel()
+        sender.drain()
+
+        XCTAssertEqual(session.transferredFiles.count, 2)
+        let first = session.transferredFiles[0].1
+        let second = session.transferredFiles[1].1
+        XCTAssertEqual(first["generation"] as? Int, 0)
+        XCTAssertEqual(second["generation"] as? Int, 0)
+        XCTAssertEqual(first["attempt_started_at"] as? String, second["attempt_started_at"] as? String)
+        XCTAssertNotEqual(first["attempt_id"] as? String, second["attempt_id"] as? String)
+    }
+
+    func testReversedTaggedCompletionsRemainSegmentLevelOnly() throws {
+        let storage = try self.makeStorage("reversed-completions")
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0, state: .transferring)
+        let firstAttempt = UUID()
+        let secondAttempt = UUID()
+        let session = MockWatchConnectivitySession()
+        session.seedOutstandingTransfer(id: id, generation: 0, attemptID: firstAttempt)
+        session.seedOutstandingTransfer(id: id, generation: 0, attemptID: secondAttempt)
+        let sender = WatchRelaySender(storage: storage, session: session)
+
+        session.finishTransfer(attemptID: secondAttempt, failure: nil)
+        XCTAssertEqual(try self.manifestState(storage: storage, id: id), .delivered)
+
+        session.finishTransfer(attemptID: firstAttempt, failure: Self.transferFailure("late failure"))
+        XCTAssertEqual(try self.manifestState(storage: storage, id: id), .delivered)
+    }
+
+    func testAttemptRecordWriteFailureFallsBackToLegacyTransferAndContinuesDrain() throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let storage = try self.makeStorage("attempt-write-failure", fileWriter: writer)
+        let firstID = UUID()
+        let secondID = UUID()
+        let firstDirectory = try self.writeSegment(storage: storage, id: firstID, index: 0)
+        _ = try self.writeSegment(storage: storage, id: secondID, index: 1)
+        let session = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: session)
+        writer.failNextWriteData(at: firstDirectory.appendingPathComponent(WatchRelayAttemptRecord.filename))
+        session.activate()
+
+        sender.drain()
+
+        XCTAssertEqual(session.transferredFiles.count, 2)
+        XCTAssertNil(session.transferredFiles[0].1["generation"])
+        XCTAssertNil(session.transferredFiles[0].1["attempt_id"])
+        XCTAssertNil(session.transferredFiles[0].1["attempt_started_at"])
+        XCTAssertFalse(writer.fileExists(at: firstDirectory.appendingPathComponent(WatchRelayAttemptRecord.filename)))
+        XCTAssertEqual(session.transferredFiles[1].1["generation"] as? Int, 0)
     }
 
     func testOwnerPresentationRelayStrings() {
@@ -895,6 +976,13 @@ private extension WatchRelayTests {
 
     func makeStorage(_ name: String) throws -> WatchCaptureStorage {
         try WatchCaptureStorage(rootURL: self.tempDirectory.appendingPathComponent(name, isDirectory: true))
+    }
+
+    func makeStorage(_ name: String, fileWriter: any WatchFileWriting) throws -> WatchCaptureStorage {
+        try WatchCaptureStorage(
+            rootURL: self.tempDirectory.appendingPathComponent(name, isDirectory: true),
+            fileWriter: fileWriter
+        )
     }
 
     func writeSegment(
@@ -1009,4 +1097,97 @@ private extension WatchRelayTests {
             boundedRedactedDescription: description
         )
     }
+}
+
+@MainActor
+private final class AdversarialOutstandingSession: WatchConnectivitySession {
+    let isSupported = true
+    let isReachable = false
+    let isPaired = false
+    let isWatchAppInstalled = false
+    let activationState: WCSessionActivationState = .activated
+    let hasContentPending = false
+    let receivedApplicationContext: [String: Any] = [:]
+    var outstandingUserInfoTransferSnapshots: [WatchConnectivityUserInfoTransferSnapshot] = []
+    var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> = .unavailable(reason: "not configured")
+    var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> = .unavailable(reason: "not configured")
+    var onActivationChanged: (@Sendable (Bool) -> Void)?
+    var onReachabilityChanged: (@Sendable (Bool) -> Void)?
+    var onWatchStateChanged: (@Sendable () -> Void)?
+    var onReceiveFile: ((URL, [String: Any]) -> Void)?
+    var onReceiveUserInfo: (([String: Any]) -> Void)?
+    var onReceiveApplicationContext: (([String: Any]) -> Void)?
+    var onFileTransferFinished: ((WatchConnectivityFileTransferCompletion) -> Void)?
+    var onSessionEvent: (() -> Void)?
+    private(set) var outstandingReadCount = 0
+    private let cancellationLedger: CancellationLedger
+    var cancelledRuntimeTokens: [Int] { self.cancellationLedger.tokens }
+    private let first: [WatchConnectivityFileTransferObservation]
+    private let second: [WatchConnectivityFileTransferObservation]
+
+    var outstandingFileTransfers: [WatchConnectivityFileTransferObservation] {
+        self.outstandingReadCount += 1
+        return self.outstandingReadCount == 1 ? self.first : self.second
+    }
+
+    init(segmentID: UUID) {
+        let cancellationLedger = CancellationLedger()
+        self.cancellationLedger = cancellationLedger
+        let snapshot = WatchConnectivityFileTransferSnapshot(
+            asOf: Date(timeIntervalSince1970: 0),
+            segmentID: segmentID,
+            idState: .parseable,
+            isTransferring: true,
+            progress: MockWatchConnectivitySession.defaultProgress()
+        )
+        var first: [WatchConnectivityFileTransferObservation] = []
+        first = [0, 1].map { token in
+            WatchConnectivityFileTransferObservation(
+                runtimeToken: WatchConnectivityFileTransferRuntimeToken(value: token),
+                snapshot: snapshot,
+                generation: nil,
+                generationState: .missing,
+                attemptID: nil,
+                attemptIDState: .missing,
+                attemptStartedAt: nil,
+                attemptStartedAtState: .missing
+            ) {
+                cancellationLedger.tokens.append(token)
+            }
+        }
+        self.first = first
+        let orphanSnapshot = WatchConnectivityFileTransferSnapshot(
+            asOf: Date(timeIntervalSince1970: 1),
+            segmentID: UUID(),
+            idState: .parseable,
+            isTransferring: true,
+            progress: MockWatchConnectivitySession.defaultProgress()
+        )
+        self.second = [
+            first[1],
+            first[0],
+            WatchConnectivityFileTransferObservation(
+                runtimeToken: WatchConnectivityFileTransferRuntimeToken(value: 2),
+                snapshot: orphanSnapshot,
+                generation: nil,
+                generationState: .missing,
+                attemptID: nil,
+                attemptIDState: .missing,
+                attemptStartedAt: nil,
+                attemptStartedAtState: .missing,
+                cancel: {}
+            ),
+        ]
+    }
+
+    func activate() {}
+    func transferFile(_ url: URL, metadata: [String: Any]) {}
+    func transferUserInfo(_ userInfo: [String: Any]) {}
+    func sendMessage(_ message: [String: Any]) {}
+    func updateApplicationContext(_ applicationContext: [String: Any]) throws {}
+}
+
+@MainActor
+private final class CancellationLedger {
+    var tokens: [Int] = []
 }

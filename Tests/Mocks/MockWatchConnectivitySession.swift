@@ -18,7 +18,9 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     private struct OutstandingRecord {
         let token: Int
-        var snapshot: WatchConnectivityFileTransferSnapshot
+        let snapshot: WatchConnectivityFileTransferSnapshot
+        let metadata: [String: Any]
+        let fileURL: URL
     }
 
     var isSupported = true
@@ -28,15 +30,26 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var activationState: WCSessionActivationState = .notActivated
     var hasContentPending = false
     var receivedApplicationContext: [String: Any] = [:]
-    var outstandingFileTransfers: [OutstandingFileTransfer] {
-        self.outstandingRecords.map { record in
-            OutstandingFileTransfer(id: record.snapshot.segmentID) { [weak self] in
+    var outstandingFileTransfers: [WatchConnectivityFileTransferObservation] {
+        self.outstandingRecords.enumerated().map { index, record in
+            let completion = LiveWatchConnectivitySession.fileTransferCompletion(
+                metadata: record.metadata,
+                fileURL: record.fileURL,
+                error: nil
+            )
+            return WatchConnectivityFileTransferObservation(
+                runtimeToken: WatchConnectivityFileTransferRuntimeToken(value: index),
+                snapshot: record.snapshot,
+                generation: completion.generation,
+                generationState: completion.generationState,
+                attemptID: completion.attemptID,
+                attemptIDState: completion.attemptIDState,
+                attemptStartedAt: completion.attemptStartedAt,
+                attemptStartedAtState: completion.attemptStartedAtState
+            ) { [weak self] in
                 self?.cancelOutstanding(token: record.token)
             }
         }
-    }
-    var outstandingFileTransferSnapshots: [WatchConnectivityFileTransferSnapshot] {
-        self.outstandingRecords.map(\.snapshot)
     }
     var outstandingUserInfoTransferSnapshots: [WatchConnectivityUserInfoTransferSnapshot] = []
     var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> = .unavailable(reason: "not configured")
@@ -47,7 +60,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
     var onReceiveApplicationContext: (([String: Any]) -> Void)?
-    var onFileTransferFinished: ((UUID, WatchConnectivityTransferFailureSnapshot?) -> Void)?
+    var onFileTransferFinished: ((WatchConnectivityFileTransferCompletion) -> Void)?
     var onSessionEvent: (() -> Void)?
 
     var activateCallCount = 0
@@ -70,10 +83,25 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     }
 
     func transferFile(_ url: URL, metadata: [String: Any]) {
-        let id = Self.segmentID(from: metadata)
+        let completion = LiveWatchConnectivitySession.fileTransferCompletion(
+            metadata: metadata,
+            fileURL: url,
+            error: nil
+        )
+        let id = completion.segmentID
         self.transferredFiles.append((url, metadata))
         self.callLedger.append(.transferFile(url, id))
-        self.appendOutstandingTransfer(id: id)
+        self.appendOutstandingTransfer(
+            snapshot: WatchConnectivityFileTransferSnapshot(
+                asOf: Date(timeIntervalSince1970: 0),
+                segmentID: id,
+                idState: completion.segmentIDState,
+                isTransferring: true,
+                progress: Self.defaultProgress()
+            ),
+            metadata: metadata,
+            fileURL: url
+        )
     }
 
     func transferUserInfo(_ userInfo: [String: Any]) {
@@ -132,16 +160,29 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
         id: UUID?,
         idState: WatchRelayTransferIDState? = nil,
         isTransferring: Bool = true,
-        progress: WatchConnectivityProgressSnapshot? = nil
+        progress: WatchConnectivityProgressSnapshot? = nil,
+        generation: Int? = nil,
+        attemptID: UUID? = nil,
+        attemptStartedAt: Date? = nil
     ) {
+        let state = idState ?? (id == nil ? .missing : .parseable)
+        let metadata = Self.metadata(
+            id: id,
+            idState: state,
+            generation: generation,
+            attemptID: attemptID,
+            attemptStartedAt: attemptStartedAt
+        )
         self.appendOutstandingTransfer(
             snapshot: WatchConnectivityFileTransferSnapshot(
                 asOf: Date(timeIntervalSince1970: 0),
                 segmentID: id,
-                idState: idState ?? (id == nil ? .missing : .parseable),
+                idState: state,
                 isTransferring: isTransferring,
                 progress: progress ?? Self.defaultProgress()
-            )
+            ),
+            metadata: metadata,
+            fileURL: URL(fileURLWithPath: "/mock/\(UUID().uuidString).watchrelay")
         )
     }
 
@@ -161,8 +202,35 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     }
 
     func finishTransfer(id: UUID, failure: WatchConnectivityTransferFailureSnapshot?) {
+        let record = self.outstandingRecords.first { $0.snapshot.segmentID == id }
         self.outstandingRecords.removeAll { $0.snapshot.segmentID == id }
-        self.onFileTransferFinished?(id, failure)
+        if let record {
+            self.finish(record: record, failure: failure)
+        } else {
+            self.finish(
+                completion: LiveWatchConnectivitySession.fileTransferCompletion(
+                    metadata: ["id": id.uuidString],
+                    fileURL: URL(fileURLWithPath: "/mock/finished.watchrelay"),
+                    error: nil
+                ),
+                failure: failure
+            )
+        }
+        self.onSessionEvent?()
+    }
+
+    func finishTransfer(attemptID: UUID, failure: WatchConnectivityTransferFailureSnapshot?) {
+        guard let index = self.outstandingRecords.firstIndex(where: { record in
+            LiveWatchConnectivitySession.fileTransferCompletion(
+                metadata: record.metadata,
+                fileURL: record.fileURL,
+                error: nil
+            ).attemptID == attemptID
+        }) else {
+            return
+        }
+        let record = self.outstandingRecords.remove(at: index)
+        self.finish(record: record, failure: failure)
         self.onSessionEvent?()
     }
 
@@ -193,24 +261,73 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 }
 
 private extension MockWatchConnectivitySession {
-    static func segmentID(from metadata: [String: Any]) -> UUID? {
-        guard let idString = metadata["id"] as? String else { return nil }
-        return UUID(uuidString: idString)
+    static func metadata(
+        id: UUID?,
+        idState: WatchRelayTransferIDState,
+        generation: Int?,
+        attemptID: UUID?,
+        attemptStartedAt: Date?
+    ) -> [String: Any] {
+        var metadata: [String: Any] = [:]
+        switch idState {
+        case .parseable:
+            metadata["id"] = id?.uuidString
+        case .missing:
+            break
+        case .unparseable:
+            metadata["id"] = "not-a-uuid"
+        }
+        if let generation {
+            metadata["generation"] = generation
+        }
+        if let attemptID {
+            metadata["attempt_id"] = attemptID.uuidString
+        }
+        if let attemptStartedAt {
+            metadata["attempt_started_at"] = ISO8601DateFormatter().string(from: attemptStartedAt)
+        }
+        return metadata
     }
 
-    func appendOutstandingTransfer(id: UUID?) {
-        self.appendOutstandingTransfer(snapshot: WatchConnectivityFileTransferSnapshot(
-            asOf: Date(timeIntervalSince1970: 0),
-            segmentID: id,
-            idState: id == nil ? .missing : .parseable,
-            isTransferring: true,
-            progress: Self.defaultProgress()
+    func appendOutstandingTransfer(
+        snapshot: WatchConnectivityFileTransferSnapshot,
+        metadata: [String: Any],
+        fileURL: URL
+    ) {
+        self.outstandingRecords.append(OutstandingRecord(
+            token: self.nextOutstandingToken,
+            snapshot: snapshot,
+            metadata: metadata,
+            fileURL: fileURL
         ))
+        self.nextOutstandingToken += 1
     }
 
-    func appendOutstandingTransfer(snapshot: WatchConnectivityFileTransferSnapshot) {
-        self.outstandingRecords.append(OutstandingRecord(token: self.nextOutstandingToken, snapshot: snapshot))
-        self.nextOutstandingToken += 1
+    private func finish(record: OutstandingRecord, failure: WatchConnectivityTransferFailureSnapshot?) {
+        let completion = LiveWatchConnectivitySession.fileTransferCompletion(
+            metadata: record.metadata,
+            fileURL: record.fileURL,
+            error: nil
+        )
+        self.finish(completion: completion, failure: failure)
+    }
+
+    private func finish(
+        completion: WatchConnectivityFileTransferCompletion,
+        failure: WatchConnectivityTransferFailureSnapshot?
+    ) {
+        self.onFileTransferFinished?(WatchConnectivityFileTransferCompletion(
+            segmentID: completion.segmentID,
+            segmentIDState: completion.segmentIDState,
+            generation: completion.generation,
+            generationState: completion.generationState,
+            attemptID: completion.attemptID,
+            attemptIDState: completion.attemptIDState,
+            attemptStartedAt: completion.attemptStartedAt,
+            attemptStartedAtState: completion.attemptStartedAtState,
+            fileURL: completion.fileURL,
+            failure: failure
+        ))
     }
 
     func cancelOutstanding(token: Int) {

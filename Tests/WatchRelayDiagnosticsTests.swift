@@ -83,6 +83,36 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue((try storage.scanManifests()).allSatisfy { $0.manifest.state == .transferring })
     }
 
+    func testTransferTagsDoNotReachEncodedDiagnosticsEnvelope() throws {
+        let id = Self.uuid(90_001)
+        let attemptID = Self.uuid(90_002)
+
+        func envelope(name: String, tagged: Bool) throws -> Data {
+            let storage = try self.storage(name)
+            let store = WatchRelayDiagnosticsStore(storage: storage)
+            let session = MockWatchConnectivitySession()
+            _ = try self.writeManifest(id: id, state: .transferring, storage: storage)
+            session.seedOutstandingTransfer(
+                id: id,
+                generation: tagged ? 0 : nil,
+                attemptID: tagged ? attemptID : nil,
+                attemptStartedAt: tagged ? Self.now : nil
+            )
+            let collector = WatchRelayDiagnosticsCollector(
+                storage: storage,
+                diagnosticsStore: store,
+                session: session,
+                environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+            )
+            return try XCTUnwrap(collector.makeEnvelopeData(asOf: Self.now))
+        }
+
+        XCTAssertEqual(
+            try envelope(name: "legacy-envelope", tagged: false),
+            try envelope(name: "tagged-envelope", tagged: true)
+        )
+    }
+
     func testWatchCaptureModelSourceRetainsDiagnosticsCollectorStrongly() throws {
         let root = Self.worktreeRoot()
         let modelURL = root.appendingPathComponent("Watch/Sources/WatchCaptureModel.swift")

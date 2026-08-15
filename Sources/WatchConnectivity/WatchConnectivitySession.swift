@@ -7,12 +7,6 @@ import WatchConnectivity
 
 nonisolated private let watchConnectivityLog = Logger(subsystem: "app.solstone.swift", category: "watch-connectivity")
 
-@MainActor
-struct OutstandingFileTransfer {
-    let id: UUID?
-    let cancel: @MainActor () -> Void
-}
-
 nonisolated struct WatchConnectivityProgressSnapshot: Codable, Equatable, Sendable {
     let isIndeterminate: Bool
     let isFinished: Bool
@@ -33,6 +27,36 @@ nonisolated struct WatchConnectivityFileTransferSnapshot: Codable, Equatable, Se
     let idState: WatchRelayTransferIDState
     let isTransferring: Bool
     let progress: WatchConnectivityProgressSnapshot
+}
+
+nonisolated struct WatchConnectivityFileTransferRuntimeToken: Sendable {
+    let value: Int
+}
+
+@MainActor
+struct WatchConnectivityFileTransferObservation {
+    let runtimeToken: WatchConnectivityFileTransferRuntimeToken
+    let snapshot: WatchConnectivityFileTransferSnapshot
+    let generation: Int?
+    let generationState: WatchRelayTransferIDState
+    let attemptID: UUID?
+    let attemptIDState: WatchRelayTransferIDState
+    let attemptStartedAt: Date?
+    let attemptStartedAtState: WatchRelayTransferIDState
+    let cancel: @MainActor () -> Void
+}
+
+nonisolated struct WatchConnectivityFileTransferCompletion: Sendable {
+    let segmentID: UUID?
+    let segmentIDState: WatchRelayTransferIDState
+    let generation: Int?
+    let generationState: WatchRelayTransferIDState
+    let attemptID: UUID?
+    let attemptIDState: WatchRelayTransferIDState
+    let attemptStartedAt: Date?
+    let attemptStartedAtState: WatchRelayTransferIDState
+    let fileURL: URL
+    let failure: WatchConnectivityTransferFailureSnapshot?
 }
 
 nonisolated struct WatchConnectivityUserInfoTransferSnapshot: Codable, Equatable, Sendable {
@@ -56,8 +80,7 @@ protocol WatchConnectivitySession: AnyObject {
     var activationState: WCSessionActivationState { get }
     var hasContentPending: Bool { get }
     var receivedApplicationContext: [String: Any] { get }
-    var outstandingFileTransfers: [OutstandingFileTransfer] { get }
-    var outstandingFileTransferSnapshots: [WatchConnectivityFileTransferSnapshot] { get }
+    var outstandingFileTransfers: [WatchConnectivityFileTransferObservation] { get }
     var outstandingUserInfoTransferSnapshots: [WatchConnectivityUserInfoTransferSnapshot] { get }
     var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> { get }
     var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> { get }
@@ -67,7 +90,7 @@ protocol WatchConnectivitySession: AnyObject {
     var onReceiveFile: ((URL, [String: Any]) -> Void)? { get set }
     var onReceiveUserInfo: (([String: Any]) -> Void)? { get set }
     var onReceiveApplicationContext: (([String: Any]) -> Void)? { get set }
-    var onFileTransferFinished: ((UUID, WatchConnectivityTransferFailureSnapshot?) -> Void)? { get set }
+    var onFileTransferFinished: ((WatchConnectivityFileTransferCompletion) -> Void)? { get set }
     var onSessionEvent: (() -> Void)? { get set }
 
     func activate()
@@ -85,7 +108,7 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     var onReceiveFile: ((URL, [String: Any]) -> Void)?
     var onReceiveUserInfo: (([String: Any]) -> Void)?
     var onReceiveApplicationContext: (([String: Any]) -> Void)?
-    var onFileTransferFinished: ((UUID, WatchConnectivityTransferFailureSnapshot?) -> Void)?
+    var onFileTransferFinished: ((WatchConnectivityFileTransferCompletion) -> Void)?
     var onSessionEvent: (() -> Void)?
 
     private let session: WCSession?
@@ -111,24 +134,30 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
         self.session?.receivedApplicationContext ?? [:]
     }
 
-    var outstandingFileTransfers: [OutstandingFileTransfer] {
-        (self.session?.outstandingFileTransfers ?? []).map { transfer in
-            let id: UUID?
-            if let idString = transfer.file.metadata?["id"] as? String {
-                id = UUID(uuidString: idString)
-            } else {
-                id = nil
-            }
-            return OutstandingFileTransfer(id: id) {
+    var outstandingFileTransfers: [WatchConnectivityFileTransferObservation] {
+        let asOf = Date()
+        return (self.session?.outstandingFileTransfers ?? []).enumerated().map { index, transfer in
+            let metadata = transfer.file.metadata ?? [:]
+            let identity = Self.fileTransferIdentity(from: metadata)
+            let snapshot = WatchConnectivityFileTransferSnapshot(
+                asOf: asOf,
+                segmentID: identity.segmentID,
+                idState: identity.segmentIDState,
+                isTransferring: transfer.isTransferring,
+                progress: Self.progressSnapshot(from: transfer.progress)
+            )
+            return WatchConnectivityFileTransferObservation(
+                runtimeToken: WatchConnectivityFileTransferRuntimeToken(value: index),
+                snapshot: snapshot,
+                generation: identity.generation,
+                generationState: identity.generationState,
+                attemptID: identity.attemptID,
+                attemptIDState: identity.attemptIDState,
+                attemptStartedAt: identity.attemptStartedAt,
+                attemptStartedAtState: identity.attemptStartedAtState
+            ) {
                 transfer.cancel()
             }
-        }
-    }
-
-    var outstandingFileTransferSnapshots: [WatchConnectivityFileTransferSnapshot] {
-        let asOf = Date()
-        return (self.session?.outstandingFileTransfers ?? []).map { transfer in
-            Self.fileTransferSnapshot(from: transfer, asOf: asOf)
         }
     }
 
@@ -300,22 +329,45 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     }
 
     nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?) {
-        let idString = fileTransfer.file.metadata?["id"] as? String
-        let failure = error.map { WatchConnectivityTransferFailureSnapshot(error: $0) }
+        let completion = Self.fileTransferCompletion(
+            metadata: fileTransfer.file.metadata,
+            fileURL: fileTransfer.file.fileURL,
+            error: error
+        )
         Task { @MainActor [weak self] in
             defer {
                 self?.onSessionEvent?()
             }
-            guard let idString else {
+            guard completion.segmentIDState != .missing else {
                 watchConnectivityLog.info("watch connectivity file transfer finished without segment id")
                 return
             }
-            guard let id = UUID(uuidString: idString) else {
+            guard completion.segmentIDState == .parseable else {
                 watchConnectivityLog.error("watch connectivity file transfer finished with invalid segment id")
                 return
             }
-            self?.onFileTransferFinished?(id, failure)
+            self?.onFileTransferFinished?(completion)
         }
+    }
+
+    nonisolated static func fileTransferCompletion(
+        metadata: [String: Any]?,
+        fileURL: URL,
+        error: (any Error)?
+    ) -> WatchConnectivityFileTransferCompletion {
+        let identity = Self.fileTransferIdentity(from: metadata ?? [:])
+        return WatchConnectivityFileTransferCompletion(
+            segmentID: identity.segmentID,
+            segmentIDState: identity.segmentIDState,
+            generation: identity.generation,
+            generationState: identity.generationState,
+            attemptID: identity.attemptID,
+            attemptIDState: identity.attemptIDState,
+            attemptStartedAt: identity.attemptStartedAt,
+            attemptStartedAtState: identity.attemptStartedAtState,
+            fileURL: fileURL,
+            failure: error.map { WatchConnectivityTransferFailureSnapshot(error: $0) }
+        )
     }
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
@@ -362,17 +414,31 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 }
 
 private extension LiveWatchConnectivitySession {
-    nonisolated static func fileTransferSnapshot(
-        from transfer: WCSessionFileTransfer,
-        asOf: Date
-    ) -> WatchConnectivityFileTransferSnapshot {
-        let idParse = Self.segmentID(from: transfer.file.metadata?["id"])
-        return WatchConnectivityFileTransferSnapshot(
-            asOf: asOf,
-            segmentID: idParse.id,
-            idState: idParse.state,
-            isTransferring: transfer.isTransferring,
-            progress: Self.progressSnapshot(from: transfer.progress)
+    struct FileTransferIdentity: Sendable {
+        let segmentID: UUID?
+        let segmentIDState: WatchRelayTransferIDState
+        let generation: Int?
+        let generationState: WatchRelayTransferIDState
+        let attemptID: UUID?
+        let attemptIDState: WatchRelayTransferIDState
+        let attemptStartedAt: Date?
+        let attemptStartedAtState: WatchRelayTransferIDState
+    }
+
+    nonisolated static func fileTransferIdentity(from metadata: [String: Any]) -> FileTransferIdentity {
+        let segmentID = Self.segmentID(from: metadata["id"])
+        let generation = Self.generation(from: metadata["generation"])
+        let attemptID = Self.segmentID(from: metadata["attempt_id"])
+        let attemptStartedAt = Self.attemptStartedAt(from: metadata["attempt_started_at"])
+        return FileTransferIdentity(
+            segmentID: segmentID.id,
+            segmentIDState: segmentID.state,
+            generation: generation.value,
+            generationState: generation.state,
+            attemptID: attemptID.id,
+            attemptIDState: attemptID.state,
+            attemptStartedAt: attemptStartedAt.value,
+            attemptStartedAtState: attemptStartedAt.state
         )
     }
 
@@ -414,6 +480,30 @@ private extension LiveWatchConnectivitySession {
             return (nil, .unparseable)
         }
         return (id, .parseable)
+    }
+
+    nonisolated static func generation(from rawValue: Any?) -> (value: Int?, state: WatchRelayTransferIDState) {
+        guard let rawValue else {
+            return (nil, .missing)
+        }
+        guard let generation = rawValue as? Int else {
+            return (nil, .unparseable)
+        }
+        return (generation, .parseable)
+    }
+
+    nonisolated static func attemptStartedAt(
+        from rawValue: Any?
+    ) -> (value: Date?, state: WatchRelayTransferIDState) {
+        guard let rawValue else {
+            return (nil, .missing)
+        }
+        guard let string = rawValue as? String,
+              let date = ISO8601DateFormatter().date(from: string)
+        else {
+            return (nil, .unparseable)
+        }
+        return (date, .parseable)
     }
 
     nonisolated static func userInfoType(from rawValue: Any?) -> WatchConnectivityUserInfoTransferType? {
