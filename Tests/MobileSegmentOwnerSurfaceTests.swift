@@ -487,7 +487,13 @@ private extension MobileSegmentOwnerSurfaceTests {
 
     func registration() -> ObserverRegistration {
         let registration = ObserverRegistration(
-            hostname: "test-device",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-device",
+                    displayName: "test device",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "0.1.0",
             streamType: "mobile",
             session: URLSession(configuration: .ephemeral),

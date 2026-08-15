@@ -13,11 +13,11 @@ nonisolated enum ObserverKeychain {
     private static let log = Logger(subsystem: "app.solstone.swift", category: "observer-keychain")
 
     static let service = "app.solstone.swift"
-    static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key"
+    static let observerIngestKeyAccount = "solstone-swift-observer-ingest-key-v2"
     static let observerIngestPrefixAccount = "solstone-swift-observer-ingest-prefix"
-    static let omiIngestKeyAccount = "solstone-swift-omi-ingest-key"
+    static let omiIngestKeyAccount = "solstone-swift-omi-ingest-key-v2"
     static let omiIngestPrefixAccount = "solstone-swift-omi-ingest-prefix"
-    static let watchIngestKeyAccount = "solstone-swift-watch-ingest-key"
+    static let watchIngestKeyAccount = "solstone-swift-watch-ingest-key-v2"
     static let watchIngestPrefixAccount = "solstone-swift-watch-ingest-prefix"
 
     static func saveObserverIngestKey(_ key: String) throws {

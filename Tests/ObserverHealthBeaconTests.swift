@@ -430,7 +430,13 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObserverHealthRegistrationURLProtocol.self]
         let registration = ObserverRegistration(
-            hostname: "test-device",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-device",
+                    displayName: "test device",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: source.version,
             streamType: source.streamType,
             session: URLSession(configuration: configuration),

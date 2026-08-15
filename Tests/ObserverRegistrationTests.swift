@@ -54,7 +54,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
             XCTAssertEqual(payload["hostname"], "test-device")
             XCTAssertEqual(payload["stream_type"], "mobile")
             XCTAssertEqual(payload["version"], "1.2.3")
-            XCTAssertNil(payload["label"])
+            XCTAssertEqual(payload["label"], "test device")
             XCTAssertNil(payload["name"])
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -82,11 +82,16 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     func testEnsureRegisteredSkipsNetworkWhenKeyExists() async throws {
         self.storedKeyBox.withLock { $0 = "existing-key" }
         self.storedPrefixBox.withLock { $0 = "obs_existing_" }
-        let registration = self.makeRegistration()
+        let resolutionCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let registration = self.makeRegistration(resolveDescriptor: {
+            resolutionCount.withLock { $0 += 1 }
+            return nil
+        })
 
         let key = try await registration.ensureRegistered()
 
         XCTAssertEqual(key, "existing-key")
+        XCTAssertEqual(resolutionCount.withLock { $0 }, 0)
         XCTAssertEqual(registration.registrationPrefix, "obs_existing_")
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 0)
         let state = await MainActor.run { registration.state }
@@ -275,6 +280,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     @MainActor
     func testEnsureRegisteredRetriesAndSucceeds() async throws {
         let sleepRecorder = DelayRecorder()
+        let diagnosticLog = DiagnosticLog()
         ObserverRegistrationURLProtocol.handler = { request in
             if ObserverRegistrationURLProtocol.callCount < 2 {
                 return (
@@ -289,6 +295,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         }
 
         let registration = self.makeRegistration(
+            diagnosticLog: diagnosticLog,
             retryDelays: [2, 4, 8],
             sleep: { delay in await sleepRecorder.append(delay) }
         )
@@ -302,6 +309,48 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 2)
         let recordedSleeps = await sleepRecorder.values()
         XCTAssertEqual(recordedSleeps, [2])
+        XCTAssertEqual(diagnosticLog.events.count, 1)
+        let event = try XCTUnwrap(diagnosticLog.events.first)
+        XCTAssertEqual(event.message, "journal registration succeeded")
+        XCTAssertEqual(event.severity, .info)
+        XCTAssertTrue(event.detail?.contains("hostname=test-device") == true)
+        XCTAssertTrue(event.detail?.contains("idfv=test-idfv") == true)
+        XCTAssertTrue(event.detail?.contains("prefix=observer") == true)
+        XCTAssertFalse(event.detail?.contains("test device") == true)
+        XCTAssertFalse(event.detail?.contains("observer-key-123") == true)
+    }
+
+    @MainActor
+    func testMissingVendorIdentifierDoesNotRequestOrRetry() async throws {
+        let resolutionCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let sleepRecorder = DelayRecorder()
+        let diagnosticLog = DiagnosticLog()
+        let registration = self.makeRegistration(
+            resolveDescriptor: {
+                resolutionCount.withLock { $0 += 1 }
+                return nil
+            },
+            diagnosticLog: diagnosticLog,
+            retryDelays: [2, 4, 8],
+            sleep: { delay in await sleepRecorder.append(delay) }
+        )
+        registration.activeLocalPort = 7071
+
+        do {
+            _ = try await registration.ensureRegistered()
+            XCTFail("expected missing vendor identifier failure")
+        } catch ObserverRegistrationError.missingVendorIdentifier {} catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(resolutionCount.withLock { $0 }, 1)
+        XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 0)
+        let recordedSleeps = await sleepRecorder.values()
+        XCTAssertEqual(recordedSleeps, [])
+        XCTAssertEqual(diagnosticLog.events.count, 1)
+        let event = try XCTUnwrap(diagnosticLog.events.first)
+        XCTAssertEqual(event.severity, .error)
+        XCTAssertTrue(event.detail?.contains("reason=missing_vendor_identifier") == true)
     }
 
     @MainActor
@@ -649,7 +698,8 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         ObserverRegistrationURLProtocol.handler = { request in
             gate.response(for: request)
         }
-        let registration = self.makeRegistration(retryDelays: [1])
+        let diagnosticLog = DiagnosticLog()
+        let registration = self.makeRegistration(diagnosticLog: diagnosticLog, retryDelays: [1])
         registration.activeLocalPort = 7071
 
         let tasks = (0..<4).map { _ in
@@ -663,6 +713,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
             XCTAssertEqual(refreshedKey, "observer-key-123")
         }
         XCTAssertEqual(ObserverRegistrationURLProtocol.callCount, 1)
+        XCTAssertEqual(diagnosticLog.events.count, 1)
     }
 
     @MainActor
@@ -711,6 +762,8 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
 
     @MainActor private func makeRegistration(
         streamType: String = "mobile",
+        resolveDescriptor: (@MainActor @Sendable () -> DeviceRegistrationDescriptor?)? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
         keyBox: OSAllocatedUnfairLock<String?>? = nil,
         prefixBox: OSAllocatedUnfairLock<String?>? = nil,
         retryDelays: [UInt64] = [1, 2, 3],
@@ -727,9 +780,16 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         let savePrefix = savePrefix ?? { [prefixBox] prefix in prefixBox.withLock { $0 = prefix } }
         let deleteKey = deleteKey ?? { [keyBox] in keyBox.withLock { $0 = nil } }
         return ObserverRegistration(
-            hostname: "test-device",
+            resolveDescriptor: resolveDescriptor ?? {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-device",
+                    displayName: "test device",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "1.2.3",
             streamType: streamType,
+            diagnosticLog: diagnosticLog,
             session: self.session,
             retryDelays: retryDelays,
             sleep: sleep,

@@ -24,7 +24,7 @@ struct AboutView: View {
     }
 
     private var device: String {
-        self.appConfig.deviceID.isEmpty ? "unpaired" : self.appConfig.deviceID
+        DeviceRegistrationDescriptor.currentDisplayName()
     }
 
     private var journalRoot: String {

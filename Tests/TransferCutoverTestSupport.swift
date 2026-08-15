@@ -274,7 +274,13 @@ func makeTransferTestRegistration(
     let keyBox = OSAllocatedUnfairLock<String?>(initialState: key)
     let prefixBox = OSAllocatedUnfairLock<String?>(initialState: prefix)
     let registration = ObserverRegistration(
-        hostname: "test-device",
+        resolveDescriptor: {
+            DeviceRegistrationDescriptor(
+                hostname: "test-device",
+                displayName: "test device",
+                vendorIdentifier: "test-idfv"
+            )
+        },
         version: version,
         streamType: streamType,
         session: URLSession(configuration: .ephemeral),

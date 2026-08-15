@@ -138,8 +138,7 @@ final class PairFlowCoordinator {
     }
 
     static func deviceLabel() -> String {
-        let suffix = UIDevice.current.identifierForVendor?.uuidString.prefix(4) ?? "0000"
-        return "\(UIDevice.current.model) (\(suffix))"
+        DeviceRegistrationDescriptor.currentDisplayName()
     }
 
     private static func sameInstance(_ lhs: String?, _ rhs: String) -> Bool {

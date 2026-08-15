@@ -242,11 +242,14 @@ struct SolstoneSwiftApp: App {
         let healthSession = URLSession(configuration: .default)
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig)
+        let deviceRegistrationDescriptor: @MainActor @Sendable () -> DeviceRegistrationDescriptor? = {
+            DeviceRegistrationDescriptor.current()
+        }
         let observerRegistration = ObserverRegistration(
-            hostname: UIDevice.current.name,
+            resolveDescriptor: deviceRegistrationDescriptor,
             version: AppVersion.shortVersion,
             streamType: "mobile",
-            label: nil
+            diagnosticLog: log
         )
         if Self.shouldResetIntegrationObserverRegistration {
             observerRegistration.reset()
@@ -296,10 +299,10 @@ struct SolstoneSwiftApp: App {
             mobileSegmentMigrationDiagnostics = []
         }
         let omiRegistration = ObserverRegistration(
-            hostname: UIDevice.current.name,
+            resolveDescriptor: deviceRegistrationDescriptor,
             version: AppVersion.shortVersion,
             streamType: "omi",
-            label: "omi pendant",
+            diagnosticLog: log,
             loadKey: {
                 try ObserverKeychain.loadOmiIngestKey()
             },
@@ -320,10 +323,10 @@ struct SolstoneSwiftApp: App {
             }
         )
         let watchRegistration = ObserverRegistration(
-            hostname: UIDevice.current.name,
+            resolveDescriptor: deviceRegistrationDescriptor,
             version: AppVersion.shortVersion,
             streamType: "watch",
-            label: "watch",
+            diagnosticLog: log,
             loadKey: {
                 try ObserverKeychain.loadWatchIngestKey()
             },

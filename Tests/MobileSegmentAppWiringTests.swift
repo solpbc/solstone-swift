@@ -120,10 +120,15 @@ private extension MobileSegmentAppWiringTests {
 
     func registration(streamType: String, label: String? = nil, keys: KeyBoxes) -> ObserverRegistration {
         ObserverRegistration(
-            hostname: "test-device",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-device",
+                    displayName: label ?? "test device",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "0.1.0",
             streamType: streamType,
-            label: label,
             session: URLSession(configuration: .ephemeral),
             loadKey: { try keys.loadKey() },
             saveKey: { try keys.saveKey($0) },

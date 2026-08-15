@@ -14,7 +14,13 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
         let diagnosticLog = DiagnosticLog()
         let observerRegistration = ObserverRegistration(
-            hostname: "test-device",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-device",
+                    displayName: "test device",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "1.0",
             loadKey: { nil },
             saveKey: { _ in },

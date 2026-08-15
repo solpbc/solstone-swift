@@ -287,7 +287,7 @@ struct MoreView: View {
 
             Section("identity") {
                 LabeledContent("owner", value: self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity)
-                LabeledContent("device", value: self.appConfig.deviceID.isEmpty ? "unpaired" : self.appConfig.deviceID)
+                LabeledContent("device", value: DeviceRegistrationDescriptor.currentDisplayName())
             }
 
             Section("about") {

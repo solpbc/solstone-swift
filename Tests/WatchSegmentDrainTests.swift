@@ -419,10 +419,15 @@ private extension WatchSegmentDrainTests {
     @MainActor
     func registration(streamType: String, label: String?, key: String) -> ObserverRegistration {
         ObserverRegistration(
-            hostname: "test-phone",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-phone",
+                    displayName: label ?? "test phone",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "0.1.0",
             streamType: streamType,
-            label: label,
             retryDelays: [],
             sleep: { _ in },
             loadKey: { key },
@@ -437,10 +442,15 @@ private extension WatchSegmentDrainTests {
     @MainActor
     func makeWatchRegistration(loadKey: String?, activeLocalPort: Int?) -> ObserverRegistration {
         let registration = ObserverRegistration(
-            hostname: "test-phone",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-phone",
+                    displayName: "test phone",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "0.1.0",
             streamType: "watch",
-            label: "watch",
             retryDelays: [],
             sleep: { _ in },
             loadKey: { loadKey },

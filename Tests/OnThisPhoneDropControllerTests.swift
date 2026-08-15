@@ -718,10 +718,15 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
     @MainActor
     private static func watchRegistration() -> ObserverRegistration {
         ObserverRegistration(
-            hostname: "test-phone",
+            resolveDescriptor: {
+                DeviceRegistrationDescriptor(
+                    hostname: "test-phone",
+                    displayName: "test phone",
+                    vendorIdentifier: "test-idfv"
+                )
+            },
             version: "0.1.0",
             streamType: "watch",
-            label: "watch",
             loadKey: { "watch-handle-xyz" },
             saveKey: { _ in },
             deleteKey: {},

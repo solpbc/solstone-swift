@@ -55,9 +55,29 @@ final class ObserverRegistration {
         let prefix: String
     }
 
+    private struct RegistrationErrorResponse: Decodable {
+        let reasonCode: String?
+
+        enum CodingKeys: String, CodingKey {
+            case reasonCode = "reason_code"
+        }
+    }
+
+    private enum RegistrationOperation: String, Sendable {
+        case ensure
+        case refresh
+    }
+
+    private struct RegistrationDiagnosticFailure: Sendable {
+        let reason: String
+        let httpStatus: Int?
+        let reasonCode: String?
+    }
+
     private struct RegistrationTaskResult: Sendable {
         let key: String
         let serverConfirmed: Bool
+        let diagnosticFailure: RegistrationDiagnosticFailure?
     }
 
     private(set) var state: State = .idle
@@ -66,10 +86,10 @@ final class ObserverRegistration {
 
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let urlBuilder: @Sendable (Int) -> URL?
-    @ObservationIgnored private let hostname: String
+    @ObservationIgnored private let resolveDescriptor: @MainActor @Sendable () -> DeviceRegistrationDescriptor?
     @ObservationIgnored let version: String
     @ObservationIgnored let streamType: String
-    @ObservationIgnored private let label: String?
+    @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let loadKey: @Sendable () throws -> String?
@@ -81,10 +101,10 @@ final class ObserverRegistration {
     @ObservationIgnored private var registrationTask: Task<RegistrationTaskResult, Error>?
 
     init(
-        hostname: String,
+        resolveDescriptor: @escaping @MainActor @Sendable () -> DeviceRegistrationDescriptor?,
         version: String,
         streamType: String = "mobile",
-        label: String? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
         session: URLSession = .shared,
         urlBuilder: @escaping @Sendable (Int) -> URL? = { ObserverServerURL.registrationURL(localPort: $0) },
         retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000, 8_000_000_000, 16_000_000_000],
@@ -98,10 +118,10 @@ final class ObserverRegistration {
     ) {
         self.session = session
         self.urlBuilder = urlBuilder
-        self.hostname = hostname
+        self.resolveDescriptor = resolveDescriptor
         self.version = version
         self.streamType = streamType
-        self.label = label
+        self.diagnosticLog = diagnosticLog
         self.retryDelays = retryDelays
         self.sleep = sleep
         self.loadKey = loadKey
@@ -128,10 +148,11 @@ final class ObserverRegistration {
             return existing
         }
 
-        return try await self.runRegistrationTask {
+        return try await self.runRegistrationTask(operation: .ensure) { descriptor in
             RegistrationTaskResult(
-                key: try await self.mintRegistration(),
-                serverConfirmed: true
+                key: try await self.mintRegistration(descriptor: descriptor),
+                serverConfirmed: true,
+                diagnosticFailure: nil
             )
         }.key
     }
@@ -143,8 +164,8 @@ final class ObserverRegistration {
     func refreshRegistrationResult() async throws -> ObserverRegistrationRefreshResult {
         let cachedKey = try self.loadKey().flatMap { $0.isEmpty ? nil : $0 }
 
-        let refresh = try await self.runRegistrationTask {
-            try await self.refreshWithServer(cachedKey: cachedKey)
+        let refresh = try await self.runRegistrationTask(operation: .refresh) { descriptor in
+            try await self.refreshWithServer(cachedKey: cachedKey, descriptor: descriptor)
         }
         let change: ObserverRegistrationRefreshChange
         if let cachedKey {
@@ -169,7 +190,7 @@ final class ObserverRegistration {
         return existing
     }
 
-    private func mintRegistration() async throws -> String {
+    private func mintRegistration(descriptor: DeviceRegistrationDescriptor?) async throws -> String {
         self.state = .registering
         // With no local ingest key, any persisted prefix can only be a backup-restored stale
         // prefix; a real key would have taken ensureRegistered()'s fast path.
@@ -177,7 +198,7 @@ final class ObserverRegistration {
 
         let payload: RegistrationResponse
         do {
-            payload = try await self.requestRegistration()
+            payload = try await self.requestRegistration(descriptor: descriptor)
         } catch {
             self.failRegistration(error)
             throw error
@@ -203,14 +224,17 @@ final class ObserverRegistration {
         return payload.key
     }
 
-    private func refreshWithServer(cachedKey: String?) async throws -> RegistrationTaskResult {
+    private func refreshWithServer(
+        cachedKey: String?,
+        descriptor: DeviceRegistrationDescriptor?
+    ) async throws -> RegistrationTaskResult {
         if cachedKey == nil {
             self.state = .registering
         }
 
         let payload: RegistrationResponse
         do {
-            payload = try await self.requestRegistration()
+            payload = try await self.requestRegistration(descriptor: descriptor)
         } catch {
             return try self.finishRefreshFailure(
                 error,
@@ -251,7 +275,8 @@ final class ObserverRegistration {
         if committedKey == payload.key {
             return RegistrationTaskResult(
                 key: self.publishRefreshedRegistration(committedKey),
-                serverConfirmed: true
+                serverConfirmed: true,
+                diagnosticFailure: nil
             )
         }
 
@@ -268,7 +293,8 @@ final class ObserverRegistration {
         )
         return RegistrationTaskResult(
             key: self.publishRefreshedRegistration(committedKey),
-            serverConfirmed: true
+            serverConfirmed: true,
+            diagnosticFailure: nil
         )
     }
 
@@ -287,7 +313,12 @@ final class ObserverRegistration {
         return committedKey
     }
 
-    private func requestRegistration() async throws -> RegistrationResponse {
+    private func requestRegistration(
+        descriptor: DeviceRegistrationDescriptor?
+    ) async throws -> RegistrationResponse {
+        guard let descriptor else {
+            throw ObserverRegistrationError.missingVendorIdentifier
+        }
         guard let localPort = self.activeLocalPort else {
             throw ObserverRegistrationError.missingLocalPort
         }
@@ -296,7 +327,7 @@ final class ObserverRegistration {
             throw ObserverRegistrationError.invalidURL
         }
 
-        var lastError = "observer registration failed"
+        var terminalError: Error = ObserverRegistrationError.registrationFailed("observer registration failed")
         for (index, delay) in self.retryDelays.enumerated() {
             try Task.checkCancellation()
 
@@ -306,35 +337,34 @@ final class ObserverRegistration {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = try JSONEncoder().encode(RegistrationRequest(
                     platform: "ios",
-                    hostname: self.hostname,
+                    hostname: descriptor.hostname,
                     streamType: self.streamType,
                     version: self.version,
-                    label: self.label
+                    label: descriptor.displayName
                 ))
 
                 let (data, response) = try await self.session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
-                    lastError = "invalid response"
                     throw ObserverRegistrationError.invalidResponse
                 }
                 guard 200..<300 ~= http.statusCode else {
-                    lastError = "HTTP \(http.statusCode)"
-                    throw ObserverRegistrationError.http(http.statusCode)
+                    let decoded = try? JSONDecoder().decode(RegistrationErrorResponse.self, from: data)
+                    throw ObserverRegistrationError.http(
+                        http.statusCode,
+                        reasonCode: Self.allowedReasonCode(decoded?.reasonCode)
+                    )
                 }
 
                 guard !data.isEmpty else {
-                    lastError = "empty response"
                     throw ObserverRegistrationError.emptyResponse
                 }
                 let payload: RegistrationResponse
                 do {
                     payload = try JSONDecoder().decode(RegistrationResponse.self, from: data)
                 } catch {
-                    lastError = "decode failed"
                     throw ObserverRegistrationError.invalidResponse
                 }
                 guard !payload.key.isEmpty else {
-                    lastError = "empty key"
                     throw ObserverRegistrationError.emptyKey
                 }
                 return payload
@@ -344,8 +374,10 @@ final class ObserverRegistration {
                 if Task.isCancelled {
                     throw CancellationError()
                 }
-                if !(error is ObserverRegistrationError) {
-                    lastError = "transport error"
+                if let registrationError = error as? ObserverRegistrationError {
+                    terminalError = registrationError
+                } else {
+                    terminalError = ObserverRegistrationError.registrationFailed("transport error")
                 }
                 if index == self.retryDelays.count - 1 {
                     break
@@ -355,7 +387,7 @@ final class ObserverRegistration {
             }
         }
 
-        throw ObserverRegistrationError.registrationFailed(lastError)
+        throw terminalError
     }
 
     func reset() {
@@ -377,14 +409,34 @@ final class ObserverRegistration {
 
 private extension ObserverRegistration {
     private func runRegistrationTask(
-        _ operation: @escaping @MainActor @Sendable () async throws -> RegistrationTaskResult
+        operation: RegistrationOperation,
+        _ body: @escaping @MainActor @Sendable (DeviceRegistrationDescriptor?) async throws -> RegistrationTaskResult
     ) async throws -> RegistrationTaskResult {
         if let registrationTask = self.registrationTask {
             return try await registrationTask.value
         }
 
         let registrationTask = Task { @MainActor in
-            try await operation()
+            let descriptor = self.resolveDescriptor()
+            do {
+                let result = try await body(descriptor)
+                self.emitRegistrationDiagnostic(
+                    operation: operation,
+                    descriptor: descriptor,
+                    result: result
+                )
+                return result
+            } catch {
+                if error is CancellationError || Task.isCancelled {
+                    throw CancellationError()
+                }
+                self.emitRegistrationDiagnostic(
+                    operation: operation,
+                    descriptor: descriptor,
+                    failure: Self.diagnosticFailure(for: error)
+                )
+                throw error
+            }
         }
         self.registrationTask = registrationTask
 
@@ -414,7 +466,11 @@ private extension ObserverRegistration {
     ) throws -> RegistrationTaskResult {
         if let cachedKey {
             self.logRefreshFailure(reason: reason)
-            return RegistrationTaskResult(key: cachedKey, serverConfirmed: false)
+            return RegistrationTaskResult(
+                key: cachedKey,
+                serverConfirmed: false,
+                diagnosticFailure: Self.diagnosticFailure(for: error)
+            )
         }
         self.failRegistration(reason: reason)
         throw error
@@ -426,6 +482,8 @@ private extension ObserverRegistration {
 
     func failureReason(for error: Error) -> String {
         switch error {
+        case ObserverRegistrationError.missingVendorIdentifier:
+            "observer registration unavailable: missing vendor identifier"
         case ObserverRegistrationError.missingLocalPort:
             "observer registration unavailable: missing active local port"
         case ObserverRegistrationError.invalidURL:
@@ -438,13 +496,137 @@ private extension ObserverRegistration {
             "empty key"
         case ObserverRegistrationError.keyCommitReadBackMismatch:
             "key commit read-back mismatch"
-        case ObserverRegistrationError.http(let status):
+        case ObserverRegistrationError.http(let status, _):
             "HTTP \(status)"
         case ObserverRegistrationError.registrationFailed(let reason):
             reason
         default:
             "unexpected registration error"
         }
+    }
+
+    private static func allowedReasonCode(_ value: String?) -> String? {
+        guard let value,
+              [
+                  "invalid_segment_or_stream",
+                  "local_request_only",
+                  "missing_required_field",
+                  "settings_operation_failed",
+                  "pl_revoked",
+              ].contains(value)
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private static func diagnosticFailure(for error: Error) -> RegistrationDiagnosticFailure {
+        switch error {
+        case ObserverRegistrationError.missingVendorIdentifier:
+            RegistrationDiagnosticFailure(reason: "missing_vendor_identifier", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.missingLocalPort:
+            RegistrationDiagnosticFailure(reason: "missing_local_port", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.invalidURL:
+            RegistrationDiagnosticFailure(reason: "invalid_url", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.invalidResponse:
+            RegistrationDiagnosticFailure(reason: "invalid_response", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.emptyResponse:
+            RegistrationDiagnosticFailure(reason: "empty_response", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.emptyKey:
+            RegistrationDiagnosticFailure(reason: "empty_key", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.keyCommitReadBackMismatch:
+            RegistrationDiagnosticFailure(reason: "key_commit_read_back_mismatch", httpStatus: nil, reasonCode: nil)
+        case ObserverRegistrationError.http(let status, let reasonCode):
+            RegistrationDiagnosticFailure(reason: "http", httpStatus: status, reasonCode: reasonCode)
+        case ObserverRegistrationError.registrationFailed(let reason):
+            RegistrationDiagnosticFailure(
+                reason: reason == "transport error" ? "transport_error" : "registration_failed",
+                httpStatus: nil,
+                reasonCode: nil
+            )
+        default:
+            RegistrationDiagnosticFailure(reason: "unexpected_error", httpStatus: nil, reasonCode: nil)
+        }
+    }
+
+    private func emitRegistrationDiagnostic(
+        operation: RegistrationOperation,
+        descriptor: DeviceRegistrationDescriptor?,
+        result: RegistrationTaskResult
+    ) {
+        if let failure = result.diagnosticFailure {
+            self.emitRegistrationDiagnostic(
+                operation: operation,
+                descriptor: descriptor,
+                failure: failure,
+                retainedKey: result.key
+            )
+            return
+        }
+        self.diagnosticLog?.append(
+            category: .network,
+            message: "journal registration succeeded",
+            detail: self.registrationDiagnosticDetail(
+                operation: operation,
+                outcome: "success",
+                descriptor: descriptor,
+                prefix: String(result.key.prefix(8)),
+                failure: nil
+            )
+        )
+    }
+
+    private func emitRegistrationDiagnostic(
+        operation: RegistrationOperation,
+        descriptor: DeviceRegistrationDescriptor?,
+        failure: RegistrationDiagnosticFailure,
+        retainedKey: String? = nil
+    ) {
+        self.diagnosticLog?.append(
+            category: .network,
+            severity: retainedKey == nil ? .error : .warning,
+            message: retainedKey == nil
+                ? "journal registration failed"
+                : "journal registration refresh failed",
+            detail: self.registrationDiagnosticDetail(
+                operation: operation,
+                outcome: retainedKey == nil ? "failure" : "saved_key_retained",
+                descriptor: descriptor,
+                prefix: retainedKey.map { String($0.prefix(8)) },
+                failure: failure
+            )
+        )
+    }
+
+    private func registrationDiagnosticDetail(
+        operation: RegistrationOperation,
+        outcome: String,
+        descriptor: DeviceRegistrationDescriptor?,
+        prefix: String?,
+        failure: RegistrationDiagnosticFailure?
+    ) -> String {
+        var fields = [
+            "source=\(self.streamType)",
+            "operation=\(operation.rawValue)",
+            "outcome=\(outcome)",
+        ]
+        if let descriptor {
+            fields.append("hostname=\(descriptor.hostname)")
+            fields.append("idfv=\(descriptor.vendorIdentifier)")
+        }
+        if let prefix {
+            fields.append("prefix=\(prefix)")
+        }
+        if let failure {
+            fields.append("reason=\(failure.reason)")
+            if let status = failure.httpStatus {
+                fields.append("http=\(status)")
+            }
+            if let reasonCode = failure.reasonCode {
+                fields.append("reason_code=\(reasonCode)")
+            }
+        }
+        return fields.joined(separator: " ")
     }
 
     func restorePersistedState() {
@@ -473,12 +655,13 @@ private extension ObserverRegistration {
 }
 
 enum ObserverRegistrationError: Error {
+    case missingVendorIdentifier
     case missingLocalPort
     case invalidURL
     case invalidResponse
     case emptyResponse
     case emptyKey
     case keyCommitReadBackMismatch
-    case http(Int)
+    case http(Int, reasonCode: String?)
     case registrationFailed(String)
 }

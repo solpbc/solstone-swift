@@ -220,8 +220,8 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
     }
 
     func testKeychainAccountIsolation() {
-        XCTAssertEqual(ObserverKeychain.observerIngestKeyAccount, "solstone-swift-observer-ingest-key")
-        XCTAssertEqual(ObserverKeychain.omiIngestKeyAccount, "solstone-swift-omi-ingest-key")
+        XCTAssertEqual(ObserverKeychain.observerIngestKeyAccount, "solstone-swift-observer-ingest-key-v2")
+        XCTAssertEqual(ObserverKeychain.omiIngestKeyAccount, "solstone-swift-omi-ingest-key-v2")
         XCTAssertNotEqual(ObserverKeychain.observerIngestKeyAccount, ObserverKeychain.omiIngestKeyAccount)
     }
 

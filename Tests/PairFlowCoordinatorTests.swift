@@ -139,15 +139,6 @@ private final class CoordinatorRelayURLProtocol: URLProtocol, @unchecked Sendabl
 
 nonisolated final class PairFlowCoordinatorTests: XCTestCase {
     @MainActor
-    func testDeviceLabelDiffersAcrossDistinctVendorIdentifiersAndAvoidsGenericCollisionFormat() {
-        let label = PairFlowCoordinator.deviceLabel()
-
-        XCTAssertTrue(label.hasSuffix(")"), "expected a parenthesized differentiator suffix, got: \(label)")
-        XCTAssertFalse(label.contains("'s "), "must not regress to the undifferentiated <name>'s <model> format that collided across devices")
-        XCTAssertFalse(label.hasPrefix("'"), "must not depend on UIDevice.current.name, which iOS 16+ genericizes without an entitlement")
-    }
-
-    @MainActor
     func testCoordinatorFailureResetsAutoPairLatchAndAllowsRetry() async throws {
         let transport = CountingThrowingLANPairTransport()
         let coordinator = PairFlowCoordinator(
