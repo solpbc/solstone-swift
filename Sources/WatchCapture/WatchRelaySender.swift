@@ -33,6 +33,7 @@ final class WatchRelaySender {
     private let session: any WatchConnectivitySession
     private let diagnosticsStore: WatchRelayDiagnosticsStore?
     private let recoveryRouteStore: WatchRelayRecoveryRouteStore
+    private let recoveryLeaseStore: WatchRelayRecoveryLeaseStore
     private let clock: @MainActor @Sendable () -> Date
 
     init(
@@ -40,12 +41,14 @@ final class WatchRelaySender {
         session: any WatchConnectivitySession,
         diagnosticsStore: WatchRelayDiagnosticsStore? = nil,
         recoveryRouteStore: WatchRelayRecoveryRouteStore? = nil,
+        recoveryLeaseStore: WatchRelayRecoveryLeaseStore? = nil,
         clock: @escaping @MainActor @Sendable () -> Date = Date.init
     ) {
         self.storage = storage
         self.session = session
         self.diagnosticsStore = diagnosticsStore
         self.recoveryRouteStore = recoveryRouteStore ?? WatchRelayRecoveryRouteStore(storage: storage)
+        self.recoveryLeaseStore = recoveryLeaseStore ?? WatchRelayRecoveryLeaseStore(storage: storage)
         self.clock = clock
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
@@ -69,7 +72,7 @@ final class WatchRelaySender {
                 }
             }
 
-            self.recoveryRouteStore.establishRecord()
+            let recoveryRoute = self.recoveryRouteStore.establishRecord()
 
             guard self.session.activationState == .activated else { return }
 
@@ -77,6 +80,17 @@ final class WatchRelaySender {
             let observations = self.session.outstandingFileTransfers
             let outstanding = self.groupedOutstandingFileTransfers(observations)
             self.recordQueueReconciliation(entries: refreshedEntries, observations: observations)
+            let recoveryLeaseCandidates: [UUID: WatchRelayRecoveryLeaseCandidate]
+            if let recoveryRoute {
+                recoveryLeaseCandidates = self.reconcileRecoveryLeases(
+                    entries: refreshedEntries,
+                    outstanding: outstanding.grouped,
+                    route: recoveryRoute
+                )
+            } else {
+                recoveryLeaseCandidates = [:]
+            }
+            _ = recoveryLeaseCandidates
             var manifestStatesByID: [UUID: WatchSegmentState] = [:]
             for entry in refreshedEntries {
                 manifestStatesByID[entry.manifest.id] = entry.manifest.state
@@ -84,22 +98,32 @@ final class WatchRelaySender {
 
             for entry in refreshedEntries {
                 let group = outstanding.grouped[entry.manifest.id] ?? []
-                switch entry.manifest.state {
-                case .queued:
-                    if group.isEmpty {
-                        try self.promoteAndTransfer(entry: entry)
-                    } else {
-                        try self.adoptAsTransferring(entry)
-                        self.cancelRedundant(group)
+                do {
+                    switch entry.manifest.state {
+                    case .queued:
+                        if group.isEmpty {
+                            try self.promoteAndTransfer(entry: entry, recoveryRoute: recoveryRoute)
+                        } else {
+                            try self.adoptAsTransferring(entry)
+                            self.cancelRedundant(group)
+                        }
+                    case .transferring:
+                        if group.isEmpty {
+                            try self.transfer(
+                                directoryURL: entry.directoryURL,
+                                manifest: entry.manifest,
+                                recoveryRoute: recoveryRoute
+                            )
+                        } else {
+                            self.cancelRedundant(group)
+                        }
+                    case .captured, .persisted, .finalized, .delivered, .acked, .safeToDelete:
+                        break
                     }
-                case .transferring:
-                    if group.isEmpty {
-                        try self.transfer(directoryURL: entry.directoryURL, manifest: entry.manifest)
-                    } else {
-                        self.cancelRedundant(group)
-                    }
-                case .captured, .persisted, .finalized, .delivered, .acked, .safeToDelete:
-                    break
+                } catch {
+                    watchRelaySenderLog.error(
+                        "watch relay segment drain failed id=\(entry.manifest.id.uuidString, privacy: .public): \(String(describing: error), privacy: .private)"
+                    )
                 }
             }
 
@@ -125,6 +149,31 @@ final class WatchRelaySender {
     func bundleURL(for id: UUID) -> URL {
         self.bundleDirectoryURL()
             .appendingPathComponent("\(id.uuidString).watchrelay", isDirectory: false)
+    }
+}
+
+extension WatchRelaySender {
+    func reconcileRecoveryLeases(
+        entries: [WatchCaptureStorage.ManifestEntry],
+        outstanding: [UUID?: [WatchConnectivityFileTransferObservation]],
+        route: WatchRelayRecoveryRouteRecord
+    ) -> [UUID: WatchRelayRecoveryLeaseCandidate] {
+        var candidates: [UUID: WatchRelayRecoveryLeaseCandidate] = [:]
+        for entry in entries where entry.manifest.state == .queued || entry.manifest.state == .transferring {
+            let observations = outstanding[entry.manifest.id] ?? []
+            guard let candidate = self.recoveryLeaseStore.reconcile(
+                manifest: entry.manifest,
+                directoryURL: entry.directoryURL,
+                observations: observations,
+                route: route,
+                diagnosticsStore: self.diagnosticsStore,
+                now: self.clock()
+            ) else {
+                continue
+            }
+            candidates[entry.manifest.id] = candidate
+        }
+        return candidates
     }
 }
 
@@ -250,12 +299,19 @@ private extension WatchRelaySender {
         self.notifyStateChanged()
     }
 
-    func promoteAndTransfer(entry: WatchCaptureStorage.ManifestEntry) throws {
+    func promoteAndTransfer(
+        entry: WatchCaptureStorage.ManifestEntry,
+        recoveryRoute: WatchRelayRecoveryRouteRecord?
+    ) throws {
         var manifest = entry.manifest
         manifest.state = .transferring
         try self.storage.writeManifest(manifest, in: entry.directoryURL)
         self.notifyStateChanged()
-        try self.transfer(directoryURL: entry.directoryURL, manifest: manifest)
+        try self.transfer(
+            directoryURL: entry.directoryURL,
+            manifest: manifest,
+            recoveryRoute: recoveryRoute
+        )
     }
 
     func adoptAsTransferring(_ entry: WatchCaptureStorage.ManifestEntry) throws {
@@ -266,7 +322,11 @@ private extension WatchRelaySender {
         self.notifyStateChanged()
     }
 
-    func transfer(directoryURL: URL, manifest: WatchSegmentManifest) throws {
+    func transfer(
+        directoryURL: URL,
+        manifest: WatchSegmentManifest,
+        recoveryRoute: WatchRelayRecoveryRouteRecord?
+    ) throws {
         let bundleURL = self.bundleURL(for: manifest.id)
         try? self.storage.fileWriter.removeItem(at: bundleURL)
         try WatchSegmentBundleCodec.writeBundle(
@@ -274,25 +334,36 @@ private extension WatchRelaySender {
             storage: self.storage,
             to: bundleURL
         )
+        let attemptStartedAt = self.clock()
         let attemptRecord = WatchRelayAttemptRecord(
             segmentID: manifest.id,
             generation: 0,
             attemptID: UUID(),
-            attemptStartedAt: self.clock()
+            attemptStartedAt: attemptStartedAt
         )
         let attemptURL = self.attemptURL(directoryURL: directoryURL)
         do {
             let data = try WatchRelayAttemptRecord.makeEncoder().encode(attemptRecord)
             try self.storage.fileWriter.writeData(data, to: attemptURL, options: .atomic)
-            self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest, attempt: attemptRecord.tag))
         } catch {
-            try? self.storage.fileWriter.removeItem(at: attemptURL)
             let failure = WatchConnectivityTransferFailureSnapshot(error: error)
             watchRelaySenderLog.error(
                 "watch relay attempt record write failed id=\(manifest.id.uuidString, privacy: .public): \(failure.boundedRedactedDescription, privacy: .public)"
             )
-            self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest))
+            return
         }
+        if let recoveryRoute {
+            self.recoveryLeaseStore.recordNewTaggedLease(
+                manifest: manifest,
+                directoryURL: directoryURL,
+                attempt: attemptRecord,
+                route: recoveryRoute
+            )
+        }
+        self.session.transferFile(
+            bundleURL,
+            metadata: WatchSegmentBundleCodec.metadata(for: manifest, attempt: attemptRecord.tag)
+        )
         self.diagnosticsStore?.recordEnqueue(
             manifest: manifest,
             directoryURL: directoryURL,

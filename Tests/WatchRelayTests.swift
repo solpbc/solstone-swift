@@ -834,7 +834,7 @@ final class WatchRelayTests: XCTestCase {
         let second = session.transferredFiles[1].1
         XCTAssertEqual(first["generation"] as? Int, 0)
         XCTAssertEqual(second["generation"] as? Int, 0)
-        XCTAssertEqual(first["attempt_started_at"] as? String, second["attempt_started_at"] as? String)
+        XCTAssertEqual(first["attempt_started_at"] as? Double, second["attempt_started_at"] as? Double)
         XCTAssertNotEqual(first["attempt_id"] as? String, second["attempt_id"] as? String)
     }
 
@@ -856,26 +856,84 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .delivered)
     }
 
-    func testAttemptRecordWriteFailureFallsBackToLegacyTransferAndContinuesDrain() throws {
+    func testAttemptRecordWriteFailureFailsClosedAndContinuesHealthySibling() throws {
         let writer = FailingWatchFileWriter(failAppend: false)
         let storage = try self.makeStorage("attempt-write-failure", fileWriter: writer)
         let firstID = UUID()
         let secondID = UUID()
         let firstDirectory = try self.writeSegment(storage: storage, id: firstID, index: 0)
         _ = try self.writeSegment(storage: storage, id: secondID, index: 1)
+        let firstManifest = try XCTUnwrap(try storage.scanManifests().first { $0.manifest.id == firstID }?.manifest)
+        let diagnostics = WatchRelayDiagnosticsStore(storage: storage)
+        let continuityAt = Date(timeIntervalSince1970: 2_000_000_000)
+        diagnostics.recordEnqueue(
+            manifest: firstManifest,
+            directoryURL: firstDirectory,
+            bundleURL: storage.audioURL(directory: firstDirectory),
+            at: continuityAt
+        )
+        let routeStore = WatchRelayRecoveryRouteStore(storage: storage)
+        let route = try XCTUnwrap(routeStore.establishRecord())
+        let leaseStore = WatchRelayRecoveryLeaseStore(storage: storage)
+        let staleLegacyLease = WatchRelayRecoveryLeaseRecord.legacy(
+            segmentID: firstID,
+            latestEnqueuedAt: continuityAt,
+            attemptCount: 1,
+            leaseStartedAt: continuityAt.addingTimeInterval(-3_600),
+            route: route
+        )
+        try writer.writeData(
+            try WatchRelayRecoveryLeaseRecord.makeEncoder().encode(staleLegacyLease),
+            to: leaseStore.leaseURL(directoryURL: firstDirectory),
+            options: .atomic
+        )
         let session = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(storage: storage, session: session)
+        let sender = WatchRelaySender(
+            storage: storage,
+            session: session,
+            diagnosticsStore: diagnostics,
+            recoveryRouteStore: routeStore,
+            recoveryLeaseStore: leaseStore
+        )
         writer.failNextWriteData(at: firstDirectory.appendingPathComponent(WatchRelayAttemptRecord.filename))
         session.activate()
 
         sender.drain()
 
-        XCTAssertEqual(session.transferredFiles.count, 2)
-        XCTAssertNil(session.transferredFiles[0].1["generation"])
-        XCTAssertNil(session.transferredFiles[0].1["attempt_id"])
-        XCTAssertNil(session.transferredFiles[0].1["attempt_started_at"])
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        XCTAssertEqual(session.transferredFiles[0].1["id"] as? String, secondID.uuidString)
+        XCTAssertEqual(session.transferredFiles[0].1["generation"] as? Int, 0)
         XCTAssertFalse(writer.fileExists(at: firstDirectory.appendingPathComponent(WatchRelayAttemptRecord.filename)))
-        XCTAssertEqual(session.transferredFiles[1].1["generation"] as? Int, 0)
+        XCTAssertEqual(try self.manifestState(storage: storage, id: firstID), .transferring)
+        XCTAssertEqual(
+            try WatchRelayRecoveryLeaseRecord.makeDecoder().decode(
+                WatchRelayRecoveryLeaseRecord.self,
+                from: writer.readData(from: leaseStore.leaseURL(directoryURL: firstDirectory))
+            ),
+            staleLegacyLease
+        )
+
+        let relaunchedSession = MockWatchConnectivitySession()
+        let relaunched = WatchRelaySender(
+            storage: storage,
+            session: relaunchedSession,
+            diagnosticsStore: diagnostics,
+            recoveryRouteStore: routeStore,
+            recoveryLeaseStore: leaseStore
+        )
+        relaunchedSession.activate()
+        relaunched.drain()
+        let retried = try XCTUnwrap(relaunchedSession.transferredFiles.first { transfer in
+            transfer.1["id"] as? String == firstID.uuidString
+        })
+        XCTAssertEqual(retried.1["generation"] as? Int, 0)
+        XCTAssertNotNil(retried.1["attempt_id"] as? String)
+        let replacement = try WatchRelayRecoveryLeaseRecord.makeDecoder().decode(
+            WatchRelayRecoveryLeaseRecord.self,
+            from: writer.readData(from: leaseStore.leaseURL(directoryURL: firstDirectory))
+        )
+        XCTAssertEqual(replacement.kind, .tagged)
+        XCTAssertNotEqual(replacement, staleLegacyLease)
     }
 
     func testRouteEvidenceCountsSuccessAndOnlyFirstDurableACK() throws {
