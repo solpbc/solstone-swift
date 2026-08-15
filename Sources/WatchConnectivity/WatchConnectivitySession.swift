@@ -498,12 +498,14 @@ private extension LiveWatchConnectivitySession {
         guard let rawValue else {
             return (nil, .missing)
         }
-        guard let string = rawValue as? String,
-              let date = ISO8601DateFormatter().date(from: string)
-        else {
-            return (nil, .unparseable)
+        if let seconds = rawValue as? Double, seconds.isFinite {
+            return (Date(timeIntervalSince1970: seconds), .parseable)
         }
-        return (date, .parseable)
+        if let string = rawValue as? String,
+           let date = ISO8601DateFormatter().date(from: string) {
+            return (date, .parseable)
+        }
+        return (nil, .unparseable)
     }
 
     nonisolated static func userInfoType(from rawValue: Any?) -> WatchConnectivityUserInfoTransferType? {

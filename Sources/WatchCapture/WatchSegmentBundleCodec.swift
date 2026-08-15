@@ -110,7 +110,7 @@ enum WatchSegmentBundleCodec {
         if let attempt {
             metadata["generation"] = attempt.generation
             metadata["attempt_id"] = attempt.attemptID.uuidString
-            metadata["attempt_started_at"] = ISO8601DateFormatter().string(from: attempt.attemptStartedAt)
+            metadata["attempt_started_at"] = attempt.attemptStartedAt.timeIntervalSince1970
         }
         return metadata
     }

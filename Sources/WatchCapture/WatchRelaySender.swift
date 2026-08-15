@@ -32,17 +32,20 @@ final class WatchRelaySender {
     private let storage: WatchCaptureStorage
     private let session: any WatchConnectivitySession
     private let diagnosticsStore: WatchRelayDiagnosticsStore?
+    private let recoveryRouteStore: WatchRelayRecoveryRouteStore
     private let clock: @MainActor @Sendable () -> Date
 
     init(
         storage: WatchCaptureStorage,
         session: any WatchConnectivitySession,
         diagnosticsStore: WatchRelayDiagnosticsStore? = nil,
+        recoveryRouteStore: WatchRelayRecoveryRouteStore? = nil,
         clock: @escaping @MainActor @Sendable () -> Date = Date.init
     ) {
         self.storage = storage
         self.session = session
         self.diagnosticsStore = diagnosticsStore
+        self.recoveryRouteStore = recoveryRouteStore ?? WatchRelayRecoveryRouteStore(storage: storage)
         self.clock = clock
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
@@ -65,6 +68,8 @@ final class WatchRelaySender {
                     break
                 }
             }
+
+            self.recoveryRouteStore.establishRecord()
 
             guard self.session.activationState == .activated else { return }
 
@@ -169,6 +174,7 @@ private extension WatchRelaySender {
             manifest.deliveredAt = self.clock()
             try self.storage.writeManifest(manifest, in: entry.directoryURL)
             self.notifyStateChanged()
+            self.recoveryRouteStore.recordSuccessfulTransfer()
             self.diagnosticsStore?.recordTransferCompletion(
                 manifest: manifest,
                 directoryURL: entry.directoryURL,
@@ -189,10 +195,12 @@ private extension WatchRelaySender {
         }
 
         var manifest = entry.manifest
-        if manifest.state != .acked, manifest.state != .safeToDelete {
+        let newlyAppliedACK = manifest.state != .acked && manifest.state != .safeToDelete
+        if newlyAppliedACK {
             manifest.state = .acked
             try self.storage.writeManifest(manifest, in: entry.directoryURL)
             self.notifyStateChanged()
+            self.recoveryRouteStore.recordDurableACK()
         }
         self.diagnosticsStore?.recordDurableACK(
             manifest: manifest,

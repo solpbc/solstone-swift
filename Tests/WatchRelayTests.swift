@@ -878,6 +878,47 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(session.transferredFiles[1].1["generation"] as? Int, 0)
     }
 
+    func testRouteEvidenceCountsSuccessAndOnlyFirstDurableACK() throws {
+        let storage = try self.makeStorage("route-evidence-events")
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0, state: .transferring)
+        let session = MockWatchConnectivitySession()
+        let routeStore = WatchRelayRecoveryRouteStore(storage: storage)
+        let sender = WatchRelaySender(storage: storage, session: session, recoveryRouteStore: routeStore)
+
+        session.finishTransfer(id: id, failure: nil)
+        var record = try XCTUnwrap(routeStore.establishRecord())
+        XCTAssertEqual(record.successfulTransferGeneration, 1)
+        XCTAssertEqual(record.durableACKGeneration, 0)
+
+        let ack = WatchRelayACK.userInfo(id: id)
+        session.deliverUserInfo(ack)
+        record = try XCTUnwrap(routeStore.establishRecord())
+        XCTAssertEqual(record.successfulTransferGeneration, 1)
+        XCTAssertEqual(record.durableACKGeneration, 1)
+
+        session.deliverUserInfo(ack)
+        record = try XCTUnwrap(routeStore.establishRecord())
+        XCTAssertEqual(record.successfulTransferGeneration, 1)
+        XCTAssertEqual(record.durableACKGeneration, 1)
+    }
+
+    func testTransferFailureDoesNotAdvanceRouteSuccessGeneration() throws {
+        let storage = try self.makeStorage("route-evidence-failure")
+        let id = UUID()
+        _ = try self.writeSegment(storage: storage, id: id, index: 0, state: .transferring)
+        let session = MockWatchConnectivitySession()
+        let routeStore = WatchRelayRecoveryRouteStore(storage: storage)
+        let sender = WatchRelaySender(storage: storage, session: session, recoveryRouteStore: routeStore)
+
+        session.finishTransfer(id: id, failure: Self.transferFailure("offline"))
+        withExtendedLifetime(sender) {}
+
+        let record = try XCTUnwrap(routeStore.establishRecord())
+        XCTAssertEqual(record.successfulTransferGeneration, 0)
+        XCTAssertEqual(record.durableACKGeneration, 0)
+    }
+
     func testOwnerPresentationRelayStrings() {
         let queued = WatchCaptureOwnerPresentation(status: .off, queuedCount: 1)
         XCTAssertEqual(queued.headline, "saved on your watch")

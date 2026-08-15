@@ -41,10 +41,52 @@ nonisolated struct WatchRelayAttemptRecord: Codable, Equatable, Sendable {
         )
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case segmentID
+        case generation
+        case attemptID
+        case attemptStartedAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.version = try container.decode(Int.self, forKey: .version)
+        self.segmentID = try container.decode(UUID.self, forKey: .segmentID)
+        self.generation = try container.decode(Int.self, forKey: .generation)
+        self.attemptID = try container.decode(UUID.self, forKey: .attemptID)
+        if let seconds = try? container.decode(Double.self, forKey: .attemptStartedAt),
+           seconds.isFinite {
+            self.attemptStartedAt = Date(timeIntervalSince1970: seconds)
+        } else {
+            let string = try container.decode(String.self, forKey: .attemptStartedAt)
+            guard let date = ISO8601DateFormatter().date(from: string) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .attemptStartedAt,
+                    in: container,
+                    debugDescription: "invalid attempt timestamp"
+                )
+            }
+            self.attemptStartedAt = date
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.version, forKey: .version)
+        try container.encode(self.segmentID, forKey: .segmentID)
+        try container.encode(self.generation, forKey: .generation)
+        try container.encode(self.attemptID, forKey: .attemptID)
+        try container.encode(self.attemptStartedAt.timeIntervalSince1970, forKey: .attemptStartedAt)
+    }
+
     static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         return encoder
+    }
+
+    static func makeDecoder() -> JSONDecoder {
+        JSONDecoder()
     }
 }
