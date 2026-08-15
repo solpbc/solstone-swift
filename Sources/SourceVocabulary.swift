@@ -367,6 +367,9 @@ nonisolated enum SourceVocabulary {
         "details · watch \(watchWaiting) · iphone \(phoneWaiting) waiting"
     }
 
+    static let watchRetryTransfers = "try sending again"
+    static let watchRetryTransfersHint = "asks your watch to retry anything still waiting"
+
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"
     private static let notConnectedRowAffordancePaired = "opens when your journal reconnects."

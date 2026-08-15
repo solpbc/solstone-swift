@@ -53,6 +53,7 @@ nonisolated struct WatchRelayDiagnosticsSummaryFile: Codable, Equatable, Sendabl
     var lastQueueReconciliationObservation: WatchRelayQueueReconciliationFact?
     var lastBackgroundWakeCompletion: WatchRelayBackgroundWakeFact?
     var lastBackgroundWakeDeadline: WatchRelayBackgroundWakeFact?
+    var lastManualRetry: WatchRelayManualRetryFact?
 
     static let empty = WatchRelayDiagnosticsSummaryFile(
         version: Self.currentVersion,
@@ -62,7 +63,8 @@ nonisolated struct WatchRelayDiagnosticsSummaryFile: Codable, Equatable, Sendabl
         lastDurableACK: nil,
         lastQueueReconciliationObservation: nil,
         lastBackgroundWakeCompletion: nil,
-        lastBackgroundWakeDeadline: nil
+        lastBackgroundWakeDeadline: nil,
+        lastManualRetry: nil
     )
 
     var lastFactsSummary: WatchRelayLastFactsSummary {
@@ -73,7 +75,8 @@ nonisolated struct WatchRelayDiagnosticsSummaryFile: Codable, Equatable, Sendabl
             lastDurableACK: self.lastDurableACK,
             lastQueueReconciliationObservation: self.lastQueueReconciliationObservation,
             lastBackgroundWakeCompletion: self.lastBackgroundWakeCompletion,
-            lastBackgroundWakeDeadline: self.lastBackgroundWakeDeadline
+            lastBackgroundWakeDeadline: self.lastBackgroundWakeDeadline,
+            lastManualRetry: self.lastManualRetry
         )
     }
 }
@@ -242,6 +245,24 @@ final class WatchRelayDiagnosticsStore {
         }
     }
 
+    func recordManualRetry(
+        activeManifestCount: Int,
+        observedFileTransferCount: Int,
+        cancelledCount: Int,
+        at date: Date
+    ) {
+        self.performWrite("manual retry", segmentID: nil) {
+            var summary = self.summaryForUpdate()
+            summary.lastManualRetry = WatchRelayManualRetryFact(
+                at: date,
+                activeManifestCount: activeManifestCount,
+                observedFileTransferCount: observedFileTransferCount,
+                cancelledCount: cancelledCount
+            )
+            try self.writeSummary(summary)
+        }
+    }
+
     func recordBackgroundWake(
         reason: String,
         heldTaskCount: Int,
@@ -399,6 +420,7 @@ private extension WatchRelayDiagnosticsStore {
         try self.validateQueueReconciliation(summary.lastQueueReconciliationObservation)
         try self.validateBackgroundWake(summary.lastBackgroundWakeCompletion)
         try self.validateBackgroundWake(summary.lastBackgroundWakeDeadline)
+        try self.validateManualRetry(summary.lastManualRetry)
     }
 
     nonisolated static func validateSegmentLastFacts(_ facts: WatchRelaySegmentLastFacts) throws {
@@ -439,6 +461,18 @@ private extension WatchRelayDiagnosticsStore {
         try self.validateCounter(fact.heldTaskCount)
         try self.validateCounter(fact.completedTaskCount)
         try self.validateCounter(fact.deadlineCount)
+    }
+
+    nonisolated static func validateManualRetry(_ fact: WatchRelayManualRetryFact?) throws {
+        guard let fact else { return }
+        try self.validateCounter(fact.activeManifestCount)
+        try self.validateCounter(fact.observedFileTransferCount)
+        try self.validateCounter(fact.cancelledCount)
+        guard fact.cancelledCount <= fact.activeManifestCount,
+              fact.cancelledCount <= fact.observedFileTransferCount
+        else {
+            throw WatchRelayDiagnosticsStoreError.invalidNumericInvariant
+        }
     }
 
     nonisolated static func validateCounter(_ value: Int) throws {

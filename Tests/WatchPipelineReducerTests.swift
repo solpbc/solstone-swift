@@ -1347,7 +1347,8 @@ private extension WatchPipelineReducerTests {
                 lastDurableACK: nil,
                 lastQueueReconciliationObservation: nil,
                 lastBackgroundWakeCompletion: nil,
-                lastBackgroundWakeDeadline: nil
+                lastBackgroundWakeDeadline: nil,
+                lastManualRetry: nil
             )),
             observedFileTransfers: observations,
             omittedObservationCount: omittedObservationCount,

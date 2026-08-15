@@ -58,6 +58,28 @@ nonisolated final class WatchLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testRetryRequestRequiresAnActivatedReachableWatch() async {
+        self.session.activationState = .activated
+        self.session.isReachable = false
+        let watchLink = WatchLink(
+            session: self.session,
+            receiver: nil,
+            facts: Self.facts(),
+            phoneSessionHistoryStore: Self.historyStore()
+        )
+
+        XCTAssertFalse(watchLink.retryOutstandingTransfers())
+        XCTAssertTrue(self.session.sentMessages.isEmpty)
+
+        self.session.emitReachability(true)
+        await self.yieldToMainActor()
+
+        XCTAssertTrue(watchLink.retryOutstandingTransfers())
+        XCTAssertEqual(self.session.sentMessages.count, 1)
+        XCTAssertTrue(WatchRelayRetryRequest.matches(self.session.sentMessages[0]))
+    }
+
+    @MainActor
     func testWatchStateTransitionIsSurfaced() async {
         let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts(), phoneSessionHistoryStore: Self.historyStore())
         XCTAssertFalse(watchLink.isPaired)

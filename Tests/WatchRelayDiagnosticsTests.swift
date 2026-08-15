@@ -83,7 +83,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue((try storage.scanManifests()).allSatisfy { $0.manifest.state == .transferring })
     }
 
-    func testTransferTagsDoNotReachEncodedDiagnosticsEnvelope() throws {
+    func testTransferAttemptIdentityReachesEncodedDiagnosticsEnvelope() throws {
         let id = Self.uuid(90_001)
         let attemptID = Self.uuid(90_002)
 
@@ -107,10 +107,19 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             return try XCTUnwrap(collector.makeEnvelopeData(asOf: Self.now))
         }
 
-        XCTAssertEqual(
-            try envelope(name: "legacy-envelope", tagged: false),
-            try envelope(name: "tagged-envelope", tagged: true)
-        )
+        let legacy = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(
+            from: envelope(name: "legacy-envelope", tagged: false)
+        ).payload?.observedFileTransfers.first)
+        let tagged = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(
+            from: envelope(name: "tagged-envelope", tagged: true)
+        ).payload?.observedFileTransfers.first)
+
+        XCTAssertEqual(legacy.attemptIDState, .missing)
+        XCTAssertEqual(legacy.attemptStartedAtState, .missing)
+        XCTAssertEqual(tagged.attemptID, attemptID)
+        XCTAssertEqual(tagged.attemptIDState, .parseable)
+        XCTAssertEqual(tagged.attemptStartedAt, Self.now)
+        XCTAssertEqual(tagged.attemptStartedAtState, .parseable)
     }
 
     func testWatchCaptureModelSourceRetainsDiagnosticsCollectorStrongly() throws {
@@ -325,6 +334,8 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(oldObservation.originalAudioFile.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
         XCTAssertEqual(oldObservation.relayBundlePresent.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild)
         XCTAssertEqual(oldObservation.sourcePresent.value, observation.sourcePresent.value)
+        XCTAssertEqual(oldObservation.attemptIDState, .missing)
+        XCTAssertEqual(oldObservation.attemptStartedAtState, .missing)
     }
 
     func testSnapshotWitnessMarksChangedFactsUnresolvedWithoutWritesOrSessionCalls() throws {
@@ -1101,6 +1112,10 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
                     "relayBundlePresent",
                     "relayBundleBytes",
                     "collectionResolution",
+                    "attemptID",
+                    "attemptIDState",
+                    "attemptStartedAt",
+                    "attemptStartedAtState",
                 ] {
                     observations[index].removeValue(forKey: key)
                 }
@@ -1978,7 +1993,8 @@ nonisolated final class WatchPipelineReducerDiagnosticsExportTests: XCTestCase {
                 lastDurableACK: nil,
                 lastQueueReconciliationObservation: nil,
                 lastBackgroundWakeCompletion: nil,
-                lastBackgroundWakeDeadline: nil
+                lastBackgroundWakeDeadline: nil,
+                lastManualRetry: nil
             )
         )
         let export = WatchPipelineReducer.reduce(Self.input(
@@ -2387,7 +2403,8 @@ private extension WatchRelayDiagnosticsCollectorTests {
             lastDurableACK: nil,
             lastQueueReconciliationObservation: nil,
             lastBackgroundWakeCompletion: nil,
-            lastBackgroundWakeDeadline: nil
+            lastBackgroundWakeDeadline: nil,
+            lastManualRetry: nil
         ),
         observations: [WatchRelayTransferObservation] = []
     ) -> WatchRelayDiagnosticsPayload {

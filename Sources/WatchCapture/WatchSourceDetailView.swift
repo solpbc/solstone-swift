@@ -89,6 +89,7 @@ nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
 
 struct WatchSourceDetailView: View {
     @WatchPipelineInputReader private var watchPipelineInputs
+    @Environment(WatchLink.self) private var watchLink
     @Environment(WatchSourceFacts.self) private var watchSourceFacts
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
@@ -170,6 +171,17 @@ private extension WatchSourceDetailView {
         return VStack(alignment: .leading, spacing: 12) {
             self.verdictBlock(verdict)
             self.steadyDetailsDisclosure(verdict)
+            if self.watchPipelineAssembly.waiting.watch.count > 0 {
+                Button {
+                    self.watchLink.retryOutstandingTransfers()
+                } label: {
+                    Label(SourceVocabulary.watchRetryTransfers, systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!self.watchLink.isReachable || self.watchLink.activationState != .activated)
+                .accessibilityIdentifier("watch.retryTransfers")
+                .accessibilityHint(SourceVocabulary.watchRetryTransfersHint)
+            }
         }
     }
 

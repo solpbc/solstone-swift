@@ -147,6 +147,16 @@ final class WatchLink {
         self.refreshWatchState()
         self.refreshWatchStatus()
     }
+
+    @discardableResult
+    func retryOutstandingTransfers() -> Bool {
+        guard self.activationState == .activated, self.isReachable else {
+            return false
+        }
+        self.session.sendMessage(WatchRelayRetryRequest.message)
+        watchLog.info("watch: retry requested")
+        return true
+    }
 }
 
 private extension WatchLink {

@@ -1076,10 +1076,25 @@ private extension WatchPipelineReducer {
         if let fact = facts.lastBackgroundWakeDeadline {
             rows.append(WatchDiagnosticsExportRow(label: "last background wake deadline", value: self.backgroundWakeText(fact, now: now)))
         }
+        if let fact = facts.lastManualRetry {
+            rows.append(WatchDiagnosticsExportRow(
+                label: "last manual watch transfer retry",
+                value: self.manualRetryText(fact, now: now)
+            ))
+        }
         if rows.isEmpty {
             rows.append(WatchDiagnosticsExportRow(label: "last facts", value: "not observed yet"))
         }
         return rows
+    }
+
+    nonisolated static func manualRetryText(_ fact: WatchRelayManualRetryFact, now: Date) -> String {
+        [
+            self.dateWithAgeText(fact.at, now: now),
+            "active manifests \(fact.activeManifestCount)",
+            "Apple transfers observed \(fact.observedFileTransferCount)",
+            "cancel requested \(fact.cancelledCount)",
+        ].joined(separator: " / ")
     }
 
     nonisolated static func staleWatchSnapshotAge(_ input: WatchPipelineInput) -> TimeInterval? {
@@ -1105,13 +1120,49 @@ private extension WatchPipelineReducer {
             "relation \(observation.relation.rawValue)",
             "id \(observation.idState.rawValue)",
             "manifest \(observation.appManifestState ?? SourceVocabulary.watchDiagnosticsUnavailable)",
-            "age \(self.intervalAvailabilityText(observation.appOwnedEnqueueAgeSeconds))",
+            "original enqueue age \(self.intervalAvailabilityText(observation.appOwnedEnqueueAgeSeconds))",
+            "attempt id \(self.attemptIDText(observation))",
+            "attempt started \(self.attemptStartedText(observation))",
+            "current attempt age \(self.attemptAgeText(observation))",
             "source bytes \(self.int64AvailabilityText(observation.appOwnedSourceBytes))",
             "source present \(self.boolAvailabilityText(observation.sourcePresent))",
             "transferring \(transferring)",
             progress,
             "as of \(self.iso8601Text(observation.asOf))",
         ].joined(separator: "; ")
+    }
+
+    nonisolated static func attemptIDText(_ observation: WatchRelayTransferObservation) -> String {
+        switch observation.attemptIDState {
+        case .parseable:
+            return observation.attemptID?.uuidString ?? SourceVocabulary.watchDiagnosticsUnavailable
+        case .missing:
+            return "legacy / not provided"
+        case .unparseable:
+            return "unparseable"
+        }
+    }
+
+    nonisolated static func attemptStartedText(_ observation: WatchRelayTransferObservation) -> String {
+        switch observation.attemptStartedAtState {
+        case .parseable:
+            return observation.attemptStartedAt.map(self.iso8601Text) ?? SourceVocabulary.watchDiagnosticsUnavailable
+        case .missing:
+            return "legacy / not provided"
+        case .unparseable:
+            return "unparseable"
+        }
+    }
+
+    nonisolated static func attemptAgeText(_ observation: WatchRelayTransferObservation) -> String {
+        guard observation.attemptStartedAtState == .parseable,
+              let startedAt = observation.attemptStartedAt
+        else {
+            return observation.attemptStartedAtState == .unparseable
+                ? "unparseable"
+                : "legacy / not provided"
+        }
+        return self.secondsText(max(0, observation.asOf.timeIntervalSince(startedAt)))
     }
 
     nonisolated static func staleProgressText(age: TimeInterval) -> String {

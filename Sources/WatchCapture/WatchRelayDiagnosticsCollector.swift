@@ -195,7 +195,8 @@ private extension WatchRelayDiagnosticsCollector {
         let activeFacts = activeEntries.map { entry in
             self.activeManifestFact(entry: entry)
         }
-        let fileTransferSnapshots = self.session.outstandingFileTransfers.map(\.snapshot)
+        let fileTransferObservations = self.session.outstandingFileTransfers
+        let fileTransferSnapshots = fileTransferObservations.map(\.snapshot)
         let userInfoSnapshots = self.session.outstandingUserInfoTransferSnapshots
         let activeIDs = Set(activeEntries.map(\.manifest.id))
         let reconciliation = Self.reconciliationCounts(
@@ -204,7 +205,7 @@ private extension WatchRelayDiagnosticsCollector {
         )
         let observations = self.observations(
             activeFacts: activeFacts,
-            fileTransfers: fileTransferSnapshots,
+            fileTransfers: fileTransferObservations,
             asOf: asOf
         )
         let lastFacts = self.diagnosticsStore.readSummary()
@@ -377,18 +378,18 @@ private extension WatchRelayDiagnosticsCollector {
 
     func observations(
         activeFacts: [ActiveManifestFact],
-        fileTransfers: [WatchConnectivityFileTransferSnapshot],
+        fileTransfers: [WatchConnectivityFileTransferObservation],
         asOf: Date
     ) -> [WatchRelayTransferObservation] {
         let activeByID = Dictionary(uniqueKeysWithValues: activeFacts.map { ($0.entry.manifest.id, $0) })
         var observations: [WatchRelayTransferObservation] = []
-        var transfersByID: [UUID: [(index: Int, transfer: WatchConnectivityFileTransferSnapshot)]] = [:]
+        var transfersByID: [UUID: [(index: Int, transfer: WatchConnectivityFileTransferObservation)]] = [:]
         var firstSeenOrder: [UUID] = []
-        var unparseables: [(index: Int, transfer: WatchConnectivityFileTransferSnapshot)] = []
+        var unparseables: [(index: Int, transfer: WatchConnectivityFileTransferObservation)] = []
 
         for (index, transfer) in fileTransfers.enumerated() {
-            guard transfer.idState == .parseable,
-                  let segmentID = transfer.segmentID
+            guard transfer.snapshot.idState == .parseable,
+                  let segmentID = transfer.snapshot.segmentID
             else {
                 unparseables.append((index, transfer))
                 continue
@@ -420,7 +421,7 @@ private extension WatchRelayDiagnosticsCollector {
             consumedIDs.insert(id)
             for (_, transfer) in matching {
                 observations.append(self.observation(
-                    asOf: transfer.asOf,
+                    asOf: transfer.snapshot.asOf,
                     segmentID: id,
                     idState: .parseable,
                     relation: relation,
@@ -433,7 +434,7 @@ private extension WatchRelayDiagnosticsCollector {
         for id in firstSeenOrder where activeByID[id] == nil && !consumedIDs.contains(id) {
             for (_, transfer) in transfersByID[id] ?? [] {
                 observations.append(self.observation(
-                    asOf: transfer.asOf,
+                    asOf: transfer.snapshot.asOf,
                     segmentID: id,
                     idState: .parseable,
                     relation: .orphaned,
@@ -445,9 +446,9 @@ private extension WatchRelayDiagnosticsCollector {
 
         for (_, transfer) in unparseables {
             observations.append(self.observation(
-                asOf: transfer.asOf,
+                asOf: transfer.snapshot.asOf,
                 segmentID: nil,
-                idState: transfer.idState,
+                idState: transfer.snapshot.idState,
                 relation: .unparseable,
                 fact: nil,
                 transfer: transfer
@@ -463,7 +464,7 @@ private extension WatchRelayDiagnosticsCollector {
         idState: WatchRelayTransferIDState,
         relation: WatchRelayObservationRelation,
         fact: ActiveManifestFact?,
-        transfer: WatchConnectivityFileTransferSnapshot?
+        transfer: WatchConnectivityFileTransferObservation?
     ) -> WatchRelayTransferObservation {
         let appOwnedEnqueueAgeSeconds: DiagnosticAvailability<TimeInterval?>
         let appOwnedSourceBytes: DiagnosticAvailability<Int64>
@@ -507,8 +508,8 @@ private extension WatchRelayDiagnosticsCollector {
         let isTransferring: DiagnosticAvailability<Bool>
         let progress: DiagnosticAvailability<WatchConnectivityProgressSnapshot>
         if let transfer {
-            isTransferring = .available(transfer.isTransferring)
-            progress = .available(transfer.progress)
+            isTransferring = .available(transfer.snapshot.isTransferring)
+            progress = .available(transfer.snapshot.progress)
         } else {
             isTransferring = .unavailable(reason: "not observed in Apple queue snapshot")
             progress = .unavailable(reason: "not observed in Apple queue snapshot")
@@ -525,6 +526,10 @@ private extension WatchRelayDiagnosticsCollector {
             sourcePresent: sourcePresent,
             isTransferring: isTransferring,
             progress: progress,
+            attemptID: transfer?.attemptID,
+            attemptIDState: transfer?.attemptIDState ?? .missing,
+            attemptStartedAt: transfer?.attemptStartedAt,
+            attemptStartedAtState: transfer?.attemptStartedAtState ?? .missing,
             originalAudioFile: originalAudioFile,
             originalLocationFile: originalLocationFile,
             relayBundlePresent: relayBundlePresent,
@@ -718,6 +723,10 @@ private extension WatchRelayDiagnosticsCollector {
             sourcePresent: observation.sourcePresent,
             isTransferring: observation.isTransferring,
             progress: observation.progress,
+            attemptID: observation.attemptID,
+            attemptIDState: observation.attemptIDState,
+            attemptStartedAt: observation.attemptStartedAt,
+            attemptStartedAtState: observation.attemptStartedAtState,
             originalAudioFile: .unavailable(reason: reason),
             originalLocationFile: .unavailable(reason: reason),
             relayBundlePresent: .unavailable(reason: reason),

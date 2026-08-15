@@ -502,6 +502,10 @@ nonisolated struct WatchRelayTransferObservation: Codable, Equatable, Sendable {
     let sourcePresent: DiagnosticAvailability<Bool>
     let isTransferring: DiagnosticAvailability<Bool>
     let progress: DiagnosticAvailability<WatchConnectivityProgressSnapshot>
+    let attemptID: UUID?
+    let attemptIDState: WatchRelayTransferIDState
+    let attemptStartedAt: Date?
+    let attemptStartedAtState: WatchRelayTransferIDState
 
     let originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
     let originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
@@ -520,6 +524,10 @@ nonisolated struct WatchRelayTransferObservation: Codable, Equatable, Sendable {
         sourcePresent: DiagnosticAvailability<Bool>,
         isTransferring: DiagnosticAvailability<Bool>,
         progress: DiagnosticAvailability<WatchConnectivityProgressSnapshot>,
+        attemptID: UUID? = nil,
+        attemptIDState: WatchRelayTransferIDState = .missing,
+        attemptStartedAt: Date? = nil,
+        attemptStartedAtState: WatchRelayTransferIDState = .missing,
         originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact> = .unavailable(
             reason: WatchRelayDiagnosticsEnvelopeReason.notReportedByThisWatchBuild
         ),
@@ -546,6 +554,10 @@ nonisolated struct WatchRelayTransferObservation: Codable, Equatable, Sendable {
         self.sourcePresent = sourcePresent
         self.isTransferring = isTransferring
         self.progress = progress
+        self.attemptID = attemptID
+        self.attemptIDState = attemptIDState
+        self.attemptStartedAt = attemptStartedAt
+        self.attemptStartedAtState = attemptStartedAtState
         self.originalAudioFile = originalAudioFile
         self.originalLocationFile = originalLocationFile
         self.relayBundlePresent = relayBundlePresent
@@ -564,6 +576,10 @@ nonisolated struct WatchRelayTransferObservation: Codable, Equatable, Sendable {
         case sourcePresent
         case isTransferring
         case progress
+        case attemptID
+        case attemptIDState
+        case attemptStartedAt
+        case attemptStartedAtState
         case originalAudioFile
         case originalLocationFile
         case relayBundlePresent
@@ -589,6 +605,16 @@ nonisolated struct WatchRelayTransferObservation: Codable, Equatable, Sendable {
             DiagnosticAvailability<WatchConnectivityProgressSnapshot>.self,
             forKey: .progress
         )
+        self.attemptID = try container.decodeIfPresent(UUID.self, forKey: .attemptID)
+        self.attemptIDState = try container.decodeIfPresent(
+            WatchRelayTransferIDState.self,
+            forKey: .attemptIDState
+        ) ?? .missing
+        self.attemptStartedAt = try container.decodeIfPresent(Date.self, forKey: .attemptStartedAt)
+        self.attemptStartedAtState = try container.decodeIfPresent(
+            WatchRelayTransferIDState.self,
+            forKey: .attemptStartedAtState
+        ) ?? .missing
         self.originalAudioFile = try container.decodeIfPresent(
             DiagnosticAvailability<WatchRelayOriginalFileFact>.self,
             forKey: .originalAudioFile
@@ -623,6 +649,14 @@ nonisolated struct WatchRelayTransferObservation: Codable, Equatable, Sendable {
         try container.encode(self.sourcePresent, forKey: .sourcePresent)
         try container.encode(self.isTransferring, forKey: .isTransferring)
         try container.encode(self.progress, forKey: .progress)
+        try container.encodeIfPresent(self.attemptID, forKey: .attemptID)
+        if self.attemptIDState != .missing {
+            try container.encode(self.attemptIDState, forKey: .attemptIDState)
+        }
+        try container.encodeIfPresent(self.attemptStartedAt, forKey: .attemptStartedAt)
+        if self.attemptStartedAtState != .missing {
+            try container.encode(self.attemptStartedAtState, forKey: .attemptStartedAtState)
+        }
         try container.encode(self.originalAudioFile, forKey: .originalAudioFile)
         try container.encode(self.originalLocationFile, forKey: .originalLocationFile)
         try container.encode(self.relayBundlePresent, forKey: .relayBundlePresent)
@@ -669,6 +703,7 @@ nonisolated struct WatchRelayLastFactsSummary: Codable, Equatable, Sendable {
     let lastQueueReconciliationObservation: WatchRelayQueueReconciliationFact?
     let lastBackgroundWakeCompletion: WatchRelayBackgroundWakeFact?
     let lastBackgroundWakeDeadline: WatchRelayBackgroundWakeFact?
+    let lastManualRetry: WatchRelayManualRetryFact?
 }
 
 nonisolated struct WatchRelayFactCounter: Codable, Equatable, Sendable {
@@ -698,4 +733,11 @@ nonisolated struct WatchRelayBackgroundWakeFact: Codable, Equatable, Sendable {
     let heldTaskCount: Int
     let completedTaskCount: Int
     let deadlineCount: Int
+}
+
+nonisolated struct WatchRelayManualRetryFact: Codable, Equatable, Sendable {
+    let at: Date
+    let activeManifestCount: Int
+    let observedFileTransferCount: Int
+    let cancelledCount: Int
 }
