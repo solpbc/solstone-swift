@@ -2,28 +2,33 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
-import ImageIO
 import UniformTypeIdentifiers
 
 @MainActor
 protocol ShareItemProvider: AnyObject {
     func registeredContentType() -> String?
     func suggestedFilename() -> String?
-    func loadFileRepresentation() async throws -> URL
+    func deliverFile(to sink: any ShareFileSink) async throws -> ShareFileDelivery
     func loadText() async throws -> String
-    func cleanupScratch()
 }
 
 @MainActor
 protocol ShareImportQueueing: AnyObject {
-    func enqueue(
-        fileURL: URL,
+    func beginEnqueue() throws -> ShareImportEnqueueHandle
+    func makeFileSink(
+        handle: ShareImportEnqueueHandle,
+        operation: ShareImportLandingOperation,
+        inboundContentType: String,
+        suggestedFilename: String?
+    ) -> any ShareFileSink
+    func commitEnqueue(
+        handle: ShareImportEnqueueHandle,
+        delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        contentType: String,
-        originalFilename: String?,
         originApp: String?
-    ) async throws -> UUID
+    ) throws -> UUID
+    func abortEnqueue(_ handle: ShareImportEnqueueHandle)
 }
 
 extension ShareImportStore: ShareImportQueueing {}
@@ -73,38 +78,8 @@ nonisolated enum ShareImportCopy {
     }
 }
 
-nonisolated enum ShareScratch {
-    static let staleAge: TimeInterval = 60 * 60
-
-    static func sweepStaleChildren(in root: URL, fileManager: FileManager, now: Date = Date()) {
-        let cutoff = now.addingTimeInterval(-Self.staleAge)
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        for entry in entries {
-            guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
-                  values.isDirectory == true,
-                  let modifiedAt = values.contentModificationDate,
-                  modifiedAt < cutoff
-            else {
-                continue
-            }
-            try? fileManager.removeItem(at: entry)
-        }
-    }
-
-    static func removeParentDirectory(of fileURL: URL, fileManager: FileManager) {
-        try? fileManager.removeItem(at: fileURL.deletingLastPathComponent())
-    }
-}
-
 nonisolated enum ShareImportFailure: Equatable, Sendable {
-    case oversized
+    case noRoom
     case unreadable
     case unsupported
     case protected
@@ -112,8 +87,8 @@ nonisolated enum ShareImportFailure: Equatable, Sendable {
 
     var plainReason: String {
         switch self {
-        case .oversized:
-            "too large"
+        case .noRoom:
+            "not enough space"
         case .unreadable:
             "couldn't read it"
         case .unsupported:
@@ -156,19 +131,14 @@ nonisolated enum ShareImportResult: Equatable, Sendable {
 
 @MainActor
 final class ShareImportCoordinator {
-    nonisolated static let oversizedByteLimit: Int64 = 100 * 1024 * 1024
-
     private let queue: any ShareImportQueueing
-    private let fileManager: FileManager
     private let recordEvent: @MainActor @Sendable (ShareImportEvent) -> Void
 
     init(
         queue: any ShareImportQueueing,
-        fileManager: FileManager = .default,
         recordEvent: @escaping @MainActor @Sendable (ShareImportEvent) -> Void = { _ in }
     ) {
         self.queue = queue
-        self.fileManager = fileManager
         self.recordEvent = recordEvent
     }
 
@@ -190,75 +160,38 @@ final class ShareImportCoordinator {
             )
         }
 
-        let fileURL: URL
         do {
-            fileURL = try await provider.loadFileRepresentation()
-        } catch {
-            return self.fail(.unreadable)
-        }
-        defer {
-            provider.cleanupScratch()
-        }
-
-        var enqueueFileURL = fileURL
-        var enqueueContentType = contentType
-        var enqueueFilename = originalFilename
-        var extraCleanupURL: URL?
-        if Self.isHEICContentType(contentType) {
-            do {
-                let jpegURL = try self.transcodeHEICToJPEG(
-                    fileURL: fileURL,
-                    originalFilename: originalFilename
-                )
-                enqueueFileURL = jpegURL
-                enqueueContentType = UTType.jpeg.identifier
-                enqueueFilename = jpegURL.lastPathComponent
-                extraCleanupURL = jpegURL
-            } catch {
-                return self.fail(.undecodable)
+            let handle = try self.queue.beginEnqueue()
+            var committed = false
+            defer {
+                if !committed {
+                    self.queue.abortEnqueue(handle)
+                }
             }
-        }
-        defer {
-            if let extraCleanupURL {
-                ShareScratch.removeParentDirectory(of: extraCleanupURL, fileManager: self.fileManager)
-            }
-        }
-
-        guard self.fileManager.fileExists(atPath: enqueueFileURL.path) else {
-            return self.fail(.unreadable)
-        }
-
-        do {
-            let size = try self.byteCount(fileURL: enqueueFileURL)
-            guard size <= Self.oversizedByteLimit else {
-                return self.fail(.oversized)
-            }
-        } catch {
-            return self.fail(.unreadable)
-        }
-
-        do {
-            try self.checkReadable(fileURL: enqueueFileURL)
-        } catch {
-            return self.fail(.protected)
-        }
-
-        self.emit(.precheckPassed)
-        self.emit(.enqueueStarted)
-
-        do {
-            let itemID = try await self.queue.enqueue(
-                fileURL: enqueueFileURL,
+            let operation: ShareImportLandingOperation = Self.isHEICContentType(contentType)
+                ? .transcodeHEICToJPEG
+                : .copy
+            let sink = self.queue.makeFileSink(
+                handle: handle,
+                operation: operation,
+                inboundContentType: contentType,
+                suggestedFilename: originalFilename
+            )
+            let delivery = try await provider.deliverFile(to: sink)
+            self.emit(.precheckPassed)
+            self.emit(.enqueueStarted)
+            let itemID = try self.queue.commitEnqueue(
+                handle: handle,
+                delivery: delivery,
                 source: importerSource,
                 targetJournal: "",
-                contentType: enqueueContentType,
-                originalFilename: enqueueFilename,
                 originApp: nil
             )
+            committed = true
             self.emit(.enqueueSucceeded(itemID))
             return .success(itemID)
         } catch {
-            return self.fail(.unreadable)
+            return self.fail(self.failure(from: error))
         }
     }
 
@@ -369,113 +302,53 @@ private extension ShareImportCoordinator {
             return .dropped
         }
 
-        let fileURL: URL
         do {
-            fileURL = try self.writeTextToScratch(text, originalFilename: originalFilename)
-        } catch {
-            return self.fail(.unreadable)
-        }
-        defer {
-            ShareScratch.removeParentDirectory(of: fileURL, fileManager: self.fileManager)
-        }
-
-        do {
-            let size = try self.byteCount(fileURL: fileURL)
-            guard size <= Self.oversizedByteLimit else {
-                return self.fail(.oversized)
+            let handle = try self.queue.beginEnqueue()
+            var committed = false
+            defer {
+                if !committed {
+                    self.queue.abortEnqueue(handle)
+                }
             }
-            try self.checkReadable(fileURL: fileURL)
-        } catch {
-            return self.fail(.unreadable)
-        }
-
-        self.emit(.precheckPassed)
-        self.emit(.enqueueStarted)
-
-        do {
-            let itemID = try await self.queue.enqueue(
-                fileURL: fileURL,
+            let textData = Data(text.utf8)
+            try textData.write(to: handle.stagingRawURL, options: .atomic)
+            let delivery = ShareFileDelivery(
+                byteCount: Int64(textData.count),
+                itemTime: Date(),
+                basis: "file",
+                contentType: "public.plain-text",
+                filename: originalFilename ?? "shared-text.txt"
+            )
+            self.emit(.precheckPassed)
+            self.emit(.enqueueStarted)
+            let itemID = try self.queue.commitEnqueue(
+                handle: handle,
+                delivery: delivery,
                 source: "quick",
                 targetJournal: "",
-                contentType: "public.plain-text",
-                originalFilename: originalFilename ?? "shared-text.txt",
                 originApp: nil
             )
+            committed = true
             self.emit(.enqueueSucceeded(itemID))
             return .success(itemID)
         } catch {
-            return self.fail(.unreadable)
+            return self.fail(self.failure(from: error))
         }
     }
 
-    func byteCount(fileURL: URL) throws -> Int64 {
-        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
-        if let fileSize = values.fileSize {
-            return Int64(fileSize)
+    func failure(from error: Error) -> ShareImportFailure {
+        guard let storeError = error as? ShareImportStoreError else {
+            return .unreadable
         }
-
-        let attributes = try self.fileManager.attributesOfItem(atPath: fileURL.path)
-        if let size = attributes[.size] as? NSNumber {
-            return size.int64Value
+        switch storeError {
+        case .noRoom:
+            return .noRoom
+        case .protected:
+            return .protected
+        case .undecodable:
+            return .undecodable
+        case .writeFailed, .missingRequiredArtifact, .noteDecodeFailed, .textDecodeFailed:
+            return .unreadable
         }
-
-        return Int64((try Data(contentsOf: fileURL)).count)
     }
-
-    func checkReadable(fileURL: URL) throws {
-        let handle = try FileHandle(forReadingFrom: fileURL)
-        defer {
-            try? handle.close()
-        }
-        _ = try handle.read(upToCount: 1)
-    }
-
-    func writeTextToScratch(_ text: String, originalFilename: String?) throws -> URL {
-        let filename = originalFilename?.isEmpty == false ? originalFilename! : "shared-text.txt"
-        let targetURL = try self.scratchFileURL(filename: filename)
-        try Data(text.utf8).write(to: targetURL, options: .atomic)
-        return targetURL
-    }
-
-    func transcodeHEICToJPEG(fileURL: URL, originalFilename: String?) throws -> URL {
-        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-              CGImageSourceGetCount(source) > 0
-        else {
-            throw ShareImportCoordinatorError.imageDecodeFailed
-        }
-
-        let targetURL = try self.scratchFileURL(filename: Self.jpegFilename(for: originalFilename ?? fileURL.lastPathComponent))
-        guard let destination = CGImageDestinationCreateWithURL(
-            targetURL as CFURL,
-            UTType.jpeg.identifier as CFString,
-            1,
-            nil
-        ) else {
-            throw ShareImportCoordinatorError.imageDecodeFailed
-        }
-
-        CGImageDestinationAddImageFromSource(destination, source, 0, nil)
-        guard CGImageDestinationFinalize(destination) else {
-            throw ShareImportCoordinatorError.imageDecodeFailed
-        }
-        return targetURL
-    }
-
-    func scratchFileURL(filename: String) throws -> URL {
-        let root = self.fileManager.temporaryDirectory
-            .appendingPathComponent("SolstoneShareImport", isDirectory: true)
-        ShareScratch.sweepStaleChildren(in: root, fileManager: self.fileManager)
-        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent(filename, isDirectory: false)
-    }
-
-    nonisolated static func jpegFilename(for filename: String) -> String {
-        let base = (filename as NSString).deletingPathExtension
-        return (base.isEmpty ? "image" : base) + ".jpg"
-    }
-}
-
-private enum ShareImportCoordinatorError: Error {
-    case imageDecodeFailed
 }

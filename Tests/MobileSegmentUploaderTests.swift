@@ -516,4 +516,8 @@ private final class MoveFailingTransferFileSystem: TransferFileSystem, @unchecke
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
         try self.delegate.readChunks(at: url, chunkSize: chunkSize, consume)
     }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try self.delegate.writeStream(to: url, body)
+    }
 }

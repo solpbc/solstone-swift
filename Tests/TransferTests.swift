@@ -769,7 +769,7 @@ nonisolated final class TransferTests: XCTestCase {
     func testDropDuringDispatchSuspensionDoesNotDoubleDecrementSourceInFlight() async throws {
         TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
         let resolver = SecondResolveSuspendingResolver()
-        let engine = self.makeEngine(resolver: resolver, bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(resolver: resolver, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
         let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(90)), payloads: self.audioPayloads())
 
@@ -791,7 +791,7 @@ nonisolated final class TransferTests: XCTestCase {
     func testPauseDuringEligibleResolvePreventsDispatch() async throws {
         TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
         let resolver = FirstResolveSuspendingResolver()
-        let engine = self.makeEngine(resolver: resolver, bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(resolver: resolver, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
         let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(91)), payloads: self.audioPayloads())
 
@@ -819,7 +819,7 @@ nonisolated final class TransferTests: XCTestCase {
         let pacer = TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300, jitterSalt: 1))
         let engine = self.makeEngine(pacer: pacer, bodyBuilder: { _, _ in
             callCount.withLock { $0 += 1 }
-            return Data("body-once".utf8)
+            return .inMemory(Data("body-once".utf8))
         })
         try await engine.start()
         _ = try await engine.enqueue(manifest: self.makeManifest(), payloads: self.audioPayloads())
@@ -946,7 +946,7 @@ nonisolated final class TransferTests: XCTestCase {
             payloads: self.audioPayloads()
         ).item
 
-        let bodyWithOmi = try DefaultTransferBodyBuilder.build(item: itemWithOmi, spool: spool)
+        let bodyWithOmi = try self.bodyData(DefaultTransferBodyBuilder.build(item: itemWithOmi, spool: spool))
         let metaWithOmi = try self.multipartMeta(
             bodyWithOmi,
             boundary: TransferTransport.boundary(for: manifestWithOmi.itemID)
@@ -961,7 +961,7 @@ nonisolated final class TransferTests: XCTestCase {
             manifest: manifestWithoutOmi,
             payloads: self.audioPayloads()
         ).item
-        let bodyWithoutOmi = try DefaultTransferBodyBuilder.build(item: itemWithoutOmi, spool: spool)
+        let bodyWithoutOmi = try self.bodyData(DefaultTransferBodyBuilder.build(item: itemWithoutOmi, spool: spool))
         let metaWithoutOmi = try self.multipartMeta(
             bodyWithoutOmi,
             boundary: TransferTransport.boundary(for: manifestWithoutOmi.itemID)
@@ -980,7 +980,7 @@ nonisolated final class TransferTests: XCTestCase {
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
             bodyBuilder: { _, _ in
                 buildCount.withLock { $0 += 1 }
-                return Data("body".utf8)
+                return .inMemory(Data("body".utf8))
             }
         )
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
@@ -1010,7 +1010,7 @@ nonisolated final class TransferTests: XCTestCase {
         let fileSystem = CountingTransferFileSystem()
         let spool = TransferSpool(rootURL: self.tempDirectory, fileSystem: fileSystem)
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
-        let engine = self.makeEngine(spool: spool, bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(spool: spool, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
         fileSystem.resetEnumerationCount()
 
@@ -1030,7 +1030,7 @@ nonisolated final class TransferTests: XCTestCase {
             resolver: TransferEndpointResolverStub(.unavailable("held")),
             statusMirror: mirror,
             maxConcurrent: 1,
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         try await engine.start()
 
@@ -1057,7 +1057,7 @@ nonisolated final class TransferTests: XCTestCase {
         let engineWithDeadline = self.makeEngine(
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("deadline", isDirectory: true)),
             clock: clock,
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         try await engineWithDeadline.start()
         _ = try await engineWithDeadline.enqueue(manifest: futureManifest, payloads: self.audioPayloads())
@@ -1195,7 +1195,7 @@ nonisolated final class TransferTests: XCTestCase {
             maxConcurrent: 3,
             bodyBuilder: { item, _ in
                 buildOrder.withLock { $0.append(item.manifest.itemID) }
-                return Data("body".utf8)
+                return .inMemory(Data("body".utf8))
             }
         )
         try await engine.start()
@@ -1240,7 +1240,7 @@ nonisolated final class TransferTests: XCTestCase {
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("restart", isDirectory: true)),
             clock: clock,
             maxConcurrent: 1,
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         try await freshEngine.start()
 
@@ -1533,7 +1533,7 @@ nonisolated final class TransferTests: XCTestCase {
             clock: clock,
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [60], maxDelay: 300, jitterSalt: 1)),
             diagnosticsSink: { event in events.withLock { $0.append(event) } },
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         try await engine.start()
         let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(322)), payloads: self.audioPayloads())
@@ -1551,7 +1551,7 @@ nonisolated final class TransferTests: XCTestCase {
     func testThroughputWindowAggregatesPerSourceAndDecaysAfterWindow() async throws {
         let clock = FakeTransferClock(wall: Self.baseDate)
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
-        let engine = self.makeEngine(clock: clock, bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(clock: clock, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
 
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(330), source: "alpha"), payloads: self.audioPayloads())
@@ -1630,7 +1630,7 @@ nonisolated final class TransferTests: XCTestCase {
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 204), Data()) }
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let itemID = Self.uuid(351)
-        let engine = self.makeEngine(bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             delivered.withLock { $0.append(manifest) }
         }
@@ -1704,7 +1704,7 @@ nonisolated final class TransferTests: XCTestCase {
         let itemID = Self.uuid(355)
         let engine = self.makeEngine(
             diagnosticsSink: { event in events.withLock { $0.append(event) } },
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         await engine.registerDeliveredHook(sourceKey: "alpha") { _, _ in
             throw DeliveredHookTestError.failed
@@ -1765,7 +1765,7 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testDeliverySucceedsForSourceWithNoRegisteredHook() async throws {
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 204), Data()) }
-        let engine = self.makeEngine(bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
 
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(358), source: "alpha"), payloads: self.audioPayloads())
@@ -1784,7 +1784,7 @@ nonisolated final class TransferTests: XCTestCase {
         let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
         let firstID = Self.uuid(360)
         let secondID = Self.uuid(361)
-        let engine = self.makeEngine(bodyBuilder: { _, _ in Data("body".utf8) })
+        let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             if manifest.itemID == firstID {
                 await gate.wait()
@@ -1876,7 +1876,7 @@ nonisolated final class TransferTests: XCTestCase {
             transport: transport,
             endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         try await engine.start()
         let firstID = Self.uuid(380)
@@ -1968,7 +1968,7 @@ nonisolated final class TransferTests: XCTestCase {
         let engine = self.makeEngine(
             spool: TransferSpool(rootURL: root, fileSystem: fileSystem),
             resolver: resolver,
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
         try await engine.start()
@@ -2020,6 +2020,15 @@ nonisolated final class TransferTests: XCTestCase {
 
 private extension TransferTests {
     static let baseDate = Date(timeIntervalSince1970: 1_713_624_000)
+
+    func bodyData(_ payload: TransferBodyPayload) throws -> Data {
+        switch payload {
+        case .inMemory(let data):
+            return data
+        case .written(let url, _):
+            return try Data(contentsOf: url)
+        }
+    }
 
     func multipartMeta(_ body: Data, boundary: String) throws -> [String: Any] {
         let text = String(decoding: body, as: UTF8.self)
@@ -2495,6 +2504,10 @@ private final class CountingTransferFileSystem: TransferFileSystem, @unchecked S
             try consume(data)
         }
     }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try FoundationTransferFileSystem().writeStream(to: url, body)
+    }
 }
 
 final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Sendable {
@@ -2568,6 +2581,10 @@ final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Senda
             try consume(data)
         }
     }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try FoundationTransferFileSystem().writeStream(to: url, body)
+    }
 }
 
 private struct ForcedMoveFailure: Error, CustomStringConvertible, Sendable {
@@ -2638,6 +2655,10 @@ private final class FailingMoveTransferFileSystem: TransferFileSystem, @unchecke
             guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
             try consume(data)
         }
+    }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try FoundationTransferFileSystem().writeStream(to: url, body)
     }
 }
 

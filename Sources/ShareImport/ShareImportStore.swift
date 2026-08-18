@@ -30,6 +30,7 @@ final class ShareImportStore {
     var lastError: String?
 
     @ObservationIgnored let fileManager: FileManager
+    @ObservationIgnored let payloadIO: any ShareImportPayloadIO
     @ObservationIgnored let cacheRootURL: URL
     @ObservationIgnored let now: @Sendable () -> Date
     @ObservationIgnored private let ledgerDropSink: @MainActor @Sendable (Int) -> Void
@@ -39,10 +40,12 @@ final class ShareImportStore {
     init(
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
+        payloadIO: any ShareImportPayloadIO = FoundationShareImportPayloadIO(),
         now: @escaping @Sendable () -> Date = { Date() },
         ledgerDropSink: @escaping @MainActor @Sendable (Int) -> Void = { _ in }
     ) {
         self.fileManager = fileManager
+        self.payloadIO = payloadIO
         self.cacheRootURL = cacheRootURL ?? Self.defaultCacheRootURL(fileManager: fileManager)
         self.now = now
         self.ledgerDropSink = ledgerDropSink
@@ -54,54 +57,80 @@ final class ShareImportStore {
         self.lastDeliveredAt = (try? self.loadLedger().values.map(\.deliveredAt).max()) ?? nil
     }
 
-    func enqueue(
-        fileURL: URL,
-        source: String,
-        targetJournal: String,
-        contentType: String,
-        originalFilename: String? = nil,
-        originApp: String? = nil
-    ) async throws -> UUID {
+    func beginEnqueue() throws -> ShareImportEnqueueHandle {
+        try self.ensureRootDirectories()
         let itemID = UUID()
         let itemIDString = Self.itemIDString(itemID)
         let stagingDirectory = self.stagingItemDirectoryURL(itemID: itemIDString)
-        let pendingDirectory = self.pendingItemDirectoryURL(itemID: itemIDString)
+        try self.fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        return ShareImportEnqueueHandle(
+            itemID: itemID,
+            itemIDString: itemIDString,
+            stagingDirectoryURL: stagingDirectory,
+            stagingRawURL: self.rawURL(itemID: itemIDString, status: .staging)
+        )
+    }
 
+    func makeFileSink(
+        handle: ShareImportEnqueueHandle,
+        operation: ShareImportLandingOperation,
+        inboundContentType: String,
+        suggestedFilename: String?
+    ) -> any ShareFileSink {
+        ShareImportFileSink(
+            stagingRawURL: handle.stagingRawURL,
+            volumeURL: self.cacheRootURL,
+            payloadIO: self.payloadIO,
+            operation: operation,
+            inboundContentType: inboundContentType,
+            suggestedFilename: suggestedFilename,
+            now: self.now
+        )
+    }
+
+    func commitEnqueue(
+        handle: ShareImportEnqueueHandle,
+        delivery: ShareFileDelivery,
+        source: String,
+        targetJournal: String,
+        originApp: String?
+    ) throws -> UUID {
         do {
-            try self.ensureRootDirectories()
-            let placement = try self.resolvePlacement(for: fileURL)
-            let rawInfo = Self.rawFileInfo(for: contentType)
-            let rawBytes = try self.rawByteCount(fileURL: fileURL)
+            let rawInfo = Self.rawFileInfo(for: delivery.contentType)
             let note = FrozenNote(
                 source: source,
                 originApp: originApp,
-                contentType: contentType,
-                filename: originalFilename,
-                bytes: rawBytes,
-                basis: placement.basis,
-                itemTime: Self.iso8601String(for: placement.itemTime),
+                contentType: delivery.contentType,
+                filename: delivery.filename,
+                bytes: delivery.byteCount,
+                basis: delivery.basis,
+                itemTime: Self.iso8601String(for: delivery.itemTime),
                 targetJournal: targetJournal,
-                itemID: itemIDString
+                itemID: handle.itemIDString
             )
             let descriptor = RequestDescriptor(source: source, filename: rawInfo.filename, contentType: rawInfo.mimeType)
-
-            try self.fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-            try self.fileManager.copyItem(at: fileURL, to: self.rawURL(itemID: itemIDString, status: .staging))
-            try self.writeData(Self.orderedNoteData(note), to: self.noteURL(itemID: itemIDString, status: .staging))
-            try self.writeData(self.encoder.encode(descriptor), to: self.descriptorURL(itemID: itemIDString, status: .staging))
-            try self.fileManager.moveItem(at: stagingDirectory, to: pendingDirectory)
-
-            shareImportLog.info("share import item staged \(itemIDString, privacy: .public)")
+            try self.writeData(Self.orderedNoteData(note), to: self.noteURL(itemID: handle.itemIDString, status: .staging))
+            try self.writeData(self.encoder.encode(descriptor), to: self.descriptorURL(itemID: handle.itemIDString, status: .staging))
+            try self.fileManager.moveItem(
+                at: handle.stagingDirectoryURL,
+                to: self.pendingItemDirectoryURL(itemID: handle.itemIDString)
+            )
+            shareImportLog.info("share import item staged \(handle.itemIDString, privacy: .public)")
             self.refreshCounts()
-            return itemID
+            return handle.itemID
         } catch {
-            try? self.fileManager.removeItem(at: stagingDirectory)
+            try? self.fileManager.removeItem(at: handle.stagingDirectoryURL)
             let detail = String(describing: error)
-            shareImportLog.error("failed to stage share import \(itemIDString, privacy: .public): \(detail, privacy: .public)")
+            shareImportLog.error("failed to stage share import \(handle.itemIDString, privacy: .public): \(detail, privacy: .public)")
             self.lastError = detail
             self.refreshCounts()
             throw error
         }
+    }
+
+    func abortEnqueue(_ handle: ShareImportEnqueueHandle) {
+        try? self.fileManager.removeItem(at: handle.stagingDirectoryURL)
+        self.refreshCounts()
     }
 
     func refreshFromDisk() {
@@ -287,11 +316,6 @@ extension ShareImportStore {
         case failed
     }
 
-    struct Placement {
-        let basis: String
-        let itemTime: Date
-    }
-
     func ensureRootDirectories() throws {
         try self.fileManager.createDirectory(at: self.stagingDirectoryURL(), withIntermediateDirectories: true)
         try self.fileManager.createDirectory(at: self.pendingDirectoryURL(), withIntermediateDirectories: true)
@@ -383,25 +407,28 @@ extension ShareImportStore {
     }
 
     func loadDescriptor(itemID: String, status: ItemStatus) throws -> RequestDescriptor {
-        try self.decoder.decode(RequestDescriptor.self, from: Data(contentsOf: self.descriptorURL(itemID: itemID, status: status)))
+        try self.decoder.decode(
+            RequestDescriptor.self,
+            from: self.payloadIO.readWholeFile(at: self.descriptorURL(itemID: itemID, status: status))
+        )
     }
 
     func loadSaveResultIfPresent(itemID: String, status: ItemStatus) throws -> SaveResult? {
         let url = self.saveResultURL(itemID: itemID, status: status)
         guard self.fileManager.fileExists(atPath: url.path) else { return nil }
-        return try self.decoder.decode(SaveResult.self, from: Data(contentsOf: url))
+        return try self.decoder.decode(SaveResult.self, from: self.payloadIO.readWholeFile(at: url))
     }
 
     func loadFailureRecordIfPresent(itemID: String, status: ItemStatus) -> ImportFailureRecord? {
         let url = self.failureRecordURL(itemID: itemID, status: status)
         guard self.fileManager.fileExists(atPath: url.path) else { return nil }
-        return try? self.decoder.decode(ImportFailureRecord.self, from: Data(contentsOf: url))
+        return try? self.decoder.decode(ImportFailureRecord.self, from: self.payloadIO.readWholeFile(at: url))
     }
 
     func loadLedger() throws -> [String: LedgerEntry] {
         let url = self.ledgerURL()
         guard self.fileManager.fileExists(atPath: url.path) else { return [:] }
-        return try self.decoder.decode([String: LedgerEntry].self, from: Data(contentsOf: url))
+        return try self.decoder.decode([String: LedgerEntry].self, from: self.payloadIO.readWholeFile(at: url))
     }
 
     func saveLedger(_ ledger: [String: LedgerEntry]) throws {
@@ -503,24 +530,10 @@ extension ShareImportStore {
     }
 
     func readNoteObject(itemID: String, status: ItemStatus) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: self.noteURL(itemID: itemID, status: status)) else {
+        guard let data = try? self.payloadIO.readWholeFile(at: self.noteURL(itemID: itemID, status: status)) else {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    }
-
-    func resolvePlacement(for fileURL: URL) throws -> Placement {
-        let values = try fileURL.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
-        let date = values.creationDate ?? values.contentModificationDate ?? self.now()
-        return Placement(basis: "file", itemTime: date)
-    }
-
-    func rawByteCount(fileURL: URL) throws -> Int64 {
-        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
-        if let fileSize = values.fileSize {
-            return Int64(fileSize)
-        }
-        return Int64(try Data(contentsOf: fileURL).count)
     }
 
     nonisolated static func rawFileInfo(for contentType: String) -> RawFileInfo {
@@ -615,4 +628,7 @@ enum ShareImportStoreError: Error, Equatable, Sendable {
     case missingRequiredArtifact(itemID: String)
     case noteDecodeFailed(itemID: String)
     case textDecodeFailed(itemID: String)
+    case noRoom
+    case protected
+    case undecodable
 }

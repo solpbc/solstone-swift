@@ -5,6 +5,11 @@ solstone), are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- sharing a large file onto this phone now keeps one copy on the phone, and sol tells you when the phone cannot hold it. a file your journal turns away stays on the phone instead of disappearing.
+
 ## [0.1.2] - 2026-08-02
 
 ### Added

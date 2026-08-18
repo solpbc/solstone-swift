@@ -266,7 +266,7 @@ extension ShareImportStore {
     }
 
     private func metadataFields(itemID: String, status: ItemStatus, requestSource: String) throws -> ShareImportTransferMetadata.Fields {
-        let data = try Data(contentsOf: self.noteURL(itemID: itemID, status: status))
+        let data = try self.payloadIO.readWholeFile(at: self.noteURL(itemID: itemID, status: status))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let basis = object["basis"] as? String,
               let contentType = object["content_type"] as? String,

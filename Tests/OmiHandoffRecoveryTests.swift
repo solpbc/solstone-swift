@@ -423,4 +423,5 @@ private final class EvidenceFailingTransferFileSystem: TransferFileSystem, @unch
     func data(contentsOf url: URL) throws -> Data { try self.base.data(contentsOf: url) }
     func byteCount(at url: URL) throws -> Int { try self.base.byteCount(at: url) }
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws { if self.failChunkReads { throw CocoaError(.fileReadUnknown) }; try self.base.readChunks(at: url, chunkSize: chunkSize, consume) }
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int { try self.base.writeStream(to: url, body) }
 }

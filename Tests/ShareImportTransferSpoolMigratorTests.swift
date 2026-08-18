@@ -251,7 +251,7 @@ nonisolated final class ShareImportTransferSpoolMigratorTests: XCTestCase {
             endpointResolver: TransferEndpointResolverStub(.unavailable("held")),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
             clock: FakeTransferClock(wall: Self.baseDate),
-            bodyBuilder: { _, _ in Data("body".utf8) }
+            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
     }
 

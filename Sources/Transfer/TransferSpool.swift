@@ -4,6 +4,11 @@
 import Crypto
 import Foundation
 
+nonisolated protocol TransferByteSink {
+    func append(_ data: Data) throws
+    func append(contentsOf url: URL) throws
+}
+
 nonisolated protocol TransferFileSystem: Sendable {
     func fileExists(atPath path: String) -> Bool
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws
@@ -15,6 +20,7 @@ nonisolated protocol TransferFileSystem: Sendable {
     func data(contentsOf url: URL) throws -> Data
     func byteCount(at url: URL) throws -> Int
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int
 }
 
 nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unchecked Sendable {
@@ -74,6 +80,45 @@ nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unche
         while true {
             guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
             try consume(data)
+        }
+    }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try self.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if self.fileExists(atPath: url.path) {
+            try self.removeItem(at: url)
+        }
+        guard self.fileManager.createFile(atPath: url.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        let sink = FileHandleTransferByteSink(handle: handle, fileSystem: self)
+        try body(sink)
+        try handle.synchronize()
+        return sink.byteCount
+    }
+}
+
+nonisolated private final class FileHandleTransferByteSink: TransferByteSink, @unchecked Sendable {
+    private let handle: FileHandle
+    private let fileSystem: FoundationTransferFileSystem
+    private(set) var byteCount = 0
+
+    init(handle: FileHandle, fileSystem: FoundationTransferFileSystem) {
+        self.handle = handle
+        self.fileSystem = fileSystem
+    }
+
+    func append(_ data: Data) throws {
+        try self.handle.write(contentsOf: data)
+        self.byteCount += data.count
+    }
+
+    func append(contentsOf url: URL) throws {
+        try self.fileSystem.readChunks(at: url, chunkSize: 64 * 1024) { chunk in
+            try self.handle.write(contentsOf: chunk)
+            self.byteCount += chunk.count
         }
     }
 }
@@ -455,6 +500,19 @@ nonisolated struct TransferSpool: Sendable {
         let url = self.bodyCacheURL(for: item)
         try self.fileSystem.write(data, to: url, options: .atomic)
         return url
+    }
+
+    func writeBodyStream(
+        for item: TransferStoredItem,
+        _ body: (any TransferByteSink) throws -> Void
+    ) throws -> (url: URL, byteCount: Int) {
+        let url = self.bodyCacheURL(for: item)
+        let byteCount = try self.fileSystem.writeStream(to: url, body)
+        return (url, byteCount)
+    }
+
+    func byteCount(at url: URL) throws -> Int {
+        try self.fileSystem.byteCount(at: url)
     }
 
     func removeBodyCache(for item: TransferStoredItem) {

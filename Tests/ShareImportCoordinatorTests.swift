@@ -82,20 +82,6 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testOversizedShowsCantSaveAndNothingEnqueued() async throws {
-        let source = self.tempDirectory.appendingPathComponent("large.pdf")
-        _ = FileManager.default.createFile(atPath: source.path, contents: Data())
-        let handle = try FileHandle(forWritingTo: source)
-        try handle.truncate(atOffset: UInt64(ShareImportCoordinator.oversizedByteLimit + 1))
-        try handle.close()
-
-        try await self.assertPreEnqueueFailure(
-            provider: StubShareItemProvider(contentType: "com.adobe.pdf", filename: "large.pdf", fileURL: source),
-            expectedFailure: .oversized
-        )
-    }
-
-    @MainActor
     func testProtectedFileShowsCantSaveAndNothingEnqueued() async throws {
         let directoryURL = self.tempDirectory.appendingPathComponent("protected.pdf", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -188,47 +174,6 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         ])
         XCTAssertEqual(counts.saved, 2)
         XCTAssertEqual(counts.failed, 1)
-    }
-
-    @MainActor
-    func testScratchParentRemovedAfterEnqueue() async throws {
-        let fileManager = TemporaryDirectoryFileManager(temporaryDirectory: self.tempDirectory)
-        let queue = CapturingShareImportQueue()
-        let coordinator = ShareImportCoordinator(queue: queue, fileManager: fileManager)
-        let provider = StubShareItemProvider(contentType: "public.plain-text", filename: "note.txt", fileURL: nil, text: "hello")
-
-        let result = await coordinator.accept(provider: provider)
-
-        guard case .success = result else {
-            XCTFail("Expected text import to succeed")
-            return
-        }
-        let scratchRoot = self.tempDirectory.appendingPathComponent("SolstoneShareImport", isDirectory: true)
-        let entries = try FileManager.default.contentsOfDirectory(at: scratchRoot, includingPropertiesForKeys: nil)
-        XCTAssertEqual(entries, [])
-    }
-
-    @MainActor
-    func testProviderCleanupScratchInvokedAfterEnqueue() async throws {
-        let source = try self.makeFile(named: "share.pdf", data: Data("pdf".utf8))
-        let provider = StubShareItemProvider(contentType: "com.adobe.pdf", filename: "share.pdf", fileURL: source)
-        let queue = CapturingShareImportQueue()
-        var enqueueCompletedBeforeCleanup = false
-        queue.onEnqueue = {
-            XCTAssertEqual(provider.cleanupCallCount, 0)
-            enqueueCompletedBeforeCleanup = true
-        }
-        let coordinator = ShareImportCoordinator(queue: queue)
-
-        let result = await coordinator.accept(provider: provider)
-
-        guard case .success = result else {
-            XCTFail("Expected file import to succeed")
-            return
-        }
-        XCTAssertTrue(enqueueCompletedBeforeCleanup)
-        XCTAssertEqual(provider.cleanupCallCount, 1)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
     }
 
     @MainActor
@@ -355,20 +300,22 @@ private final class StubShareItemProvider: ShareItemProvider {
     let fileURL: URL?
     let text: String
     let loadError: Error?
-    private(set) var cleanupCallCount = 0
+    let isInPlace: Bool
 
     init(
         contentType: String?,
         filename: String?,
         fileURL: URL?,
         text: String = "",
-        loadError: Error? = nil
+        loadError: Error? = nil,
+        isInPlace: Bool = true
     ) {
         self.contentType = contentType
         self.filename = filename
         self.fileURL = fileURL
         self.text = text
         self.loadError = loadError
+        self.isInPlace = isInPlace
     }
 
     func registeredContentType() -> String? {
@@ -379,14 +326,14 @@ private final class StubShareItemProvider: ShareItemProvider {
         self.filename
     }
 
-    func loadFileRepresentation() async throws -> URL {
+    func deliverFile(to sink: any ShareFileSink) async throws -> ShareFileDelivery {
         if let loadError {
             throw loadError
         }
         guard let fileURL else {
             throw StubProviderError.loadFailed
         }
-        return fileURL
+        return try sink.consume(sourceURL: fileURL, isInPlace: self.isInPlace)
     }
 
     func loadText() async throws -> String {
@@ -394,10 +341,6 @@ private final class StubShareItemProvider: ShareItemProvider {
             throw loadError
         }
         return self.text
-    }
-
-    func cleanupScratch() {
-        self.cleanupCallCount += 1
     }
 }
 
@@ -410,23 +353,43 @@ private final class RecordingShareImportQueue: ShareImportQueueing {
         self.base = base
     }
 
-    func enqueue(
-        fileURL: URL,
+    func beginEnqueue() throws -> ShareImportEnqueueHandle {
+        try self.base.beginEnqueue()
+    }
+
+    func makeFileSink(
+        handle: ShareImportEnqueueHandle,
+        operation: ShareImportLandingOperation,
+        inboundContentType: String,
+        suggestedFilename: String?
+    ) -> any ShareFileSink {
+        self.base.makeFileSink(
+            handle: handle,
+            operation: operation,
+            inboundContentType: inboundContentType,
+            suggestedFilename: suggestedFilename
+        )
+    }
+
+    func commitEnqueue(
+        handle: ShareImportEnqueueHandle,
+        delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        contentType: String,
-        originalFilename: String?,
         originApp: String?
-    ) async throws -> UUID {
+    ) throws -> UUID {
         self.enqueueCallCount += 1
-        return try await self.base.enqueue(
-            fileURL: fileURL,
+        return try self.base.commitEnqueue(
+            handle: handle,
+            delivery: delivery,
             source: source,
             targetJournal: targetJournal,
-            contentType: contentType,
-            originalFilename: originalFilename,
             originApp: originApp
         )
+    }
+
+    func abortEnqueue(_ handle: ShareImportEnqueueHandle) {
+        self.base.abortEnqueue(handle)
     }
 }
 
@@ -437,23 +400,61 @@ private final class CapturingShareImportQueue: ShareImportQueueing {
     var lastContentType: String?
     var lastOriginalFilename: String?
     var lastFileText: String?
-    var onEnqueue: (@MainActor () -> Void)?
+    private let scratchRoot: URL
 
-    func enqueue(
-        fileURL: URL,
+    init() {
+        self.scratchRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CapturingShareImportQueue-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: self.scratchRoot, withIntermediateDirectories: true)
+    }
+
+    func beginEnqueue() throws -> ShareImportEnqueueHandle {
+        let itemID = UUID()
+        let itemIDString = itemID.uuidString.lowercased()
+        let staging = self.scratchRoot.appendingPathComponent(itemIDString, isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        return ShareImportEnqueueHandle(
+            itemID: itemID,
+            itemIDString: itemIDString,
+            stagingDirectoryURL: staging,
+            stagingRawURL: staging.appendingPathComponent("raw.bin", isDirectory: false)
+        )
+    }
+
+    func makeFileSink(
+        handle: ShareImportEnqueueHandle,
+        operation: ShareImportLandingOperation,
+        inboundContentType: String,
+        suggestedFilename: String?
+    ) -> any ShareFileSink {
+        ShareImportFileSink(
+            stagingRawURL: handle.stagingRawURL,
+            volumeURL: handle.stagingDirectoryURL,
+            payloadIO: FoundationShareImportPayloadIO(),
+            operation: operation,
+            inboundContentType: inboundContentType,
+            suggestedFilename: suggestedFilename,
+            now: { Date() }
+        )
+    }
+
+    func commitEnqueue(
+        handle: ShareImportEnqueueHandle,
+        delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        contentType: String,
-        originalFilename: String?,
         originApp: String?
-    ) async throws -> UUID {
+    ) throws -> UUID {
         self.enqueueCallCount += 1
         self.lastSource = source
-        self.lastContentType = contentType
-        self.lastOriginalFilename = originalFilename
-        self.lastFileText = try? String(contentsOf: fileURL, encoding: .utf8)
-        self.onEnqueue?()
-        return UUID()
+        self.lastContentType = delivery.contentType
+        self.lastOriginalFilename = delivery.filename
+        self.lastFileText = try? String(contentsOf: handle.stagingRawURL, encoding: .utf8)
+        return handle.itemID
+    }
+
+    func abortEnqueue(_ handle: ShareImportEnqueueHandle) {
+        try? FileManager.default.removeItem(at: handle.stagingDirectoryURL)
     }
 }
 
@@ -467,19 +468,6 @@ private final class CoordinatorNoteWriteFailingFileManager: FileManager, @unchec
             return false
         }
         return super.createFile(atPath: path, contents: data, attributes: attr)
-    }
-}
-
-private final class TemporaryDirectoryFileManager: FileManager, @unchecked Sendable {
-    private let directory: URL
-
-    init(temporaryDirectory: URL) {
-        self.directory = temporaryDirectory
-        super.init()
-    }
-
-    override var temporaryDirectory: URL {
-        self.directory
     }
 }
 

@@ -225,4 +225,8 @@ private final class ChunkReadFailingFileSystem: TransferFileSystem, @unchecked S
         guard url.path != self.failingPath else { throw CocoaError(.fileReadUnknown) }
         try self.base.readChunks(at: url, chunkSize: chunkSize, consume)
     }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try self.base.writeStream(to: url, body)
+    }
 }

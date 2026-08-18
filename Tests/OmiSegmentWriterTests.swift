@@ -743,6 +743,10 @@ private final class BlockingMoveTransferFileSystem: TransferFileSystem, @uncheck
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
         try self.base.readChunks(at: url, chunkSize: chunkSize, consume)
     }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try self.base.writeStream(to: url, body)
+    }
 }
 
 private final class HandoffRemovalFailingFileManager: FileManager {
