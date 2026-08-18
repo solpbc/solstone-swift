@@ -112,6 +112,9 @@ nonisolated struct ShareImportFileSink: ShareFileSink {
     }
 
     private func checkReadable(_ fileURL: URL) throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw ShareImportStoreError.unreadable
+        }
         do {
             let handle = try FileHandle(forReadingFrom: fileURL)
             defer { try? handle.close() }

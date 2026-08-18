@@ -130,6 +130,12 @@ nonisolated final class ShareImportLandingTests: XCTestCase {
         let rawURL = landed.queueRoot
             .appendingPathComponent("pending/\(landed.itemID.uuidString.lowercased())/raw.bin")
         XCTAssertEqual(try Data(contentsOf: rawURL), payload)
+        let noteURL = landed.queueRoot
+            .appendingPathComponent("pending/\(landed.itemID.uuidString.lowercased())/item.json")
+        let note = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: noteURL)) as? [String: Any]
+        )
+        XCTAssertEqual((note["bytes"] as? NSNumber)?.int64Value, Int64(payload.count))
         XCTAssertFalse(io.didReadPayload)
         let store = ShareImportStore(cacheRootURL: landed.queueRoot, payloadIO: io)
         _ = store.onThisPhoneSourceSnapshot()
@@ -358,7 +364,7 @@ private final class ThrowingPayloadReadShareImportPayloadIO: ShareImportPayloadI
         try self.base.copyItem(at: sourceURL, to: destinationURL)
     }
     func readWholeFile(at url: URL) throws -> Data {
-        if url.standardizedFileURL == self.payloadURL {
+        if url.standardizedFileURL == self.payloadURL || url.lastPathComponent == "raw.bin" {
             self.lock.lock()
             self.readPayload = true
             self.lock.unlock()

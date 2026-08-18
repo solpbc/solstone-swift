@@ -40,12 +40,12 @@ final class ShareImportStore {
     init(
         cacheRootURL: URL? = nil,
         fileManager: FileManager = .default,
-        payloadIO: any ShareImportPayloadIO = FoundationShareImportPayloadIO(),
+        payloadIO: (any ShareImportPayloadIO)? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         ledgerDropSink: @escaping @MainActor @Sendable (Int) -> Void = { _ in }
     ) {
         self.fileManager = fileManager
-        self.payloadIO = payloadIO
+        self.payloadIO = payloadIO ?? FoundationShareImportPayloadIO(fileManager: fileManager)
         self.cacheRootURL = cacheRootURL ?? Self.defaultCacheRootURL(fileManager: fileManager)
         self.now = now
         self.ledgerDropSink = ledgerDropSink
@@ -631,4 +631,5 @@ enum ShareImportStoreError: Error, Equatable, Sendable {
     case noRoom
     case protected
     case undecodable
+    case unreadable
 }

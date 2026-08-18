@@ -2,7 +2,6 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
-import UniformTypeIdentifiers
 
 @MainActor
 final class ShareExtensionItemProvider: ShareItemProvider {

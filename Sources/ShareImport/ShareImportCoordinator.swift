@@ -337,18 +337,24 @@ private extension ShareImportCoordinator {
     }
 
     func failure(from error: Error) -> ShareImportFailure {
-        guard let storeError = error as? ShareImportStoreError else {
-            return .unreadable
+        if let storeError = error as? ShareImportStoreError {
+            switch storeError {
+            case .noRoom:
+                return .noRoom
+            case .protected:
+                return .protected
+            case .undecodable:
+                return .undecodable
+            case .unreadable, .writeFailed, .missingRequiredArtifact, .noteDecodeFailed, .textDecodeFailed:
+                return .unreadable
+            }
         }
-        switch storeError {
-        case .noRoom:
+        if case .unsupported = error as? ShareExtensionItemProviderError {
+            return .unsupported
+        }
+        if ShareImportNoRoom.matches(error) {
             return .noRoom
-        case .protected:
-            return .protected
-        case .undecodable:
-            return .undecodable
-        case .writeFailed, .missingRequiredArtifact, .noteDecodeFailed, .textDecodeFailed:
-            return .unreadable
         }
+        return .unreadable
     }
 }
