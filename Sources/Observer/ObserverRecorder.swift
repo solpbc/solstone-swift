@@ -313,6 +313,9 @@ nonisolated final class ObserverTapWriter: Sendable {
         var duration: TimeInterval = 0
         var lastReportedDuration: TimeInterval = 0
         var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
+        var cachedConverter: AVAudioConverter?
+        var cachedSourceFormat: AVAudioFormat?
+        var convertOverride: (@Sendable (AVAudioPCMBuffer, AVAudioFormat) -> AVAudioPCMBuffer?)?
     }
 
     private let lock = OSAllocatedUnfairLock(uncheckedState: State())
@@ -320,6 +323,13 @@ nonisolated final class ObserverTapWriter: Sendable {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)? {
         get { self.lock.withLockUnchecked { $0.onMeter } }
         set { self.lock.withLockUnchecked { $0.onMeter = newValue } }
+    }
+
+    /// Test seam: fail conversion while still exposing the original buffer to `write`.
+    /// Production never sets this. A `nil` return must not write the source buffer.
+    var convertOverride: (@Sendable (AVAudioPCMBuffer, AVAudioFormat) -> AVAudioPCMBuffer?)? {
+        get { self.lock.withLockUnchecked { $0.convertOverride } }
+        set { self.lock.withLockUnchecked { $0.convertOverride = newValue } }
     }
 
     /// Installs a freshly created file as the active chunk target and returns the
@@ -331,6 +341,8 @@ nonisolated final class ObserverTapWriter: Sendable {
             state.url = url
             state.duration = 0
             state.lastReportedDuration = 0
+            state.cachedConverter = nil
+            state.cachedSourceFormat = nil
             return prior
         }
     }
@@ -343,6 +355,8 @@ nonisolated final class ObserverTapWriter: Sendable {
             state.url = nil
             state.duration = 0
             state.lastReportedDuration = 0
+            state.cachedConverter = nil
+            state.cachedSourceFormat = nil
             return chunk
         }
     }
@@ -352,8 +366,24 @@ nonisolated final class ObserverTapWriter: Sendable {
         let pending: (@Sendable (Float, TimeInterval) -> Void, Float, TimeInterval)? =
             self.lock.withLockUnchecked { state in
                 guard let file = state.file else { return nil }
+                let target = file.processingFormat
+                let toWrite: AVAudioPCMBuffer
+                if let override = state.convertOverride {
+                    guard let converted = override(buffer, target) else {
+                        observerLog.error("observer buffer convert failed")
+                        return nil
+                    }
+                    toWrite = converted
+                } else if Self.matchesFileFormat(buffer.format, target) {
+                    toWrite = buffer
+                } else if let converted = Self.convert(buffer, to: target, state: &state) {
+                    toWrite = converted
+                } else {
+                    observerLog.error("observer buffer convert failed")
+                    return nil
+                }
                 do {
-                    try file.write(from: buffer)
+                    try file.write(from: toWrite)
                     let sampleRate = buffer.format.sampleRate
                     if sampleRate > 0 {
                         state.duration += Double(buffer.frameLength) / sampleRate
@@ -372,6 +402,52 @@ nonisolated final class ObserverTapWriter: Sendable {
         if let (meter, level, duration) = pending {
             Task { @MainActor in meter(level, duration) }
         }
+    }
+
+    private static func matchesFileFormat(_ source: AVAudioFormat, _ target: AVAudioFormat) -> Bool {
+        source.sampleRate == target.sampleRate
+            && source.channelCount == target.channelCount
+            && source.commonFormat == target.commonFormat
+            && source.isInterleaved == target.isInterleaved
+    }
+
+    private static func convert(
+        _ buffer: AVAudioPCMBuffer,
+        to target: AVAudioFormat,
+        state: inout State
+    ) -> AVAudioPCMBuffer? {
+        guard buffer.format.sampleRate > 0, buffer.format.channelCount > 0, buffer.frameLength > 0 else {
+            return nil
+        }
+        let converter: AVAudioConverter
+        if let cached = state.cachedConverter,
+           let cachedFormat = state.cachedSourceFormat,
+           cachedFormat.sampleRate == buffer.format.sampleRate,
+           cachedFormat.channelCount == buffer.format.channelCount {
+            converter = cached
+        } else {
+            guard let created = AVAudioConverter(from: buffer.format, to: target) else { return nil }
+            state.cachedConverter = created
+            state.cachedSourceFormat = buffer.format
+            converter = created
+        }
+        converter.reset()
+        let ratio = target.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount(max(1, (Double(buffer.frameLength) * ratio).rounded(.up) + 64))
+        guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+        var error: NSError?
+        var provided = false
+        let status = converter.convert(to: output, error: &error) { _, outStatus in
+            if !provided {
+                provided = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+            outStatus.pointee = .endOfStream
+            return nil
+        }
+        guard status != .error, error == nil, output.frameLength > 0 else { return nil }
+        return output
     }
 
     /// Forms the tap block in a NONISOLATED context. This is load-bearing: forming
