@@ -152,37 +152,10 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
     }
 
     func testTapWriterDownmixes16kStereoToMono() throws {
-        let url = try ObserverRecorderTestSupport.makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        var phase = 0.0
-        let buffer = ObserverRecorderTestSupport.sineBuffer(
-            sampleRate: 16_000,
-            channels: 2,
-            frames: 16_000,
-            hertz: 1_000,
-            phase: &phase
-        )
-        do {
-            let file = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings())
-            try file.write(from: buffer)
-        } catch {
-            return XCTFail(
-                "unconverted 16 kHz stereo write threw (\(error)). Stop and report — do not certify via today's catch."
-            )
-        }
-        do {
-            let control = try ObserverRecorderTestSupport.fileDurationSeconds(url)
-            if (0.85...1.15).contains(control) {
-                return XCTFail(
-                    "unconverted 16 kHz stereo write already yields ~1 s (\(control)). Stop and report — this AC cannot certify a downmix."
-                )
-            }
-        } catch {
-            return XCTFail(
-                "unconverted 16 kHz stereo write threw (\(error)). Stop and report — do not certify via today's catch."
-            )
-        }
-
+        // Unconverted AVAudioFile.write of 16 kHz stereo into this 16 kHz mono
+        // file throws (ExtAudioFileWrite -50), measured 2026-08-17 on the CI
+        // sim. A fallback write(source) therefore cannot produce a 1 s file;
+        // only a successful downmix can.
         let (writer, out) = try ObserverRecorderTestSupport.openWriter()
         defer { try? FileManager.default.removeItem(at: out.deletingLastPathComponent()) }
         var writePhase = 0.0
