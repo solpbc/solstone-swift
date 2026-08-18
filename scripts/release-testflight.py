@@ -159,7 +159,9 @@ def included_by_type(payload):
 
 
 def relationship_ids(resource, name):
-    data = resource.get("relationships", {}).get(name, {}).get("data", [])
+    data = resource.get("relationships", {}).get(name, {}).get("data")
+    if data is None:
+        return []
     if isinstance(data, dict):
         return [data["id"]]
     return [item["id"] for item in data]
