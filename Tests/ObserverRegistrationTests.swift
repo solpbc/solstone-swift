@@ -47,7 +47,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
     func testEnsureRegisteredSuccessPersistsKey() async throws {
         ObserverRegistrationURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/app/observer/register")
+            XCTAssertEqual(request.url?.path, "/app/devices/register")
             let body = try XCTUnwrap(requestBody(from: request))
             let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
             XCTAssertEqual(payload["platform"], "ios")
@@ -146,7 +146,7 @@ nonisolated final class ObserverRegistrationTests: XCTestCase {
         self.storedPrefixBox.withLock { $0 = "obs_stale_" }
         ObserverRegistrationURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/app/observer/register")
+            XCTAssertEqual(request.url?.path, "/app/devices/register")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data(#"{"name":"solstone-swift","key":"observer-key-fresh","prefix":"obs_fresh_"}"#.utf8)

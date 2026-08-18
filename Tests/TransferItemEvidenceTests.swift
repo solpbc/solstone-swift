@@ -20,6 +20,13 @@ final class TransferItemEvidenceTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor func testMakeOmiManifestStampsDevicesIngestPath() {
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+            sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
+        )
+        XCTAssertEqual(manifest.endpoint.path, "/app/devices/ingest")
+    }
+
     @MainActor func testExactQueuedManifestIsOwned() throws {
         let spool = TransferSpool(rootURL: self.rootURL)
         let manifest = self.manifest()

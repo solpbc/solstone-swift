@@ -135,7 +135,7 @@ private final class ObserverManifestURLProtocol: URLProtocol, @unchecked Sendabl
     override func startLoading() {
         XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer observer-key")
         XCTAssertEqual(self.request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "2")
-        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/segments/\(observerManifestTestDayString())")
+        XCTAssertEqual(self.request.url?.path, "/app/devices/ingest/segments/\(observerManifestTestDayString())")
         guard let handler = Self.handler else {
             XCTFail("ObserverManifestURLProtocol handler not set")
             return

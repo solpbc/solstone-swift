@@ -837,8 +837,23 @@ nonisolated struct TransferSpool: Sendable {
         return hasher.finalize()
     }
 
+    // Persisted-spool migration for pre-upgrade queued items, not a wire compatibility window.
+    private nonisolated static let legacyObserverIngestPath = "/app/observer/ingest"
+    private nonisolated static let devicesIngestPath = "/app/devices/ingest"
+
+    private nonisolated static func remapLegacyObserverIngestPath(_ manifest: inout TransferManifest) {
+        if manifest.endpoint.path == Self.legacyObserverIngestPath {
+            manifest.endpoint.path = Self.devicesIngestPath
+        }
+    }
+
     private func readManifest(in directoryURL: URL) throws -> TransferManifest {
-        try Self.decoder().decode(TransferManifest.self, from: self.fileSystem.data(contentsOf: self.manifestURL(in: directoryURL)))
+        var manifest = try Self.decoder().decode(
+            TransferManifest.self,
+            from: self.fileSystem.data(contentsOf: self.manifestURL(in: directoryURL))
+        )
+        Self.remapLegacyObserverIngestPath(&manifest)
+        return manifest
     }
 
     private func manifestURL(in directoryURL: URL) -> URL {

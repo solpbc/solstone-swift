@@ -239,7 +239,7 @@ private final class LocationRecentURLProtocol: URLProtocol, @unchecked Sendable 
     override func startLoading() {
         XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer observer-key")
         XCTAssertEqual(self.request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "2")
-        XCTAssertEqual(self.request.url?.path, "/app/observer/ingest/segments/\(locationRecentTestDayString())")
+        XCTAssertEqual(self.request.url?.path, "/app/devices/ingest/segments/\(locationRecentTestDayString())")
         guard let handler = Self.handler else {
             XCTFail("LocationRecentURLProtocol handler not set")
             return

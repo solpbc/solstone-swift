@@ -11,9 +11,9 @@ nonisolated final class ObserverServerURLTests: XCTestCase {
         let segmentsURL = try XCTUnwrap(ObserverServerURL.segmentsURL(localPort: 7071, day: "20260610"))
 
         XCTAssertEqual(registerURL.host, "127.0.0.1")
-        XCTAssertEqual(registerURL.path, "/app/observer/register")
-        XCTAssertEqual(ingestURL.path, "/app/observer/ingest")
-        XCTAssertEqual(segmentsURL.path, "/app/observer/ingest/segments/20260610")
+        XCTAssertEqual(registerURL.path, "/app/devices/register")
+        XCTAssertEqual(ingestURL.path, "/app/devices/ingest")
+        XCTAssertEqual(segmentsURL.path, "/app/devices/ingest/segments/20260610")
     }
 
     func testDeleteSourceURLBuildsVerifiedPath() throws {
@@ -23,14 +23,14 @@ nonisolated final class ObserverServerURLTests: XCTestCase {
         ))
 
         XCTAssertEqual(url.host, "127.0.0.1")
-        XCTAssertEqual(url.path, "/app/observer/source/location")
+        XCTAssertEqual(url.path, "/app/devices/source/location")
     }
 
     func testHealthURLBuildsObserverHealthRoute() throws {
         let url = try XCTUnwrap(ObserverServerURL.healthURL(localPort: 7071))
 
         XCTAssertEqual(url.host, "127.0.0.1")
-        XCTAssertEqual(url.path, "/app/observer/health")
+        XCTAssertEqual(url.path, "/app/devices/health")
     }
 
     func testImporterURLsBuildKeylessRoutes() throws {

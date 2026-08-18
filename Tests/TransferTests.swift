@@ -51,6 +51,29 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.inFlightCount, 0)
     }
 
+    func testQueuedLegacyObserverIngestPathDispatchesToDevicesIngest() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 204), Data())
+        }
+        let spool = TransferSpool(rootURL: self.tempDirectory)
+        var manifest = self.makeManifest()
+        manifest.endpoint.path = "/app/observer/ingest"
+        let staged = try spool.stage(manifest: manifest, payloads: self.audioPayloads())
+        let queuedURL = spool.queuedDirectoryURL.appendingPathComponent(
+            staged.item.manifest.itemID.uuidString,
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: staged.item.directoryURL, to: queuedURL)
+
+        let engine = self.makeEngine(spool: spool)
+        try await engine.start()
+
+        try await self.waitFor("legacy observer ingest remapped dispatch") {
+            TransferURLProtocol.requests.count == 1
+        }
+        XCTAssertEqual(TransferURLProtocol.requests[0].url?.path, "/app/devices/ingest")
+    }
+
     func testOutcomeClassifierTable() {
         let saveResult = TransferSaveThenStartState(
             phase: .startPending,
@@ -2089,7 +2112,7 @@ private extension TransferTests {
                     contentType: "audio/mp4"
                 ),
             ],
-            endpoint: TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/observer/ingest"),
+            endpoint: TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest"),
             observerIngest: TransferObserverIngestMetadata(
                 segment: "120000_3",
                 day: "20260420",
