@@ -34,12 +34,7 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("chunk.m4a")
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 32_000,
-        ]
+        let settings = ObserverRecorderTestSupport.aacSettings()
         let writer = ObserverTapWriter()
         // Hand the file to the box in a nested scope so the box holds the only strong ref;
         // finalizeAndReset then releases it and AVAudioFile flushes to disk.
@@ -79,7 +74,7 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
             phase: &phase
         )
         do {
-            let file = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings)
+            let file = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings())
             try file.write(from: buffer)
         } catch {
             return XCTFail(
@@ -168,7 +163,7 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
             phase: &phase
         )
         do {
-            let file = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings)
+            let file = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings())
             try file.write(from: buffer)
         } catch {
             return XCTFail(
@@ -251,7 +246,7 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
             phase: &phase
         )
         do {
-            let control = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings)
+            let control = try AVAudioFile(forWriting: url, settings: ObserverRecorderTestSupport.aacSettings())
             try control.write(from: buffer)
         } catch {
             return XCTFail(
@@ -407,12 +402,14 @@ private final class SpyAudioSession: ObserverAudioSession {
 }
 
 private enum ObserverRecorderTestSupport {
-    static let aacSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVSampleRateKey: 16_000,
-        AVNumberOfChannelsKey: 1,
-        AVEncoderBitRateKey: 32_000,
-    ]
+    static func aacSettings() -> [String: Any] {
+        [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 32_000,
+        ]
+    }
 
     static func makeTempURL() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -424,7 +421,7 @@ private enum ObserverRecorderTestSupport {
         let url = try makeTempURL()
         let writer = ObserverTapWriter()
         do {
-            let file = try AVAudioFile(forWriting: url, settings: aacSettings)
+            let file = try AVAudioFile(forWriting: url, settings: aacSettings())
             _ = writer.swap(to: file, url: url)
         }
         return (writer, url)
