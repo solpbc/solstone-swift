@@ -98,24 +98,34 @@ deps: generate
 		-resolvePackageDependencies
 	$(MAKE) build-metadata
 
+# Re-vendor brand SVGs from the canonical source — run locally when the brand
+# spec updates, then commit the diff. dest-path:source-stem, mirroring
+# solstone-macos's BRAND_SVGS convention: Swift's destinations are nested
+# per-imageset paths with fixed Xcode-catalog filenames rather than a flat
+# assets/ dir, so dest carries the full relative path, not a bare stem.
+BRAND_SVGS = Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg:mark \
+	Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark-white.svg:mark-white \
+	SolstoneWatchComplication/Assets.xcassets/MarkHealthy.imageset/mark.svg:mark \
+	SolstoneWatchComplication/Assets.xcassets/MarkAttention.imageset/mark-attention.svg:mark-attention \
+	SolstoneWatchComplication/Assets.xcassets/MarkPaused.imageset/mark-paused.svg:mark-paused \
+	SolstoneWatchComplication/Assets.xcassets/MarkConnecting.imageset/mark-connecting.svg:mark-connecting \
+	SolstoneWatchComplication/Assets.xcassets/MarkOffline.imageset/mark-offline.svg:mark-offline \
+	Watch/Assets.xcassets/SolRingActive.imageset/sol-ring-active.svg:mark \
+	Watch/Assets.xcassets/SolRingPaused.imageset/sol-ring-paused.svg:mark-paused \
+	Watch/Assets.xcassets/SolRingAlert.imageset/sol-ring-alert.svg:mark-attention \
+	Watch/Assets.xcassets/SolRingConnecting.imageset/sol-ring-connecting.svg:mark-connecting
 brand-sync:
 	@test -n "$(BRAND_DIR)" || { echo "brand: BRAND_DIR is required — point it at your sol brand asset directory (BRAND_DIR=/path/to/brand make brand-sync)"; exit 1; }
 	@test -d "$(BRAND_DIR)" || { echo "brand: BRAND_DIR=$(BRAND_DIR) not found"; exit 1; }
-	# unified sol app icon (wordmark, full-bleed cream master, locked 2026-06-25). iOS auto-masks to the
-	# squircle — keep full-bleed, do NOT pre-round. Same 1024 cream master feeds the watch AppIcon too.
+	@set -e; for pair in $(BRAND_SVGS); do \
+	  cp "$(BRAND_DIR)/$${pair#*:}.svg" "$${pair%%:*}"; \
+	done
+	# unified sol app icon (wordmark, full-bleed cream master, locked 2026-06-25). iOS
+	# auto-masks to the squircle — keep full-bleed, do NOT pre-round. Same 1024 cream
+	# master feeds the watch AppIcon too — PNG, a second destination family the stem
+	# list above doesn't cover, left explicit rather than folded in.
 	cp "$(BRAND_DIR)/app-icon/png-cream/app-icon-cream-1024.png" Sources/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
 	cp "$(BRAND_DIR)/app-icon/png-cream/app-icon-cream-1024.png" Watch/Assets.xcassets/AppIcon.appiconset/sol-app-icon-1024.png
-	cp "$(BRAND_DIR)/mark.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark.svg
-	cp "$(BRAND_DIR)/mark-white.svg" Sources/Assets.xcassets/SolWordmark.imageset/sol-wordmark-white.svg
-	cp "$(BRAND_DIR)/mark.svg" SolstoneWatchComplication/Assets.xcassets/MarkHealthy.imageset/mark.svg
-	cp "$(BRAND_DIR)/mark-attention.svg" SolstoneWatchComplication/Assets.xcassets/MarkAttention.imageset/mark-attention.svg
-	cp "$(BRAND_DIR)/mark-paused.svg" SolstoneWatchComplication/Assets.xcassets/MarkPaused.imageset/mark-paused.svg
-	cp "$(BRAND_DIR)/mark-connecting.svg" SolstoneWatchComplication/Assets.xcassets/MarkConnecting.imageset/mark-connecting.svg
-	cp "$(BRAND_DIR)/mark-offline.svg" SolstoneWatchComplication/Assets.xcassets/MarkOffline.imageset/mark-offline.svg
-	cp "$(BRAND_DIR)/mark.svg" Watch/Assets.xcassets/SolRingActive.imageset/sol-ring-active.svg
-	cp "$(BRAND_DIR)/mark-paused.svg" Watch/Assets.xcassets/SolRingPaused.imageset/sol-ring-paused.svg
-	cp "$(BRAND_DIR)/mark-attention.svg" Watch/Assets.xcassets/SolRingAlert.imageset/sol-ring-alert.svg
-	cp "$(BRAND_DIR)/mark-connecting.svg" Watch/Assets.xcassets/SolRingConnecting.imageset/sol-ring-connecting.svg
 	@echo "brand: synced from $(BRAND_DIR)"
 
 # --- Keychain (required for device builds over SSH) ---
