@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-push-chat integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -424,9 +424,6 @@ integration-test-push: sim
 		xcrun simctl spawn booted log show --info --last 10s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 40; \
 		echo "$(PUSH_TARGET_NAME) passed"; \
 		tail -n 20 "$$APP_LOG"
-
-integration-test-push-chat:
-	$(MAKE) integration-test-push PUSH_TAP=chat "PUSH_ASSERT=chat presented" PUSH_TARGET_NAME=integration-test-push-chat
 
 integration-test-observer: PORT ?= 7071
 integration-test-observer: PUSH_PORT ?= 8474

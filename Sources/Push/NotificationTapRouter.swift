@@ -5,7 +5,7 @@ import Foundation
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: "app.solstone.swift", category: "router")
+nonisolated private let log = Logger(subsystem: "app.solstone.swift", category: "router")
 
 final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     nonisolated struct TapPayload {
@@ -64,60 +64,19 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
 
     nonisolated static func route(categoryId: String, userInfo: [AnyHashable: Any]) -> NotificationRoute {
         let data = userInfo["data"] as? [String: Any]
-        let resolutionLog = Logger(subsystem: "app.solstone.swift", category: "router")
         if let action = data?["action"] as? String {
-            resolutionLog.info("resolving tap category=\(categoryId, privacy: .public) action=\(action, privacy: .public)")
+            log.info("resolving tap category=\(categoryId, privacy: .public) action=\(action, privacy: .public)")
         } else {
-            resolutionLog.info("resolving tap category=\(categoryId, privacy: .public)")
+            log.info("resolving tap category=\(categoryId, privacy: .public)")
         }
 
-        switch categoryId {
-        case PushCategory.solChatRequest.rawValue:
-            return .solChatRequest
-        case PushCategory.solChatFold.rawValue:
-            guard let useID = self.chatFoldUseID(from: userInfo) else {
-                return .solChatRequest
-            }
-            return .solChatFold(useID: useID)
-        default:
-            resolutionLog.notice("unknown notification category=\(categoryId, privacy: .public)")
-            return .today
-        }
-    }
-
-    private nonisolated static func chatFoldUseID(from userInfo: [AnyHashable: Any]) -> String? {
-        guard let data = userInfo["data"] as? [String: Any],
-              let rawUseID = data["use_id"] as? String
-        else {
-            return nil
-        }
-
-        let useID = rawUseID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return useID.isEmpty ? nil : useID
+        return .today
     }
 
 #if DEBUG
     @MainActor
-    func debugSynthesizeTap(_ kind: String) {
-        let route: NotificationRoute
-        switch kind {
-        case "chat":
-            route = .solChatRequest
-        case "chat-fold":
-            route = Self.route(
-                categoryId: PushCategory.solChatFold.rawValue,
-                userInfo: ["data": ["action": "open_chat_fold"]]
-            )
-        case let value where value.hasPrefix("chat-fold:"):
-            let useID = String(value.dropFirst("chat-fold:".count))
-            route = Self.route(
-                categoryId: PushCategory.solChatFold.rawValue,
-                userInfo: ["data": ["action": "open_chat_fold", "use_id": useID]]
-            )
-        default:
-            route = .today
-        }
-
+    func debugSynthesizeTap(_: String) {
+        let route = NotificationRoute.today
         log.info("routed to \(route.logLabel, privacy: .public)")
         self.onRoute(route)
     }

@@ -12,8 +12,7 @@ struct OnThisPhoneView: View {
 
     var body: some View {
         OnThisPhoneMomentsView(
-            onTurnOnSource: self.onTurnOnSource,
-            foldBadgeVisible: false
+            onTurnOnSource: self.onTurnOnSource
         ) { EmptyView() }
             .navigationTitle(SourceVocabulary.onThisPhone)
             .navigationBarTitleDisplayMode(.inline)
@@ -105,8 +104,6 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var aggregate: OnThisPhoneAggregateSnapshot?
     @State private var dropController = OnThisPhoneDropController()
     @State private var showingConnectJournal = false
-    @State private var showingAskPreview = false
-    @State private var showingOfflineExplanation = false
     @State private var backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
     @State private var magicMomentItem: OnThisPhoneItem?
     @State private var magicMomentDismissed = false
@@ -116,79 +113,72 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var welcomeFramingTask: Task<Void, Never>?
     @State private var coalescer = OnThisPhoneSnapshotCoalescer()
     private let pulsePoller = HomePulsePoller()
-    private let askBarState: DayHomeJournalState?
-    private let onAskBarChat: () -> Void
-    private let foldBadgeVisible: Bool
+    private let journalState: DayHomeJournalState?
     private let header: Header
 
     init(
         onTurnOnSource: @escaping () -> Void = {},
-        askBarState: DayHomeJournalState? = nil,
-        onAskBarChat: @escaping () -> Void = {},
-        foldBadgeVisible: Bool,
+        journalState: DayHomeJournalState? = nil,
         @ViewBuilder header: () -> Header
     ) {
         self.onTurnOnSource = onTurnOnSource
-        self.askBarState = askBarState
-        self.onAskBarChat = onAskBarChat
-        self.foldBadgeVisible = foldBadgeVisible
+        self.journalState = journalState
         self.header = header()
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    let displayAggregate = self.displayAggregate
-                    let migration = displayAggregate.map { onThisPhoneMigration(snapshot: $0) }
-                        ?? OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
-                    let hasItems = displayAggregate?.items.isEmpty == false
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                let displayAggregate = self.displayAggregate
+                let migration = displayAggregate.map { onThisPhoneMigration(snapshot: $0) }
+                    ?? OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
+                let hasItems = displayAggregate?.items.isEmpty == false
 
-                    self.header
+                self.header
 
-                    if let welcomeFraming = self.welcomeFraming {
-                        Text(welcomeFraming)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("onThisPhone.welcomeFraming")
-                    }
-
-                    if hasItems,
-                       !self.isShowingNotBackedUpNudge,
-                       let scope = onThisPhoneScopeLine(state: self.askBarState, migration: migration) {
-                        Text(scope)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    self.magicMomentSection
-
-                    if hasItems, self.isShowingNotBackedUpNudge {
-                        self.notBackedUpNudge
-                    }
-
-                    if let displayAggregate = displayAggregate {
-                        if !displayAggregate.items.isEmpty,
-                           self.appConfig.isPaired {
-                            self.statusBlock(
-                                migration: migration
-                            )
-                        }
-                        if !self.appConfig.isPaired,
-                           OnThisPhoneBacklogNudge.shouldShow(items: displayAggregate.items, now: Date()),
-                           !self.backlogNudgeDismissed {
-                            self.agedBacklogNudge(count: displayAggregate.items.count)
-                        }
-                        self.finishSyncingCard
-                        self.content(snapshot: displayAggregate)
-                    }
+                if let welcomeFraming = self.welcomeFraming {
+                    Text(welcomeFraming)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("onThisPhone.welcomeFraming")
                 }
-                .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-                .padding()
-                .frame(maxWidth: .infinity)
+
+                if hasItems,
+                   !self.isShowingNotBackedUpNudge,
+                   let scope = onThisPhoneScopeLine(state: self.journalState, migration: migration) {
+                    Text(scope)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                self.magicMomentSection
+
+                if hasItems, self.isShowingNotBackedUpNudge {
+                    self.notBackedUpNudge
+                }
+
+                if let displayAggregate = displayAggregate {
+                    if !displayAggregate.items.isEmpty,
+                       self.appConfig.isPaired {
+                        self.statusBlock(
+                            migration: migration
+                        )
+                    }
+                    if !self.appConfig.isPaired,
+                       OnThisPhoneBacklogNudge.shouldShow(items: displayAggregate.items, now: Date()),
+                       !self.backlogNudgeDismissed {
+                        self.agedBacklogNudge(count: displayAggregate.items.count)
+                    }
+                    self.finishSyncingCard
+                    self.content(snapshot: displayAggregate)
+                }
             }
+            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+            .padding()
+            .frame(maxWidth: .infinity)
+        }
             .overlay(alignment: .bottom) {
                 self.dropSnackbar
             }
@@ -257,27 +247,6 @@ struct OnThisPhoneMomentsView<Header: View>: View {
             .sheet(isPresented: self.$showingConnectJournal) {
                 ConnectJournalSheet(isPresented: self.$showingConnectJournal)
             }
-            .sheet(isPresented: self.$showingAskPreview) {
-                AskSolPreviewSheet(isPresented: self.$showingAskPreview)
-            }
-
-            if let askBarState = self.askBarState {
-                let configuration = self.askBarConfiguration(for: askBarState)
-                DayHomeAskBar(
-                    title: configuration.title,
-                    isEnabled: configuration.isEnabled,
-                    foldBadgeVisible: self.foldBadgeVisible,
-                    action: configuration.action
-                )
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-            }
-        }
-        .alert(SourceVocabulary.askBarOfflineExplanationTitle, isPresented: self.$showingOfflineExplanation) {
-            Button("ok") {}
-        } message: {
-            Text(SourceVocabulary.askBarOfflineExplanationBody)
-        }
     }
 }
 
@@ -459,29 +428,6 @@ private extension OnThisPhoneMomentsView {
         .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("magicMoment.card")
-    }
-
-    func askBarConfiguration(for state: DayHomeJournalState) -> (title: String, isEnabled: Bool, action: () -> Void) {
-        switch state {
-        case .noJournal:
-            return (
-                title: SourceVocabulary.dayHomeAskBarHint,
-                isEnabled: true,
-                action: { self.showingAskPreview = true }
-            )
-        case .linkedOffline:
-            return (
-                title: SourceVocabulary.askBarOffline,
-                isEnabled: true,
-                action: { self.showingOfflineExplanation = true }
-            )
-        case .linkedOnline:
-            return (
-                title: SourceVocabulary.chatNavTitle,
-                isEnabled: true,
-                action: self.onAskBarChat
-            )
-        }
     }
 
     var magicMomentPendingCard: some View {

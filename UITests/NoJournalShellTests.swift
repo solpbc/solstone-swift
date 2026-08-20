@@ -102,98 +102,6 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testDayHomeAskBarAppearsOnEmptyAndSeededDayHome() {
-        let emptyApp = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
-        XCTAssertTrue(emptyApp.buttons["dayHome.askBar"].waitForExistence(timeout: 10))
-        emptyApp.terminate()
-
-        let seededApp = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        XCTAssertTrue(seededApp.buttons["dayHome.askBar"].waitForExistence(timeout: 10))
-    }
-
-    @MainActor
-    func testDayHomeAskBarShowsDormantHintWithoutTextEntry() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
-        let hint = app.staticTexts["dayHome.askBar.hint"]
-        XCTAssertTrue(hint.waitForExistence(timeout: 10))
-        XCTAssertEqual(hint.label, "connect a journal to ask sol")
-        XCTAssertEqual(app.textFields.count, 0)
-        XCTAssertEqual(app.keyboards.count, 0)
-    }
-
-    @MainActor
-    func testDayHomeAskBarOpensAskPreviewWithoutConnectSheet() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        app.buttons["dayHome.askBar"].tap()
-
-        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["askPreview.heading"].exists)
-        XCTAssertTrue(app.staticTexts["askPreview.body"].exists)
-        XCTAssertTrue(app.staticTexts["askPreview.seed1"].exists)
-        XCTAssertTrue(app.staticTexts["askPreview.seed2"].exists)
-        XCTAssertTrue(app.staticTexts["askPreview.stateLine"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["connectJournal.sheet"].exists)
-        XCTAssertFalse(app.navigationBars["connect a journal"].exists)
-    }
-
-    @MainActor
-    func testAskPreviewConnectOpensConnectJournalFlow() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        app.buttons["dayHome.askBar"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForExistence(timeout: 5))
-
-        app.buttons["askPreview.connect"].tap()
-        XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].exists)
-    }
-
-    @MainActor
-    func testAskPreviewNotYetDismisses() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        app.buttons["dayHome.askBar"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForExistence(timeout: 5))
-
-        app.buttons["askPreview.notYet"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["askPreview.sheet"].waitForNonExistence(timeout: 5))
-        XCTAssertFalse(app.descendants(matching: .any)["connectJournal.sheet"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].exists)
-    }
-
-    @MainActor
-    func testDayHomeAskBarDoesNotOverlapBottomMomentRow() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        let askBar = app.buttons["dayHome.askBar"]
-        XCTAssertTrue(askBar.waitForExistence(timeout: 10))
-        XCTAssertTrue(askBar.isHittable)
-
-        let surface = app.descendants(matching: .any)["onThisPhone.surface"]
-        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", "onThisPhone.row.")
-        var bottomRow: XCUIElement?
-        var attempts = 0
-        while bottomRow == nil && attempts < 6 {
-            let rows = app.descendants(matching: .any).matching(rowPredicate).allElementsBoundByIndex
-                .filter { $0.exists && $0.frame.height > 0 }
-            XCTAssertFalse(rows.isEmpty)
-            if let candidate = rows.max(by: { $0.frame.maxY < $1.frame.maxY }),
-               candidate.isHittable,
-               askBar.frame.minY >= candidate.frame.maxY - 1 {
-                bottomRow = candidate
-            } else {
-                surface.swipeUp()
-                attempts += 1
-            }
-        }
-        guard let bottomRow else {
-            XCTFail("bottom-most moment row did not settle above ask bar")
-            return
-        }
-        XCTAssertTrue(bottomRow.isHittable)
-
-        XCTAssertGreaterThanOrEqual(askBar.frame.minY, bottomRow.frame.maxY - 1)
-    }
-
-    @MainActor
     func testStandaloneOnThisPhoneViewHasNoAskBar() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         app.buttons["dayHome.sourcesEntry"].tap()
@@ -202,8 +110,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(onThisPhoneLink.waitForExistence(timeout: 5))
         onThisPhoneLink.tap()
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
-        // The root ask bar stays mounted behind the sheet; standalone content must not expose a foreground one.
-        XCTAssertFalse(app.buttons["dayHome.askBar"].isHittable)
+        // Standalone on-this-phone (sources → share-sheet → on this phone) has no ask bar.
+        XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
     }
 
     @MainActor
@@ -214,6 +122,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let greeting = app.staticTexts["dayHome.greeting"]
         XCTAssertTrue(greeting.waitForExistence(timeout: 5))
         XCTAssertTrue(["good morning", "good afternoon", "good evening"].contains(greeting.label))
+        XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
         let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
         XCTAssertEqual(locality.label, "on this phone, no journal yet")
@@ -392,9 +303,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let rowID = row.identifier
         let exactRow = app.descendants(matching: .any)[rowID]
 
-        let askBar = app.buttons["dayHome.askBar"]
         var attempts = 0
-        while askBar.exists && row.frame.maxY > askBar.frame.minY - 8 && attempts < 3 {
+        while row.frame.maxY > surface.frame.maxY - 8 && attempts < 3 {
             surface.swipeUp()
             attempts += 1
         }

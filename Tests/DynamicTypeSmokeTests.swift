@@ -128,11 +128,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             mirror: transferHarness.mirror,
             store: shareImportStore
         )
-        let chatManager = ChatManager(
-            transport: ScriptedChatTransport(),
-            isReachable: { true },
-            localPortProvider: { 7071 }
-        )
         let finishSyncingCoordinator = FinishSyncingCoordinator(
             totals: { (0, 0) },
             inFlight: { 0 },
@@ -153,13 +148,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 backlogFailed: 0
             )
         }
-        chatManager.pendingOffer = ChatOffer(text: "I can ask support to help with this.")
-        chatManager.pendingDraft = ChatDraft(
-            id: "draft-1",
-            body: "Please help with journal connection.",
-            fields: [ChatDraftField(id: "summary", label: "summary", value: "journal connection")],
-            diagnosticsIncluded: true
-        )
         let problemReportsRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-ProblemReports-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: problemReportsRoot) }
@@ -304,36 +292,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(mobileSegmentTransferHolder)
                 .environment(observerRegistration)
         }
-        let chatView = ChatView()
-            .environment(chatManager)
-            .environment(tunnelManager)
-            .environment(PendingFoldState())
-        let assistantSourcedBubble = AssistantBubble(
-            message: ChatMessage(
-                role: .assistant,
-                text: "i can answer here once native ask connects to your journal.",
-                provenance: AnswerProvenance(
-                    state: .answered,
-                    sources: [Self.provenanceSource()],
-                    coverage: ["read your journal"]
-                )
-            )
-        )
-        let assistantPartialBubble = AssistantBubble(
-            message: ChatMessage(
-                role: .assistant,
-                text: "i don't have enough to answer that.",
-                provenance: AnswerProvenance(state: .partial, coverage: ["Reading your journal…"])
-            )
-        )
-        let assistantFailedBubble = AssistantBubble(
-            message: ChatMessage(
-                role: .assistant,
-                text: "could not answer",
-                provenance: AnswerProvenance(state: .failed)
-            )
-        )
-        let provenanceSourcesPanel = ProvenanceSourcesPanel(sources: [Self.provenanceSource()])
 
         try self.assertHosted(
             WelcomeScreen(onGetStarted: {})
@@ -349,11 +307,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(importerSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(onThisPhoneItemDetailView.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(chatView.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(assistantSourcedBubble.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(assistantPartialBubble.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(assistantFailedBubble.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(provenanceSourcesPanel.environment(\.dynamicTypeSize, .accessibility3))
         await activeLocationManager.stop()
         // ShareExtensionView is private in the extension target; its copy is mechanically covered by lock tests.
         // Hit-target audit: scoped controls are standard Buttons/NavigationLinks/segmented Picker, so no frame assertions are needed here.
@@ -403,14 +356,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             segment: "morning",
             deliveredAt: Date(),
             rawFileURL: nil
-        )
-    }
-
-    private static func provenanceSource() -> AnswerProvenance.ProvenanceSource {
-        AnswerProvenance.ProvenanceSource(
-            ref: "sol://entry/902",
-            label: "9:02 call with jack",
-            url: URL(string: "http://127.0.0.1/")
         )
     }
 }

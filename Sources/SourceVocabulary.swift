@@ -396,68 +396,6 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneScope = "everything sol has taken in, resting here until you connect a journal."
     static let onThisPhoneScopeConnected = "everything sol has taken in, moving into your journal."
     static let onThisPhoneScopeOfflinePaired = "everything sol has taken in, ready for your journal when it reconnects."
-    static let dayHomeAskBarHint = "connect a journal to ask sol"
-    static let askBarOffline = "journal offline"
-    static let askBarOfflineExplanationTitle = "sol needs your journal"
-    static let askBarOfflineExplanationBody = "you're offline right now. sol answers from your journal — reconnect to your journal (on the same network, or wait for your connection to come back) and ask again. anything you gather stays safe on this phone until then."
-    static let chatNavTitle = "ask sol"
-    static let chatComposerPlaceholder = "ask sol…"
-    static let chatEmptyHeading = "ask sol about your day"
-    static let chatEmptyBody = "sol answers from the memories in your journal."
-    static let chatEmptySeed1 = "what did i agree to this morning?"
-    static let chatEmptySeed2 = "who did i talk to about the budget?"
-    static let chatOfflineBanner = "your journal isn't reachable right now — i'll send your question the moment it's back."
-    static let chatPendingStatusA11y = "waiting — will send automatically"
-    static let chatFailedStatusA11y = "tap to retry"
-    static let chatTypingA11y = "sol is thinking"
-    static let chatDeliveryWaitingConnection = "waiting for your journal…"
-    static let chatDeliveryPosting = "sending to your journal…"
-    static let chatDeliveryRetryingTransport = "couldn't reach your journal — retrying…"
-    static let chatDeliveryRetryingUnavailable = "sol isn't available in your journal — retrying…"
-    static func chatDeliveryBackpressure(queueDepth: Int?) -> String {
-        if let queueDepth, queueDepth > 0 {
-            return "your journal is busy — \(queueDepth) waiting, retrying…"
-        }
-        return "your journal is busy — retrying…"
-    }
-    static func chatDeliveryServerQueued(queueDepth: Int?) -> String {
-        if let queueDepth, queueDepth > 0 {
-            return "queued in your journal — \(queueDepth) waiting"
-        }
-        return "queued in your journal"
-    }
-    static let chatAnswerWaiting = "waiting for your journal's answer…"
-    static let chatAnswerStreamReconnecting = "reconnecting to your journal's answer…"
-    static let chatSendA11y = "send"
-    static let chatAckBubble = "i'm on it."
-    static let chatFoldNotificationBody = "i have an answer for you."
-    static let chatFoldAnchorTitle = "from your question"
-    static let chatFoldInlineAskPrefix = "you asked"
-    static let chatFoldOriginalQuestionUnavailable = "original question unavailable"
-    static let chatTalentDetailTitle = "what sol is doing"
-    static let chatTalentRunningTitle = "running"
-    static let chatTalentQueuedTitle = "waiting"
-    static let chatTalentQueuedFallback = "waiting to start"
-    static let chatTalentTaskFallback = "working"
-    static let chatTalentDetailEmpty = "nothing running right now"
-    static let chatErrorEmptyReply = "sol returned an empty reply"
-    static let chatErrorServer = "sol hit an error answering"
-    static let chatErrorGeneric = "couldn't send"
-    static let chatErrorDecode = "sol returned an invalid response"
-    static let chatPartialHonestLine = "no source · i'd rather say i don't know than guess."
-    static let chatAnswerFailedLine = "i couldn't finish that answer."
-    static let chatRetryAnswer = "retry answer"
-    static let chatOfferYes = "yes"
-    static let chatOfferNo = "not now"
-    static let chatSupportCapacityFrom = "sol"
-    static let chatSupportCapacityTo = "solstone support"
-    static let chatSupportCapacitySub = "nothing leaves without your ok."
-    static let chatDraftReviewTitle = "review before sending"
-    static let chatDraftConfirm = "send"
-    static let chatDraftCancel = "cancel"
-    static let chatDraftDiagnosticsIncluded = "diagnostics included"
-    static let chatSourceOpenTitle = "open ↗"
-    static let chatSourceSeparator = " · "
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and sol starts experiencing your day with you."
     static let onThisPhoneTruthLine = "your memories are saved only on this phone and not processed until you connect a journal."
     static let onThisPhoneConnectJournalButton = "connect journal"
@@ -523,7 +461,6 @@ nonisolated enum SourceVocabulary {
     static let connectDoorOnYourPhoneBody = "your journal as its own app, right on this phone."
     static let connectJournalFloorLine = "no journal yet? that's fine. everything sol takes in is saved safely on this phone."
     static let connectJournalHowJournalsWork = "how journals work →"
-    static let askPreviewStateLine = "your day so far is resting on this phone. connect a journal so that sol can read it."
     // VPX: functional placeholders pending product voice review.
     static let pairingLinked = "journal connected"
     static let pairingAlreadyConnected = "this journal is already connected"
@@ -594,24 +531,6 @@ nonisolated enum SourceVocabulary {
             return "1 memory is resting on this phone. connect a journal whenever you'd like a backup."
         }
         return "\(count) memories are resting on this phone. connect a journal whenever you'd like a backup."
-    }
-
-    static func chatSourceCount(_ n: Int) -> String {
-        n == 1 ? "1 source" : "\(n) sources"
-    }
-
-    static func chatQueueCapacityLine(count: Int) -> String {
-        count == 1 ? "1 message waiting for your journal" : "\(count) messages waiting for your journal"
-    }
-
-    static func chatSourcesPillA11yCollapsed(count: Int) -> String {
-        let sourceCount = self.chatSourceCount(count)
-        return "\(sourceCount), tap to view"
-    }
-
-    static func chatSourcesPillA11yExpanded(count: Int) -> String {
-        let sourceCount = self.chatSourceCount(count)
-        return "\(sourceCount), showing sources"
     }
 
     static func onThisPhoneLocationRowLabel(count: Int) -> String {

@@ -45,10 +45,8 @@ struct SolstoneSwiftApp: App {
     @State private var observerManager: ObserverManager
     @State private var watchLink: WatchLink
     @State private var pendingObserverCommand = PendingObserverCommandState()
-    @State private var pendingFold = PendingFoldState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var pairingCredentialRecovery: PairingCredentialRecoveryCoordinator
-    @State private var chatManager: ChatManager
     @State private var omiSourceManager: OmiSourceManager
     @State private var launchCaptureCommitCoordinator: OmiLaunchCaptureCommitCoordinator
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
@@ -537,20 +535,6 @@ struct SolstoneSwiftApp: App {
             mobileSegmentEngine: mobileSegmentEngine,
             clock: observerClock
         )
-        let chatTransport = ConveyChatTransport(
-            localPortProvider: {
-                observerRegistration.activeLocalPort
-            }
-        )
-        let chat = ChatManager(
-            transport: chatTransport,
-            isReachable: {
-                tunnel.state.isConnected
-            },
-            localPortProvider: {
-                observerRegistration.activeLocalPort
-            }
-        )
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
         let omiSource = makeOmiSourceManager(clock: observerClock)
         let launchCaptureCommitCoordinator = OmiLaunchCaptureCommitCoordinator(
@@ -732,7 +716,6 @@ struct SolstoneSwiftApp: App {
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
         self._pairingCredentialRecovery = State(initialValue: pairingCredentialRecovery)
-        self._chatManager = State(initialValue: chat)
         self._omiSourceManager = State(initialValue: omiSource)
         self._launchCaptureCommitCoordinator = State(initialValue: launchCaptureCommitCoordinator)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
@@ -774,7 +757,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
                 .environment(self.foregroundDrainGate)
-                .environment(self.chatManager)
                 .environment(self.omiSourceManager)
                 .environment(self.observerRegistration)
                 .environment(self.mobileSegmentTransferHolder)
@@ -799,7 +781,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.problemReportsManager)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
-                .environment(self.pendingFold)
                 .onOpenURL { url in
                     if self.pairingHandoff.applyUniversalLink(url) {
                         return

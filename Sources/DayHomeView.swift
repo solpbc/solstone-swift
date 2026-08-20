@@ -21,19 +21,15 @@ struct DayHomeView: View {
     let journalState: DayHomeJournalState
     let onTurnOnSource: () -> Void
     let onOpenJournal: () -> Void
-    let onPresentChat: () -> Void
     let onOpenSources: () -> Void
     let onOpenYourSolstone: () -> Void
     let sourcesBadgeVisible: Bool
-    let foldBadgeVisible: Bool
     @State private var showingJournalLives = false
 
     var body: some View {
         OnThisPhoneMomentsView(
             onTurnOnSource: self.onTurnOnSource,
-            askBarState: self.journalState,
-            onAskBarChat: self.onPresentChat,
-            foldBadgeVisible: self.foldBadgeVisible
+            journalState: self.journalState
         ) {
             self.header
         }

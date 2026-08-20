@@ -93,76 +93,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.transferRateLabel, "transfer rate")
         XCTAssertEqual(SourceVocabulary.transferRateIdle, "idle")
         XCTAssertEqual(SourceVocabulary.details, "details")
-        XCTAssertEqual(SourceVocabulary.dayHomeAskBarHint, "connect a journal to ask sol")
         XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "on this phone · no journal yet")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
         XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your journal")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
-        XCTAssertEqual(SourceVocabulary.askBarOffline, "journal offline")
-        XCTAssertEqual(SourceVocabulary.askBarOfflineExplanationTitle, "sol needs your journal")
-        XCTAssertEqual(
-            SourceVocabulary.askBarOfflineExplanationBody,
-            "you're offline right now. sol answers from your journal — reconnect to your journal (on the same network, or wait for your connection to come back) and ask again. anything you gather stays safe on this phone until then."
-        )
-        XCTAssertEqual(SourceVocabulary.chatNavTitle, "ask sol")
-        XCTAssertEqual(SourceVocabulary.chatComposerPlaceholder, "ask sol…")
-        XCTAssertEqual(SourceVocabulary.chatEmptyHeading, "ask sol about your day")
-        XCTAssertEqual(
-            SourceVocabulary.chatEmptyBody,
-            "sol answers from the memories in your journal."
-        )
-        XCTAssertEqual(SourceVocabulary.chatEmptySeed1, "what did i agree to this morning?")
-        XCTAssertEqual(SourceVocabulary.chatEmptySeed2, "who did i talk to about the budget?")
-        XCTAssertEqual(
-            SourceVocabulary.chatOfflineBanner,
-            "your journal isn't reachable right now — i'll send your question the moment it's back."
-        )
-        XCTAssertEqual(SourceVocabulary.chatPendingStatusA11y, "waiting — will send automatically")
-        XCTAssertEqual(SourceVocabulary.chatFailedStatusA11y, "tap to retry")
-        XCTAssertEqual(SourceVocabulary.chatTypingA11y, "sol is thinking")
-        XCTAssertEqual(SourceVocabulary.chatSendA11y, "send")
-        XCTAssertEqual(SourceVocabulary.chatAckBubble, "i'm on it.")
-        XCTAssertEqual(SourceVocabulary.chatFoldNotificationBody, "i have an answer for you.")
-        XCTAssertEqual(SourceVocabulary.chatFoldAnchorTitle, "from your question")
-        XCTAssertEqual(SourceVocabulary.chatFoldInlineAskPrefix, "you asked")
-        XCTAssertEqual(SourceVocabulary.chatFoldOriginalQuestionUnavailable, "original question unavailable")
-        XCTAssertEqual(SourceVocabulary.chatTalentDetailTitle, "what sol is doing")
-        XCTAssertEqual(SourceVocabulary.chatTalentRunningTitle, "running")
-        XCTAssertEqual(SourceVocabulary.chatTalentQueuedTitle, "waiting")
-        XCTAssertEqual(SourceVocabulary.chatTalentQueuedFallback, "waiting to start")
-        XCTAssertEqual(SourceVocabulary.chatTalentTaskFallback, "working")
-        XCTAssertEqual(SourceVocabulary.chatTalentDetailEmpty, "nothing running right now")
-        XCTAssertEqual(SourceVocabulary.chatErrorEmptyReply, "sol returned an empty reply")
-        XCTAssertEqual(SourceVocabulary.chatErrorServer, "sol hit an error answering")
-        XCTAssertEqual(SourceVocabulary.chatErrorGeneric, "couldn't send")
-        XCTAssertEqual(SourceVocabulary.chatErrorDecode, "sol returned an invalid response")
-        XCTAssertEqual(SourceVocabulary.chatPartialHonestLine, "no source · i'd rather say i don't know than guess.")
-        XCTAssertEqual(SourceVocabulary.chatAnswerFailedLine, "i couldn't finish that answer.")
-        XCTAssertEqual(SourceVocabulary.chatRetryAnswer, "retry answer")
-        XCTAssertEqual(SourceVocabulary.chatOfferYes, "yes")
-        XCTAssertEqual(SourceVocabulary.chatOfferNo, "not now")
-        XCTAssertEqual(SourceVocabulary.chatSupportCapacityFrom, "sol")
-        XCTAssertEqual(SourceVocabulary.chatSupportCapacityTo, "solstone support")
-        XCTAssertEqual(SourceVocabulary.chatSupportCapacitySub, "nothing leaves without your ok.")
-        XCTAssertEqual(SourceVocabulary.chatDraftReviewTitle, "review before sending")
-        XCTAssertEqual(SourceVocabulary.chatDraftConfirm, "send")
-        XCTAssertEqual(SourceVocabulary.chatDraftCancel, "cancel")
-        XCTAssertEqual(SourceVocabulary.chatDraftDiagnosticsIncluded, "diagnostics included")
-        XCTAssertEqual(SourceVocabulary.chatSourceOpenTitle, "open ↗")
-        XCTAssertEqual(SourceVocabulary.chatSourceSeparator, " · ")
-        XCTAssertEqual(SourceVocabulary.chatSourceCount(1), "1 source")
-        XCTAssertEqual(SourceVocabulary.chatSourceCount(2), "2 sources")
-        XCTAssertEqual(SourceVocabulary.chatQueueCapacityLine(count: 1), "1 message waiting for your journal")
-        XCTAssertEqual(SourceVocabulary.chatQueueCapacityLine(count: 3), "3 messages waiting for your journal")
-        XCTAssertEqual(
-            SourceVocabulary.chatSourcesPillA11yCollapsed(count: 2),
-            "2 sources, tap to view"
-        )
-        XCTAssertEqual(
-            SourceVocabulary.chatSourcesPillA11yExpanded(count: 1),
-            "1 source, showing sources"
-        )
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
             "your memories are cached on this phone. connect a journal and everything sol has taken in so far flows in."
@@ -179,10 +114,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "no journal yet? that's fine. everything sol takes in is saved safely on this phone."
         )
         XCTAssertEqual(SourceVocabulary.connectJournalHowJournalsWork, "how journals work →")
-        XCTAssertEqual(
-            SourceVocabulary.askPreviewStateLine,
-            "your day so far is resting on this phone. connect a journal so that sol can read it."
-        )
         XCTAssertEqual(SourceVocabulary.journalLivesTitle, "where your journal lives")
         XCTAssertEqual(SourceVocabulary.journalLivesPromise, "your journal is always private, only yours.")
         XCTAssertEqual(SourceVocabulary.journalLivesOwnTitle, "your own journal")
@@ -865,13 +796,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     private var emDashCheckedOwnerVisibleStrings: [String] {
         [
             SourceVocabulary.dayLocalityNoJournal,
-            SourceVocabulary.chatEmptyBody,
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOnYourPhoneTitle,
             SourceVocabulary.connectDoorOnYourPhoneBody,
             SourceVocabulary.connectJournalFloorLine,
             SourceVocabulary.connectJournalHowJournalsWork,
-            SourceVocabulary.askPreviewStateLine,
             SourceVocabulary.journalLivesOwnBody,
             SourceVocabulary.journalLivesOnYourPhoneTitle,
             SourceVocabulary.journalLivesOnYourPhoneBody,
@@ -950,13 +879,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingSyncFootnote(sustaining: false),
             SourceVocabulary.bringingInYourselfHeader,
             SourceVocabulary.dayLocalityNoJournal,
-            SourceVocabulary.chatEmptyBody,
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOnYourPhoneTitle,
             SourceVocabulary.connectDoorOnYourPhoneBody,
             SourceVocabulary.connectJournalFloorLine,
             SourceVocabulary.connectJournalHowJournalsWork,
-            SourceVocabulary.askPreviewStateLine,
             SourceVocabulary.journalLivesOwnBody,
             SourceVocabulary.journalLivesOnYourPhoneTitle,
             SourceVocabulary.journalLivesOnYourPhoneBody,
@@ -1056,54 +983,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.journalConnected,
             SourceVocabulary.journalOffline,
             SourceVocabulary.yourSolstoneTitle,
-            SourceVocabulary.dayHomeAskBarHint,
-            SourceVocabulary.askBarOffline,
-            SourceVocabulary.chatNavTitle,
-            SourceVocabulary.chatComposerPlaceholder,
-            SourceVocabulary.chatEmptyHeading,
-            SourceVocabulary.chatEmptyBody,
-            SourceVocabulary.chatEmptySeed1,
-            SourceVocabulary.chatEmptySeed2,
-            SourceVocabulary.askPreviewStateLine,
-            SourceVocabulary.chatOfflineBanner,
-            SourceVocabulary.chatPendingStatusA11y,
-            SourceVocabulary.chatFailedStatusA11y,
-            SourceVocabulary.chatTypingA11y,
-            SourceVocabulary.chatSendA11y,
-            SourceVocabulary.chatAckBubble,
-            SourceVocabulary.chatFoldNotificationBody,
-            SourceVocabulary.chatFoldAnchorTitle,
-            SourceVocabulary.chatFoldInlineAskPrefix,
-            SourceVocabulary.chatFoldOriginalQuestionUnavailable,
-            SourceVocabulary.chatTalentDetailTitle,
-            SourceVocabulary.chatTalentRunningTitle,
-            SourceVocabulary.chatTalentQueuedTitle,
-            SourceVocabulary.chatTalentQueuedFallback,
-            SourceVocabulary.chatTalentTaskFallback,
-            SourceVocabulary.chatTalentDetailEmpty,
-            SourceVocabulary.chatErrorEmptyReply,
-            SourceVocabulary.chatErrorServer,
-            SourceVocabulary.chatErrorGeneric,
-            SourceVocabulary.chatErrorDecode,
-            SourceVocabulary.chatPartialHonestLine,
-            SourceVocabulary.chatAnswerFailedLine,
-            SourceVocabulary.chatRetryAnswer,
-            SourceVocabulary.chatOfferYes,
-            SourceVocabulary.chatOfferNo,
-            SourceVocabulary.chatSupportCapacityFrom,
-            SourceVocabulary.chatSupportCapacityTo,
-            SourceVocabulary.chatSupportCapacitySub,
-            SourceVocabulary.chatDraftReviewTitle,
-            SourceVocabulary.chatDraftConfirm,
-            SourceVocabulary.chatDraftCancel,
-            SourceVocabulary.chatDraftDiagnosticsIncluded,
-            SourceVocabulary.chatSourceOpenTitle,
-            SourceVocabulary.chatSourceSeparator,
-            SourceVocabulary.chatSourceCount(1),
-            SourceVocabulary.chatSourceCount(2),
-            SourceVocabulary.chatQueueCapacityLine(count: 2),
-            SourceVocabulary.chatSourcesPillA11yCollapsed(count: 2),
-            SourceVocabulary.chatSourcesPillA11yExpanded(count: 1),
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneScopeConnected,
             SourceVocabulary.onThisPhoneScopeOfflinePaired,

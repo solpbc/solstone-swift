@@ -24,14 +24,6 @@ Sources/SourceVocabulary.swift|still on this phone. sol keeps trying to sync it 
 Sources/SourceVocabulary.swift|syncs only to your journal — nowhere else
 Sources/SourceVocabulary.swift|—
 Sources/SourceVocabulary.swift|what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want sol with you.
-Sources/SourceVocabulary.swift|you're offline right now. sol answers from your journal — reconnect to your journal (on the same network, or wait for your connection to come back) and ask again. anything you gather stays safe on this phone until then.
-Sources/SourceVocabulary.swift|your journal isn't reachable right now — i'll send your question the moment it's back.
-Sources/SourceVocabulary.swift|waiting — will send automatically
-Sources/SourceVocabulary.swift|couldn't reach your journal — retrying…
-Sources/SourceVocabulary.swift|sol isn't available in your journal — retrying…
-Sources/SourceVocabulary.swift|your journal is busy — \(queueDepth) waiting, retrying…
-Sources/SourceVocabulary.swift|your journal is busy — retrying…
-Sources/SourceVocabulary.swift|queued in your journal — \(queueDepth) waiting
 Sources/SourceVocabulary.swift|sol just took in your first memory and kept it here — yours, and nowhere else.
 Sources/SourceVocabulary.swift|not in your journal yet — it'll appear once it's sent.
 Sources/SourceVocabulary.swift|your journal shows this same mark in its network app. it should match — exactly.

@@ -26,7 +26,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             guard let self else { return }
             let center = UNUserNotificationCenter.current()
             center.delegate = self.tapRouter
-            center.setNotificationCategories(PushCategory.unCategories())
             await self.pushManager.refreshPermissionState()
             self.pushManager.reregisterIfAuthorized()
 

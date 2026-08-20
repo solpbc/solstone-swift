@@ -18,7 +18,7 @@ Native SwiftUI observer + importer + control center. The phone observes mic audi
 
 Local-first observation works unpaired. Captured data is held durably on-phone and drains to the journal once a pairing + tunnel exist. `AppConfig`'s `isPaired` (`Sources/Services/AppConfig.swift`) gates journal features, never observation.
 
-The UI shell has no tab bar. `Sources/ContentView.swift` gates on `onboardingFlow.isCompleted`, then renders `RootShellView` (`Sources/RootShellView.swift`), a `NavigationStack` over `DayHomeView` (`Sources/DayHomeView.swift`). The sources control center (`SourcesView`, `Sources/SourcesView.swift`), chat (`ChatView`, `Sources/Chat/ChatView.swift`), the embedded journal web view (`InAppJournalView`, `Sources/Portal/InAppJournalView.swift`), and more (`MoreView`, `Sources/MoreView.swift`) are presented as sheets / navigation destinations, not tabs.
+The UI shell has no tab bar. `Sources/ContentView.swift` gates on `onboardingFlow.isCompleted`, then renders `RootShellView` (`Sources/RootShellView.swift`), a `NavigationStack` over `DayHomeView` (`Sources/DayHomeView.swift`). The sources control center (`SourcesView`, `Sources/SourcesView.swift`), the embedded journal web view (`InAppJournalView`, `Sources/Portal/InAppJournalView.swift`), and more (`MoreView`, `Sources/MoreView.swift`) are presented as sheets / navigation destinations, not tabs.
 
 Capture pipelines:
 - `Sources/Observer/` — audio recorder/manager.
@@ -31,8 +31,6 @@ Capture pipelines:
 - `Sources/ShareImport/` + `SolstoneShareExtension/` (`SolstoneShareExtension/ShareViewController.swift`) — share-sheet staging, app adoption, and transfer handoff.
 
 Embedded journal web: `Sources/Portal/InAppJournalView.swift` is a plain `WKWebView` with `WKNavigationDelegate` callbacks only. There are no script message handlers and no URL-scheme handler. There is no JavaScript bridge; native ↔ journal communication is HTTP over the loopback port.
-
-Chat: `Sources/Chat/` is a native SwiftUI surface over the journal chat API with an SSE stream. The parser is `Sources/Chat/ServerSentEventParser.swift`; the transport is `Sources/Chat/ConveyChatTransport.swift`.
 
 Transport / tunnel: SPLTunnel is consumed from the `spl-swift` Swift package pinned at `v0.3.2` in `project.yml`, product `SPLTunnel`. It provides pairing crypto, relay dial over WebSocket, inner mTLS TLS 1.3 with a client cert + CA pinning, a framed multiplexer, and a loopback proxy. `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over single-shot sessions — connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH — the tunnel is mTLS with a framed multiplexer.
 
