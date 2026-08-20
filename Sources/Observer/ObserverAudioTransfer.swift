@@ -311,7 +311,7 @@ final class ObserverAudioTransferEnqueuer {
             payloadParts: payloadParts,
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .observerIngest,
-                path: "/app/observer/ingest",
+                path: "/app/devices/ingest",
                 requiresAuth: true
             ),
             observerIngest: TransferObserverIngestMetadata(

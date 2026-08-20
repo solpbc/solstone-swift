@@ -20,6 +20,13 @@ final class TransferItemEvidenceTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor func testMakeOmiManifestStampsDevicesIngestPath() {
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+            sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
+        )
+        XCTAssertEqual(manifest.endpoint.path, "/app/devices/ingest")
+    }
+
     @MainActor func testExactQueuedManifestIsOwned() throws {
         let spool = TransferSpool(rootURL: self.rootURL)
         let manifest = self.manifest()
@@ -224,5 +231,9 @@ private final class ChunkReadFailingFileSystem: TransferFileSystem, @unchecked S
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
         guard url.path != self.failingPath else { throw CocoaError(.fileReadUnknown) }
         try self.base.readChunks(at: url, chunkSize: chunkSize, consume)
+    }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try self.base.writeStream(to: url, body)
     }
 }

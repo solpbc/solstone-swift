@@ -102,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(200, {"segments": []})
             return
-        if self.path.startswith("/app/observer/ingest/segments/"):
+        if self.path.startswith("/app/devices/ingest/segments/"):
             if not self._require_observer_auth():
                 return
             self._send_json(200, {"segments": []})
@@ -110,7 +110,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path == "/app/observer/register":
+        if self.path == "/app/devices/register":
             if Handler.should_fail_create:
                 self._send_json(500, {"error": "create failed"})
                 return
@@ -129,14 +129,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
             return
 
-        if self.path == "/app/observer/health":
+        if self.path == "/app/devices/health":
             if not self._require_observer_auth():
                 return
             self._read_bytes()
             self._send_json(200, {"ok": True})
             return
 
-        if self.path == "/app/observer/ingest":
+        if self.path == "/app/devices/ingest":
             if not self._require_observer_auth():
                 return
             body = self._read_bytes()
@@ -166,10 +166,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_DELETE(self):
-        if self.path.startswith("/app/observer/source/"):
+        if self.path.startswith("/app/devices/source/"):
             if not self._require_observer_auth():
                 return
-            source = self.path.removeprefix("/app/observer/source/")
+            source = self.path.removeprefix("/app/devices/source/")
             self._send_json(200, {"ok": True, "source": source})
             return
 

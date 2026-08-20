@@ -9,23 +9,23 @@ nonisolated enum ObserverServerURL {
     static let filesFieldName = "files"
 
     static func registrationURL(localPort: Int) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/register")
+        self.url(localPort: localPort, path: "/app/devices/register")
     }
 
     static func ingestURL(localPort: Int) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/ingest")
+        self.url(localPort: localPort, path: "/app/devices/ingest")
     }
 
     static func healthURL(localPort: Int) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/health")
+        self.url(localPort: localPort, path: "/app/devices/health")
     }
 
     static func segmentsURL(localPort: Int, day: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/ingest/segments/\(day)")
+        self.url(localPort: localPort, path: "/app/devices/ingest/segments/\(day)")
     }
 
     static func deleteSourceURL(localPort: Int, source: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/observer/source/\(source)")
+        self.url(localPort: localPort, path: "/app/devices/source/\(source)")
     }
 
     static func url(localPort: Int, path: String, queryItems: [URLQueryItem] = []) -> URL? {

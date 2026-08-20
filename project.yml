@@ -153,6 +153,9 @@ targets:
       - SolstoneShareExtension
       - Sources/Background/MaintenanceCooperator.swift
       - Sources/ShareImport/ShareImportStore.swift
+      - Sources/ShareImport/ShareImportPayloadIO.swift
+      - Sources/ShareImport/ShareImportFileLanding.swift
+      - Sources/ShareImport/ShareExtensionItemProvider.swift
       - Sources/Instrumentation/DrainSignpost.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift

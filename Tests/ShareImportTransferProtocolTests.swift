@@ -129,6 +129,97 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
         XCTAssertEqual(self.multipartValue(named: "observer_handle", in: TransferURLProtocol.bodies[1]), "handle-2")
     }
 
+    @MainActor
+    func testSave413MovesToAttentionKeepsPayloadAndSkipsLedger() async throws {
+        let itemID = Self.uuid(33)
+        let payload = Data("keep-these-bytes".utf8)
+        let hookCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let store = ShareImportStore(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
+        )
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 413), Data("rejected".utf8))
+        }
+        let engine = self.makeEngine(bodyBuilder: { item, spool in
+            if item.manifest.saveThenStart?.phase == .savePending {
+                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "handle-1")
+            }
+            return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
+        })
+        await engine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { manifest, successKind in
+            hookCount.withLock { $0 += 1 }
+            try await MainActor.run {
+                try store.recordDelivered(manifest: manifest, successKind: successKind)
+            }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": payload]
+        )
+
+        try await transferTestWaitFor("share 413 attention") {
+            await engine.snapshot().counters.attentionCount == 1
+        }
+
+        let snapshot = await engine.itemSnapshot(itemID: itemID)
+        XCTAssertEqual(snapshot?.state, .attention)
+        let attentionRaw = self.tempDirectory
+            .appendingPathComponent("Transfers/\(TransferSpool.attentionDirectoryName)/\(itemID.uuidString)/raw.bin")
+        XCTAssertEqual(try Data(contentsOf: attentionRaw), payload)
+        XCTAssertEqual(try store.loadLedger().count, 0)
+        XCTAssertEqual(hookCount.withLock { $0 }, 0)
+    }
+
+    @MainActor
+    func testSave200DoNotStartRemovesPayloadAndWritesLedger() async throws {
+        let itemID = Self.uuid(34)
+        let payload = Data("delivered-bytes".utf8)
+        let store = ShareImportStore(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
+        )
+        TransferURLProtocol.handler = { request, _ in
+            (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/item","timestamp":"2026-07-09T00:00:02Z"}"#.utf8)
+            )
+        }
+        let engine = self.makeEngine(bodyBuilder: { item, spool in
+            if item.manifest.saveThenStart?.phase == .savePending {
+                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "handle-1")
+            }
+            return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
+        })
+        await engine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { manifest, successKind in
+            try await MainActor.run {
+                try store.recordDelivered(manifest: manifest, successKind: successKind)
+            }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": payload]
+        )
+
+        try await transferTestWaitFor("share 200 delivered") {
+            await MainActor.run {
+                (try? store.loadLedger()[itemID.uuidString.lowercased()]) != nil
+            }
+        }
+
+        let deliveredCount = await engine.snapshot().counters.deliveredCount
+        XCTAssertEqual(deliveredCount, 1)
+        let queuedRaw = self.tempDirectory
+            .appendingPathComponent("Transfers/\(TransferSpool.queuedDirectoryName)/\(itemID.uuidString)/raw.bin")
+        let attentionRaw = self.tempDirectory
+            .appendingPathComponent("Transfers/\(TransferSpool.attentionDirectoryName)/\(itemID.uuidString)/raw.bin")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: queuedRaw.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attentionRaw.path))
+        XCTAssertNotNil(try store.loadLedger()[itemID.uuidString.lowercased()])
+    }
+
     func testDroppedLegacySaveNuancesAreNotReimplemented() {
         let mismatchedEcho = Data(#"{"recommended_action":"do_not_start","path":"/imports/item","timestamp":"2026-07-09T00:00:00Z","client_item_id":"different"}"#.utf8)
         XCTAssertEqual(

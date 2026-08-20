@@ -69,7 +69,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
 
             let request = try XCTUnwrap(ObserverHealthBeaconURLProtocol.capturedRequests.first)
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/app/observer/health")
+            XCTAssertEqual(request.url?.path, "/app/devices/health")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-observer-key-abc")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
 
@@ -225,7 +225,7 @@ nonisolated final class ObserverHealthBeaconTests: XCTestCase {
     @MainActor
     func testPayloadMapsUploaderStateAndLastSuccessfulSync() async throws {
         ObserverHealthBeaconURLProtocol.handler = { request in
-            if request.url?.path == "/app/observer/ingest" {
+            if request.url?.path == "/app/devices/ingest" {
                 return (
                     HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!,
                     Data("service unavailable".utf8)

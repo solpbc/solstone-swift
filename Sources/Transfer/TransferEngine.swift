@@ -7,7 +7,12 @@ import os
 nonisolated private let transferLog = Logger(subsystem: "app.solstone.swift", category: "transfer")
 nonisolated private let transferStatusCoalescingDelay: Duration = .milliseconds(250)
 
-typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> Data
+nonisolated enum TransferBodyPayload: Sendable {
+    case inMemory(Data)
+    case written(url: URL, byteCount: Int)
+}
+
+typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> TransferBodyPayload
 typealias TransferDeliveredHook = @Sendable (TransferManifest, TransferSuccessKind) async throws -> Void
 
 nonisolated private struct TransferDispatchLogState: Equatable, Sendable {
@@ -103,7 +108,7 @@ nonisolated private struct TransferGateRecord: Sendable {
 }
 
 nonisolated enum DefaultTransferBodyBuilder {
-    static func build(item: TransferStoredItem, spool: TransferSpool) throws -> Data {
+    static func build(item: TransferStoredItem, spool: TransferSpool) throws -> TransferBodyPayload {
         switch item.manifest.endpoint.destinationKind {
         case .observerIngest:
             guard let ingest = item.manifest.observerIngest else {
@@ -134,7 +139,7 @@ nonisolated enum DefaultTransferBodyBuilder {
                     break
                 }
             }
-            return try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
+            return .inMemory(try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
                 boundary: TransferTransport.boundary(for: item.manifest.itemID),
                 platform: ingest.platform,
                 segment: ingest.segment,
@@ -152,7 +157,7 @@ nonisolated enum DefaultTransferBodyBuilder {
                     locationJSONL: locationData,
                     screenData: screenData
                 )
-            ))
+            )))
         case .saveThenStart:
             if item.manifest.saveThenStart?.phase == .startPending {
                 guard let savedPath = item.manifest.saveThenStart?.savedPath, !savedPath.isEmpty,
@@ -166,7 +171,7 @@ nonisolated enum DefaultTransferBodyBuilder {
                 )
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.sortedKeys]
-                return try encoder.encode(body)
+                return .inMemory(try encoder.encode(body))
             }
             throw TransferBodyBuildError.saveRequestUnsupported
         }
@@ -1073,8 +1078,17 @@ actor TransferEngine {
             if canUseBodyCache && self.spool.bodyCacheExists(for: item) {
                 bodyURL = self.spool.bodyCacheURL(for: item)
             } else {
-                let body = try await self.bodyBuilder(item, self.spool)
-                bodyURL = try self.spool.writeBodyCache(body, for: item)
+                let payload = try await self.bodyBuilder(item, self.spool)
+                switch payload {
+                case .inMemory(let body):
+                    bodyURL = try self.spool.writeBodyCache(body, for: item)
+                case .written(let url, let byteCount):
+                    let onDisk = try self.spool.byteCount(at: url)
+                    guard onDisk == byteCount else {
+                        throw TransferBodyBuildError.malformedManifest("body length mismatch")
+                    }
+                    bodyURL = url
+                }
             }
         } catch {
             self.handleBodyBuildFailure(error, item: item)
