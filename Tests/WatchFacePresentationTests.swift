@@ -8,9 +8,9 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
     func testStatusTable() {
         let cases: [(WatchCaptureRuntimeStatus, String, WatchFaceMark, WatchFaceColorRole, Bool)] = [
             (.active, SourceVocabulary.watchHeadlineListening, .active, .live, true),
-            (.enrolling, SourceVocabulary.watchHeadlineEnrolling, .active, .live, false),
+            (.enrolling, SourceVocabulary.watchHeadlineEnrolling, .connecting, .live, false),
             (.needsAttention(.diskFull), ObserverError.diskFull.message, .alert, .alert, false),
-            (.off, SourceVocabulary.watchHeadlineOff, .activeDimmed, .calm, false),
+            (.off, SourceVocabulary.watchHeadlineOff, .paused, .calm, false),
         ]
 
         for (status, stateWord, markVariant, stateColorRole, showsElapsed) in cases {

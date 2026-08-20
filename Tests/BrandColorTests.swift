@@ -12,7 +12,7 @@ nonisolated final class BrandColorTests: XCTestCase {
         try self.assertMatchesBrandSpec(
             Color.solOrange,
             red: 0.910,
-            green: 0.573,
+            green: 0.569,
             blue: 0.227
         )
     }
@@ -22,7 +22,7 @@ nonisolated final class BrandColorTests: XCTestCase {
         try self.assertMatchesBrandSpec(
             Color.solGold,
             red: 1.000,
-            green: 0.812,
+            green: 0.800,
             blue: 0.200
         )
     }
@@ -47,7 +47,7 @@ nonisolated final class BrandColorTests: XCTestCase {
         try self.assertMatchesBrandSpec(
             Color(uiColor: accentColor),
             red: 0.910,
-            green: 0.573,
+            green: 0.569,
             blue: 0.227
         )
     }

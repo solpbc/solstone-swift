@@ -7,7 +7,7 @@ nonisolated enum WatchComplicationPalette {
     static func color(for role: WatchFaceColorRole) -> Color {
         switch role {
         case .live:
-            Color(red: 0.910, green: 0.573, blue: 0.227)
+            Color(red: 0.910, green: 0.569, blue: 0.227)
         case .flight:
             Color(red: 0.961, green: 0.659, blue: 0.259)
         case .calm:

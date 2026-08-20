@@ -5,7 +5,7 @@
         "color-space" : "srgb",
         "components" : {
           "red" : "0.910",
-          "green" : "0.573",
+          "green" : "0.569",
           "blue" : "0.227",
           "alpha" : "1.000"
         }
@@ -23,7 +23,7 @@
         "color-space" : "srgb",
         "components" : {
           "red" : "0.910",
-          "green" : "0.573",
+          "green" : "0.569",
           "blue" : "0.227",
           "alpha" : "1.000"
         }
@@ -34,6 +34,6 @@
   "info" : {
     "version" : 1,
     "author" : "xcode",
-    "comment" : "sol brand canon — solOrange (#E8923A) as the app accent; orange ink remains text/focus only"
+    "comment" : "sol brand canon — solOrange (#E8913A) as the app accent; orange ink remains text/focus only"
   }
 }

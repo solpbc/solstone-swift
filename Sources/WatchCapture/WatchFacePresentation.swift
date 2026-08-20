@@ -5,6 +5,8 @@ nonisolated enum WatchFaceMark: Equatable, Sendable {
     case active
     case activeDimmed
     case alert
+    case connecting
+    case paused
 }
 
 nonisolated enum WatchFaceColorRole: Equatable, Sendable, CaseIterable, Codable {
@@ -53,7 +55,7 @@ nonisolated func watchFaceModel(
     case .enrolling:
         state = (
             SourceVocabulary.watchHeadlineEnrolling,
-            .active,
+            .connecting,
             .live,
             false
         )
@@ -67,7 +69,7 @@ nonisolated func watchFaceModel(
     case .off:
         state = (
             SourceVocabulary.watchHeadlineOff,
-            .activeDimmed,
+            .paused,
             .calm,
             false
         )

@@ -63,6 +63,8 @@ CryptoCSR.swift|PRIVATE KEY
 # Watch sol-mark asset catalog names (routed through imageName(for:) helper, not inline Image("…"))
 WatchHomeView.swift|SolRingActive
 WatchHomeView.swift|SolRingAlert
+WatchHomeView.swift|SolRingConnecting
+WatchHomeView.swift|SolRingPaused
 
 # Watch complication sol-mark asset catalog names (routed through watchComplicationMarkAssetName(for:), not inline Image("…"))
 Sources/WatchCapture/WatchComplicationSnapshot.swift|MarkHealthy
