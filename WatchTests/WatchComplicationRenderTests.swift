@@ -43,6 +43,12 @@ nonisolated final class WatchComplicationRenderTests: XCTestCase {
         let renders = try Self.renderedStates()
 
         for floor in Self.pairwiseAlphaDifferenceFloors {
+            XCTAssertGreaterThanOrEqual(
+                floor.minimum,
+                WatchComplicationRenderHarness.absolutePairwiseAlphaDifferenceFloor,
+                "\(floor.lhs.rawValue)/\(floor.rhs.rawValue) encoded floor \(Self.format(floor.minimum)) is vacuous"
+            )
+
             let difference = try XCTUnwrap(renders[floor.lhs]).alphaDifferenceFraction(from: try XCTUnwrap(renders[floor.rhs]))
 
             Self.printPairMetric(floor.lhs, floor.rhs, difference: difference)
@@ -228,6 +234,7 @@ private enum WatchComplicationRenderHarness {
     // healthy mark with no chrome still fills most of the disc, so
     // compositing is not the only contributor. The red opaque-band result is a
     // test-instrument issue, not a product finding.
+    // A pairwise floor below this value would not discriminate the two marks.
     static let absolutePairwiseAlphaDifferenceFloor = 0.020
     static let nearIdenticalAlphaDifferenceCeiling = 0.005
 
