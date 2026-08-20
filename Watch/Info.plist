@@ -19,9 +19,9 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>sol adds where your day happens, from a session you start on your watch, and keeps it on your watch until it can hand it to your iphone — yours alone, for your journal. nothing is shared with sol pbc.</string>
+	<string>the solstone app takes in where you are, as part of what you share with it during a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>sol hears the voice sessions you start on your watch and keeps them on your watch until it can hand them to your iphone — yours alone, for your journal. nothing is shared with sol pbc.</string>
+	<string>the solstone app takes in the audio from a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

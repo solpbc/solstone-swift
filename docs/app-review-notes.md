@@ -2,13 +2,13 @@
 
 ## Naming
 
-The App Store listing name is solstone. The installed iOS and watchOS app display name is sol.
+The App Store listing name is solstone. The installed iOS and watchOS app display name is also solstone.
 
-sol is the app on each device. the journal is the owner's private memory on a computer they choose. The app can connect to that journal; it does not make sol pbc a data host for the owner's audio, location, or journal contents.
+The solstone app is what the owner installs on each device. The journal is the owner's private memory, on a computer they choose. The owner can connect the app to that journal.
 
 ## Watch Companion
 
-The watch companion is owner-started. During a session the owner starts from the watch UI, sol takes in audio and location on the watch, then hands those files to the paired iPhone for the owner's private journal.
+The solstone app on the watch is owner-started. During a session that the owner starts from the watch UI, the app takes in the audio and location the owner shares with it on the watch; that material then goes to the paired iPhone, and from there into the owner's private journal.
 
 The watch target declares `UIBackgroundModes` with exactly `audio` and `location` so an owner-started session can continue briefly in the background. These sessions are not always-on, do not auto-start, and are foreground-armed by the owner before background execution is possible.
 

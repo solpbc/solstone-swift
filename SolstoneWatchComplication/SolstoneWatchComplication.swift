@@ -19,7 +19,7 @@ struct SolstoneWatchComplication: Widget {
         ) { entry in
             SolstoneWatchComplicationView(entry: entry)
         }
-        .configurationDisplayName("sol")
+        .configurationDisplayName("solstone")
         .description(SourceVocabulary.watchSourceDisplayName)
         .supportedFamilies([.accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
