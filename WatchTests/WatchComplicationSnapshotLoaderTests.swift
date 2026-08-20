@@ -19,7 +19,7 @@ nonisolated final class WatchComplicationSnapshotLoaderTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(loadWatchComplicationSnapshot(from: containerURL))
 
-        XCTAssertEqual(snapshot.mark, .cloud)
+        XCTAssertEqual(snapshot.mark, .paused)
         XCTAssertEqual(snapshot.role, .calm)
     }
 
@@ -29,7 +29,7 @@ nonisolated final class WatchComplicationSnapshotLoaderTests: XCTestCase {
         let snapshot = WatchComplicationSnapshot(
             stateWord: SourceVocabulary.watchHeadlineListening,
             role: .live,
-            mark: .sun,
+            mark: .healthy,
             showsElapsed: true,
             sessionStartedAt: Date(timeIntervalSinceReferenceDate: 100),
             handoffLine: SourceVocabulary.watchSendingCount(2),
@@ -65,6 +65,105 @@ nonisolated final class WatchComplicationSnapshotLoaderTests: XCTestCase {
         )
 
         XCTAssertNil(loadWatchComplicationSnapshot(from: unreadableContainerURL))
+    }
+
+    func testSnapshotLoaderDecodesPresentCloudMarkAsPaused() throws {
+        let containerURL = try Self.makeContainerURL()
+        defer { Self.removeContainerURL(containerURL) }
+        let json = """
+        {
+          "stateWord": "legacy",
+          "role": {"calm":{}},
+          "showsElapsed": false,
+          "mark": "cloud"
+        }
+        """
+        try Self.write(json, to: containerURL)
+
+        let snapshot = try XCTUnwrap(loadWatchComplicationSnapshot(from: containerURL))
+
+        XCTAssertEqual(snapshot.mark, .paused)
+        XCTAssertNotEqual(snapshot.mark, .connecting)
+    }
+
+    func testSnapshotLoaderDecodesPresentSunAndBangMarks() throws {
+        let containerURL = try Self.makeContainerURL()
+        defer { Self.removeContainerURL(containerURL) }
+
+        try Self.write(
+            """
+            {
+              "stateWord": "legacy",
+              "role": {"live":{}},
+              "showsElapsed": false,
+              "mark": "sun"
+            }
+            """,
+            to: containerURL
+        )
+        let sunSnapshot = try XCTUnwrap(loadWatchComplicationSnapshot(from: containerURL))
+        XCTAssertEqual(sunSnapshot.mark, .healthy)
+
+        try Self.write(
+            """
+            {
+              "stateWord": "legacy",
+              "role": {"alert":{}},
+              "showsElapsed": false,
+              "mark": "bang"
+            }
+            """,
+            to: containerURL
+        )
+        let bangSnapshot = try XCTUnwrap(loadWatchComplicationSnapshot(from: containerURL))
+        XCTAssertEqual(bangSnapshot.mark, .attention)
+    }
+
+    func testSnapshotLoaderDecodesMissingMarkFromLiveAndAlertRoles() throws {
+        let liveContainerURL = try Self.makeContainerURL()
+        defer { Self.removeContainerURL(liveContainerURL) }
+        try Self.write(
+            """
+            {
+              "stateWord": "legacy",
+              "role": {"live":{}},
+              "showsElapsed": false
+            }
+            """,
+            to: liveContainerURL
+        )
+        let liveSnapshot = try XCTUnwrap(loadWatchComplicationSnapshot(from: liveContainerURL))
+        XCTAssertEqual(liveSnapshot.mark, .healthy)
+
+        let alertContainerURL = try Self.makeContainerURL()
+        defer { Self.removeContainerURL(alertContainerURL) }
+        try Self.write(
+            """
+            {
+              "stateWord": "legacy",
+              "role": {"alert":{}},
+              "showsElapsed": false
+            }
+            """,
+            to: alertContainerURL
+        )
+        let alertSnapshot = try XCTUnwrap(loadWatchComplicationSnapshot(from: alertContainerURL))
+        XCTAssertEqual(alertSnapshot.mark, .attention)
+    }
+
+    func testSnapshotLoaderRoundTripsEnrollingAsConnecting() throws {
+        let containerURL = try Self.makeContainerURL()
+        defer { Self.removeContainerURL(containerURL) }
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(status: .enrolling, queuedCount: 0),
+            isReachable: true
+        )
+        let data = try JSONEncoder().encode(snapshot)
+        try data.write(to: Self.snapshotURL(in: containerURL), options: .atomic)
+
+        let loaded = try XCTUnwrap(loadWatchComplicationSnapshot(from: containerURL))
+        XCTAssertEqual(loaded.mark, .connecting)
+        XCTAssertNotEqual(loaded.mark, .paused)
     }
 }
 

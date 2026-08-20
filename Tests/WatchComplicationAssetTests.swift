@@ -23,7 +23,7 @@ nonisolated final class WatchComplicationAssetTests: XCTestCase {
         }
         let names = markNames + [watchComplicationMarkAssetName(for: nil)]
 
-        XCTAssertEqual(Set(names).count, 4)
+        XCTAssertEqual(Set(names).count, 5)
 
         let root = StringLiteralGrepSupport.worktreeRoot()
         for name in Set(names) {

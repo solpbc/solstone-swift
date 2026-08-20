@@ -4,9 +4,36 @@
 import Foundation
 
 nonisolated enum WatchComplicationMark: String, CaseIterable, Codable, Equatable, Sendable {
-    case sun
-    case cloud
-    case bang
+    case healthy
+    case attention
+    case paused
+    case connecting
+
+    // Legacy on-disk bytes from the sun/cloud/bang vocabulary. Shipped watches
+    // still hold those strings. decodeIfPresent throws on an unrecognized raw
+    // value and the loader would then render the offline mark. Delete these
+    // three alias arms once the fleet no longer writes or holds sun, cloud, or bang.
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        switch raw {
+        case "healthy", "sun":
+            self = .healthy
+        case "attention", "bang":
+            self = .attention
+        case "paused", "cloud":
+            self = .paused
+        case "connecting":
+            self = .connecting
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "unrecognized watch complication mark: \(raw)"
+                )
+            )
+        }
+    }
 }
 
 nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
@@ -116,38 +143,42 @@ private extension WatchComplicationSnapshot {
     nonisolated static func mark(for status: WatchCaptureRuntimeStatus) -> WatchComplicationMark {
         switch status {
         case .active:
-            .sun
-        case .off, .enrolling:
-            .cloud
+            .healthy
+        case .off:
+            .paused
+        case .enrolling:
+            .connecting
         case .needsAttention:
-            .bang
+            .attention
         }
     }
 
     nonisolated static func mark(forLegacyRole role: WatchFaceColorRole) -> WatchComplicationMark {
         switch role {
         case .live:
-            .sun
+            .healthy
         case .calm, .flight:
-            .cloud
+            .paused
         case .alert:
-            .bang
+            .attention
         }
     }
 }
 
 nonisolated func watchComplicationMarkAssetName(for snapshot: WatchComplicationSnapshot?) -> String {
     guard let snapshot else {
-        return "SolRingQuestion"
+        return "MarkOffline"
     }
 
     switch snapshot.mark {
-    case .sun:
-        return "SolRingSun"
-    case .cloud:
-        return "SolRingCloud"
-    case .bang:
-        return "SolRingBang"
+    case .healthy:
+        return "MarkHealthy"
+    case .attention:
+        return "MarkAttention"
+    case .paused:
+        return "MarkPaused"
+    case .connecting:
+        return "MarkConnecting"
     }
 }
 

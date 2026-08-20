@@ -10,7 +10,7 @@ import XCTest
 nonisolated final class WatchComplicationRenderTests: XCTestCase {
     @MainActor
     func testCircularRenderCanvasDimensionsMatchHarnessConstants() throws {
-        let render = try WatchComplicationRenderHarness.render(Self.complicationView(for: .question))
+        let render = try WatchComplicationRenderHarness.render(Self.complicationView(for: .offline))
         let expected = Int(WatchComplicationRenderHarness.complicationCanvasPoints * WatchComplicationRenderHarness.rendererScale)
 
         XCTAssertEqual(render.width, expected)
@@ -56,8 +56,8 @@ nonisolated final class WatchComplicationRenderTests: XCTestCase {
 
     @MainActor
     func testNilSnapshotMatchesDirectQuestionMarkPixels() throws {
-        let nilRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .question))
-        let directRender = try WatchComplicationRenderHarness.render(DirectQuestionMarkView())
+        let nilRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .offline))
+        let directRender = try WatchComplicationRenderHarness.render(DirectOfflineMarkView())
         let difference = nilRender.alphaDifferenceFraction(from: directRender)
 
         print("WATCH_RENDER_NIL_DIRECT alphaDifferenceFraction=\(Self.format(difference))")
@@ -66,11 +66,11 @@ nonisolated final class WatchComplicationRenderTests: XCTestCase {
 
     @MainActor
     func testNilSnapshotDiffersFromOffPixels() throws {
-        let nilRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .question))
-        let offRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .cloud))
+        let nilRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .offline))
+        let offRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .paused))
         let difference = nilRender.alphaDifferenceFraction(from: offRender)
         let floor = try XCTUnwrap(Self.pairwiseAlphaDifferenceFloors.first { pair in
-            pair.matches(.cloud, .question)
+            pair.matches(.paused, .offline)
         })
 
         print("WATCH_RENDER_NIL_OFF alphaDifferenceFraction=\(Self.format(difference))")
@@ -96,12 +96,16 @@ private extension WatchComplicationRenderTests {
     }
 
     static let pairwiseAlphaDifferenceFloors: [PairwiseAlphaFloor] = [
-        PairwiseAlphaFloor(.sun, .cloud, minimum: 0.088227), // measured 0.126038
-        PairwiseAlphaFloor(.sun, .bang, minimum: 0.020000), // measured 0.025391, retention clamps to absolute floor
-        PairwiseAlphaFloor(.sun, .question, minimum: 0.029736), // measured 0.042480
-        PairwiseAlphaFloor(.cloud, .bang, minimum: 0.076007), // measured 0.108582
-        PairwiseAlphaFloor(.cloud, .question, minimum: 0.066565), // measured 0.095093
-        PairwiseAlphaFloor(.bang, .question, minimum: 0.020000), // measured 0.027954, retention clamps to absolute floor
+        PairwiseAlphaFloor(.healthy, .attention, minimum: 0.081262), // measured 0.116089
+        PairwiseAlphaFloor(.healthy, .paused, minimum: 0.104761), // measured 0.149658
+        PairwiseAlphaFloor(.healthy, .connecting, minimum: 0.033026), // measured 0.047180
+        PairwiseAlphaFloor(.healthy, .offline, minimum: 0.050287), // measured 0.071838
+        PairwiseAlphaFloor(.attention, .paused, minimum: 0.060413), // measured 0.086304
+        PairwiseAlphaFloor(.attention, .connecting, minimum: 0.051783), // measured 0.073975
+        PairwiseAlphaFloor(.attention, .offline, minimum: 0.073743), // measured 0.105347
+        PairwiseAlphaFloor(.paused, .connecting, minimum: 0.072589), // measured 0.103699
+        PairwiseAlphaFloor(.paused, .offline, minimum: 0.097412), // measured 0.139160
+        PairwiseAlphaFloor(.connecting, .offline, minimum: 0.062549), // measured 0.089355
     ]
 
     @MainActor
@@ -144,14 +148,15 @@ private extension WatchComplicationRenderTests {
 }
 
 private enum ComplicationRenderState: String, CaseIterable {
-    case sun
-    case cloud
-    case bang
-    case question
+    case healthy
+    case attention
+    case paused
+    case connecting
+    case offline
 
     var snapshot: WatchComplicationSnapshot? {
         switch self {
-        case .sun:
+        case .healthy:
             WatchComplicationSnapshot(
                 presentation: WatchCaptureOwnerPresentation(
                     status: .active,
@@ -161,27 +166,32 @@ private enum ComplicationRenderState: String, CaseIterable {
                 ),
                 isReachable: true
             )
-        case .cloud:
-            WatchComplicationSnapshot(
-                presentation: WatchCaptureOwnerPresentation(status: .off, queuedCount: 0),
-                isReachable: true
-            )
-        case .bang:
+        case .attention:
             WatchComplicationSnapshot(
                 presentation: WatchCaptureOwnerPresentation(status: .needsAttention(.diskFull), queuedCount: 0),
                 isReachable: true
             )
-        case .question:
+        case .paused:
+            WatchComplicationSnapshot(
+                presentation: WatchCaptureOwnerPresentation(status: .off, queuedCount: 0),
+                isReachable: true
+            )
+        case .connecting:
+            WatchComplicationSnapshot(
+                presentation: WatchCaptureOwnerPresentation(status: .enrolling, queuedCount: 0),
+                isReachable: true
+            )
+        case .offline:
             nil
         }
     }
 }
 
-private struct DirectQuestionMarkView: View {
+private struct DirectOfflineMarkView: View {
     var body: some View {
         ZStack {
             AccessoryWidgetBackground()
-            Image("SolRingQuestion", bundle: #bundle)
+            Image("MarkOffline", bundle: #bundle)
                 .resizable()
                 .scaledToFit()
                 .padding(1)
@@ -199,10 +209,14 @@ private enum WatchComplicationRenderHarness {
     // clear it and no more, so the marks' antialiased edges stay in the measurement.
     static let alphaInkThreshold = UInt8(32)
     static let pairwiseAlphaDifferenceDelta = UInt8(8)
-    static let minimumInkFraction = 0.20
+    // Sparsest real mark is attention at 0.192627: Appendix A's attention glyph is rays
+    // plus bang with no inner circle, so it carries less ink than the ring-bearing mark
+    // that calibrated the old 0.20. Floor is that measurement retained at 0.70, the same
+    // factor the pairwise floors use. A missing Image measures 0.000000 and still fails.
+    static let minimumInkFraction = 0.134839
     // Slab guard: a circle inscribed in the square canvas is pi / 4 = 0.7854.
     // The gray-disc control measured 0.787842, matching that geometry. The
-    // highest mark state measured cloud at 0.3823, so this ceiling is non-vacuous.
+    // five mark states sit well below this ceiling, so it stays non-vacuous.
     static let maximumInkFraction = 0.70
     // An opaque-pixel band was evaluated and dropped. It is redundant with the
     // ink band because both named slab failures fill the accessory circle: the
@@ -211,7 +225,7 @@ private enum WatchComplicationRenderHarness {
     // 0.78 and the disc near 0.98, deriving a threshold from the run it gates.
     // This hostless harness also composites AccessoryWidgetBackground at alpha
     // 25 under the marks, pushing near-opaque mark pixels to 255. A bare
-    // SolRingSun with no chrome still measured opaqueFraction 0.754427, so
+    // healthy mark with no chrome still fills most of the disc, so
     // compositing is not the only contributor. The red opaque-band result is a
     // test-instrument issue, not a product finding.
     static let absolutePairwiseAlphaDifferenceFloor = 0.020

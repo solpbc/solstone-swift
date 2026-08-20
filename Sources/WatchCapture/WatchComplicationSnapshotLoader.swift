@@ -4,9 +4,9 @@
 import Foundation
 
 // Decision: the complication loader turns every failure into nil. A corrupt
-// snapshot and a genuine first-run absence both render the question mark forever
-// with no signal anywhere. That is very likely right for a watch face, and this change
-// preserves that behavior.
+// snapshot and a genuine first-run absence both render the offline mark
+// with no signal anywhere. That is very likely right for a watch face, and this
+// change preserves that behavior.
 nonisolated func loadWatchComplicationSnapshot(from containerURL: URL) -> WatchComplicationSnapshot? {
     do {
         let url = containerURL.appendingPathComponent(WatchComplicationSnapshot.fileName, isDirectory: false)

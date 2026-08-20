@@ -27,10 +27,10 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
 
     func testComplicationMarkDerivationByRuntimeStatus() {
         let cases: [(WatchCaptureRuntimeStatus, WatchComplicationMark)] = [
-            (.active, .sun),
-            (.off, .cloud),
-            (.enrolling, .cloud),
-            (.needsAttention(.diskFull), .bang),
+            (.active, .healthy),
+            (.off, .paused),
+            (.enrolling, .connecting),
+            (.needsAttention(.diskFull), .attention),
         ]
 
         for (status, mark) in cases {
@@ -43,15 +43,6 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         }
     }
 
-    func testComplicationMarkDerivesCloudForEnrolling() {
-        let snapshot = WatchComplicationSnapshot(
-            presentation: WatchCaptureOwnerPresentation(status: .enrolling, queuedCount: 0),
-            isReachable: false
-        )
-
-        XCTAssertEqual(snapshot.mark, .cloud)
-    }
-
     func testComplicationMarkAssetNameSeparatesOffFromNil() {
         let offSnapshot = WatchComplicationSnapshot(
             presentation: WatchCaptureOwnerPresentation(status: .off, queuedCount: 0),
@@ -61,8 +52,8 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         let offName = watchComplicationMarkAssetName(for: offSnapshot)
         let nilName = watchComplicationMarkAssetName(for: nil)
 
-        XCTAssertEqual(offName, "SolRingCloud")
-        XCTAssertEqual(nilName, "SolRingQuestion")
+        XCTAssertEqual(offName, "MarkPaused")
+        XCTAssertEqual(nilName, "MarkOffline")
         XCTAssertNotEqual(offName, nilName)
     }
 
@@ -77,7 +68,7 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         let handoffSnapshot = WatchComplicationSnapshot(
             stateWord: "off",
             role: .calm,
-            mark: .cloud,
+            mark: .paused,
             showsElapsed: false,
             sessionStartedAt: nil,
             handoffLine: "saved on your watch",
@@ -88,7 +79,7 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         let stateSnapshot = WatchComplicationSnapshot(
             stateWord: "on",
             role: .live,
-            mark: .sun,
+            mark: .healthy,
             showsElapsed: false,
             sessionStartedAt: nil,
             handoffLine: nil,
@@ -101,7 +92,7 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         XCTAssertEqual(watchComplicationInlineText(for: stateSnapshot), "sol · on")
     }
 
-    func testSunMarkIsUnreachableFromNonActiveStatuses() {
+    func testHealthyMarkIsUnreachableFromNonActiveStatuses() {
         let nonActiveStatuses: [WatchCaptureRuntimeStatus] = [
             .off,
             .enrolling,
@@ -114,7 +105,7 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
                 isReachable: false
             )
 
-            XCTAssertNotEqual(snapshot.mark, .sun)
+            XCTAssertNotEqual(snapshot.mark, .healthy)
         }
     }
 
@@ -309,7 +300,7 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         let snapshot = WatchComplicationSnapshot(
             stateWord: SourceVocabulary.watchHeadlineListening,
             role: .live,
-            mark: .sun,
+            mark: .healthy,
             showsElapsed: true,
             sessionStartedAt: Date(timeIntervalSinceReferenceDate: 100),
             handoffLine: SourceVocabulary.watchSendingCount(2),
@@ -325,9 +316,9 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
 
     func testLegacyDecodeWithoutMarkDerivesFromRole() throws {
         let cases: [(roleJSON: String, expectedMark: WatchComplicationMark)] = [
-            (#"{"live":{}}"#, .sun),
-            (#"{"calm":{}}"#, .cloud),
-            (#"{"alert":{}}"#, .bang),
+            (#"{"live":{}}"#, .healthy),
+            (#"{"calm":{}}"#, .paused),
+            (#"{"alert":{}}"#, .attention),
         ]
 
         for (roleJSON, expectedMark) in cases {
