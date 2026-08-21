@@ -82,6 +82,122 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertTrue(TransferURLProtocol.bodies[0].contains(Data("audio".utf8)))
     }
 
+    func testStagedPredecessorNormalizationFailureRecoversV3DispatchC6C8() async throws {
+        let root = self.tempDirectory.appendingPathComponent("staged-normalization-recovery", isDirectory: true)
+        let fileSystem = FailingManifestWriteFileSystem()
+        let failingSpool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let itemID = Self.uuid(611)
+        let durableBytes = Data("durable-after-normalization-failure".utf8)
+        let staleV2Bytes = Data("stale-v2-body".utf8)
+        _ = try self.stagePredecessor(
+            spool: failingSpool,
+            itemID: itemID,
+            durableBytes: durableBytes,
+            cachedBytes: staleV2Bytes
+        )
+        fileSystem.failManifestWrites = true
+
+        let failedSnapshot = try failingSpool.initialize(now: Self.baseDate)
+        let failedItem = try XCTUnwrap(failedSnapshot.attention.first { $0.manifest.itemID == itemID })
+        XCTAssertFalse(failedSnapshot.queued.contains { $0.manifest.itemID == itemID })
+        XCTAssertNil(failedItem.manifest.observerIngest?.ingestProtocolVersion)
+        XCTAssertEqual(failedItem.manifest.endpoint.path, "/app/observer/ingest")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failingSpool.bodyCacheURL(for: failedItem).path))
+        XCTAssertTrue(failedSnapshot.recoveryDiagnostics.contains {
+            $0.itemID == itemID
+                && $0.previousState == .staged
+                && $0.nextState == .attention
+                && $0.detail.hasPrefix("v3 normalization failed:")
+        })
+
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(
+            spool: TransferSpool(rootURL: root),
+            resolver: resolver
+        )
+        try await engine.start()
+        let relaunchedItemValue = await engine.itemSnapshot(itemID: itemID)
+        let relaunchedItem = try XCTUnwrap(relaunchedItemValue)
+        XCTAssertEqual(relaunchedItem.manifest.observerIngest?.ingestProtocolVersion, 3)
+        XCTAssertEqual(relaunchedItem.manifest.endpoint.path, "/app/devices/ingest")
+
+        try await engine.retryAttention(itemID: itemID)
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("recovered staged predecessor dispatch") {
+            TransferURLProtocol.requests.count == 1
+        }
+        XCTAssertEqual(TransferURLProtocol.requests[0].value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "3")
+        XCTAssertTrue(TransferURLProtocol.bodies[0].contains(durableBytes))
+        XCTAssertFalse(TransferURLProtocol.bodies[0].contains(staleV2Bytes))
+    }
+
+    func testStagedNormalizationFailureDoesNotBlockHealthyItemC6() async throws {
+        let root = self.tempDirectory.appendingPathComponent("staged-normalization-isolation", isDirectory: true)
+        let fileSystem = FailingManifestWriteFileSystem()
+        let failingSpool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let failingItemID = Self.uuid(612)
+        let healthyItemID = Self.uuid(613)
+        _ = try self.stagePredecessor(
+            spool: failingSpool,
+            itemID: failingItemID,
+            durableBytes: Data("failing-durable".utf8),
+            cachedBytes: Data("failing-stale-v2".utf8)
+        )
+        _ = try failingSpool.stage(
+            manifest: self.makeManifest(itemID: healthyItemID, source: "healthy"),
+            payloads: ["audio": Data("healthy-durable".utf8)]
+        )
+        fileSystem.failingManifestItemID = failingItemID
+        fileSystem.failManifestWrites = true
+
+        let snapshot = try failingSpool.initialize(now: Self.baseDate)
+        XCTAssertTrue(snapshot.attention.contains { $0.manifest.itemID == failingItemID })
+        XCTAssertTrue(snapshot.queued.contains { $0.manifest.itemID == healthyItemID })
+        XCTAssertTrue(snapshot.recoveryDiagnostics.contains { $0.itemID == failingItemID })
+
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
+        try await engine.start()
+        try await self.waitFor("healthy staged item dispatch") {
+            TransferURLProtocol.requests.count == 1
+        }
+        XCTAssertEqual(Self.boundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.first)), healthyItemID)
+        let engineSnapshot = await engine.snapshot()
+        XCTAssertEqual(engineSnapshot.counters.deliveredCount, 1)
+        XCTAssertEqual(engineSnapshot.counters.attentionCount, 1)
+    }
+
+    func testStagedNormalizationFailureNeverDispatchesV2CachedBytesC7() async throws {
+        let root = self.tempDirectory.appendingPathComponent("staged-normalization-no-v2-dispatch", isDirectory: true)
+        let fileSystem = FailingManifestWriteFileSystem()
+        let spool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let itemID = Self.uuid(614)
+        _ = try self.stagePredecessor(
+            spool: spool,
+            itemID: itemID,
+            durableBytes: Data("durable-c7".utf8),
+            cachedBytes: Data("stale-v2-c7".utf8)
+        )
+        fileSystem.failManifestWrites = true
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+
+        let engine = self.makeEngine(spool: spool)
+        try await engine.start()
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+        XCTAssertEqual(snapshot.counters.attentionCount, 1)
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+    }
+
     func testOutcomeClassifierTable() {
         let saveResult = TransferSaveThenStartState(
             phase: .startPending,
@@ -2210,6 +2326,20 @@ private extension TransferTests {
         ["audio": Data("audio".utf8)]
     }
 
+    func stagePredecessor(
+        spool: TransferSpool,
+        itemID: UUID,
+        durableBytes: Data,
+        cachedBytes: Data
+    ) throws -> TransferStoredItem {
+        var manifest = self.makeManifest(itemID: itemID)
+        manifest.endpoint.path = "/app/observer/ingest"
+        manifest.observerIngest?.ingestProtocolVersion = nil
+        let staged = try spool.stage(manifest: manifest, payloads: ["audio": durableBytes])
+        try spool.writeBodyCache(cachedBytes, for: staged.item)
+        return staged.item
+    }
+
     func waitFor(
         _ label: String,
         timeout: Duration = .seconds(2),
@@ -2613,10 +2743,16 @@ private final class CountingTransferFileSystem: TransferFileSystem, @unchecked S
 final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Sendable {
     private let fileManager = FileManager.default
     private let failBox = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private let failingItemIDBox = OSAllocatedUnfairLock<UUID?>(initialState: nil)
 
     var failManifestWrites: Bool {
         get { self.failBox.withLock { $0 } }
         set { self.failBox.withLock { $0 = newValue } }
+    }
+
+    var failingManifestItemID: UUID? {
+        get { self.failingItemIDBox.withLock { $0 } }
+        set { self.failingItemIDBox.withLock { $0 = newValue } }
     }
 
     func fileExists(atPath path: String) -> Bool {
@@ -2648,8 +2784,14 @@ final class FailingManifestWriteFileSystem: TransferFileSystem, @unchecked Senda
     }
 
     func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        let failingItemID = self.failingManifestItemID
         let shouldFail = self.failBox.withLock { failManifestWrites in
             guard failManifestWrites, url.lastPathComponent.hasPrefix(".manifest-") else {
+                return false
+            }
+            if let failingItemID,
+               url.deletingLastPathComponent().lastPathComponent != failingItemID.uuidString
+            {
                 return false
             }
             failManifestWrites = false

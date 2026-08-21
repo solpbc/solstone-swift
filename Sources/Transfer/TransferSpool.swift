@@ -3,6 +3,9 @@
 
 import Crypto
 import Foundation
+import os
+
+nonisolated private let transferSpoolLog = Logger(subsystem: "app.solstone.swift", category: "transfer-spool")
 
 nonisolated protocol TransferByteSink {
     func append(_ data: Data) throws
@@ -271,9 +274,11 @@ nonisolated struct TransferSpool: Sendable {
         let committedItemIDs = Set((queued + attention).map(\.manifest.itemID))
         let stagedRecovery = try self.recoverStagedItems(
             knownCommittedItemIDs: committedItemIDs,
-            excluding: conflictedItemIDs
+            excluding: conflictedItemIDs,
+            now: now
         )
         queued.append(contentsOf: stagedRecovery.promoted)
+        attention.append(contentsOf: stagedRecovery.attention)
         recoveryDiagnostics.append(contentsOf: conflictedItemIDs.sorted { $0.uuidString < $1.uuidString }.map {
             TransferRecoveryDiagnostic(
                 source: self.rootURL.path,
@@ -286,6 +291,7 @@ nonisolated struct TransferSpool: Sendable {
         })
         recoveryDiagnostics.append(contentsOf: stagedRecovery.diagnostics)
         queued.sort(by: self.itemSort)
+        attention.sort(by: self.itemSort)
         return TransferSpoolSnapshot(
             queued: queued,
             attention: attention,
@@ -403,7 +409,15 @@ nonisolated struct TransferSpool: Sendable {
         if self.fileSystem.fileExists(atPath: destinationURL.path) {
             throw TransferSpoolError.destinationAlreadyExists(destinationURL.path)
         }
-        return try self.moveStagedItemToQueued(sourceURL: sourceURL, destinationURL: destinationURL)
+        let manifest = try self.normalizeObserverIngestManifest(
+            self.readManifest(in: sourceURL),
+            in: sourceURL
+        )
+        return try self.moveStagedItemToQueued(
+            sourceURL: sourceURL,
+            destinationURL: destinationURL,
+            manifest: manifest
+        )
     }
 
     /// Ownership comparison round-trips both manifests through the spool codec,
@@ -480,8 +494,16 @@ nonisolated struct TransferSpool: Sendable {
 
     func moveAttentionItemToQueued(_ item: TransferStoredItem) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
-        var manifest = try self.normalizeObserverIngestManifest(item.manifest, in: item.directoryURL)
-            .replacingDiskState(.queued)
+        let normalized: TransferManifest
+        do {
+            normalized = try self.normalizeObserverIngestManifest(item.manifest, in: item.directoryURL)
+        } catch {
+            transferSpoolLog.error(
+                "transfer attention requeue normalization failed \(item.manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
+            )
+            throw error
+        }
+        var manifest = normalized.replacingDiskState(.queued)
         manifest.attention = nil
         manifest.nextAttemptAt = nil
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
@@ -593,6 +615,7 @@ nonisolated struct TransferSpool: Sendable {
 
     private struct StagedRecoveryResult {
         var promoted: [TransferStoredItem]
+        var attention: [TransferStoredItem]
         var diagnostics: [TransferRecoveryDiagnostic]
     }
 
@@ -611,12 +634,14 @@ nonisolated struct TransferSpool: Sendable {
 
     private func recoverStagedItems(
         knownCommittedItemIDs: Set<UUID>,
-        excluding conflictedItemIDs: Set<UUID>
+        excluding conflictedItemIDs: Set<UUID>,
+        now: Date
     ) throws -> StagedRecoveryResult {
         guard self.fileSystem.fileExists(atPath: self.stagingDirectoryURL.path) else {
-            return StagedRecoveryResult(promoted: [], diagnostics: [])
+            return StagedRecoveryResult(promoted: [], attention: [], diagnostics: [])
         }
         var promoted: [TransferStoredItem] = []
+        var attention: [TransferStoredItem] = []
         var diagnostics: [TransferRecoveryDiagnostic] = []
         var committedItemIDs = knownCommittedItemIDs
         for url in try self.fileSystem.contentsOfDirectory(at: self.stagingDirectoryURL) {
@@ -643,20 +668,52 @@ nonisolated struct TransferSpool: Sendable {
                 diagnostics.append(try self.salvageDirectory(url, reason: "committed_twin_exists", manifest: manifest))
                 continue
             }
-            let item = try self.moveStagedItemToQueued(sourceURL: url, destinationURL: destinationURL)
+            let stagedItem = TransferStoredItem(manifest: manifest, directoryURL: url)
+            let normalized: TransferManifest
+            do {
+                normalized = try self.normalizeObserverIngestManifest(manifest, in: url)
+            } catch {
+                let detail = "v3 normalization failed: \(String(describing: error))"
+                transferSpoolLog.error(
+                    "transfer staged normalization failed \(manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
+                )
+                let moved = try self.moveQueuedItemToAttention(
+                    stagedItem,
+                    reason: "v3_normalization_failed",
+                    detail: detail,
+                    now: now
+                )
+                attention.append(moved)
+                committedItemIDs.insert(moved.manifest.itemID)
+                diagnostics.append(TransferRecoveryDiagnostic(
+                    source: manifest.sourceKey,
+                    itemID: manifest.itemID,
+                    previousState: .staged,
+                    nextState: .attention,
+                    outcome: .needsAttention,
+                    detail: detail
+                ))
+                continue
+            }
+            let item = try self.moveStagedItemToQueued(
+                sourceURL: url,
+                destinationURL: destinationURL,
+                manifest: normalized
+            )
             committedItemIDs.insert(item.manifest.itemID)
             promoted.append(item)
         }
-        return StagedRecoveryResult(promoted: promoted, diagnostics: diagnostics)
+        return StagedRecoveryResult(promoted: promoted, attention: attention, diagnostics: diagnostics)
     }
 
-    private func moveStagedItemToQueued(sourceURL: URL, destinationURL: URL) throws -> TransferStoredItem {
-        try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
-        var manifest = try self.normalizeObserverIngestManifest(
-            self.readManifest(in: destinationURL),
-            in: destinationURL
-        ).replacingDiskState(.queued)
+    private func moveStagedItemToQueued(
+        sourceURL: URL,
+        destinationURL: URL,
+        manifest: TransferManifest
+    ) throws -> TransferStoredItem {
+        var manifest = manifest.replacingDiskState(.queued)
         manifest.attention = nil
+        try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
         try self.writeManifestAtomically(manifest, in: destinationURL)
         return TransferStoredItem(manifest: manifest, directoryURL: destinationURL)
     }
