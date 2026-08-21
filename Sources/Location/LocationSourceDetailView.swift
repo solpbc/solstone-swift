@@ -17,8 +17,6 @@ struct LocationSourceDetailView: View {
     @State private var isDeleting = false
     @State private var deleteResult: DeleteShareSourceResult?
 
-    private let ingestClient = LinkedDeviceIngestClient()
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -385,18 +383,11 @@ private extension LocationSourceDetailView {
 
     func loadRecent() async {
         self.recentResult = nil
-
-        guard let localPort = self.observerRegistration.activeLocalPort else {
-            self.recentResult = .loadedEmpty
-            return
-        }
-
-        let result = await self.ingestClient.fetchSegments(
-            localPort: localPort,
-            source: ObserverAudioTransferSource.mobileSegment,
+        let registration = self.observerRegistration
+        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { registration.activeLocalPort })
+        self.recentResult = await reconciler.reconcileLocationRecent(
             day: LinkedDeviceIngestViewMapper.dayString(for: Date())
         )
-        self.recentResult = LinkedDeviceIngestViewMapper.locationRecentResult(result)
     }
 }
 

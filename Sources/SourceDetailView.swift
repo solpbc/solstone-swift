@@ -13,11 +13,9 @@ struct SourceDetailView: View {
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var manifestResult: ObserverManifestResult = .loadedEmpty
+    @State private var manifestResult: ObserverManifestResult?
     @State private var isPulsing = false
     @ScaledMetric(relativeTo: .headline) private var listenButtonSize: CGFloat = 120
-
-    private let ingestClient = LinkedDeviceIngestClient()
 
     var body: some View {
         ScrollView {
@@ -210,6 +208,8 @@ private extension SourceDetailView {
     @ViewBuilder
     var recentBlock: some View {
         switch self.manifestResult {
+        case .none:
+            ProgressView()
         case .loaded(let items):
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: 4) {
@@ -379,17 +379,12 @@ private extension SourceDetailView {
     }
 
     func loadManifest() async {
-        guard let localPort = self.observerRegistration.activeLocalPort else {
-            self.manifestResult = .loadedEmpty
-            return
-        }
-
-        let result = await self.ingestClient.fetchSegments(
-            localPort: localPort,
-            source: ObserverAudioTransferSource.mobileSegment,
+        self.manifestResult = nil
+        let registration = self.observerRegistration
+        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { registration.activeLocalPort })
+        self.manifestResult = await reconciler.reconcileObserverManifest(
             day: LinkedDeviceIngestViewMapper.dayString(for: Date())
         )
-        self.manifestResult = LinkedDeviceIngestViewMapper.observerManifestResult(result)
     }
 }
 
