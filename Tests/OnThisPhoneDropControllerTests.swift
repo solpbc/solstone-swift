@@ -468,7 +468,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         )
         let retryEngine = TransferEngine(
             spool: transferSpool,
-            transport: TransferTransport(authProvider: { _ in "test-transfer-key" }),
+            transport: TransferTransport(),
             endpointResolver: TransferCutoverEndpointResolver()
         )
         try await retryEngine.start()

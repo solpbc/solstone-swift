@@ -11,7 +11,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         TransferURLProtocol.reset()
         defer { TransferURLProtocol.reset() }
         TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 204), Data())
+            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BackgroundDrainCoordinatorTests-\(UUID().uuidString)", isDirectory: true)

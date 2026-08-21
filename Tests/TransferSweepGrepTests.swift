@@ -20,6 +20,12 @@ nonisolated final class TransferSweepGrepTests: XCTestCase {
         XCTAssertEqual(try self.sourceHits(containing: "backgroundSessionIdentifier"), [])
     }
 
+    func testLinkedDeviceIngestV3HasNoLegacyWireTokens() throws {
+        XCTAssertEqual(try self.sourceHits(containing: "/app/observer/ingest"), [])
+        XCTAssertEqual(try self.sourceHits(containing: "ObserverAudioTransferAuthProvider"), [])
+        XCTAssertEqual(try self.sourceHits(containing: "segmentsProtocolVersion = \"2\""), [])
+    }
+
     func testRetiredImportQueueSwiftTokenOnlyAppearsInTransferOutcomeRationaleComments() throws {
         let hits = try self.sourceHits(containing: "ImportQueue.swift")
 

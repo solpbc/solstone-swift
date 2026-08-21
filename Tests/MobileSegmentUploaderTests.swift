@@ -30,7 +30,7 @@ final class MobileSegmentUploaderTests: XCTestCase {
 
     func testMultiFacetEnqueueProducesOneTransferItemWithThreePartsAndMobileMetadata() async throws {
         TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data("ok".utf8))
+            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let harness = self.makeHarness(endpointAvailable: true)
         let segmentID = UUID()
@@ -53,10 +53,11 @@ final class MobileSegmentUploaderTests: XCTestCase {
             atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path
         ))
 
-        let meta = try self.multipartMeta(in: body)
-        XCTAssertEqual(try self.multipartValue(named: "platform", in: body), "ios")
-        XCTAssertEqual(try self.multipartValue(named: "segment", in: body), "090000_60")
-        XCTAssertEqual(try self.multipartValue(named: "day", in: body), "20260628")
+        let envelope = try self.multipartEnvelope(in: body)
+        let meta = try XCTUnwrap(envelope["meta"] as? [String: Any])
+        XCTAssertEqual(envelope["source"] as? String, ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(envelope["segment"] as? String, "090000_60")
+        XCTAssertEqual(envelope["day"] as? String, "20260628")
         XCTAssertEqual(meta["segment_id"] as? String, segmentID.uuidString)
         XCTAssertEqual(meta["mode"] as? String, "meeting")
         XCTAssertNil(meta["chunk_index"])
@@ -280,7 +281,7 @@ final class MobileSegmentUploaderTests: XCTestCase {
 
     func testLegacyPayloadMismatchNeverRetiresIntactProducerCopy() async throws {
         TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data("ok".utf8))
+            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let harness = self.makeHarness(endpointAvailable: true)
         try await harness.engine.initialize()

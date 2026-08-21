@@ -17,7 +17,7 @@ struct SourceDetailView: View {
     @State private var isPulsing = false
     @ScaledMetric(relativeTo: .headline) private var listenButtonSize: CGFloat = 120
 
-    private let manifestClient = ObserverManifestClient()
+    private let ingestClient = LinkedDeviceIngestClient()
 
     var body: some View {
         ScrollView {
@@ -384,12 +384,12 @@ private extension SourceDetailView {
             return
         }
 
-        guard let handle = try? await self.observerRegistration.ensureRegistered() else {
-            self.manifestResult = .failed
-            return
-        }
-
-        self.manifestResult = await self.manifestClient.fetchToday(localPort: localPort, handle: handle)
+        let result = await self.ingestClient.fetchSegments(
+            localPort: localPort,
+            source: ObserverAudioTransferSource.mobileSegment,
+            day: LinkedDeviceIngestViewMapper.dayString(for: Date())
+        )
+        self.manifestResult = LinkedDeviceIngestViewMapper.observerManifestResult(result)
     }
 }
 

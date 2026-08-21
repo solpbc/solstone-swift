@@ -242,10 +242,7 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
     private func makeEngine(bodyBuilder: @escaping TransferBodyBuilder) -> TransferEngine {
         TransferEngine(
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("Transfers", isDirectory: true)),
-            transport: TransferTransport(
-                sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-                authProvider: { _ in "test-transfer-key" }
-            ),
+            transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
             endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
             clock: FakeTransferClock(wall: Self.baseDate),
@@ -273,8 +270,7 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: "/imports/save",
-                startPath: "/imports/start",
-                requiresAuth: false
+                startPath: "/imports/start"
             ),
             meta: ShareImportTransferMetadata.meta(fields: ShareImportTransferMetadata.Fields(
                 basis: "file",

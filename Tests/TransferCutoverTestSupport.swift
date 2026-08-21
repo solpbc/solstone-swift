@@ -18,7 +18,6 @@ func makeTransferCutoverHarness(
     rootURL: URL,
     fileSystem: (any TransferFileSystem)? = nil,
     sessionConfiguration: URLSessionConfiguration? = nil,
-    authProvider: @escaping @Sendable (TransferManifest) async throws -> String = { _ in "test-transfer-key" },
     endpointResolver: any TransferEndpointResolver = TransferCutoverEndpointResolver(),
     clock: any TransferClock = LiveTransferClock(),
     diagnosticsSink: @escaping TransferDiagnosticSink = { _ in },
@@ -33,8 +32,8 @@ func makeTransferCutoverHarness(
 ) {
     let mirror = TransferStatusMirror()
     let transport = sessionConfiguration.map {
-        TransferTransport(sessionConfiguration: $0, authProvider: authProvider)
-    } ?? TransferTransport(authProvider: authProvider)
+        TransferTransport(sessionConfiguration: $0)
+    } ?? TransferTransport()
     let engine = TransferEngine(
         spool: TransferSpool(rootURL: rootURL, fileSystem: fileSystem ?? FoundationTransferFileSystem()),
         transport: transport,
@@ -250,14 +249,14 @@ extension XCTestCase {
     }
 
     @nonobjc
-    func multipartMeta(in body: Data) throws -> [String: Any] {
-        let meta = try XCTUnwrap(self.multipartValue(named: "meta", in: body))
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(meta.utf8)) as? [String: Any])
+    func multipartEnvelope(in body: Data) throws -> [String: Any] {
+        let envelope = try XCTUnwrap(self.multipartValue(named: "envelope", in: body))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(envelope.utf8)) as? [String: Any])
     }
 
     @nonobjc
-    func multipartMeta(in body: String) throws -> [String: Any] {
-        let value = try self.multipartValue(named: "meta", in: body)
+    func multipartEnvelope(in body: String) throws -> [String: Any] {
+        let value = try self.multipartValue(named: "envelope", in: body)
         let object = try JSONSerialization.jsonObject(with: Data(value.utf8))
         return try XCTUnwrap(object as? [String: Any])
     }

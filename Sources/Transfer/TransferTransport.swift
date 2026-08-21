@@ -3,35 +3,13 @@
 
 import Foundation
 
-typealias TransferAuthProvider = @Sendable (TransferManifest) async throws -> String
-
 nonisolated final class TransferTransport: @unchecked Sendable {
     private let session: URLSession
-    private let authProvider: TransferAuthProvider
 
-    init(
-        sessionConfiguration: URLSessionConfiguration = .ephemeral,
-        authProvider: @escaping TransferAuthProvider
-    ) {
+    init(sessionConfiguration: URLSessionConfiguration = .ephemeral) {
         sessionConfiguration.timeoutIntervalForRequest = 60
         sessionConfiguration.timeoutIntervalForResource = 30 * 60
         self.session = URLSession(configuration: sessionConfiguration)
-        self.authProvider = authProvider
-    }
-
-    func buildAuthorizedRequest(
-        url: URL,
-        manifest: TransferManifest,
-        method: String = "POST",
-        requiresAuth: Bool = true
-    ) async throws -> URLRequest {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        if requiresAuth {
-            let handle = try await self.authProvider(manifest)
-            request.setValue("Bearer \(handle)", forHTTPHeaderField: "Authorization")
-        }
-        return request
     }
 
     func send(
@@ -52,14 +30,19 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         }
 
         do {
-            var request = try await self.buildAuthorizedRequest(
-                url: url,
-                manifest: item.manifest,
-                method: "POST",
-                requiresAuth: item.manifest.endpoint.requiresAuth
-            )
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
             switch phase {
-            case .observerIngest, .save:
+            case .observerIngest:
+                request.setValue(
+                    "multipart/form-data; boundary=\(Self.boundary(for: item.manifest.itemID))",
+                    forHTTPHeaderField: "Content-Type"
+                )
+                request.setValue(
+                    ObserverServerURL.ingestProtocolVersion,
+                    forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName
+                )
+            case .save:
                 request.setValue(
                     "multipart/form-data; boundary=\(Self.boundary(for: item.manifest.itemID))",
                     forHTTPHeaderField: "Content-Type"

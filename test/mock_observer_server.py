@@ -48,6 +48,12 @@ class Handler(BaseHTTPRequestHandler):
             return b""
         return self.rfile.read(length)
 
+    def _require_ingest_protocol(self):
+        if self.headers.get("X-Solstone-Protocol-Version") == "3":
+            return True
+        self._send_json(426, {"status": "failed", "reason_code": "protocol_version_legacy"})
+        return False
+
     @classmethod
     def _state_payload(cls):
         return {
@@ -94,18 +100,25 @@ class Handler(BaseHTTPRequestHandler):
         return parts
 
     def do_GET(self):
-        if self.path == "/api/observer/status":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/observer/status":
             self._send_json(200, Handler._state_payload())
             return
-        if self.path.startswith("/app/observer/ingest/manifest/"):
-            if not self._require_observer_auth():
+        if path == "/app/devices/ingest/manifest":
+            if not self._require_ingest_protocol():
                 return
-            self._send_json(200, {"segments": []})
+            self._send_json(200, {"days": {}})
             return
-        if self.path.startswith("/app/devices/ingest/segments/"):
-            if not self._require_observer_auth():
+        if path.startswith("/app/devices/ingest/manifest/"):
+            if not self._require_ingest_protocol():
                 return
-            self._send_json(200, {"segments": []})
+            day = path.rsplit("/", 1)[-1]
+            self._send_json(200, {"version": 1, "day": day, "segments": {}})
+            return
+        if path.startswith("/app/devices/ingest/segments/"):
+            if not self._require_ingest_protocol():
+                return
+            self._send_json(200, {"protocol_version": 3, "total": 0, "items": []})
             return
         self._send_json(404, {"error": "not found"})
 
@@ -137,30 +150,42 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/app/devices/ingest":
-            if not self._require_observer_auth():
+            if not self._require_ingest_protocol():
                 return
             body = self._read_bytes()
             parts = self._multipart_parts(body, self.headers.get("Content-Type", ""))
-            fields = {}
-            files = []
-            for part in parts:
-                if part["filename"] is None:
-                    fields[part["name"]] = part["content"].decode("utf-8", errors="ignore")
-                else:
-                    files.append({"name": part["name"], "filename": part["filename"]})
+            envelopes = [part for part in parts if part["name"] == "envelope" and part["filename"] is None]
+            files = [part for part in parts if part["name"] == "files" and part["filename"] is not None]
+            if len(envelopes) != 1:
+                self._send_json(400, {"status": "failed", "reason_code": "field_missing"})
+                return
+            try:
+                envelope = json.loads(envelopes[0]["content"].decode("utf-8"))
+                submitted = [entry["submitted"] for entry in envelope["files"]]
+            except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"status": "failed", "reason_code": "envelope_invalid"})
+                return
+            filenames = [part["filename"] for part in files]
+            if len(submitted) != len(files) or sorted(submitted) != sorted(filenames):
+                self._send_json(400, {"status": "failed", "reason_code": "file_name_mismatch"})
+                return
+            if "audio.m4a" not in submitted:
+                self._send_json(400, {"status": "failed", "reason_code": "file_name_mismatch"})
+                return
             upload = {
-                "segment": fields.get("segment"),
-                "day": fields.get("day"),
-                "platform": fields.get("platform"),
+                "segment": envelope.get("segment"),
+                "day": envelope.get("day"),
                 "file_count": len(files),
-                "filename": files[0]["filename"] if files else None,
+                "filename": "audio.m4a",
+                "protocol_version": self.headers.get("X-Solstone-Protocol-Version"),
+                "authorization": self.headers.get("Authorization"),
             }
             with Handler.lock:
                 Handler.uploads.append(upload)
                 Handler._write_state_file()
                 upload_count = len(Handler.uploads)
             print(f"OBSERVER_UPLOAD:{upload_count}:{upload['filename']}", flush=True)
-            self._send_json(200, {"ok": True})
+            self._send_json(200, {"status": "ok"})
             return
 
         self._send_json(404, {"error": "not found"})

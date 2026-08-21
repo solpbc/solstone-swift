@@ -3,11 +3,24 @@
 
 import Foundation
 
-nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
+nonisolated struct ObserverIngestMultipartPart: Equatable, Sendable {
+    var filename: String
+    var contentType: String
+    var data: Data
+
+    init(filename: String, contentType: String, data: Data) {
+        self.filename = filename
+        self.contentType = contentType
+        self.data = data
+    }
+}
+
+nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
     var boundary: String
-    var platform: String
-    var segment: String
     var day: String
+    var segment: String
+    var source: String
+    var platform: String
     var startedAt: Date
     var durationS: TimeInterval
     var sources: [String]
@@ -16,13 +29,14 @@ nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
     var modeRawValue: String?
     var segmentID: UUID?
     var omiMetadata: JSONValue?
-    var artifacts: ObserverIngestMultipartArtifacts
+    var parts: [ObserverIngestMultipartPart]
 
     init(
         boundary: String,
-        platform: String,
-        segment: String,
         day: String,
+        segment: String,
+        source: String,
+        platform: String,
         startedAt: Date,
         durationS: TimeInterval,
         sources: [String],
@@ -31,12 +45,13 @@ nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
         modeRawValue: String? = nil,
         segmentID: UUID? = nil,
         omiMetadata: JSONValue? = nil,
-        artifacts: ObserverIngestMultipartArtifacts
+        parts: [ObserverIngestMultipartPart]
     ) {
         self.boundary = boundary
-        self.platform = platform
-        self.segment = segment
         self.day = day
+        self.segment = segment
+        self.source = source
+        self.platform = platform
         self.startedAt = startedAt
         self.durationS = durationS
         self.sources = sources
@@ -45,23 +60,7 @@ nonisolated struct ObserverIngestMultipartInput: Equatable, Sendable {
         self.modeRawValue = modeRawValue
         self.segmentID = segmentID
         self.omiMetadata = omiMetadata
-        self.artifacts = artifacts
-    }
-}
-
-nonisolated struct ObserverIngestMultipartArtifacts: Equatable, Sendable {
-    var audioData: Data?
-    var locationJSONL: Data?
-    var screenData: Data?
-
-    init(audioData: Data? = nil, locationJSONL: Data? = nil, screenData: Data? = nil) {
-        self.audioData = audioData
-        self.locationJSONL = locationJSONL
-        self.screenData = screenData
-    }
-
-    var isEmpty: Bool {
-        self.audioData == nil && self.locationJSONL == nil && self.screenData == nil
+        self.parts = parts
     }
 }
 
@@ -70,67 +69,55 @@ nonisolated enum ObserverIngestMultipartBodyError: Error, Equatable, Sendable {
 }
 
 nonisolated enum ObserverIngestMultipartBody {
-    static func build(input: ObserverIngestMultipartInput) throws -> Data {
-        guard !input.artifacts.isEmpty else {
+    static func build(payload: ObserverIngestMultipartPayload) throws -> Data {
+        guard !payload.parts.isEmpty else {
             throw ObserverIngestMultipartBodyError.missingArtifact
         }
 
         var body = Data()
-        body.append(self.multipartField(named: "segment", value: input.segment, boundary: input.boundary))
-        body.append(self.multipartField(named: "day", value: input.day, boundary: input.boundary))
-        body.append(self.multipartField(named: "platform", value: input.platform, boundary: input.boundary))
-
         var metaObject: [String: Any] = [
-            "segment": input.segment,
-            "day": input.day,
-            "started_at": ISO8601DateFormatter().string(from: input.startedAt),
-            "duration_s": input.durationS,
-            "sources": input.sources,
+            "platform": payload.platform,
+            "started_at": ISO8601DateFormatter().string(from: payload.startedAt),
+            "duration_s": payload.durationS,
+            "sources": payload.sources,
         ]
-        if let chunkIndex = input.chunkIndex {
+        if let chunkIndex = payload.chunkIndex {
             metaObject["chunk_index"] = chunkIndex
         }
-        if let sessionID = input.sessionID {
+        if let sessionID = payload.sessionID {
             metaObject["session_id"] = sessionID.uuidString
         }
-        if let modeRawValue = input.modeRawValue {
+        if let modeRawValue = payload.modeRawValue {
             metaObject["mode"] = modeRawValue
         }
-        if let segmentID = input.segmentID {
+        if let segmentID = payload.segmentID {
             metaObject["segment_id"] = segmentID.uuidString
         }
-        if let omiMetadata = input.omiMetadata {
+        if let omiMetadata = payload.omiMetadata {
             metaObject[OmiSegmentMetadata.key] = omiMetadata.foundationObject
         }
-        let meta = try JSONSerialization.data(withJSONObject: metaObject, options: [.sortedKeys])
+        let envelope: [String: Any] = [
+            "day": payload.day,
+            "segment": payload.segment,
+            "source": payload.source,
+            "files": payload.parts.map { ["submitted": $0.filename] },
+            "meta": metaObject,
+        ]
+        let envelopeData = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
         body.append(self.multipartField(
-            named: "meta",
-            value: String(decoding: meta, as: UTF8.self),
-            boundary: input.boundary
+            named: "envelope",
+            value: String(decoding: envelopeData, as: UTF8.self),
+            boundary: payload.boundary
         ))
 
-        if let audioData = input.artifacts.audioData {
-            body.append("--\(input.boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"audio.m4a\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
-            body.append(audioData)
+        for part in payload.parts {
+            body.append("--\(payload.boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"\(part.filename)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(part.contentType)\r\n\r\n".data(using: .utf8)!)
+            body.append(part.data)
             body.append("\r\n".data(using: .utf8)!)
         }
-        if let locationJSONL = input.artifacts.locationJSONL {
-            body.append("--\(input.boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"location.jsonl\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: application/x-ndjson\r\n\r\n".data(using: .utf8)!)
-            body.append(locationJSONL)
-            body.append("\r\n".data(using: .utf8)!)
-        }
-        if let screenData = input.artifacts.screenData {
-            body.append("--\(input.boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(ObserverServerURL.filesFieldName)\"; filename=\"screen.mp4\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: video/mp4\r\n\r\n".data(using: .utf8)!)
-            body.append(screenData)
-            body.append("\r\n".data(using: .utf8)!)
-        }
-        body.append("--\(input.boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(payload.boundary)--\r\n".data(using: .utf8)!)
         return body
     }
 

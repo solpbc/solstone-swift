@@ -235,10 +235,20 @@ nonisolated struct TransferSpool: Sendable {
         try? self.fileSystem.removeItem(at: self.deleteSinkDirectoryURL)
         try self.fileSystem.createDirectory(at: self.deleteSinkDirectoryURL, withIntermediateDirectories: true)
 
+        var recoveryDiagnostics = try self.normalizePersistedObserverIngestItems(
+            state: .attention,
+            excluding: conflictedItemIDs,
+            now: now
+        )
+        recoveryDiagnostics.append(contentsOf: try self.normalizePersistedObserverIngestItems(
+            state: .queued,
+            excluding: conflictedItemIDs,
+            now: now
+        ))
+
         var attention = try self.scan(state: .attention, excluding: conflictedItemIDs)
         var queued: [TransferStoredItem] = []
         var recoveryMoves: [TransferRecoveryMove] = []
-        var recoveryDiagnostics: [TransferRecoveryDiagnostic] = []
         for item in try self.scan(state: .queued, excluding: conflictedItemIDs) {
             if let missing = self.firstMissingRequiredPayload(in: item) {
                 let moved = try self.moveQueuedItemToAttention(
@@ -470,7 +480,8 @@ nonisolated struct TransferSpool: Sendable {
 
     func moveAttentionItemToQueued(_ item: TransferStoredItem) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
-        var manifest = item.manifest.replacingDiskState(.queued)
+        var manifest = try self.normalizeObserverIngestManifest(item.manifest, in: item.directoryURL)
+            .replacingDiskState(.queued)
         manifest.attention = nil
         manifest.nextAttemptAt = nil
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
@@ -517,6 +528,12 @@ nonisolated struct TransferSpool: Sendable {
 
     func removeBodyCache(for item: TransferStoredItem) {
         try? self.fileSystem.removeItem(at: self.bodyCacheURL(for: item))
+    }
+
+    private func removeBodyCacheForNormalization(for item: TransferStoredItem) throws {
+        let url = self.bodyCacheURL(for: item)
+        guard self.fileSystem.fileExists(atPath: url.path) else { return }
+        try self.fileSystem.removeItem(at: url)
     }
 
     func removeCommittedItem(_ item: TransferStoredItem) throws {
@@ -635,7 +652,10 @@ nonisolated struct TransferSpool: Sendable {
 
     private func moveStagedItemToQueued(sourceURL: URL, destinationURL: URL) throws -> TransferStoredItem {
         try self.fileSystem.moveItem(at: sourceURL, to: destinationURL)
-        var manifest = try self.readManifest(in: destinationURL).replacingDiskState(.queued)
+        var manifest = try self.normalizeObserverIngestManifest(
+            self.readManifest(in: destinationURL),
+            in: destinationURL
+        ).replacingDiskState(.queued)
         manifest.attention = nil
         try self.writeManifestAtomically(manifest, in: destinationURL)
         return TransferStoredItem(manifest: manifest, directoryURL: destinationURL)
@@ -699,6 +719,49 @@ nonisolated struct TransferSpool: Sendable {
             }
             return $0.manifest.createdAt < $1.manifest.createdAt
         }
+    }
+
+    private func normalizePersistedObserverIngestItems(
+        state: TransferDiskState,
+        excluding conflictedItemIDs: Set<UUID>,
+        now: Date
+    ) throws -> [TransferRecoveryDiagnostic] {
+        let directory = state == .queued ? self.queuedDirectoryURL : self.attentionDirectoryURL
+        guard self.fileSystem.fileExists(atPath: directory.path) else { return [] }
+
+        var diagnostics: [TransferRecoveryDiagnostic] = []
+        for url in try self.fileSystem.contentsOfDirectory(at: directory) {
+            guard let itemID = UUID(uuidString: url.lastPathComponent), !conflictedItemIDs.contains(itemID),
+                  let manifest = try? self.readManifest(in: url).validatedForScan(expectedDiskState: state),
+                  self.isPredecessorObserverIngestManifest(manifest)
+            else {
+                continue
+            }
+
+            let item = TransferStoredItem(manifest: manifest, directoryURL: url)
+            do {
+                _ = try self.normalizeObserverIngestManifest(manifest, in: url)
+            } catch {
+                let detail = "v3 normalization failed: \(String(describing: error))"
+                if state == .queued {
+                    _ = try self.moveQueuedItemToAttention(
+                        item,
+                        reason: "v3_normalization_failed",
+                        detail: detail,
+                        now: now
+                    )
+                }
+                diagnostics.append(TransferRecoveryDiagnostic(
+                    source: manifest.sourceKey,
+                    itemID: manifest.itemID,
+                    previousState: state == .queued ? .queued : .attention,
+                    nextState: .attention,
+                    outcome: .needsAttention,
+                    detail: detail
+                ))
+            }
+        }
+        return diagnostics
     }
 
     private func conflictedItemIDs() -> Set<UUID> {
@@ -837,23 +900,37 @@ nonisolated struct TransferSpool: Sendable {
         return hasher.finalize()
     }
 
-    // Persisted-spool migration for pre-upgrade queued items, not a wire compatibility window.
-    private nonisolated static let legacyObserverIngestPath = "/app/observer/ingest"
     private nonisolated static let devicesIngestPath = "/app/devices/ingest"
 
-    private nonisolated static func remapLegacyObserverIngestPath(_ manifest: inout TransferManifest) {
-        if manifest.endpoint.path == Self.legacyObserverIngestPath {
-            manifest.endpoint.path = Self.devicesIngestPath
-        }
+    private func isPredecessorObserverIngestManifest(_ manifest: TransferManifest) -> Bool {
+        guard let ingest = manifest.observerIngest else { return false }
+        return manifest.endpoint.destinationKind == .observerIngest
+            && ingest.ingestProtocolVersion != 3
+    }
+
+    private func normalizeObserverIngestManifest(
+        _ manifest: TransferManifest,
+        in directoryURL: URL
+    ) throws -> TransferManifest {
+        guard self.isPredecessorObserverIngestManifest(manifest) else { return manifest }
+        guard var ingest = manifest.observerIngest else { return manifest }
+
+        let item = TransferStoredItem(manifest: manifest, directoryURL: directoryURL)
+        try self.removeBodyCacheForNormalization(for: item)
+
+        ingest.ingestProtocolVersion = 3
+        var normalized = manifest
+        normalized.endpoint.path = Self.devicesIngestPath
+        normalized.observerIngest = ingest
+        try self.writeManifestAtomically(normalized, in: directoryURL)
+        return normalized
     }
 
     private func readManifest(in directoryURL: URL) throws -> TransferManifest {
-        var manifest = try Self.decoder().decode(
+        try Self.decoder().decode(
             TransferManifest.self,
             from: self.fileSystem.data(contentsOf: self.manifestURL(in: directoryURL))
         )
-        Self.remapLegacyObserverIngestPath(&manifest)
-        return manifest
     }
 
     private func manifestURL(in directoryURL: URL) -> URL {

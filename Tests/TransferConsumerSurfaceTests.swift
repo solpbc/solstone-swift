@@ -32,7 +32,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])
         TransferURLProtocol.handler = { request, _ in
             guard let itemID = transferTestBoundaryItemID(from: request) else {
-                return (transferTestResponse(for: request, statusCode: 204), Data())
+                return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
             }
             switch responses.withLock({ $0[itemID] ?? .hold }) {
             case .status(let statusCode, let body):
@@ -54,7 +54,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         let deliveredID = Self.uuid(1)
         let omiQueuedIDs = [Self.uuid(10), Self.uuid(11), Self.uuid(12)]
         let watchAttentionIDs = [Self.uuid(20), Self.uuid(21)]
-        responses.withLock { $0[deliveredID] = .status(204, Data()) }
+        responses.withLock { $0[deliveredID] = .status(200, Data(#"{"status":"ok"}"#.utf8)) }
         _ = try await harness.engine.enqueue(
             manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
                 itemID: deliveredID,
@@ -259,7 +259,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])
         TransferURLProtocol.handler = { request, _ in
             guard let itemID = transferTestBoundaryItemID(from: request) else {
-                return (transferTestResponse(for: request, statusCode: 204), Data())
+                return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
             }
             switch responses.withLock({ $0[itemID] ?? .hold }) {
             case .status(let statusCode, let body):
@@ -294,7 +294,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         )
 
         let deliveredID = Self.uuid(100)
-        responses.withLock { $0[deliveredID] = .status(204, Data()) }
+        responses.withLock { $0[deliveredID] = .status(200, Data(#"{"status":"ok"}"#.utf8)) }
         _ = try await harness.engine.enqueue(
             manifest: Self.mobileManifest(itemID: deliveredID, segmentID: Self.uuid(1), startedAt: clock.wallNow()),
             payloads: ["audio": Data("delivered-mobile".utf8)]

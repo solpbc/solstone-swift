@@ -648,7 +648,7 @@ private extension MobileSegmentFinalizeResolverTests {
         MobileSegmentFinalizeResolverURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
+                Data(#"{"status":"ok"}"#.utf8)
             )
         }
     }
@@ -665,7 +665,8 @@ private extension MobileSegmentFinalizeResolverTests {
     }
 
     func sources(in body: Data) throws -> Set<String> {
-        let meta = try self.multipartMeta(in: body)
+        let envelope = try self.multipartEnvelope(in: body)
+        let meta = try XCTUnwrap(envelope["meta"] as? [String: Any])
         let sources = try XCTUnwrap(meta["sources"] as? [String])
         return Set(sources)
     }
@@ -729,7 +730,11 @@ private final class MobileSegmentFinalizeResolverURLProtocol: URLProtocol, @unch
     }
 
     override func startLoading() {
-        XCTAssertEqual(self.request.value(forHTTPHeaderField: "Authorization"), "Bearer test-transfer-key")
+        XCTAssertNil(self.request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(
+            self.request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName),
+            ObserverServerURL.ingestProtocolVersion
+        )
         Self.callCountBox.withLock { $0 += 1 }
         Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
         guard let handler = Self.handler else {

@@ -153,8 +153,7 @@ nonisolated final class ShareImportStoreTests: XCTestCase {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: ImporterServerURL.savePath,
-                startPath: ImporterServerURL.startPath,
-                requiresAuth: false
+                startPath: ImporterServerURL.startPath
             ),
             meta: ShareImportTransferMetadata.meta(fields: fields),
             saveThenStart: TransferSaveThenStartState(phase: .savePending)

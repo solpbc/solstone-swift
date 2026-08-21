@@ -17,7 +17,7 @@ struct LocationSourceDetailView: View {
     @State private var isDeleting = false
     @State private var deleteResult: DeleteShareSourceResult?
 
-    private let recentSource: any LocationRecentProviding = LocationRecentSource()
+    private let ingestClient = LinkedDeviceIngestClient()
 
     var body: some View {
         ScrollView {
@@ -391,12 +391,12 @@ private extension LocationSourceDetailView {
             return
         }
 
-        guard let handle = try? await self.observerRegistration.ensureRegistered() else {
-            self.recentResult = .failed
-            return
-        }
-
-        self.recentResult = await self.recentSource.fetchToday(localPort: localPort, handle: handle)
+        let result = await self.ingestClient.fetchSegments(
+            localPort: localPort,
+            source: ObserverAudioTransferSource.mobileSegment,
+            day: LinkedDeviceIngestViewMapper.dayString(for: Date())
+        )
+        self.recentResult = LinkedDeviceIngestViewMapper.locationRecentResult(result)
     }
 }
 

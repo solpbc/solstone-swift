@@ -539,11 +539,21 @@ integration-test-observer: sim
 			cat "$$OBSERVER_MOCK_LOG"; \
 			exit 1; \
 		fi; \
+		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"protocol_version"[[:space:]]*:[[:space:]]*"3"'; then \
+			echo "integration-test-observer failed: v3 protocol header missing"; \
+			cat "$$OBSERVER_COUNT"; \
+			exit 1; \
+		fi; \
+		if curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"authorization"[[:space:]]*:[[:space:]]*"Bearer '; then \
+			echo "integration-test-observer failed: ingest sent authorization"; \
+			cat "$$OBSERVER_COUNT"; \
+			exit 1; \
+		fi; \
 		sleep 5; \
 		registration_count=$$(xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null | grep -c "observer registration succeeded" || true); \
-		[ "$$registration_count" -eq 1 ] || { echo "integration-test-observer failed: registration logged $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null; exit 1; }; \
-		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"create_count"[[:space:]]*:[[:space:]]*1'; then \
-			echo "integration-test-observer failed: observer registration did not persist"; \
+		[ "$$registration_count" -eq 0 ] || { echo "integration-test-observer failed: linked-device ingest registered $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null; exit 1; }; \
+		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"create_count"[[:space:]]*:[[:space:]]*0'; then \
+			echo "integration-test-observer failed: linked-device ingest registered"; \
 			cat "$$OBSERVER_COUNT"; \
 			cat "$$OBSERVER_MOCK_LOG"; \
 			exit 1; \

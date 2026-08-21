@@ -51,27 +51,35 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.inFlightCount, 0)
     }
 
-    func testQueuedLegacyObserverIngestPathDispatchesToDevicesIngest() async throws {
+    func testQueuedPredecessorObserverItemDeletesV2CacheBeforeV3Dispatch() async throws {
         TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 204), Data())
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let spool = TransferSpool(rootURL: self.tempDirectory)
         var manifest = self.makeManifest()
         manifest.endpoint.path = "/app/observer/ingest"
+        manifest.observerIngest?.ingestProtocolVersion = nil
         let staged = try spool.stage(manifest: manifest, payloads: self.audioPayloads())
         let queuedURL = spool.queuedDirectoryURL.appendingPathComponent(
             staged.item.manifest.itemID.uuidString,
             isDirectory: true
         )
         try FileManager.default.moveItem(at: staged.item.directoryURL, to: queuedURL)
+        let queued = TransferStoredItem(manifest: manifest, directoryURL: queuedURL)
+        try spool.writeBodyCache(Data("stale-v2-body".utf8), for: queued)
 
-        let engine = self.makeEngine(spool: spool)
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: spool, resolver: resolver)
         try await engine.start()
 
-        try await self.waitFor("legacy observer ingest remapped dispatch") {
-            TransferURLProtocol.requests.count == 1
-        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: spool.bodyCacheURL(for: queued).path))
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("v3 predecessor dispatch") { TransferURLProtocol.requests.count == 1 }
         XCTAssertEqual(TransferURLProtocol.requests[0].url?.path, "/app/devices/ingest")
+        XCTAssertEqual(TransferURLProtocol.requests[0].value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "3")
+        XCTAssertNil(TransferURLProtocol.requests[0].value(forHTTPHeaderField: "Authorization"))
+        XCTAssertTrue(TransferURLProtocol.bodies[0].contains(Data("audio".utf8)))
     }
 
     func testOutcomeClassifierTable() {
@@ -84,14 +92,39 @@ nonisolated final class TransferTests: XCTestCase {
         )
         let rows: [(TransferHTTPResult, TransferEndpointPhase, TransferOutcome)] = [
             (
-                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"already_delivered"}"#.utf8)),
+                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"ok"}"#.utf8)),
                 .observerIngest,
-                .terminalSuccess(.alreadyDelivered)
+                .terminalSuccess(.delivered(serverPath: nil, serverTimestamp: nil))
+            ),
+            (
+                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"duplicate"}"#.utf8)),
+                .observerIngest,
+                .terminalSuccess(.delivered(serverPath: nil, serverTimestamp: nil))
+            ),
+            (
+                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"collision"}"#.utf8)),
+                .observerIngest,
+                .terminalSuccess(.delivered(serverPath: nil, serverTimestamp: nil))
+            ),
+            (
+                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"failed","reason_code":"envelope_invalid"}"#.utf8)),
+                .observerIngest,
+                .terminalAttention(.httpClientError(statusCode: 200, detail: "reason_code=envelope_invalid"))
+            ),
+            (
+                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"conflict","reason_code":"content_conflict"}"#.utf8)),
+                .observerIngest,
+                .terminalAttention(.httpClientError(statusCode: 200, detail: "reason_code=content_conflict"))
             ),
             (
                 TransferHTTPResult(statusCode: 204),
                 .observerIngest,
-                .terminalSuccess(.delivered(serverPath: nil, serverTimestamp: nil))
+                .terminalAttention(.decodeFailed("invalid observer ingest response"))
+            ),
+            (
+                TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"other"}"#.utf8)),
+                .observerIngest,
+                .terminalAttention(.decodeFailed("unknown observer ingest status other"))
             ),
             (
                 TransferHTTPResult(statusCode: 200, data: Data(#"{"recommended_action":"start","path":"/imports/item","timestamp":"2026-04-20T12:00:00Z","source":"audio"}"#.utf8)),
@@ -112,6 +145,11 @@ nonisolated final class TransferTests: XCTestCase {
                 TransferHTTPResult(statusCode: 404, data: Data("missing".utf8)),
                 .observerIngest,
                 .terminalAttention(.httpClientError(statusCode: 404, detail: "missing"))
+            ),
+            (
+                TransferHTTPResult(statusCode: 426, data: Data(#"{"status":"failed","reason_code":"protocol_version_legacy"}"#.utf8)),
+                .observerIngest,
+                .terminalAttention(.httpClientError(statusCode: 426, detail: #"{"status":"failed","reason_code":"protocol_version_legacy"}"#))
             ),
             (
                 TransferHTTPResult(statusCode: 503),
@@ -138,6 +176,57 @@ nonisolated final class TransferTests: XCTestCase {
         for (result, phase, expected) in rows {
             XCTAssertEqual(TransferHTTPClassifier.classify(result: result, endpointPhase: phase), expected)
         }
+    }
+
+    func testAttentionPredecessorObserverItemNormalizesBeforeRequeueDispatch() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("attention-v3", isDirectory: true))
+        let manifest = self.makeManifest(itemID: Self.uuid(21))
+        let queued = try spool.commitStagedItem(itemID: spool.stage(manifest: manifest, payloads: self.audioPayloads()).item.manifest.itemID)
+        let attention = try spool.moveQueuedItemToAttention(queued, reason: "test", detail: "test", now: Self.baseDate)
+        var predecessorManifest = attention.manifest
+        predecessorManifest.endpoint.path = "/app/observer/ingest"
+        predecessorManifest.observerIngest?.ingestProtocolVersion = nil
+        try spool.writeManifestAtomically(predecessorManifest, in: attention.directoryURL)
+        let predecessor = TransferStoredItem(manifest: predecessorManifest, directoryURL: attention.directoryURL)
+        try spool.writeBodyCache(Data("stale-v2-body".utf8), for: predecessor)
+
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: spool.rootURL), resolver: resolver)
+        try await engine.start()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: spool.bodyCacheURL(for: predecessor).path))
+        try await engine.retryAttention()
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("attention v3 dispatch") { TransferURLProtocol.requests.count == 1 }
+        XCTAssertEqual(TransferURLProtocol.requests[0].value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName), "3")
+        XCTAssertNil(TransferURLProtocol.requests[0].value(forHTTPHeaderField: "Authorization"))
+        XCTAssertTrue(TransferURLProtocol.bodies[0].contains(Data("audio".utf8)))
+    }
+
+    func testNormalizedObserverItemRemainsDurableAfterNonSuccessResponse() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"failed","reason_code":"envelope_invalid"}"#.utf8))
+        }
+        let delivered = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let engine = self.makeEngine()
+        await engine.registerDeliveredHook(sourceKey: "alpha") { _, _ in delivered.withLock { $0 += 1 } }
+        try await engine.start()
+        _ = try await engine.enqueue(manifest: self.makeManifest(), payloads: self.audioPayloads())
+        try await self.waitFor("ingest attention") { (await engine.snapshot()).counters.attentionCount == 1 }
+        XCTAssertEqual(delivered.withLock { $0 }, 0)
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+    }
+
+    func testHeldObserverEndpointMakesZeroNetworkCalls() async throws {
+        let engine = self.makeEngine(resolver: TransferEndpointResolverStub(.unavailable("held")))
+        try await engine.start()
+        _ = try await engine.enqueue(manifest: self.makeManifest(), payloads: self.audioPayloads())
+        try await self.waitFor("held observer item") { (await engine.snapshot()).counters.queuedCount == 1 }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
     }
 
     func testSaveThenStartUnsupportedAndMalformedItemsMoveToAttentionWithoutRequests() async throws {
@@ -217,7 +306,8 @@ nonisolated final class TransferTests: XCTestCase {
             }
             switch step {
             case .status(let statusCode):
-                return (Self.response(for: request, statusCode: statusCode), Data())
+                let data = statusCode == 200 ? Data(#"{"status":"ok"}"#.utf8) : Data()
+                return (Self.response(for: request, statusCode: statusCode), data)
             case .urlIssue(let code):
                 throw URLError(code)
             }
@@ -271,7 +361,7 @@ nonisolated final class TransferTests: XCTestCase {
                 fileSystem.failManifestWrites = true
                 return (Self.response(for: request, statusCode: 503), Data())
             }
-            return (Self.response(for: request, statusCode: 200), Data())
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let engine = self.makeEngine(
             spool: spool,
@@ -375,7 +465,7 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testOptionalUnusedPayloadDoesNotBlockObserverDelivery() async throws {
         TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data())
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         var manifest = self.makeManifest(itemID: Self.uuid(83))
         manifest.payloadParts.append(TransferPayloadPartDescriptor(
@@ -624,7 +714,7 @@ nonisolated final class TransferTests: XCTestCase {
         let conditions = MutableTransferConditionsProvider(thermalState: .critical)
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
         TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 204), Data())
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let engine = self.makeEngine(
             diagnosticsSink: { event in events.withLock { $0.append(event) } },
@@ -769,7 +859,7 @@ nonisolated final class TransferTests: XCTestCase {
         let gate = DispatchSemaphore(value: 0)
         TransferURLProtocol.handler = { request, _ in
             _ = gate.wait(timeout: .now() + .seconds(5))
-            return (Self.response(for: request, statusCode: 200), Data())
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let engine = self.makeEngine()
         try await engine.start()
@@ -837,7 +927,8 @@ nonisolated final class TransferTests: XCTestCase {
         let statusCodes = OSAllocatedUnfairLock<[Int]>(initialState: [500, 500, 200])
         TransferURLProtocol.handler = { request, _ in
             let status = statusCodes.withLock { values in values.removeFirst() }
-            return (Self.response(for: request, statusCode: status), Data())
+            let data = status == 200 ? Data(#"{"status":"ok"}"#.utf8) : Data()
+            return (Self.response(for: request, statusCode: status), data)
         }
         let pacer = TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300, jitterSalt: 1))
         let engine = self.makeEngine(pacer: pacer, bodyBuilder: { _, _ in
@@ -857,79 +948,14 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     @MainActor
-    func testObserverIngestMultipartBuilderEmitsAudioLocationAndScreenBytes() throws {
-        let audioURL = self.tempDirectory.appendingPathComponent("audio.m4a")
-        let screenURL = self.tempDirectory.appendingPathComponent("screen.mp4")
-        try Data("audio-bytes".utf8).write(to: audioURL)
-        try Data("screen-bytes".utf8).write(to: screenURL)
-        let location = Data("{\"event\":\"loc\"}\n".utf8)
-        let segmentID = Self.uuid(9)
-        let boundary = "Boundary-\(segmentID.uuidString)"
-
-        let sharedBody = try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
-            boundary: boundary,
-            platform: "ios",
-            segment: "120000_3",
-            day: "20260420",
-            startedAt: Self.baseDate,
-            durationS: 3,
-            sources: ["audio", "location", "screen"],
-            chunkIndex: 7,
-            sessionID: Self.uuid(8),
-            modeRawValue: ObserverMode.meeting.rawValue,
-            segmentID: segmentID,
-            artifacts: ObserverIngestMultipartArtifacts(
-                audioData: try Data(contentsOf: audioURL),
-                locationJSONL: location,
-                screenData: try Data(contentsOf: screenURL)
-            )
-        ))
-
-        let expectedMeta = #"{"chunk_index":7,"day":"20260420","duration_s":3,"mode":"meeting","segment":"120000_3","segment_id":"00000000-0000-0000-0000-000000000009","session_id":"00000000-0000-0000-0000-000000000008","sources":["audio","location","screen"],"started_at":"2024-04-20T14:40:00Z"}"#
-        let expectedBody = [
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"segment\"\r\n\r\n",
-            "120000_3\r\n",
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"day\"\r\n\r\n",
-            "20260420\r\n",
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"platform\"\r\n\r\n",
-            "ios\r\n",
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"meta\"\r\n\r\n",
-            "\(expectedMeta)\r\n",
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"files\"; filename=\"audio.m4a\"\r\n",
-            "Content-Type: audio/mp4\r\n\r\n",
-            "audio-bytes\r\n",
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"files\"; filename=\"location.jsonl\"\r\n",
-            "Content-Type: application/x-ndjson\r\n\r\n",
-            "{\"event\":\"loc\"}\n\r\n",
-            "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"files\"; filename=\"screen.mp4\"\r\n",
-            "Content-Type: video/mp4\r\n\r\n",
-            "screen-bytes\r\n",
-            "--\(boundary)--\r\n",
-        ].joined()
-        XCTAssertEqual(sharedBody, Data(expectedBody.utf8))
-        XCTAssertTrue(String(decoding: sharedBody, as: UTF8.self).contains("\r\n\r\n\(expectedMeta)\r\n"))
-        let body = String(decoding: sharedBody, as: UTF8.self)
-        XCTAssertLessThan(try XCTUnwrap(body.range(of: #"name="segment""#)?.lowerBound), try XCTUnwrap(body.range(of: #"name="day""#)?.lowerBound))
-        XCTAssertTrue(body.contains(#"name="files"; filename="audio.m4a""#))
-        XCTAssertTrue(body.contains("Content-Type: application/x-ndjson"))
-        XCTAssertTrue(body.contains(#""chunk_index":7"#))
-    }
-
-    @MainActor
-    func testObserverIngestMultipartBuilderNestsOmiWithoutShadowingReservedKeys() throws {
+    func testObserverIngestV3EnvelopeContainsOnlyAuthorityFields() throws {
         let boundary = "Boundary-omi"
-        let body = try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
+        let body = try ObserverIngestMultipartBody.build(payload: ObserverIngestMultipartPayload(
             boundary: boundary,
-            platform: "ios",
-            segment: "120000_3",
             day: "20260420",
+            segment: "120000_3",
+            source: "mobile-segment",
+            platform: "ios",
             startedAt: Self.baseDate,
             durationS: 3,
             sources: ["audio"],
@@ -941,17 +967,56 @@ nonisolated final class TransferTests: XCTestCase {
                 "segment": .string("cannot-shadow"),
                 "day": .string("cannot-shadow"),
             ]),
-            artifacts: ObserverIngestMultipartArtifacts(audioData: Data("audio".utf8))
+            parts: [ObserverIngestMultipartPart(filename: "audio.m4a", contentType: "audio/mp4", data: Data("audio".utf8))]
         ))
 
-        let meta = try self.multipartMeta(body, boundary: boundary)
-        XCTAssertEqual(meta["segment"] as? String, "120000_3")
-        XCTAssertEqual(meta["day"] as? String, "20260420")
+        let envelope = try self.multipartEnvelope(body, boundary: boundary)
+        XCTAssertEqual(Set(envelope.keys), ["day", "segment", "source", "files", "meta"])
+        XCTAssertEqual(envelope["day"] as? String, "20260420")
+        XCTAssertEqual(envelope["segment"] as? String, "120000_3")
+        XCTAssertEqual(envelope["source"] as? String, "mobile-segment")
+        XCTAssertEqual(envelope["files"] as? [[String: String]], [["submitted": "audio.m4a"]])
+        let meta = try XCTUnwrap(envelope["meta"] as? [String: Any])
+        XCTAssertNil(meta["segment"])
+        XCTAssertNil(meta["day"])
+        XCTAssertNil(meta["source"])
+        XCTAssertEqual(meta["platform"] as? String, "ios")
         XCTAssertEqual(meta["chunk_index"] as? Int, 7)
         let omi = try XCTUnwrap(meta["omi"] as? [String: Any])
         XCTAssertEqual(omi["connection_state"] as? String, "connected")
         XCTAssertEqual(omi["segment"] as? String, "cannot-shadow")
         XCTAssertEqual(omi["day"] as? String, "cannot-shadow")
+    }
+
+    func testDescriptorDrivenObserverBodySupportsFileTextAndAbsentOptionalPart() throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory)
+        var manifest = self.makeManifest(itemID: Self.uuid(502))
+        manifest.payloadParts = [
+            TransferPayloadPartDescriptor(partID: "file", kind: .file, relativePath: "note.txt", filename: "note.txt", contentType: "text/plain"),
+            TransferPayloadPartDescriptor(partID: "text", kind: .text, relativePath: "caption.txt", filename: "caption.txt", contentType: "text/plain"),
+            TransferPayloadPartDescriptor(partID: "optional", kind: .file, relativePath: "optional.bin", filename: "optional.bin", contentType: "application/octet-stream", requiredForDispatch: false),
+        ]
+        let item = try spool.stage(
+            manifest: manifest,
+            payloads: [
+                "file": Data("file-bytes".utf8),
+                "text": Data("text-bytes".utf8),
+                "optional": Data("optional-bytes".utf8),
+            ]
+        ).item
+        let optionalPart = try XCTUnwrap(item.manifest.payloadParts.first { $0.partID == "optional" })
+        try FileManager.default.removeItem(at: try spool.payloadURL(for: optionalPart, in: item.directoryURL))
+
+        let body = try self.bodyData(DefaultTransferBodyBuilder.build(item: item, spool: spool))
+        let envelope = try self.multipartEnvelope(body, boundary: TransferTransport.boundary(for: manifest.itemID))
+        XCTAssertEqual(envelope["files"] as? [[String: String]], [["submitted": "note.txt"], ["submitted": "caption.txt"]])
+        let text = String(decoding: body, as: UTF8.self)
+        XCTAssertTrue(text.contains(#"filename="note.txt""#))
+        XCTAssertTrue(text.contains(#"filename="caption.txt""#))
+        XCTAssertFalse(text.contains(#"filename="optional.bin""#))
+        XCTAssertFalse(text.contains(#"name="segment""#))
+        XCTAssertFalse(text.contains(#"name="day""#))
+        XCTAssertFalse(text.contains(#"name="platform""#))
     }
 
     func testDefaultTransferBodyBuilderCarriesOnlyManifestOmiNamespace() throws {
@@ -970,10 +1035,11 @@ nonisolated final class TransferTests: XCTestCase {
         ).item
 
         let bodyWithOmi = try self.bodyData(DefaultTransferBodyBuilder.build(item: itemWithOmi, spool: spool))
-        let metaWithOmi = try self.multipartMeta(
+        let envelopeWithOmi = try self.multipartEnvelope(
             bodyWithOmi,
             boundary: TransferTransport.boundary(for: manifestWithOmi.itemID)
         )
+        let metaWithOmi = try XCTUnwrap(envelopeWithOmi["meta"] as? [String: Any])
         let omi = try XCTUnwrap(metaWithOmi[OmiSegmentMetadata.key] as? [String: Any])
         XCTAssertEqual(omi["connection_state"] as? String, "reconnecting")
         XCTAssertEqual(omi["process_id"] as? String, processID.uuidString)
@@ -985,10 +1051,11 @@ nonisolated final class TransferTests: XCTestCase {
             payloads: self.audioPayloads()
         ).item
         let bodyWithoutOmi = try self.bodyData(DefaultTransferBodyBuilder.build(item: itemWithoutOmi, spool: spool))
-        let metaWithoutOmi = try self.multipartMeta(
+        let envelopeWithoutOmi = try self.multipartEnvelope(
             bodyWithoutOmi,
             boundary: TransferTransport.boundary(for: manifestWithoutOmi.itemID)
         )
+        let metaWithoutOmi = try XCTUnwrap(envelopeWithoutOmi["meta"] as? [String: Any])
         XCTAssertNil(metaWithoutOmi[OmiSegmentMetadata.key])
     }
 
@@ -1006,7 +1073,7 @@ nonisolated final class TransferTests: XCTestCase {
                 return .inMemory(Data("body".utf8))
             }
         )
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         try await engine.start()
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(32)), payloads: self.audioPayloads())
         try await self.waitFor("one delivered") {
@@ -1032,7 +1099,7 @@ nonisolated final class TransferTests: XCTestCase {
     func testHotPathCountersDoNotEnumerateDirectories() async throws {
         let fileSystem = CountingTransferFileSystem()
         let spool = TransferSpool(rootURL: self.tempDirectory, fileSystem: fileSystem)
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let engine = self.makeEngine(spool: spool, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
         fileSystem.resetEnumerationCount()
@@ -1438,7 +1505,7 @@ nonisolated final class TransferTests: XCTestCase {
             if Self.boundaryItemID(from: request) == betaID {
                 return (Self.response(for: request, statusCode: 404), Data("missing".utf8))
             }
-            return (Self.response(for: request, statusCode: 204), Data())
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let resolverA = PathEndpointResolver(availablePaths: ["/attention", "/delivered"])
         let engineA = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolverA)
@@ -1535,7 +1602,7 @@ nonisolated final class TransferTests: XCTestCase {
         let undeclaredURL = await engine.payloadFileURL(itemID: itemID, partID: "location")
         XCTAssertNil(undeclaredURL)
 
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
         await engine.endpointAvailabilityChanged()
         try await self.waitFor("payload file removed after delivery") {
@@ -1573,7 +1640,7 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testThroughputWindowAggregatesPerSourceAndDecaysAfterWindow() async throws {
         let clock = FakeTransferClock(wall: Self.baseDate)
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let engine = self.makeEngine(clock: clock, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
 
@@ -1635,7 +1702,7 @@ nonisolated final class TransferTests: XCTestCase {
         }
         await engineA.pause()
 
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let engineB = self.makeEngine(spool: TransferSpool(rootURL: root))
         await engineB.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
@@ -1650,7 +1717,7 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testDeliveredHookFiresOncePerDeliveryWithDeliveredManifest() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 204), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let itemID = Self.uuid(351)
         let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
@@ -1687,10 +1754,10 @@ nonisolated final class TransferTests: XCTestCase {
             if itemID == alreadyID {
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"status":"already_delivered"}"#.utf8)
+                    Data(#"{"status":"duplicate"}"#.utf8)
                 )
             }
-            return (Self.response(for: request, statusCode: 204), Data())
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
         let engine = self.makeEngine(bodyBuilder: DefaultTransferBodyBuilder.build)
@@ -1722,7 +1789,7 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testThrowingDeliveredHookLeavesEngineStateAndCountersUntouched() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 204), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
         let itemID = Self.uuid(355)
         let engine = self.makeEngine(
@@ -1787,7 +1854,7 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testDeliverySucceedsForSourceWithNoRegisteredHook() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 204), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
         try await engine.start()
 
@@ -1802,7 +1869,7 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testDeliveredHooksAreDetachedFromDeliveryDrain() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
         let gate = HookGate()
         let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
         let firstID = Self.uuid(360)
@@ -1887,13 +1954,36 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(spool.validatePayloads(for: committed), "audio.m4a")
     }
 
-    func testAuthProviderReceivesManifestAndProducesDistinctAuthorization() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+    @MainActor
+    func testLinkedDeviceIngestAndReconciliationNeverInvokeRegistrationOrSetAuthorization() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            if request.httpMethod == "GET" {
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"protocol_version":3,"total":0,"items":[]}"#.utf8)
+                )
+            }
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let loadKeyCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let registration = ObserverRegistration(
+            resolveDescriptor: { nil },
+            version: "test",
+            streamType: "test",
+            retryDelays: [],
+            sleep: { _ in },
+            loadKey: { loadKeyCalls.withLock { $0 += 1 }; return nil },
+            saveKey: { _ in },
+            deleteKey: {},
+            loadPrefix: { nil },
+            savePrefix: { _ in },
+            deletePrefix: {}
+        )
+        registration.activeLocalPort = 7071
+        loadKeyCalls.withLock { $0 = 0 }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TransferURLProtocol.self]
-        let transport = TransferTransport(sessionConfiguration: configuration, authProvider: { manifest in
-            "token-\(manifest.itemID.uuidString)"
-        })
+        let transport = TransferTransport(sessionConfiguration: configuration)
         let engine = TransferEngine(
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("auth", isDirectory: true)),
             transport: transport,
@@ -1902,24 +1992,25 @@ nonisolated final class TransferTests: XCTestCase {
             bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
         try await engine.start()
-        let firstID = Self.uuid(380)
-        let secondID = Self.uuid(381)
-        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: firstID), payloads: self.audioPayloads())
-        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: secondID), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(380)), payloads: self.audioPayloads())
 
-        try await self.waitFor("auth requests") {
-            TransferURLProtocol.requests.count >= 2
+        try await self.waitFor("ingest request") {
+            TransferURLProtocol.requests.count == 1
         }
-        let authByItemID = Dictionary(uniqueKeysWithValues: TransferURLProtocol.requests.compactMap { request -> (UUID, String)? in
-            guard let itemID = Self.boundaryItemID(from: request),
-                  let auth = request.value(forHTTPHeaderField: "Authorization")
-            else {
-                return nil
-            }
-            return (itemID, auth)
+        let readConfiguration = URLSessionConfiguration.ephemeral
+        readConfiguration.protocolClasses = [TransferURLProtocol.self]
+        let readClient = LinkedDeviceIngestClient(session: URLSession(configuration: readConfiguration))
+        let readResult = await readClient.fetchSegments(
+            localPort: 7071,
+            source: ObserverAudioTransferSource.mobileSegment,
+            day: "20260420"
+        )
+        XCTAssertEqual(readResult, .success(LinkedDeviceIngestSegmentsResponse(protocolVersion: 3, total: 0, items: [])))
+        XCTAssertEqual(loadKeyCalls.withLock { $0 }, 0)
+        XCTAssertTrue(TransferURLProtocol.requests.allSatisfy {
+            $0.value(forHTTPHeaderField: "Authorization") == nil
+                && $0.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName) == "3"
         })
-        XCTAssertEqual(authByItemID[firstID], "Bearer token-\(firstID.uuidString)")
-        XCTAssertEqual(authByItemID[secondID], "Bearer token-\(secondID.uuidString)")
     }
 
     func testKickCoalescesIdleDrainPassesAndPreservesRetryDeadline() async throws {
@@ -1993,7 +2084,9 @@ nonisolated final class TransferTests: XCTestCase {
             resolver: resolver,
             bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
         )
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data()) }
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
         try await engine.start()
         try await self.waitFor("legacy held") {
             resolver.resolveCount > 0
@@ -2008,23 +2101,6 @@ nonisolated final class TransferTests: XCTestCase {
         let snapshot = await engine.snapshot()
         XCTAssertEqual(fileSystem.enumerationCount, 0)
         XCTAssertEqual(snapshot.sources["legacy"]?.bytesPerSecond, Double(Data("audio".utf8).count) / 15.0)
-    }
-
-    func testObserverIngestMultipartInputAndArtifactsAreEquatable() {
-        let artifacts = ObserverIngestMultipartArtifacts(audioData: Data("a".utf8))
-        let input = ObserverIngestMultipartInput(
-            boundary: "b",
-            platform: "ios",
-            segment: "s",
-            day: "20260420",
-            startedAt: Self.baseDate,
-            durationS: 1,
-            sources: ["audio"],
-            artifacts: artifacts
-        )
-
-        XCTAssertEqual(artifacts, ObserverIngestMultipartArtifacts(audioData: Data("a".utf8)))
-        XCTAssertEqual(input, input)
     }
 
     func testProjectYmlAutoIncludesTransferSourcesAndTests() throws {
@@ -2053,9 +2129,9 @@ private extension TransferTests {
         }
     }
 
-    func multipartMeta(_ body: Data, boundary: String) throws -> [String: Any] {
+    func multipartEnvelope(_ body: Data, boundary: String) throws -> [String: Any] {
         let text = String(decoding: body, as: UTF8.self)
-        let marker = "name=\"meta\"\r\n\r\n"
+        let marker = "name=\"envelope\"\r\n\r\n"
         let start = try XCTUnwrap(text.range(of: marker)?.upperBound)
         let end = try XCTUnwrap(text[start...].range(of: "\r\n--\(boundary)")).lowerBound
         let data = Data(text[start..<end].utf8)
@@ -2078,7 +2154,7 @@ private extension TransferTests {
         configuration.protocolClasses = [TransferURLProtocol.self]
         return TransferEngine(
             spool: spool ?? TransferSpool(rootURL: self.tempDirectory),
-            transport: TransferTransport(sessionConfiguration: configuration, authProvider: { _ in "test-transfer-key" }),
+            transport: TransferTransport(sessionConfiguration: configuration),
             endpointResolver: resolver,
             pacer: pacer,
             clock: clock,
@@ -2122,7 +2198,8 @@ private extension TransferTests {
                 chunkIndex: 0,
                 sessionID: itemID,
                 modeRawValue: "meeting",
-                segmentID: itemID
+                segmentID: itemID,
+                ingestProtocolVersion: 3
             ),
             meta: .object(["kind": .string("test")]),
             nextAttemptAt: nextAttemptAt
@@ -2717,7 +2794,11 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
         nil
     }
 
-    static func completeHeld(_ count: Int = 1, statusCode: Int = 204, data: Data = Data()) {
+    static func completeHeld(
+        _ count: Int = 1,
+        statusCode: Int = 200,
+        data: Data = Data(#"{"status":"ok"}"#.utf8)
+    ) {
         let held = self.heldBox.withLock { protocols -> [TransferURLProtocol] in
             let completeCount = min(count, protocols.count)
             let completed = Array(protocols.prefix(completeCount))

@@ -20,11 +20,12 @@ final class TransferItemEvidenceTests: XCTestCase {
         super.tearDown()
     }
 
-    @MainActor func testMakeOmiManifestStampsDevicesIngestPath() {
+    @MainActor func testMakeOmiManifestStampsV3DevicesIngestPath() {
         let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
             sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
         )
         XCTAssertEqual(manifest.endpoint.path, "/app/devices/ingest")
+        XCTAssertEqual(manifest.observerIngest?.ingestProtocolVersion, 3)
     }
 
     @MainActor func testExactQueuedManifestIsOwned() throws {
@@ -95,6 +96,7 @@ final class TransferItemEvidenceTests: XCTestCase {
             ("chunkIndex", { $0.observerIngest?.chunkIndex = 99 }),
             ("sessionID", { $0.observerIngest?.sessionID = UUID() }),
             ("modeRawValue", { $0.observerIngest?.modeRawValue = "other" }),
+            ("ingestProtocolVersion", { $0.observerIngest?.ingestProtocolVersion = 2 }),
             ("payload", { $0.payloadParts[0].contentType = "application/octet-stream" }),
             ("omi metadata", { $0.meta = .object(["omi": .object(["connectionState": .string("other")])]) }),
         ]

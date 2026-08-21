@@ -7,7 +7,6 @@ import os
 import XCTest
 
 nonisolated final class WatchSegmentDrainTests: XCTestCase {
-    private let watchHandle = "watch-handle-xyz"
     private var tempDirectory: URL!
 
     override func setUp() {
@@ -23,54 +22,6 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
         self.tempDirectory = nil
         WatchDrainURLProtocol.reset()
         super.tearDown()
-    }
-
-    @MainActor
-    func testWatchAuthProviderUsesWatchAuthorizationOnly() async throws {
-        let observerRegistration = self.registration(streamType: "observer", label: nil, key: "test-observer-key-abc")
-        let omiRegistration = self.registration(streamType: "omi", label: "omi pendant", key: "omi-handle-xyz")
-        let watchRegistration = self.registration(streamType: "watch", label: "watch", key: self.watchHandle)
-        let sessionID = UUID()
-        let sidecar = ChunkSidecar(
-            segment: "120000_300",
-            day: "20260603",
-            chunkIndex: 0,
-            startedAt: Date(timeIntervalSince1970: 1_780_444_800),
-            durationS: 300,
-            sessionID: sessionID,
-            mode: .meeting,
-            locationJSONL: nil
-        )
-        let manifest = ObserverAudioTransferEnqueuer.makeWatchManifest(
-            watchManifest: WatchSegmentManifest(
-                id: sessionID,
-                day: sidecar.day,
-                segment: sidecar.segment,
-                startedAt: sidecar.startedAt,
-                duration: sidecar.durationS,
-                sensors: [.audio],
-                partial: false,
-                lost: false,
-                gap: false,
-                fixCount: 0,
-                state: .finalized,
-                failureReason: nil
-            ),
-            hasAudio: true,
-            hasLocation: false
-        )
-        let authProvider = ObserverAudioTransferAuthProvider.make(
-            observerRegistration: observerRegistration,
-            omiRegistration: omiRegistration,
-            watchRegistration: watchRegistration
-        )
-
-        let token = try await authProvider(manifest)
-
-        XCTAssertEqual(token, self.watchHandle)
-        XCTAssertNotEqual(token, "test-observer-key-abc")
-        XCTAssertNotEqual(token, "omi-handle-xyz")
-        XCTAssertEqual(manifest.observerIngest?.platform, "watchos")
     }
 
     @MainActor
@@ -384,7 +335,7 @@ private extension WatchSegmentDrainTests {
     static func okResponse(request: URLRequest) throws -> (HTTPURLResponse, Data) {
         (
             HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-            Data("ok".utf8)
+            Data(#"{"status":"ok"}"#.utf8)
         )
     }
 
@@ -392,18 +343,8 @@ private extension WatchSegmentDrainTests {
     func makeDrain(
         stagingRoot: URL,
         ledger: WatchSegmentLedger? = nil,
-        watchRegistration: ObserverRegistration? = nil,
-        localPortProvider: @escaping @Sendable @MainActor () -> Int? = { 7071 },
-        directSession: URLSession = .shared,
-        urlBuilder: @escaping @Sendable (Int) -> URL? = { ObserverServerURL.ingestURL(localPort: $0) },
-        tempName: String = "watch-drain-temp",
         cooperator: MaintenanceCooperator = MaintenanceCooperator()
     ) throws -> WatchSegmentDrain {
-        _ = watchRegistration
-        _ = localPortProvider
-        _ = directSession
-        _ = urlBuilder
-        _ = tempName
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("watch-transfer-\(UUID().uuidString)", isDirectory: true)
         )
@@ -416,28 +357,6 @@ private extension WatchSegmentDrainTests {
         )
     }
 
-    @MainActor
-    func registration(streamType: String, label: String?, key: String) -> ObserverRegistration {
-        ObserverRegistration(
-            resolveDescriptor: {
-                DeviceRegistrationDescriptor(
-                    hostname: "test-phone",
-                    displayName: label ?? "test phone",
-                    vendorIdentifier: "test-idfv"
-                )
-            },
-            version: "0.1.0",
-            streamType: streamType,
-            retryDelays: [],
-            sleep: { _ in },
-            loadKey: { key },
-            saveKey: { _ in },
-            deleteKey: {},
-            loadPrefix: { nil },
-            savePrefix: { _ in },
-            deletePrefix: {}
-        )
-    }
 
     @MainActor
     func makeWatchRegistration(loadKey: String?, activeLocalPort: Int?) -> ObserverRegistration {

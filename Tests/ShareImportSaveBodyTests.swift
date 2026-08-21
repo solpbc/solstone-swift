@@ -141,10 +141,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
         }
         let engine = TransferEngine(
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("Transfers", isDirectory: true)),
-            transport: TransferTransport(
-                sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-                authProvider: { _ in "test-transfer-key" }
-            ),
+            transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
             endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
             clock: FakeTransferClock(wall: Self.baseDate),
@@ -208,8 +205,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: ImporterServerURL.savePath,
-                startPath: ImporterServerURL.startPath,
-                requiresAuth: false
+                startPath: ImporterServerURL.startPath
             ),
             saveThenStart: TransferSaveThenStartState(phase: .savePending)
         )
@@ -252,8 +248,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: ImporterServerURL.savePath,
-                startPath: ImporterServerURL.startPath,
-                requiresAuth: false
+                startPath: ImporterServerURL.startPath
             ),
             saveThenStart: state
         )

@@ -240,8 +240,7 @@ extension ShareImportStore {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: ImporterServerURL.savePath,
-                startPath: ImporterServerURL.startPath,
-                requiresAuth: false
+                startPath: ImporterServerURL.startPath
             ),
             meta: ShareImportTransferMetadata.meta(fields: fields),
             saveThenStart: phase,
@@ -309,8 +308,6 @@ extension ShareImportStore {
         case .delivered(let serverPath, let serverTimestamp),
              .alreadyStartedOrComplete(let serverPath, let serverTimestamp):
             return (serverPath, serverTimestamp)
-        case .alreadyDelivered:
-            return (nil, nil)
         }
     }
 

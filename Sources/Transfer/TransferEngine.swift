@@ -114,36 +114,34 @@ nonisolated enum DefaultTransferBodyBuilder {
             guard let ingest = item.manifest.observerIngest else {
                 throw TransferBodyBuildError.missingObserverMetadata
             }
-            var audioData: Data?
-            var locationData: Data?
-            var screenData: Data?
+            var parts: [ObserverIngestMultipartPart] = []
             for part in item.manifest.payloadParts {
-                func dataIfAvailable() throws -> Data? {
-                    do {
-                        return try spool.payloadData(for: part, in: item)
-                    } catch {
+                do {
+                    guard try spool.existingPayloadURL(for: part, in: item) != nil else {
                         if part.requiredForDispatch {
                             throw TransferBodyBuildError.missingPayload(part.filename)
                         }
-                        return nil
+                        continue
                     }
-                }
-                switch part.kind {
-                case .audio:
-                    audioData = try dataIfAvailable()
-                case .location:
-                    locationData = try dataIfAvailable()
-                case .screen:
-                    screenData = try dataIfAvailable()
-                case .file, .text:
-                    break
+                    let data = try spool.payloadData(for: part, in: item)
+                    parts.append(ObserverIngestMultipartPart(
+                        filename: part.filename,
+                        contentType: part.contentType,
+                        data: data
+                    ))
+                } catch {
+                    if part.requiredForDispatch {
+                        throw TransferBodyBuildError.missingPayload(part.filename)
+                    }
+                    throw error
                 }
             }
-            return .inMemory(try ObserverIngestMultipartBody.build(input: ObserverIngestMultipartInput(
+            return .inMemory(try ObserverIngestMultipartBody.build(payload: ObserverIngestMultipartPayload(
                 boundary: TransferTransport.boundary(for: item.manifest.itemID),
-                platform: ingest.platform,
-                segment: ingest.segment,
                 day: ingest.day,
+                segment: ingest.segment,
+                source: item.manifest.source,
+                platform: ingest.platform,
                 startedAt: ingest.startedAt,
                 durationS: ingest.durationS,
                 sources: ingest.sources,
@@ -152,11 +150,7 @@ nonisolated enum DefaultTransferBodyBuilder {
                 modeRawValue: ingest.modeRawValue,
                 segmentID: ingest.segmentID,
                 omiMetadata: OmiSegmentMetadata.namespaceValue(from: item.manifest.meta),
-                artifacts: ObserverIngestMultipartArtifacts(
-                    audioData: audioData,
-                    locationJSONL: locationData,
-                    screenData: screenData
-                )
+                parts: parts
             )))
         case .saveThenStart:
             if item.manifest.saveThenStart?.phase == .startPending {

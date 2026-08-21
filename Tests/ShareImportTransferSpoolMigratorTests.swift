@@ -244,10 +244,7 @@ nonisolated final class ShareImportTransferSpoolMigratorTests: XCTestCase {
     private func makeEngine(spool: TransferSpool) -> TransferEngine {
         TransferEngine(
             spool: spool,
-            transport: TransferTransport(
-                sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-                authProvider: { _ in "test-transfer-key" }
-            ),
+            transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
             endpointResolver: TransferEndpointResolverStub(.unavailable("held")),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
             clock: FakeTransferClock(wall: Self.baseDate),
@@ -362,8 +359,7 @@ nonisolated final class ShareImportTransferSpoolMigratorTests: XCTestCase {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: ImporterServerURL.savePath,
-                startPath: ImporterServerURL.startPath,
-                requiresAuth: false
+                startPath: ImporterServerURL.startPath
             ),
             meta: ShareImportTransferMetadata.meta(fields: ShareImportTransferMetadata.Fields(
                 basis: "file",

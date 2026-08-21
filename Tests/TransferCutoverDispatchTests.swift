@@ -32,7 +32,7 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
         let maxConcurrent = 3
         TransferURLProtocol.handler = { request, _ in
             Thread.sleep(forTimeInterval: 0.003)
-            return (transferTestResponse(for: request, statusCode: 204), Data())
+            return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("transfer", isDirectory: true),
@@ -103,7 +103,7 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
         let maxConcurrent = 3
         TransferURLProtocol.handler = { request, _ in
             Thread.sleep(forTimeInterval: 0.003)
-            return (transferTestResponse(for: request, statusCode: 204), Data())
+            return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("mobile-transfer", isDirectory: true),
@@ -272,25 +272,15 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
     }
 
     @MainActor
-    func testAC10AuthProviderRoutesDistinctBearerHandlesBySource() async throws {
+    func testLinkedDeviceIngestSetsProtocolAndNoAuthorization() async throws {
         let omiID = Self.uuid(900)
         let watchID = Self.uuid(901)
         TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 204), Data())
+            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("auth-transfer", isDirectory: true),
             sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-            authProvider: { manifest in
-                switch manifest.source {
-                case ObserverAudioTransferSource.omi:
-                    return "omi-handle"
-                case ObserverAudioTransferSource.watch:
-                    return "watch-handle"
-                default:
-                    throw URLError(.userAuthenticationRequired)
-                }
-            },
             endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
         )
         try await harness.engine.start()
@@ -311,16 +301,14 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
             await harness.engine.snapshot().counters.deliveredCount == 2
         }
 
-        let headersByItemID = Dictionary(uniqueKeysWithValues: TransferURLProtocol.requests.compactMap { request -> (UUID, String)? in
-            guard let itemID = transferTestBoundaryItemID(from: request),
-                  let authorization = request.value(forHTTPHeaderField: "Authorization")
-            else {
-                return nil
-            }
-            return (itemID, authorization)
-        })
-        XCTAssertEqual(headersByItemID[omiID], "Bearer omi-handle")
-        XCTAssertEqual(headersByItemID[watchID], "Bearer watch-handle")
+        XCTAssertEqual(TransferURLProtocol.requests.count, 2)
+        for request in TransferURLProtocol.requests {
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName),
+                ObserverServerURL.ingestProtocolVersion
+            )
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        }
     }
 }
 
@@ -380,8 +368,7 @@ extension TransferCutoverDispatchTests {
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .saveThenStart,
                 path: "/imports/save",
-                startPath: "/imports/start",
-                requiresAuth: false
+                startPath: "/imports/start"
             ),
             meta: ShareImportTransferMetadata.meta(fields: ShareImportTransferMetadata.Fields(
                 basis: "file",

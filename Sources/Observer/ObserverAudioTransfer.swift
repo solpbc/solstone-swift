@@ -24,29 +24,7 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
     }
 }
 
-nonisolated enum ObserverAudioTransferAuthProvider {
-    static func make(
-        observerRegistration: ObserverRegistration,
-        omiRegistration: ObserverRegistration,
-        watchRegistration: ObserverRegistration
-    ) -> TransferAuthProvider {
-        { manifest in
-            switch manifest.sourceKey {
-            case ObserverAudioTransferSource.mobileSegment:
-                return try await observerRegistration.ensureRegistered()
-            case ObserverAudioTransferSource.omi:
-                return try await omiRegistration.ensureRegistered()
-            case ObserverAudioTransferSource.watch:
-                return try await watchRegistration.ensureRegistered()
-            default:
-                throw ObserverAudioTransferError.unsupportedSource(manifest.sourceKey)
-            }
-        }
-    }
-}
-
 nonisolated enum ObserverAudioTransferError: Error, Equatable, Sendable {
-    case unsupportedSource(String)
     case missingSessionID
 }
 
@@ -311,8 +289,7 @@ final class ObserverAudioTransferEnqueuer {
             payloadParts: payloadParts,
             endpoint: TransferEndpointDescriptor(
                 destinationKind: .observerIngest,
-                path: "/app/devices/ingest",
-                requiresAuth: true
+                path: "/app/devices/ingest"
             ),
             observerIngest: TransferObserverIngestMetadata(
                 platform: platform,
@@ -324,7 +301,8 @@ final class ObserverAudioTransferEnqueuer {
                 chunkIndex: chunkIndex,
                 sessionID: sessionID,
                 modeRawValue: modeRawValue,
-                segmentID: segmentID
+                segmentID: segmentID,
+                ingestProtocolVersion: 3
             ),
             meta: .object(["source": .string(source)]),
             appVersion: AppVersion.shortVersion

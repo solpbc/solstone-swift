@@ -2093,7 +2093,9 @@ private extension OmiLaunchCaptureCutoverTests {
     }
 
     @MainActor func makeHarness(rootURL: URL) -> (engine: TransferEngine, mirror: TransferStatusMirror, enqueuer: ObserverAudioTransferEnqueuer, omi: OmiUploaderHolder, watch: WatchUploaderHolder) {
-        CutoverTransferURLProtocol.handler = { request, _ in (transferTestResponse(for: request, statusCode: 204), Data()) }
+        CutoverTransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [CutoverTransferURLProtocol.self]
         return makeTransferCutoverHarness(

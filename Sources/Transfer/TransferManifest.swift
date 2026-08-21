@@ -106,6 +106,9 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
     var sessionID: UUID?
     var modeRawValue: String?
     var segmentID: UUID?
+    /// The wire format used for this persisted observer ingest item. `nil`
+    /// marks a v2 persisted item.
+    var ingestProtocolVersion: Int?
 
     init(
         platform: String = "ios",
@@ -117,7 +120,8 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         chunkIndex: Int? = nil,
         sessionID: UUID? = nil,
         modeRawValue: String? = nil,
-        segmentID: UUID? = nil
+        segmentID: UUID? = nil,
+        ingestProtocolVersion: Int? = nil
     ) {
         self.platform = platform
         self.segment = segment
@@ -129,6 +133,7 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         self.sessionID = sessionID
         self.modeRawValue = modeRawValue
         self.segmentID = segmentID
+        self.ingestProtocolVersion = ingestProtocolVersion
     }
 }
 
@@ -220,20 +225,17 @@ nonisolated struct TransferEndpointDescriptor: Codable, Equatable, Sendable {
     var path: String
     var startPath: String?
     var destination: String?
-    var requiresAuth: Bool
 
     init(
         destinationKind: TransferDestinationKind,
         path: String,
         startPath: String? = nil,
-        destination: String? = nil,
-        requiresAuth: Bool = true
+        destination: String? = nil
     ) {
         self.destinationKind = destinationKind
         self.path = path
         self.startPath = startPath
         self.destination = destination
-        self.requiresAuth = requiresAuth
     }
 }
 

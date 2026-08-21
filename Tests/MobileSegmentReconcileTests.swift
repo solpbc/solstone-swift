@@ -44,7 +44,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
+                Data(#"{"status":"ok"}"#.utf8)
             )
         }
 
@@ -147,7 +147,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
+                Data(#"{"status":"ok"}"#.utf8)
             )
         }
 
@@ -157,8 +157,9 @@ final class MobileSegmentReconcileTests: XCTestCase {
         }
 
         let body = try XCTUnwrap(MobileSegmentReconcileURLProtocol.capturedBodies.first)
-        let meta = try self.multipartMeta(in: body)
-        XCTAssertEqual(meta["segment"] as? String, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 300))
+        let envelope = try self.multipartEnvelope(in: body)
+        let meta = try XCTUnwrap(envelope["meta"] as? [String: Any])
+        XCTAssertEqual(envelope["segment"] as? String, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 300))
         XCTAssertEqual(meta["duration_s"] as? Double, 300)
     }
 
@@ -424,7 +425,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
+                Data(#"{"status":"ok"}"#.utf8)
             )
         }
 
@@ -549,7 +550,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
+                Data(#"{"status":"ok"}"#.utf8)
             )
         }
 

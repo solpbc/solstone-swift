@@ -49,7 +49,6 @@ nonisolated enum TransferOutcome: Equatable, Sendable {
 
 nonisolated enum TransferSuccessKind: Equatable, Sendable {
     case delivered(serverPath: String?, serverTimestamp: String?)
-    case alreadyDelivered
     case alreadyStartedOrComplete(serverPath: String?, serverTimestamp: String?)
 }
 
@@ -100,6 +99,16 @@ nonisolated enum TransferHTTPClassifier {
         }
     }
 
+    private struct ObserverIngestResponse: Decodable {
+        let status: String
+        let reasonCode: String?
+
+        enum CodingKeys: String, CodingKey {
+            case status
+            case reasonCode = "reason_code"
+        }
+    }
+
     static func classify(result: TransferHTTPResult, endpointPhase: TransferEndpointPhase) -> TransferOutcome {
         if let issue = result.issue {
             switch issue {
@@ -118,13 +127,9 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         if 200..<300 ~= statusCode {
-            if self.hasAlreadyDeliveredSignal(result.data) {
-                return .terminalSuccess(.alreadyDelivered)
-            }
-
             switch endpointPhase {
             case .observerIngest:
-                return .terminalSuccess(.delivered(serverPath: nil, serverTimestamp: nil))
+                return self.classifyObserverIngestSuccess(statusCode: statusCode, data: result.data)
             case .save:
                 return self.classifySaveSuccess(data: result.data)
             case .start(let saveResult):
@@ -153,6 +158,29 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         return .transientRetry(.transport("unexpected http \(statusCode)"))
+    }
+
+    private static func classifyObserverIngestSuccess(statusCode: Int, data: Data) -> TransferOutcome {
+        guard !data.isEmpty,
+              let response = try? JSONDecoder().decode(ObserverIngestResponse.self, from: data)
+        else {
+            return .terminalAttention(.decodeFailed("invalid observer ingest response"))
+        }
+
+        switch response.status {
+        case "ok", "duplicate", "collision":
+            return .terminalSuccess(.delivered(serverPath: nil, serverTimestamp: nil))
+        case "failed", "conflict":
+            let detail: String
+            if let reasonCode = response.reasonCode, !reasonCode.isEmpty {
+                detail = "reason_code=\(reasonCode)"
+            } else {
+                detail = "observer ingest status \(response.status) without reason_code"
+            }
+            return .terminalAttention(.httpClientError(statusCode: statusCode, detail: detail))
+        default:
+            return .terminalAttention(.decodeFailed("unknown observer ingest status \(response.status)"))
+        }
     }
 
     private static func classifySaveSuccess(data: Data) -> TransferOutcome {
@@ -197,17 +225,4 @@ nonisolated enum TransferHTTPClassifier {
         ))
     }
 
-    private static func hasAlreadyDeliveredSignal(_ data: Data) -> Bool {
-        guard !data.isEmpty,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return false
-        }
-        for key in ["status", "reason", "result"] {
-            if object[key] as? String == "already_delivered" {
-                return true
-            }
-        }
-        return false
-    }
 }

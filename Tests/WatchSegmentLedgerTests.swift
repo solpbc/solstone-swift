@@ -265,7 +265,7 @@ final class WatchSegmentLedgerTests: XCTestCase {
         )
         try await Task.sleep(for: .milliseconds(50))
         TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 204), Data())
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
         }
         try await harness.engine.start()
 
