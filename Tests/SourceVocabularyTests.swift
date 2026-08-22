@@ -410,7 +410,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchSetupInstallDisclosureSummary, "don't see the solstone app in the list?")
         XCTAssertEqual(
             SourceVocabulary.watchSetupInstallDisclosureBody,
-            "your watch may need watchos 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch."
+            "your watch may need watchOS 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch."
         )
         XCTAssertEqual(SourceVocabulary.watchSetupOpenTitle, "open the solstone app on your watch")
         XCTAssertEqual(

@@ -218,7 +218,7 @@ nonisolated enum SourceVocabulary {
     static let watchSetupInstallButton = "open the Watch app"
     static let watchSetupInstallButtonHint = "opens the Watch app."
     static let watchSetupInstallDisclosureSummary = "don't see the solstone app in the list?"
-    static let watchSetupInstallDisclosureBody = "your watch may need watchos 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch."
+    static let watchSetupInstallDisclosureBody = "your watch may need watchOS 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch."
     static let watchSetupOpenTitle = "open the solstone app on your watch"
     static let watchSetupOpenSubline = "the solstone app checks in with this iphone the first time it opens."
     static let watchSetupFirstMomentTitle = "tap start for your first moment"
