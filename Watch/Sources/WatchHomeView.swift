@@ -80,7 +80,7 @@ private extension WatchHomeView {
     }
 
     var controlHint: String {
-        self.captureModel.isRunning ? "turns sol off" : "turns sol on"
+        self.captureModel.isRunning ? "turns the solstone app off" : "turns the solstone app on"
     }
 
     var controlFill: Color {

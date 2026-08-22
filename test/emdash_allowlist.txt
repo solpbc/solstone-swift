@@ -2,43 +2,33 @@
 # One entry authorizes exactly one occurrence; duplicate identical literals in the same file need duplicate entries.
 # `|` is the delimiter because allowed literals may contain `:`; keep entries to approved em-dash copy exceptions.
 
-Sources/SourceVocabulary+FinishSyncing.swift|finishing up in the background. you can switch away — sol keeps syncing for as long as iOS allows.
 Sources/SourceVocabulary+FinishSyncing.swift|done — everything's in your journal now.
-Sources/SourceVocabulary+FinishSyncing.swift|stopped — 1 still waiting. it's safe on this phone and will keep syncing whenever sol is open.
-Sources/SourceVocabulary+FinishSyncing.swift|stopped — \(count) still waiting. they're safe on this phone and will keep syncing whenever sol is open.
 Sources/ShareImport/ShareImportCoordinator.swift|couldn't save this — \(plainReason). nothing was added.
 Sources/ShareImport/ShareImportCoordinator.swift|couldn't save \(failed) items — nothing was added.
 Sources/MoreView.swift|registration: failed — \(reason)
 Sources/Observer/ObserverManager.swift|observer: tap-write stall — stopping
 Sources/SourceVocabulary+ConnectionProbe.swift|checked \(relative) — \(Self.probeReachable) · \(milliseconds) ms
 Sources/SourceVocabulary+ConnectionProbe.swift|checked \(relative) — \(Self.probeNotReachable)
-Sources/Pairing/PairFailureReason.swift|your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect.
 Sources/Pairing/PairFlowView.swift|on your computer, open your journal's dashboard and go to the network app — it shows your pairing code.
 Sources/Tunnel/TunnelError.swift|connection failed — \(detail)
 Sources/Tunnel/TunnelManager.swift|[solstone-swift] connect() skipped — already in progress
 Sources/Tunnel/TunnelManager.swift|[solstone-swift] connect() skipped — already \(self.state)
 Sources/SourceVocabulary.swift|getting ready — connecting to your journal.
-Sources/SourceVocabulary.swift|still on this phone. sol keeps trying to sync it to your journal automatically — you don't have to do anything.
 # Trust line: current watch-companion M-W.8 implementation.
 # Held byte-for-byte pending product ruling on the open `feeds`/`syncs` divergence.
 Sources/SourceVocabulary.swift|syncs only to your journal — nowhere else
 Sources/SourceVocabulary.swift|—
-Sources/SourceVocabulary.swift|what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want sol with you.
-Sources/SourceVocabulary.swift|sol just took in your first memory and kept it here — yours, and nowhere else.
 Sources/SourceVocabulary.swift|not in your journal yet — it'll appear once it's sent.
 Sources/SourceVocabulary.swift|your journal shows this same mark in its network app. it should match — exactly.
 Sources/SourceVocabulary.swift|yes — this is my journal
-Sources/SourceVocabulary.swift|you said this mark doesn't match the one your journal shows — so we didn't connect this phone. you may have scanned the wrong code, or something isn't right. try again, or reach us and we'll help.
 Sources/SourceVocabulary.swift|couldn't reach your journal — nothing was deleted.
 Sources/SourceVocabulary.swift|hasn't reached your journal yet — tried 1 time. it'll try again automatically when you reconnect.
 Sources/SourceVocabulary.swift|hasn't reached your journal yet — tried \(count) times. it'll try again automatically when you reconnect.
-Sources/SourceVocabulary.swift|this can't be sent — \(reason). you can remove it from this phone.
 Sources/Omi/OmiDiagnosticsLogic.swift|reconnects: \(reconnects.count) (showing most recent \(OmiEventRing.capacity) retained — see disconnect gaps for full count)
 Sources/Omi/OmiDiagnosticsLogic.swift|unrecoverable connect-to-subscribe: \(Self.secondsText(breakdown.totalSeconds)) total not on SD / unrecoverable (foreground \(Self.secondsText(breakdown.foregroundSeconds)), background \(Self.secondsText(breakdown.backgroundSeconds)), locked \(Self.secondsText(breakdown.lockedSeconds)), \(breakdown.sampleCount) samples across \(reconnectCount) reconnects — unconfirmed reconnects not measured (foreground floor))
 Sources/Location/LocationVocabulary.swift|where your day happens — kept in your journal, yours alone. as light or complete as you want.
 Sources/Location/LocationVocabulary.swift|the places you stop — home, work, an event.
 Sources/Location/LocationVocabulary.swift|changes apply from now on — nothing already in your journal is altered.
-Sources/Location/LocationVocabulary.swift|you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — sol never fills them in.
 Sources/Location/LocationVocabulary.swift|gap here — location wasn't available.
 Sources/Diagnostics/DiagnosticsFilters.swift|you're offline — these will try again automatically when you reconnect.
 Sources/Diagnostics/DiagnosticsView.swift|—

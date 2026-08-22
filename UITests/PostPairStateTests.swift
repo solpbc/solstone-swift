@@ -25,7 +25,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         let bannerText = app.staticTexts["offline — safe on this phone · your journal will catch up"]
         let bannerElement = app.otherElements["Offline. Safe on this phone; your journal will catch up."]
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["everything sol has taken in, ready for your journal when it reconnects."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["everything you've shared, ready for your journal when it reconnects."].waitForExistence(timeout: 5))
         XCTAssertFalse(bannerText.exists)
         XCTAssertFalse(bannerElement.exists)
         let locality = app.buttons["dayHome.locality"]
@@ -88,7 +88,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         self.assertDayHomeRoot(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["everything sol has taken in, moving into your journal."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["everything you've shared, moving into your journal."].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["dayHome.openInJournal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)

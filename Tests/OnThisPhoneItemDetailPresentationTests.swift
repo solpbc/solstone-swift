@@ -146,7 +146,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            "kept on this phone · today at \(Self.shortTime(today))"
+            "on this device · today at \(Self.shortTime(today))"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summarySmall(
@@ -156,7 +156,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            "kept on this phone · yesterday at \(Self.shortTime(yesterday))"
+            "on this device · yesterday at \(Self.shortTime(yesterday))"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summarySmall(
@@ -166,7 +166,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            "kept on this phone"
+            "on this device"
         )
         XCTAssertEqual(
             OnThisPhoneItemDetailPresentation.summarySmall(
@@ -295,10 +295,10 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
     func testFailureLegibilityPermanentMessageUsesPlainReasonBuckets() throws {
         let now = Self.date(year: 2026, month: 6, day: 14, hour: 12, minute: 0)
         let cases: [(String?, String)] = [
-            ("network connection lost", "this can't be sent — the connection wasn't available. you can remove it from this phone."),
-            ("request timed out -1001", "this can't be sent — the connection took too long. you can remove it from this phone."),
-            ("HTTP 503: service unavailable", "this can't be sent — your journal couldn't accept it. you can remove it from this phone."),
-            ("upload failed after 3 attempts", "this can't be sent — something got in the way. you can remove it from this phone."),
+            ("network connection lost", "this can't go to your journal. the connection wasn't available. you can remove it from this device."),
+            ("request timed out -1001", "this can't go to your journal. the connection took too long. you can remove it from this device."),
+            ("HTTP 503: service unavailable", "this can't go to your journal. your journal couldn't accept it. you can remove it from this device."),
+            ("upload failed after 3 attempts", "this can't go to your journal. something got in the way. you can remove it from this device."),
         ]
 
         for (rawReason, expectedMessage) in cases {

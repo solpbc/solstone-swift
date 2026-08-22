@@ -60,10 +60,10 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this phone until you connect a journal for it to land in."
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "you can connect the solstone app to wearable audio devices like the Omi pendant over Bluetooth. what you share stays on this phone until you connect a journal for it to land in."
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this phone until you connect a journal for it to land in. you choose how much, and you can change that any time."
-        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this phone until you connect a journal for it to land in. you choose how much, and you can change that any time."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in."
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "you can connect the solstone app to wearable audio devices like the Omi pendant over Bluetooth. what you share stays on this device until you connect a journal for it to land in."
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your journal's pairing code"
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

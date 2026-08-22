@@ -8,7 +8,7 @@ import XCTest
 nonisolated final class ErrorClassificationTests: XCTestCase {
     @MainActor
     func testUserMessages() {
-        XCTAssertEqual(TunnelError.revoked.userMessage, "your journal asked this phone to reconnect.")
+        XCTAssertEqual(TunnelError.revoked.userMessage, "your journal asked this device to reconnect.")
         XCTAssertEqual(TunnelError.tlsHandshakeFailed.userMessage, "couldn't verify this journal.")
         XCTAssertEqual(TunnelError.muxTeardown.userMessage, "connection lost.")
         XCTAssertEqual(TunnelError.unreachable.userMessage, "can't reach this journal right now.")
@@ -37,7 +37,7 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         XCTAssertEqual(manager.mapTransportError(SessionError.revoked), .revoked)
         XCTAssertEqual(
             manager.mapTransportError(SessionError.revoked).userMessage,
-            "your journal asked this phone to reconnect."
+            "your journal asked this device to reconnect."
         )
     }
 

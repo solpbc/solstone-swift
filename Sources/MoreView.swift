@@ -167,7 +167,7 @@ struct MoreView: View {
                 .disabled(conveyURL == nil)
                 .hoverEffect(.highlight)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("Opens your journal inside sol.")
+                .accessibilityHint("opens your journal inside the solstone app.")
                 .sheet(isPresented: self.$showingJournal) {
                     InAppJournalView()
                 }
@@ -294,7 +294,7 @@ struct MoreView: View {
                 NavigationLink {
                     AboutView()
                 } label: {
-                    Text("about sol")
+                    Text("about solstone")
                 }
                 .accessibilityHint("Opens an about screen with app, journal, and credits")
 
@@ -324,7 +324,7 @@ struct MoreView: View {
                 }
             }
         } message: {
-            Text("this clears the paired session on this phone and returns you to onboarding.")
+            Text("this clears the paired session on this device and returns you to setup.")
         }
         .onDisappear {
             self.snapshotCopyTask?.cancel()

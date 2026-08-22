@@ -11,7 +11,7 @@ enum TunnelError: Error, Sendable, Equatable {
     var userMessage: String {
         switch self {
         case .revoked:
-            return "your journal asked this phone to reconnect."
+            return "your journal asked this device to reconnect."
         case .tlsHandshakeFailed:
             return "couldn't verify this journal."
         case .muxTeardown:

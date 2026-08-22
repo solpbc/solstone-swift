@@ -81,8 +81,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         switch self {
         case .differentNetwork(let phoneAddress, let targetAddress):
             """
-            this phone and your journal are on different networks.
-            this phone: \(phoneAddress)
+            this device and your journal are on different networks.
+            this device: \(phoneAddress)
             your journal: \(targetAddress)
             connect both to the same wi-fi, then try again.
             you can also switch your journal to private network to pair from anywhere.
@@ -94,11 +94,11 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
                 "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. you can also switch your journal to private network to pair from anywhere."
             }
         case .loopbackAddress:
-            "that address points back at this phone. paste the pairing link shown on your journal instead."
+            "that address points back at this device. paste the pairing link shown on your journal instead."
         case .journalUnreachableOffLAN:
-            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect."
+            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. everything the solstone app has taken in is on this device and syncs once you reconnect."
         case .directAddressNotLocal:
-            "that pairing link points to an address sol won’t open directly. connect this phone and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+            "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
         case .connectionDropped:
             "lost the connection to your journal before it answered. try again."
         case .codeExpired:

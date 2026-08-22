@@ -174,7 +174,7 @@ struct DayHomeView: View {
     private var localityAccessibilityLabel: String {
         switch self.journalState {
         case .noJournal:
-            "on this phone, no journal yet"
+            "on this device, not paired"
         case .linkedOffline, .linkedOnline:
             self.localityText
         }

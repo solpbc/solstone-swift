@@ -20,7 +20,7 @@ struct SolstoneLiveActivityWidget: Widget {
                     .font(.title2)
                     .foregroundStyle(Color.solOrange)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("sol")
+                    Text("solstone")
                         .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
                     Text(observerModeLabel(for: context.state.mode))
                         .font(.subheadline)

@@ -5,9 +5,9 @@ import Foundation
 
 nonisolated enum LocationVocabulary {
     static let sourceDisplayName = "location"
-    private static let activeSubtextUnpaired = "adds where your day happens, saved on this phone while this is on."
+    private static let activeSubtextUnpaired = "adds where your day happens, on this device while this is on."
     private static let activeSubtextPaired = "adds where your day happens to your journal while this is on."
-    private static let preEnrollmentValueUnpaired = "where your day happens. saved on this phone and not processed until you connect a journal. as light or complete as you want."
+    private static let preEnrollmentValueUnpaired = "where your day happens. on this device and not processed until you connect a journal. as light or complete as you want."
     private static let preEnrollmentValuePaired = "where your day happens — kept in your journal, yours alone. as light or complete as you want."
     static let tierDialHeader = "how much of your day to keep"
     static let tierDialSubhead = "your day, your call. you can change this any time."
@@ -19,7 +19,7 @@ nonisolated enum LocationVocabulary {
     static let fullLabel = "the complete picture"
     static let fullBody = "the full, detailed picture of where your day happened. uses more battery."
     static let batteryHonesty = "fuller settings run in the background and use more battery. iOS shows its location arrow whenever location is on."
-    static let alwaysBackgroundPrimer = "to keep this when sol isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings."
+    static let alwaysBackgroundPrimer = "to keep this when the solstone app isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings."
     static let turnOnLocation = "turn on location"
     static let alwaysPrimerHeader = "before iOS asks"
     static let alwaysPrimerContinue = "continue"
@@ -31,10 +31,10 @@ nonisolated enum LocationVocabulary {
     static let deliveryNeedsAttentionTemplate = "{N} location {update} {needs} attention."
     static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
     static let deliveryQuietLine = "nothing waiting right now."
-    static let downgradeBodyTemplate = "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps honestly — sol never fills them in."
+    static let downgradeBodyTemplate = "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps."
     static let openSettingsAction = "open iOS Settings"
     static let matchToAllowedAction = "match it to what's allowed"
-    static let restrictedBody = "location is turned off for sol by a restriction on this device. sol can't keep your day until that's lifted."
+    static let restrictedBody = "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted."
     static let honestGap = "gap here — location wasn't available."
     static let deleteConfirmBody = "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone."
     static let deleteConfirmButton = "delete location's contributions"
@@ -55,9 +55,9 @@ nonisolated enum LocationVocabulary {
         case .always(accuracy: .reduced):
             "sharing location: always · reduced precision"
         case .whenInUse(accuracy: .full):
-            "sharing location: while sol is open · precise"
+            "sharing location: while the solstone app is open · precise"
         case .whenInUse(accuracy: .reduced):
-            "sharing location: while sol is open · reduced precision"
+            "sharing location: while the solstone app is open · reduced precision"
         case .notDetermined:
             "sharing location: not yet decided"
         case .servicesDisabled:

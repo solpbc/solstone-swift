@@ -267,7 +267,7 @@ private extension LocationSourceDetailView {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .disabled(self.journalURL == nil)
             .accessibilityLabel(SourceVocabulary.openJournalLink)
-            .accessibilityHint("Opens your journal inside sol.")
+            .accessibilityHint("opens your journal inside the solstone app.")
             .sheet(isPresented: self.$showingJournal) {
                 InAppJournalView()
             }

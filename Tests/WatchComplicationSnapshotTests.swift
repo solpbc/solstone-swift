@@ -60,8 +60,8 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
     func testComplicationInlineTextForNilUsesInlineUnknownCopyOnce() {
         let text = watchComplicationInlineText(for: nil)
 
-        XCTAssertEqual(text, "sol · hasn't checked in")
-        XCTAssertEqual(text.components(separatedBy: "sol").count - 1, 1)
+        XCTAssertEqual(text, "solstone · hasn't checked in")
+        XCTAssertEqual(text.components(separatedBy: "solstone").count - 1, 1)
     }
 
     func testComplicationInlineTextUsesHandoffLineThenStateWord() {
@@ -88,8 +88,8 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
             trustLine: nil
         )
 
-        XCTAssertEqual(watchComplicationInlineText(for: handoffSnapshot), "sol · saved on your watch")
-        XCTAssertEqual(watchComplicationInlineText(for: stateSnapshot), "sol · on")
+        XCTAssertEqual(watchComplicationInlineText(for: handoffSnapshot), "solstone · saved on your watch")
+        XCTAssertEqual(watchComplicationInlineText(for: stateSnapshot), "solstone · on")
     }
 
     func testHealthyMarkIsUnreachableFromNonActiveStatuses() {

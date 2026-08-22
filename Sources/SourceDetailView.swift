@@ -413,7 +413,7 @@ private struct AudioEnrollmentContent: View {
             .controlSize(.large)
             .frame(maxWidth: .infinity, minHeight: 44)
             .disabled(self.isStarting)
-            .accessibilityHint("Starts keeping audio memories on this phone.")
+            .accessibilityHint("starts taking in audio on this device, and it goes into your journal.")
 
             if let errorMessage = self.errorMessage {
                 VStack(alignment: .leading, spacing: 8) {

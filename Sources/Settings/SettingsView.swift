@@ -51,7 +51,7 @@ struct SettingsView: View {
                 }
             }
         } message: {
-            Text("this removes the pairing from this phone.")
+            Text("this removes the pairing from this device.")
         }
         .alert("pair a new journal?", isPresented: self.$showingPairNewConfirm) {
             Button("cancel", role: .cancel) {}

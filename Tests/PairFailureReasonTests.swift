@@ -299,8 +299,8 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(
             PairFailureReason.differentNetwork(phoneAddress: "192.168.1.20", targetAddress: "10.0.0.5").message,
             """
-            this phone and your journal are on different networks.
-            this phone: 192.168.1.20
+            this device and your journal are on different networks.
+            this device: 192.168.1.20
             your journal: 10.0.0.5
             connect both to the same wi-fi, then try again.
             you can also switch your journal to private network to pair from anywhere.
@@ -316,11 +316,11 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         )
         XCTAssertEqual(
             PairFailureReason.journalUnreachableOffLAN.message,
-            "your journal isn't reachable from here — you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. nothing's lost — everything sol has taken in stays safe on this phone and syncs once you reconnect."
+            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. everything the solstone app has taken in is on this device and syncs once you reconnect."
         )
         XCTAssertEqual(
             PairFailureReason.directAddressNotLocal.message,
-            "that pairing link points to an address sol won’t open directly. connect this phone and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+            "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
         )
         XCTAssertEqual(
             PairFailureReason.wrongSolstone.message,
@@ -377,7 +377,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(
             coordinator.state,
             .failed(
-                error: "that pairing link points to an address sol won’t open directly. connect this phone and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+                error: "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
             )
         )
     }

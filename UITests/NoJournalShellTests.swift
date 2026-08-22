@@ -62,7 +62,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         let valueBlock = app.staticTexts["audioEnrollment.value"]
         XCTAssertTrue(valueBlock.waitForExistence(timeout: 5))
-        XCTAssertEqual(valueBlock.label, "what you say and the sound around you — kept on this phone, yours alone, until you connect a journal. turn it on only when you want sol with you.")
+        XCTAssertEqual(valueBlock.label, "what you say and the sound around you, on this device until you connect a journal. turn it on only when you want to share audio.")
         let turnOnAudio = app.buttons["turn on audio"]
         XCTAssertTrue(turnOnAudio.waitForExistence(timeout: 5))
         XCTAssertTrue(turnOnAudio.isEnabled)
@@ -106,7 +106,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         app.buttons["dayHome.sourcesEntry"].tap()
         app.buttons["source.row.share-sheet"].tap()
-        let onThisPhoneLink = app.buttons["on this phone"]
+        let onThisPhoneLink = app.buttons["on this device"]
         XCTAssertTrue(onThisPhoneLink.waitForExistence(timeout: 5))
         onThisPhoneLink.tap()
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
@@ -127,8 +127,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
         let locality = app.buttons["dayHome.locality"]
         XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        XCTAssertEqual(locality.label, "on this phone, no journal yet")
-        XCTAssertFalse(app.navigationBars["on this phone"].exists)
+        XCTAssertEqual(locality.label, "on this device, not paired")
+        XCTAssertFalse(app.navigationBars["on this device"].exists)
     }
 
     @MainActor
@@ -143,10 +143,10 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertEqual(promise.label, "your journal is always private, only yours.")
 
         XCTAssertTrue(app.staticTexts["your own journal"].exists)
-        XCTAssertTrue(app.staticTexts["pair to your journal on your computer. everything sol has taken in so far flows in."].exists)
+        XCTAssertTrue(app.staticTexts["pair to your journal on your computer. everything you've shared so far flows in."].exists)
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
-        XCTAssertTrue(app.staticTexts["your journal as its own app, right on this phone."].exists)
-        XCTAssertTrue(app.staticTexts["right now, just your cached memories are on this phone, waiting to be processed."].exists)
+        XCTAssertTrue(app.staticTexts["your journal as its own app, right on this device."].exists)
+        XCTAssertTrue(app.staticTexts["right now, just your memories are on this device, waiting to be processed."].exists)
         XCTAssertFalse(app.staticTexts["your memories rest here, yours and nowhere else."].exists)
 
         let currentRows = app.descendants(matching: .any).matching(NSPredicate(
@@ -278,7 +278,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let dropButton = app.buttons["onThisPhone.drop.button"]
         XCTAssertTrue(dropButton.waitForExistence(timeout: 5), rowID)
         dropButton.tap()
-        XCTAssertTrue(app.staticTexts["drop this from this phone?"].waitForExistence(timeout: 5), rowID)
+        XCTAssertTrue(app.staticTexts["drop this from this device?"].waitForExistence(timeout: 5), rowID)
 
         let confirmButtons = app.buttons.matching(identifier: "onThisPhone.drop.confirm")
         let confirmButton = confirmButtons.firstMatch
@@ -314,7 +314,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             forDuration: 0.05,
             thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
         )
-        let confirmTitle = app.staticTexts["drop this from this phone?"]
+        let confirmTitle = app.staticTexts["drop this from this device?"]
         XCTAssertTrue(confirmTitle.waitForExistence(timeout: 5), rowID)
 
         let confirmButtons = app.descendants(matching: .any).matching(identifier: "onThisPhone.swipe.drop.confirm")
@@ -366,7 +366,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-seed-aged-backlog",
             "--ui-test-reset-nudge-dismissal",
         ])
-        let text = "51 memories are resting on this phone. connect a journal whenever you'd like a backup."
+        let text = "51 memories are on this device. connect a journal whenever you're ready."
 
         XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 10))
         app.buttons["onThisPhone.agedBacklog.dismiss"].tap()

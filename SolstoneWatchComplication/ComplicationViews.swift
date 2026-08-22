@@ -131,7 +131,7 @@ private extension SolstoneWatchComplicationView {
             return "\(SourceVocabulary.watchComplicationUnknownHeadline), \(SourceVocabulary.watchComplicationUnknownDetail)"
         }
 
-        var parts = ["sol", snapshot.stateWord]
+        var parts = ["solstone", snapshot.stateWord]
         if let handoffLine = snapshot.handoffLine {
             parts.append(handoffLine)
         }

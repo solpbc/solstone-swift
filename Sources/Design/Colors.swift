@@ -15,7 +15,7 @@ extension Color {
     static let solCream = Color(red: 0.988, green: 0.953, blue: 0.894)
     /// Sol cream bright — light surface tint (#FEFCF8)
     static let solCreamBright = Color(red: 0.996, green: 0.988, blue: 0.973)
-    /// Orange ink — WCAG AA orange text/focus color on light surfaces (#B06A1A)
+    /// Orange ink — WCAG 3:1 non-text and large-text contrast bar on light surfaces (#B06A1A)
     static let orangeInk = Color(red: 0.690, green: 0.416, blue: 0.102)
     /// Saved-state green — local "saved on this phone" confirmation (#2E7C32 light / brighter dark)
     static let solSavedGreen = Color(uiColor: UIColor { traits in

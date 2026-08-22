@@ -143,7 +143,7 @@ private extension OnThisPhoneItemDetailView {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(!availability.enabled)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("Opens your journal inside sol.")
+                .accessibilityHint("opens your journal inside the solstone app.")
                 .sheet(isPresented: self.$showingJournal) {
                     InAppJournalView()
                 }
@@ -209,7 +209,7 @@ private extension OnThisPhoneItemDetailView {
         }
         .buttonStyle(.bordered)
         .frame(minHeight: 44)
-        .accessibilityHint("Removes this from this phone.")
+        .accessibilityHint("removes this from this device.")
         .accessibilityIdentifier("onThisPhone.drop.button")
         .confirmationDialog(
             SourceVocabulary.onThisPhoneDropConfirmTitle,

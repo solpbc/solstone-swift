@@ -184,7 +184,7 @@ nonisolated func watchComplicationMarkAssetName(for snapshot: WatchComplicationS
 
 nonisolated func watchComplicationInlineText(for snapshot: WatchComplicationSnapshot?) -> String {
     guard let snapshot else {
-        return "sol · \(SourceVocabulary.watchComplicationUnknownInline)"
+        return "solstone · \(SourceVocabulary.watchComplicationUnknownInline)"
     }
-    return "sol · \(snapshot.handoffLine ?? snapshot.stateWord)"
+    return "solstone · \(snapshot.handoffLine ?? snapshot.stateWord)"
 }
