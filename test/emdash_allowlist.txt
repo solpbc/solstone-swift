@@ -2,7 +2,6 @@
 # One entry authorizes exactly one occurrence; duplicate identical literals in the same file need duplicate entries.
 # `|` is the delimiter because allowed literals may contain `:`; keep entries to approved em-dash copy exceptions.
 
-Sources/SourceVocabulary+FinishSyncing.swift|done — everything's in your journal now.
 Sources/ShareImport/ShareImportCoordinator.swift|couldn't save this — \(plainReason). nothing was added.
 Sources/ShareImport/ShareImportCoordinator.swift|couldn't save \(failed) items — nothing was added.
 Sources/MoreView.swift|registration: failed — \(reason)

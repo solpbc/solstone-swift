@@ -108,10 +108,10 @@ nonisolated enum SourceVocabulary {
 
     static let observerActiveSubtext = "on"
     static let modeExplanation = "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
-    private static let shareAlwaysOnSubtextUnpaired = "import from anywhere, it's saved here until you connect your journal."
+    private static let shareAlwaysOnSubtextUnpaired = "import from anywhere, it's saved here until you connect a journal."
     private static let shareAlwaysOnSubtextPaired = "share to your journal from any app"
     private static let shareAlwaysOnExplainerUnpaired = "share is on. anything you send from another app is on this device until you connect a journal."
-    private static let shareAlwaysOnExplainerPaired = "share is always on. anything you send from the share sheet comes into your journal here."
+    private static let shareAlwaysOnExplainerPaired = "share is on. anything you send from the share sheet comes into your journal here."
     static let shareSheetDisplayName = "share sheet"
     static let shareSendingProgress = "sending to your journal…"
     static let shareDeliveredProgress = "saved to your journal"
@@ -373,7 +373,7 @@ nonisolated enum SourceVocabulary {
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"
     private static let notConnectedRowAffordancePaired = "opens when your journal reconnects."
-    private static let notConnectedRowAffordanceUnpaired = "connect your journal first."
+    private static let notConnectedRowAffordanceUnpaired = "connect a journal first."
 
     static func notConnectedRowAffordance(isJournalPaired: Bool) -> String {
         isJournalPaired ? Self.notConnectedRowAffordancePaired : Self.notConnectedRowAffordanceUnpaired
@@ -400,7 +400,7 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneTruthLine = "your memories are on this device and not processed until you connect a journal."
     static let onThisPhoneConnectJournalButton = "connect journal"
     static let onThisPhoneAllQuietHeadline = "all quiet"
-    static let onThisPhoneAllQuietBody = "everything you've gathered is in your journal. new moments rest here on their way through."
+    static let onThisPhoneAllQuietBody = "everything you've shared is in your journal. new moments rest here on their way through."
     static let onThisPhoneNotBackedUp = "nothing here is backed up yet. connect a journal to keep a copy."
     static let onThisPhoneTurnOnSourceButton = "turn on a source"
     static let migrationStageOnThisPhone = "on this device"
@@ -436,8 +436,8 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneJournalHintSaved = "this was added to your journal automatically. open it to read the full thing."
     static let onThisPhoneJournalHintLocationSaved = "open it to see these places on a map."
     static let onThisPhoneJournalHintPending = "not in your journal yet — it'll appear once it's sent."
-    static let onThisPhoneJournalHintUnreachable = "connect your journal first."
-    static let onThisPhoneJournalHintLocationUnreachable = "connect your journal to see these places on a map."
+    static let onThisPhoneJournalHintUnreachable = "connect a journal first."
+    static let onThisPhoneJournalHintLocationUnreachable = "connect a journal to see these places on a map."
     static let onThisPhoneDropFromPhone = "drop from this device"
     static let onThisPhoneDropConfirmTitle = "drop this from this device?"
     static let onThisPhoneFileLabel = "file"
@@ -457,7 +457,7 @@ nonisolated enum SourceVocabulary {
     static let connectJournalIntro = "your memories are on this device. connect a journal and everything you've shared so far flows in."
     static let connectDoorOwnTitle = "your own journal"
     static let connectDoorOwnSubtitle = "pair this device to your journal running on your computer."
-    static let connectDoorOnYourPhoneTitle = "on your phone"
+    static let connectDoorOnYourPhoneTitle = "on this device"
     static let connectDoorOnYourPhoneBody = "your journal as its own app, right on this device."
     static let connectJournalFloorLine = "no journal yet? that's fine. everything the solstone app takes in is on this device."
     static let connectJournalHowJournalsWork = "how journals work →"
@@ -482,7 +482,7 @@ nonisolated enum SourceVocabulary {
     static let journalLivesPromise = "your journal is always private, only yours."
     static let journalLivesOwnTitle = "your own journal"
     static let journalLivesOwnBody = "pair to your journal on your computer. everything you've shared so far flows in."
-    static let journalLivesOnYourPhoneTitle = "on your phone"
+    static let journalLivesOnYourPhoneTitle = "on this device"
     static let journalLivesOnYourPhoneBody = "your journal as its own app, right on this device."
     static let journalLivesCachedLine = "right now, just your memories are on this device, waiting to be processed."
     static let journalLivesComingLater = "coming later"
@@ -643,7 +643,7 @@ extension SourceVocabulary {
     nonisolated static func onThisPhoneDropConfirmMessage(sendState: OnThisPhoneSendState) -> String {
         switch sendState {
         case .savedOnThisPhone, .sending, .needsAttention:
-            return "this is only on your phone. dropping it means it won't reach your journal."
+            return "this is only on this device. dropping it means it won't reach your journal."
         case .inYourJournal:
             return "this is in your journal. dropping just clears it from this device."
         }

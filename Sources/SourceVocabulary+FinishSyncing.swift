@@ -14,7 +14,7 @@ extension SourceVocabulary {
 
     nonisolated static let finishSyncingButton = "enable background for this sync"
     nonisolated static let finishSyncingInProgress = "finishing up in the background. you can switch away. the solstone app keeps syncing for as long as iOS allows."
-    nonisolated static let finishSyncingCompleted = "done — everything's in your journal now."
+    nonisolated static let finishSyncingCompleted = "done. everything is in your journal."
 
     nonisolated static func finishSyncingInterrupted(count: Int) -> String {
         count == 1

@@ -44,7 +44,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     func testNotConnectedRowAffordanceCopyReflectsPairingState() {
         XCTAssertEqual(
             SourceVocabulary.notConnectedRowAffordance(isJournalPaired: false),
-            "connect your journal first."
+            "connect a journal first."
         )
         XCTAssertEqual(
             SourceVocabulary.notConnectedRowAffordance(isJournalPaired: true),
@@ -66,7 +66,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
         XCTAssertEqual(SourceVocabulary.bringingInYourselfHeader, "import other memories")
-        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false), "import from anywhere, it's saved here until you connect your journal.")
+        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false), "import from anywhere, it's saved here until you connect a journal.")
         XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true), "share to your journal from any app")
         XCTAssertEqual(
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
@@ -74,7 +74,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
-            "share is always on. anything you send from the share sheet comes into your journal here."
+            "share is on. anything you send from the share sheet comes into your journal here."
         )
         XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
         XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
@@ -104,7 +104,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(SourceVocabulary.connectDoorOwnTitle, "your own journal")
         XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this device to your journal running on your computer.")
-        XCTAssertEqual(SourceVocabulary.connectDoorOnYourPhoneTitle, "on your phone")
+        XCTAssertEqual(SourceVocabulary.connectDoorOnYourPhoneTitle, "on this device")
         XCTAssertEqual(
             SourceVocabulary.connectDoorOnYourPhoneBody,
             "your journal as its own app, right on this device."
@@ -121,7 +121,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.journalLivesOwnBody,
             "pair to your journal on your computer. everything you've shared so far flows in."
         )
-        XCTAssertEqual(SourceVocabulary.journalLivesOnYourPhoneTitle, "on your phone")
+        XCTAssertEqual(SourceVocabulary.journalLivesOnYourPhoneTitle, "on this device")
         XCTAssertEqual(
             SourceVocabulary.journalLivesOnYourPhoneBody,
             "your journal as its own app, right on this device."
@@ -159,7 +159,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneAllQuietHeadline, "all quiet")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneAllQuietBody,
-            "everything you've gathered is in your journal. new moments rest here on their way through."
+            "everything you've shared is in your journal. new moments rest here on their way through."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneNotBackedUp,
@@ -209,24 +209,24 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneJournalHintPending,
             "not in your journal yet — it'll appear once it's sent."
         )
-        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintUnreachable, "connect your journal first.")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintUnreachable, "connect a journal first.")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
-            "connect your journal to see these places on a map."
+            "connect a journal to see these places on a map."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropFromPhone, "drop from this device")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropConfirmTitle, "drop this from this device?")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .savedOnThisPhone),
-            "this is only on your phone. dropping it means it won't reach your journal."
+            "this is only on this device. dropping it means it won't reach your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .sending),
-            "this is only on your phone. dropping it means it won't reach your journal."
+            "this is only on this device. dropping it means it won't reach your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .needsAttention),
-            "this is only on your phone. dropping it means it won't reach your journal."
+            "this is only on this device. dropping it means it won't reach your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: .inYourJournal),
