@@ -72,7 +72,7 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
 
     func endAll() async {
         for activity in Activity<ObserverActivityAttributes>.activities {
-            await activity.end(nil, dismissalPolicy: .immediate)
+            await activity.end(nil, dismissalPolicy: .default)
         }
         self.activitySessionID = nil
     }
@@ -94,7 +94,7 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
         guard let activity = Activity<ObserverActivityAttributes>.activities.first(where: {
             $0.attributes.sessionID == sessionID
         }) else { return }
-        await activity.end(content, dismissalPolicy: .immediate)
+        await activity.end(content, dismissalPolicy: .default)
     }
 }
 
