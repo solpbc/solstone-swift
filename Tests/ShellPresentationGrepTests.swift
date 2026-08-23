@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import Foundation
+import XCTest
+
+nonisolated final class ShellPresentationGrepTests: XCTestCase {
+    func testFetchTaskUsesActiveLocalPort() throws {
+        let text = try Self.sourceText("Sources/RootShellView.swift")
+        XCTAssertTrue(text.contains(".task(id: self.observerRegistration.activeLocalPort)"))
+        let body = try Self.slice(
+            in: text,
+            from: "private func fetchJournalMark() async {",
+            to: "\n    private func applyDebugSeeds()"
+        )
+        XCTAssertTrue(body.contains("JournalIdentityFetcher"))
+        XCTAssertTrue(body.contains("self.observerRegistration.activeLocalPort"))
+        XCTAssertTrue(body.contains("fetch(localPort:"))
+        XCTAssertFalse(body.contains("self.localPort"))
+    }
+
+    func testNoScreenChangedPostsInShellTree() throws {
+        let needle = "UIAccessibility.post(notification: .screenChanged"
+        let files = [
+            "Sources/RootShellView.swift",
+        ] + (try Self.relativeSwiftFiles(under: "Sources/Home"))
+            + (try Self.relativeSwiftFiles(under: "Sources/Portal"))
+        for relative in files {
+            let text = try Self.sourceText(relative)
+            XCTAssertFalse(text.contains(needle), relative)
+            XCTAssertFalse(text.contains("UIAccessibility.Notification.screenChanged"), relative)
+        }
+    }
+
+    func testHitStripIsStructurallyPathEmpty() throws {
+        let text = try Self.sourceText("Sources/RootShellView.swift")
+        XCTAssertTrue(text.contains("if self.path.isEmpty"))
+        XCTAssertTrue(text.contains("shell.hitStrip"))
+        XCTAssertFalse(text.contains("preferredScreenEdgesDeferringSystemGestures"))
+    }
+
+    func testReduceMotionOmitsStatusZoom() throws {
+        let text = try Self.sourceText("Sources/RootShellView.swift")
+        XCTAssertTrue(text.contains("@Environment(\\.accessibilityReduceMotion)"))
+        XCTAssertTrue(text.contains("navigationTransition(.zoom(sourceID: HomeChromeID.status, in: self.homeChrome))"))
+        let sheet = try Self.slice(
+            in: text,
+            from: "private var statusSheet: some View {",
+            to: "\n    private func fetchJournalMark()"
+        )
+        XCTAssertTrue(sheet.contains("if self.reduceMotion"))
+        XCTAssertTrue(sheet.contains(".navigationTransition(.zoom"))
+    }
+
+    func testApplyClearsPendingRoute() throws {
+        let text = try Self.sourceText("Sources/RootShellView.swift")
+        XCTAssertTrue(text.contains(".onAppear {"))
+        XCTAssertTrue(text.contains("self.apply(route)"))
+        XCTAssertTrue(text.contains(".onChange(of: self.pendingRoute.route)"))
+        let apply = try Self.slice(
+            in: text,
+            from: "private func apply(_: NotificationRoute) {",
+            to: "\n}\n\nprivate extension SourceState"
+        )
+        XCTAssertTrue(apply.contains("self.pendingRoute.route = nil"))
+        XCTAssertTrue(apply.contains("self.presentedPane = nil"))
+        XCTAssertTrue(apply.contains("self.showingYourSolstone = false"))
+    }
+
+    func testDayHomeStatusPillIsButtonNotNavigationLink() throws {
+        let text = try Self.sourceText("Sources/Home/DayHomeView.swift")
+        let pill = try Self.slice(
+            in: text,
+            from: "var statusPill: some View {",
+            to: "\n    var statusPillAccessibilityValue"
+        )
+        XCTAssertTrue(pill.contains("Button(action: self.onOpenStatus)"))
+        XCTAssertTrue(pill.contains("dayHome.statusPill"))
+        XCTAssertTrue(pill.contains("HomeChromeID.status"))
+        XCTAssertFalse(pill.contains("NavigationLink(value: ShellDestination.status)"))
+    }
+
+    private static func sourceText(_ relativePath: String) throws -> String {
+        let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private static func relativeSwiftFiles(under relativePath: String) throws -> [String] {
+        let root = StringLiteralGrepSupport.worktreeRoot()
+        let directory = root.appendingPathComponent(relativePath, isDirectory: true)
+        return try StringLiteralGrepSupport.swiftFiles(under: directory).map { url in
+            String(url.path.dropFirst(root.path.count + 1))
+        }
+    }
+
+    private static func slice(in text: String, from startToken: String, to endToken: String) throws -> Substring {
+        let start = try XCTUnwrap(text.range(of: startToken))
+        let remaining = text[start.lowerBound...]
+        let end = try XCTUnwrap(remaining.range(of: endToken))
+        return text[start.lowerBound..<end.lowerBound]
+    }
+}

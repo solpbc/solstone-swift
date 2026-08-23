@@ -12,8 +12,8 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     @MainActor
     func testOptedOutState() {
         let app = self.launchProblemReportsApp(seed: "opted-out")
-        self.openMore(in: app)
-        let toggle = app.switches["more.diagnostics.problemReports.toggle"]
+        self.openStatus(in: app)
+        let toggle = app.switches["shell.pane.status.problemReports.toggle"]
         self.scrollToElement(toggle, in: app)
         XCTAssertTrue(toggle.exists)
         self.openProblemReports(in: app)
@@ -24,7 +24,7 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     @MainActor
     func testOptedInEmptyState() {
         let app = self.launchProblemReportsApp(seed: "opted-in-empty")
-        self.openMore(in: app)
+        self.openStatus(in: app)
         self.openProblemReports(in: app)
 
         XCTAssertTrue(app.otherElements["problemReports.empty.enabled"].waitForExistence(timeout: 10))
@@ -33,8 +33,8 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     @MainActor
     func testPopulatedListState() {
         let app = self.launchProblemReportsApp(seed: "populated-list")
-        self.openMore(in: app)
-        let row = app.buttons["more.diagnostics.problemReports"]
+        self.openStatus(in: app)
+        let row = app.buttons["shell.pane.status.problemReports"]
         self.scrollToElement(row, in: app)
         XCTAssertTrue(row.exists)
         row.tap()
@@ -47,7 +47,7 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     @MainActor
     func testDetailState() {
         let app = self.launchProblemReportsApp(seed: "detail")
-        self.openMore(in: app)
+        self.openStatus(in: app)
         self.openProblemReports(in: app)
 
         let report = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "problemReports.report.")).firstMatch
@@ -65,6 +65,7 @@ private extension ProblemReportsUITests {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",
+            "--ui-test-open-pane=status",
             "--ui-test-seed-problem-reports=\(seed)",
         ]
         app.launch()
@@ -72,15 +73,12 @@ private extension ProblemReportsUITests {
         return app
     }
 
-    func openMore(in app: XCUIApplication) {
-        let entry = app.buttons["dayHome.yourSolstoneEntry"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 10))
-        entry.tap()
-        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 10))
+    func openStatus(in app: XCUIApplication) {
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.status"].waitForExistence(timeout: 10))
     }
 
     func openProblemReports(in app: XCUIApplication) {
-        let row = app.buttons["more.diagnostics.problemReports"]
+        let row = app.buttons["shell.pane.status.problemReports"]
         self.scrollToElement(row, in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()

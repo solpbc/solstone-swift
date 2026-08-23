@@ -205,11 +205,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(connectionSyncModel)
         }
         let dayHomeView = NavigationStack {
-            DayHomeView(
+            DayHomeSmokeHost(
                 journalState: .noJournal,
-                onOpenJournal: {},
-                onOpenSources: {},
-                onOpenYourSolstone: {},
                 sourcesBadgeVisible: false
             )
             .environment(appConfig)
@@ -325,7 +322,21 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             WelcomeScreen(onGetStarted: {})
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
+        let statusPane = NavigationStack {
+            StatusPane(via: .lan, connectedSince: .now)
+                .environment(appConfig)
+                .environment(tunnelManager)
+                .environment(connectionSyncModel)
+                .environment(diagnosticLog)
+                .environment(problemReportsManager)
+                .environment(mobileSegmentTransferHolder)
+                .environment(omiUploaderHolder)
+                .environment(watchUploaderHolder)
+                .environment(shareTransferHolder)
+                .environment(locationManager)
+        }
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(statusPane.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(dayHomeView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
@@ -352,6 +363,25 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         XCTAssertGreaterThan(controller.view.systemLayoutSizeFitting(CGSize(width: 393, height: 852)).height, 0)
         window.isHidden = true
         window.rootViewController = nil
+    }
+
+    private struct DayHomeSmokeHost: View {
+        @Namespace private var homeChrome
+        let journalState: DayHomeJournalState
+        let sourcesBadgeVisible: Bool
+
+        var body: some View {
+            DayHomeView(
+                journalState: self.journalState,
+                journalMark: nil,
+                homeChrome: self.homeChrome,
+                onOpenJournal: {},
+                onOpenSources: {},
+                onOpenYourSolstone: {},
+                onOpenStatus: {},
+                sourcesBadgeVisible: self.sourcesBadgeVisible
+            )
+        }
     }
 
     private static func shareSource() -> Source {

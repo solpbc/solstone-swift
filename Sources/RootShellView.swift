@@ -13,12 +13,19 @@ struct RootShellView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverManager.self) private var observerManager
+    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var homeChrome
+    @State private var path = NavigationPath()
+    @State private var presentedPane: PresentedShellPane?
+    @State private var journalMark: JournalMark?
+    @State private var statusPath = NavigationPath()
+    @State private var statusDetent: PresentationDetent = .medium
     @State private var showingSources = false
     @State private var showingYourSolstone = false
-    @State private var showingJournal = false
     @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
@@ -32,11 +39,13 @@ struct RootShellView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: self.$path) {
             DayHomeView(
                 journalState: self.dayHomeJournalState,
+                journalMark: self.journalMark,
+                homeChrome: self.homeChrome,
                 onOpenJournal: {
-                    self.showingJournal = true
+                    self.presentedPane = .journal
                 },
                 onOpenSources: {
                     self.showingSources = true
@@ -45,16 +54,34 @@ struct RootShellView: View {
                     self.navigateToDiagnostics = false
                     self.showingYourSolstone = true
                 },
+                onOpenStatus: {
+                    self.presentedPane = .status
+                },
                 sourcesBadgeVisible: self.sourcesBadgeVisible
             )
+            .navigationDestination(for: ShellDestination.self) { destination in
+                ShellDestinationView(destination: destination)
+            }
+            .overlay(alignment: .leading) {
+                if self.path.isEmpty {
+                    ShelfHitStrip(onOpen: {
+                        self.navigateToDiagnostics = false
+                        self.showingYourSolstone = true
+                    })
+                }
+            }
         }
+        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(self.observerSourcePauseState)
-        .sheet(isPresented: self.$showingJournal) {
+        .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView()
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
                 .environment(self.observerSourcePauseState)
+        }
+        .sheet(isPresented: self.isStatusPresented) {
+            self.statusSheet
         }
         .sheet(isPresented: self.$showingYourSolstone, onDismiss: {
             self.navigateToDiagnostics = false
@@ -68,6 +95,9 @@ struct RootShellView: View {
                 )
             }
         }
+        .task(id: self.observerRegistration.activeLocalPort) {
+            await self.fetchJournalMark()
+        }
         .onAppear {
             if let route = self.pendingRoute.route {
                 self.apply(route)
@@ -75,6 +105,7 @@ struct RootShellView: View {
             if !self.tunnelManager.state.isConnected {
                 mainTabLog.info("showing disconnected shell state")
             }
+            self.applyDebugSeeds()
         }
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
@@ -91,6 +122,95 @@ struct RootShellView: View {
                 self.apply(route)
             }
         }
+        .onChange(of: self.statusPath.count) { _, count in
+            self.statusDetent = count > 0 ? .large : .medium
+        }
+        .onChange(of: self.presentedPane) { _, pane in
+            if pane != .status {
+                self.statusPath = NavigationPath()
+                self.statusDetent = .medium
+            }
+        }
+    }
+
+    private var isJournalPresented: Binding<Bool> {
+        Binding(
+            get: { self.presentedPane == .journal },
+            set: { if !$0, self.presentedPane == .journal { self.presentedPane = nil } }
+        )
+    }
+
+    private var isStatusPresented: Binding<Bool> {
+        Binding(
+            get: { self.presentedPane == .status },
+            set: { if !$0, self.presentedPane == .status { self.presentedPane = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private var statusSheet: some View {
+        NavigationStack(path: self.$statusPath) {
+            Group {
+                if self.reduceMotion {
+                    StatusPane(via: self.via, connectedSince: self.connectedSince)
+                } else {
+                    StatusPane(via: self.via, connectedSince: self.connectedSince)
+                        .navigationTransition(.zoom(sourceID: HomeChromeID.status, in: self.homeChrome))
+                }
+            }
+            .navigationDestination(for: StatusPush.self) { push in
+                switch push {
+                case .diagnostics:
+                    DiagnosticsView()
+                case .problemReports:
+                    ProblemReportsView()
+                }
+            }
+        }
+        .presentationDetents([.medium, .large], selection: self.$statusDetent)
+        .presentationDragIndicator(.visible)
+        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func fetchJournalMark() async {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-journal-mark"),
+           !ProcessInfo.processInfo.arguments.contains("--ui-test-no-journal")
+        {
+            return
+        }
+#endif
+        guard let port = self.observerRegistration.activeLocalPort else {
+            self.journalMark = nil
+            return
+        }
+        self.journalMark = await JournalIdentityFetcher().fetch(localPort: port)
+    }
+
+    private func applyDebugSeeds() {
+#if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--ui-test") else { return }
+        if arguments.contains("--ui-test-journal-mark"),
+           !arguments.contains("--ui-test-no-journal")
+        {
+            self.journalMark = .uiTestSample
+        }
+        if let raw = arguments.first(where: { $0.hasPrefix("--ui-test-open-pane=") }) {
+            let pane = String(raw.dropFirst("--ui-test-open-pane=".count))
+            switch pane {
+            case "status":
+                self.presentedPane = .status
+            case "journal":
+                self.presentedPane = .journal
+            case "shelf":
+                self.navigateToDiagnostics = false
+                self.showingYourSolstone = true
+            default:
+                break
+            }
+        }
+#endif
     }
 
     private var sourcesBadgeVisible: Bool {
@@ -101,8 +221,8 @@ struct RootShellView: View {
         ].contains(where: \.showsSourcesBadge)
     }
 
-    // Inline switch is pinned by ConnectionSyncGrepTests /
-    // IntegrationGateG4G5ConnectionSyncTests. Do not replace with
+    // Inline switch is pinned by ConnectionSyncGrepTests:9-14 and
+    // IntegrationGateG4G5ConnectionSyncTests:176-186. Do not replace with
     // dayHomeJournalState(isPaired:status:).
     private var dayHomeJournalState: DayHomeJournalState {
         if !self.appConfig.isPaired {
@@ -120,6 +240,7 @@ struct RootShellView: View {
         self.showingSources = false
         self.showingYourSolstone = false
         self.navigateToDiagnostics = false
+        self.presentedPane = nil
         self.pendingRoute.route = nil
     }
 }
@@ -132,5 +253,26 @@ private extension SourceState {
         case .off, .readyToSetUp, .checking, .paused:
             false
         }
+    }
+}
+
+private struct ShelfHitStrip: View {
+    let onOpen: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 20)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 20)
+                    .onEnded { value in
+                        if value.translation.width > 40 {
+                            self.onOpen()
+                        }
+                    }
+            )
+            .accessibilityHidden(true)
+            .accessibilityIdentifier("shell.hitStrip")
     }
 }

@@ -15,4 +15,34 @@ nonisolated final class JournalReachabilityTests: XCTestCase {
         XCTAssertTrue(isJournalReachable(.connectedWaiting))
         XCTAssertTrue(isJournalReachable(.connectedTransferring))
     }
+
+    func testStatusDegradedMapsFiveNonConnectedCases() {
+        for status in [
+            ConnectionSyncStatus.offline,
+            .connecting,
+            .waitingForHome,
+            .reconnecting,
+            .unreachable,
+        ] {
+            let region = statusPaneRegion(status)
+            XCTAssertEqual(region.id, "shell.pane.status.degraded", status.statusLine)
+            XCTAssertEqual(region.value, status.statusLine)
+            XCTAssertNotEqual(region.value, "0")
+            XCTAssertFalse(region.value.isEmpty)
+        }
+    }
+
+    func testStatusConnectedTwinMapsThreeConnectedCases() {
+        for status in [
+            ConnectionSyncStatus.connectedIdle,
+            .connectedWaiting,
+            .connectedTransferring,
+        ] {
+            let region = statusPaneRegion(status)
+            XCTAssertEqual(region.id, "shell.pane.status.connected", status.statusLine)
+            XCTAssertEqual(region.value, status.statusLine)
+            XCTAssertNotEqual(region.value, "0")
+            XCTAssertFalse(region.value.isEmpty)
+        }
+    }
 }

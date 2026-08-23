@@ -23,9 +23,7 @@ import SwiftUI
 ///   journal pill          → InAppJournalView sheet when paired+reachable
 ///                           (`dayHome.openInJournal`); otherwise JournalLivesSheet
 ///                           (`dayHome.journalSetup`)
-///
-/// Panes lode fills stub bodies and flips shelf / add-more / journal-pill
-/// wiring onto these destinations.
+///   status pill           → StatusPane detent sheet (`dayHome.statusPill`)
 ///
 /// Wave 3 `NavigationSplitView` reuses this type as a selection: Hashable,
 /// Sendable, no View payloads, no non-Hashable associated values.
@@ -44,6 +42,10 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     case shelfAbout
 }
 
+/// Wave 3 iPad `NavigationSplitView` vocabulary. These cases are Hashable
+/// selection values for that split view; they are not pushed on iPhone. The
+/// self-naming `ShellPaneStub` bodies are deliberate so an accidental push is
+/// visible rather than a silent blank. Never replace them with `EmptyView()`.
 struct ShellDestinationView: View {
     let destination: ShellDestination
     @Environment(AppConfig.self) private var appConfig
@@ -69,9 +71,9 @@ struct ShellDestinationView: View {
         case .journalSetup:
             ShellPaneStub(name: "journalSetup", identifier: "journalSetup")
         case .addMore:
-            ShellPaneStub(name: "addMore", identifier: "addMore")
+            AddMoreView()
         case .import:
-            ShellPaneStub(name: "import", identifier: "import")
+            ImportView()
         case .shelf:
             ShellPaneStub(name: "shelf", identifier: "shelf")
         case .shelfJournal:

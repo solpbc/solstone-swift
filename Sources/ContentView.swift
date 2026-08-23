@@ -148,8 +148,9 @@ struct ContentView: View {
                 let onboardingStep = Self.uiTestOnboardingStep
                 let noJournal = arguments.contains("--ui-test-no-journal")
                 let shouldSeedPairing = !noJournal && (onboardingStep == nil || onboardingStep == .done)
+                let openPane = arguments.first { $0.hasPrefix("--ui-test-open-pane=") } ?? ""
                 log.info(
-                    "ui-test seeding journalRoot=\(journalRoot, privacy: .public) deviceID=\(deviceID, privacy: .public) hasSession=\(sessionKey != nil)"
+                    "ui-test seeding journalRoot=\(journalRoot, privacy: .public) deviceID=\(deviceID, privacy: .public) hasSession=\(sessionKey != nil) openPane=\(openPane, privacy: .public) journalMark=\(arguments.contains("--ui-test-journal-mark"), privacy: .public)"
                 )
 
                 if !shouldSeedPairing {

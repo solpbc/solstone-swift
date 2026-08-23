@@ -44,9 +44,12 @@ func refreshNowPeriodically(update: @escaping () -> Void) async {
 
 struct DayHomeView: View {
     let journalState: DayHomeJournalState
+    let journalMark: JournalMark?
+    let homeChrome: Namespace.ID
     let onOpenJournal: () -> Void
     let onOpenSources: () -> Void
     let onOpenYourSolstone: () -> Void
+    let onOpenStatus: () -> Void
     let sourcesBadgeVisible: Bool
 
     @Environment(AppConfig.self) private var appConfig
@@ -63,7 +66,6 @@ struct DayHomeView: View {
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
-    @Namespace private var homeChrome
     @ScaledMetric(relativeTo: .body) private var tileMin: CGFloat = 160
     @State private var containerWidth: CGFloat = 0
     @State private var now = Date()
@@ -274,7 +276,7 @@ private extension DayHomeView {
     }
 
     var statusPill: some View {
-        NavigationLink(value: ShellDestination.status) {
+        Button(action: self.onOpenStatus) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(self.statusLine)
                     .font(.subheadline.weight(.semibold))
@@ -291,7 +293,7 @@ private extension DayHomeView {
             }
         }
         .tint(.primary)
-        .matchedTransitionSource(id: ShellDestination.status, in: self.homeChrome)
+        .matchedTransitionSource(id: HomeChromeID.status, in: self.homeChrome)
         .accessibilityIdentifier("dayHome.statusPill")
         .accessibilityValue(self.statusPillAccessibilityValue)
     }

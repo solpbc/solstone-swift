@@ -14,7 +14,7 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
     }
 
     func testMoreViewStatusDoesNotUseRetiredStandingHelpers() throws {
-        let text = try Self.sourceText("Sources/MoreView.swift")
+        let text = try Self.sourceText("Sources/Home/StatusPane.swift")
 
         for forbidden in ["standingHealth", "standingSegmentReach", "standingSyncLine", "uploadReach"] {
             XCTAssertFalse(text.contains(forbidden), forbidden)

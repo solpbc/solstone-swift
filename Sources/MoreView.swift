@@ -2,7 +2,6 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
-import UIKit
 import os
 
 private let moreLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
@@ -15,62 +14,16 @@ struct MoreView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
-    @Environment(DiagnosticLog.self) private var diagnosticLog
-    @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(ObserverRegistration.self) private var observerRegistration
-    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
-    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
-    @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
-    @Environment(ShareTransferHolder.self) private var shareTransferHolder
-    @Environment(LocationManager.self) private var locationManager
-    @State private var justCopiedSnapshot = false
-    @State private var snapshotCopyTask: Task<Void, Never>?
-    @State private var isProbing = false
-    @State private var probeCheckedAt: Date?
-    @State private var probeAlive = false
-    @State private var probeMilliseconds = 0
     @State private var showingUnpairConfirm = false
     @State private var showingConnectJournal = false
     @State private var showingJournal = false
-    @State private var segmentMigration: OnThisPhoneMigration?
-    @State private var transferRate: Double = 0
-
-    private var serverHost: String {
-        self.appConfig.host
-    }
 
     private var versionString: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         return "\(version) (\(build))"
-    }
-
-    private var connectionSyncColor: Color {
-        switch self.connectionSyncModel.status {
-        case .connectedIdle, .connectedWaiting, .connectedTransferring:
-            .green
-        case .connecting, .waitingForHome, .reconnecting:
-            Color.solOrange
-        case .offline, .unreachable:
-            .gray
-        }
-    }
-
-    private var probeDisplay: String? {
-        guard let checkedAt = self.probeCheckedAt else { return nil }
-        let secondsAgo = Date().timeIntervalSince(checkedAt)
-        return SourceVocabulary.probeChecked(
-            alive: self.probeAlive,
-            milliseconds: self.probeMilliseconds,
-            relative: SourceVocabulary.probeRelativeLabel(secondsAgo: secondsAgo)
-        )
-    }
-
-    private var probeDisplayColor: Color {
-        self.probeAlive ? .green : .orange
     }
 
     private var permissionStatusText: String {
@@ -120,45 +73,6 @@ struct MoreView: View {
                 }
             }
 
-            if self.appConfig.isPaired {
-                Section {
-                    LabeledContent("method", value: self.via == .lan ? "local network" : "remote journal")
-                    LabeledContent("journal", value: self.serverHost)
-                    LabeledContent("uptime") {
-                        Text(self.connectedSince, style: .timer)
-                    }
-                    LabeledContent("status") {
-                        let line = self.connectionSyncModel.status.statusLine
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(self.connectionSyncColor)
-                                .frame(width: 8, height: 8)
-                            Text(line)
-                        }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("status: \(line)")
-                    }
-                    LabeledContent(SourceVocabulary.transferRateLabel) {
-                        Text(
-                            self.transferRate > 0
-                                ? SourceVocabulary.transferRateValue(bytesPerSecond: self.transferRate)
-                                : SourceVocabulary.transferRateIdle
-                        )
-                    }
-                    .accessibilityIdentifier("more.transferRate")
-                    Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("more.syncFootnote")
-                } header: {
-                    Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
-                        .onLongPressGesture {
-                            self.copySnapshot()
-                        }
-                        .accessibilityHint("long press to copy diagnostic snapshot")
-                }
-            }
-
             Section {
                 let conveyURL = ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
                 Button(SourceVocabulary.openJournalLink) {
@@ -177,78 +91,6 @@ struct MoreView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-            }
-
-            Section("diagnostics") {
-                Toggle(SourceVocabulary.problemReportsToggle, isOn: Binding(
-                    get: { self.problemReportsManager.isEnabled },
-                    set: { enabled in
-                        UserSettings.problemReportsEnabled = enabled
-                        self.problemReportsManager.setEnabled(enabled)
-                    }
-                ))
-                .accessibilityIdentifier("more.diagnostics.problemReports.toggle")
-                .accessibilityHint(SourceVocabulary.problemReportsToggleHint)
-
-                NavigationLink {
-                    ProblemReportsView()
-                } label: {
-                    HStack {
-                        Text(SourceVocabulary.problemReportsRow)
-                        Spacer()
-                        Text("\(self.problemReportsManager.reports.count)")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityIdentifier("more.diagnostics.problemReports")
-                .accessibilityHint(SourceVocabulary.problemReportsRowHint)
-                .hoverEffect(.highlight)
-
-                LabeledContent("tunnel reconnects", value: "\(self.tunnelManager.reconnectCount)")
-                    .accessibilityLabel("tunnel reconnect count: \(self.tunnelManager.reconnectCount)")
-
-                LabeledContent("network") {
-                    Text(networkStatusText(self.tunnelManager.currentPathStatus))
-                }
-                .accessibilityLabel("network: \(networkStatusText(self.tunnelManager.currentPathStatus))")
-
-                LabeledContent(SourceVocabulary.journalTunnel) {
-                    Text(self.tunnelManager.state.isConnected ? "running" : "n/a")
-                        .foregroundStyle(self.tunnelManager.state.isConnected ? .primary : .secondary)
-                }
-                .accessibilityLabel("\(SourceVocabulary.journalTunnel): \(self.tunnelManager.state.isConnected ? "running" : "not available")")
-
-                Button {
-                    Task {
-                        await self.runProbe()
-                    }
-                } label: {
-                    HStack {
-                        Text(SourceVocabulary.checkConnection)
-                        Spacer()
-                        if self.isProbing {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else if let result = self.probeDisplay {
-                            Text(result)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(self.probeDisplayColor)
-                        }
-                    }
-                }
-                .disabled(self.isProbing || !self.tunnelManager.state.isConnected)
-                .accessibilityLabel(SourceVocabulary.checkConnection)
-                .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
-                .hoverEffect(.highlight)
-
-                NavigationLink {
-                    DiagnosticsView()
-                } label: {
-                    Text("event log")
-                }
-                .hoverEffect(.highlight)
-
             }
 
             Section("notifications") {
@@ -312,6 +154,7 @@ struct MoreView: View {
                 }
             }
         }
+        .onAppear { _ = (self.localPort, self.via, self.connectedSince) }
         .navigationTitle(SourceVocabulary.yourSolstoneTitle)
         .navigationDestination(isPresented: self.$navigateToDiagnostics) {
             DiagnosticsView()
@@ -326,53 +169,8 @@ struct MoreView: View {
         } message: {
             Text("this clears the paired session on this device and returns you to setup.")
         }
-        .onDisappear {
-            self.snapshotCopyTask?.cancel()
-        }
-        .task {
-            await self.refreshSegmentMigration()
-        }
         .sheet(isPresented: self.$showingConnectJournal) {
             ConnectJournalSheet(isPresented: self.$showingConnectJournal)
-        }
-    }
-
-    private func refreshSegmentMigration() async {
-        while !Task.isCancelled {
-            let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
-                share: self.shareTransferHolder,
-                mobileSegmentUploader: self.mobileSegmentUploader,
-                transferEngine: self.omiUploaderHolder.transferEngine
-            )
-            self.segmentMigration = onThisPhoneMigration(snapshot: snapshot)
-            self.transferRate = recentBytesTotal(
-                mobileSegment: self.mobileSegmentTransferHolder,
-                omi: self.omiUploaderHolder,
-                watch: self.watchUploaderHolder,
-                share: self.shareTransferHolder
-            )
-            try? await Task.sleep(for: .seconds(2))
-        }
-    }
-
-    private func runProbe() async {
-        self.isProbing = true
-        let result = await self.tunnelManager.probeConnection()
-        self.isProbing = false
-        guard let (alive, latency) = result else { return }
-        let milliseconds = Int(latency.components.seconds) * 1000
-            + Int(latency.components.attoseconds / 1_000_000_000_000_000)
-        self.probeAlive = alive
-        self.probeMilliseconds = milliseconds
-        self.probeCheckedAt = Date()
-        if alive {
-            if UserSettings.haptics {
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            }
-        } else {
-            if UserSettings.haptics {
-                UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            }
         }
     }
 
@@ -381,27 +179,5 @@ struct MoreView: View {
         self.appConfig.clearPairing()
         self.onboardingFlow.reset()
         await self.tunnelManager.disconnect()
-    }
-
-    private func copySnapshot() {
-        let text = self.diagnosticLog.snapshot(
-            tunnel: self.tunnelManager
-        )
-        UIPasteboard.general.string = text
-        if UserSettings.haptics {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        }
-        self.snapshotCopyTask?.cancel()
-        withAnimation(.easeInOut) {
-            self.justCopiedSnapshot = true
-        }
-        self.snapshotCopyTask = Task {
-            try? await Task.sleep(for: .seconds(2))
-            if !Task.isCancelled {
-                withAnimation(.easeInOut) {
-                    self.justCopiedSnapshot = false
-                }
-            }
-        }
     }
 }
