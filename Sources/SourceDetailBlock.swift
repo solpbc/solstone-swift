@@ -22,6 +22,6 @@ struct SourceDetailBlock<Content: View>: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
     }
 }

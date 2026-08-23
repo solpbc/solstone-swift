@@ -331,7 +331,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         await manager.start(tier: .balanced)
 
         XCTAssertEqual(manager.sourceState, .needsAttention)
-        XCTAssertEqual(manager.sourceAttention?.actionHint, LocationVocabulary.openSettingsAction)
         XCTAssertEqual(manager.recoveryActions, [.openSettings])
     }
 

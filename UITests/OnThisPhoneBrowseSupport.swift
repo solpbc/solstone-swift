@@ -6,10 +6,13 @@ import XCTest
 @MainActor
 extension XCTestCase {
     func openStandaloneOnThisPhoneBrowse(in app: XCUIApplication) {
-        self.tapDayHomeSourcesEntry(in: app)
-        let share = app.buttons["source.row.share-sheet"]
-        XCTAssertTrue(share.waitForExistence(timeout: 5))
-        share.tap()
+        let importEntry = app.buttons["dayHome.importEntry"]
+        XCTAssertTrue(importEntry.waitForExistence(timeout: 10))
+        if !importEntry.isHittable {
+            app.swipeUp()
+        }
+        importEntry.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 5))
         let onThisDevice = app.buttons["on this device"]
         XCTAssertTrue(onThisDevice.waitForExistence(timeout: 5))
         onThisDevice.tap()

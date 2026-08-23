@@ -45,4 +45,29 @@ enum UserSettings: Sendable {
             UserDefaults.standard.set(newValue, forKey: "problemReportsEnabled")
         }
     }
+
+    nonisolated static let hiddenHomeSourceIDsKey = "hiddenHomeSourceIDs"
+
+    nonisolated static var hiddenHomeSourceIDs: Set<String> {
+        get {
+            Self.decodeHiddenHomeSourceIDs(UserDefaults.standard.data(forKey: Self.hiddenHomeSourceIDsKey))
+        }
+        set {
+            UserDefaults.standard.set(Self.encodeHiddenHomeSourceIDs(newValue), forKey: Self.hiddenHomeSourceIDsKey)
+        }
+    }
+
+    nonisolated static func encodeHiddenHomeSourceIDs(_ ids: Set<String>) -> Data {
+        let sorted = ids.sorted()
+        return (try? JSONEncoder().encode(sorted)) ?? Data()
+    }
+
+    nonisolated static func decodeHiddenHomeSourceIDs(_ data: Data?) -> Set<String> {
+        guard let data, !data.isEmpty,
+              let ids = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(ids)
+    }
 }

@@ -6,13 +6,14 @@ import Foundation
 import XCTest
 
 nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
-    func testPrimaryRowsOmitUnsupportedWatchRow() {
-        let rows = SourcesViewRowBuilder.primaryRows(
+    func testAddMoreRowsOmitUnsupportedWatchRow() {
+        let rows = SourcesViewRowBuilder.addMoreRows(
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
-            screencast: Self.source(id: "screen", kind: .screencast),
+            screencast: Self.source(id: "screencast", kind: .screencast),
             omi: Self.source(id: "omi", kind: .omi),
-            watch: nil
+            watch: nil,
+            hiddenIDs: []
         )
 
         XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .omi])
@@ -31,16 +32,37 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
         XCTAssertEqual(source.subtextOverride, SourceVocabulary.watchReadyToSetUpSubtext)
     }
 
-    func testPrimaryRowsKeepWatchOrderWhenPresent() {
-        let rows = SourcesViewRowBuilder.primaryRows(
+    func testAddMoreRowsKeepWatchOrderWhenPresent() {
+        let rows = SourcesViewRowBuilder.addMoreRows(
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
-            screencast: Self.source(id: "screen", kind: .screencast),
+            screencast: Self.source(id: "screencast", kind: .screencast),
             omi: Self.source(id: "omi", kind: .omi),
-            watch: Self.source(id: "watch", kind: .watch)
+            watch: Self.source(id: "watch", kind: .watch),
+            hiddenIDs: []
         )
 
         XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .omi, .watch])
+    }
+
+    func testAddMoreRowsPutHiddenFirstInCanonicalOrder() {
+        let rows = SourcesViewRowBuilder.addMoreRows(
+            audio: Self.source(id: "audio", kind: .observer),
+            location: Self.source(id: "location", kind: .location),
+            screencast: Self.source(id: "screencast", kind: .screencast),
+            omi: Self.source(id: "omi", kind: .omi),
+            watch: Self.source(id: "watch", kind: .watch),
+            hiddenIDs: ["omi", "audio"]
+        )
+
+        XCTAssertEqual(rows.map(\.source.id), ["audio", "omi", "location", "screencast", "watch"])
+    }
+
+    func testAddMoreRowsOmitShareAndHaveNoSwitch() throws {
+        let text = try String(contentsOf: Self.addMoreViewURL(), encoding: .utf8)
+        XCTAssertFalse(text.contains("Toggle"))
+        XCTAssertFalse(text.contains("share-sheet"))
+        XCTAssertFalse(text.contains("SourceHomeTileControl"))
     }
 
     func testSourcesViewDoesNotRestoreWatchRowAttentionThirdLine() throws {
@@ -61,7 +83,6 @@ private extension SourcesViewRowBuilderTests {
             id: id,
             displayName: id,
             kind: kind,
-            group: .experiencingAlongsideYou,
             state: .off,
             isJournalPaired: true,
             activeSubtext: "on",
@@ -75,6 +96,13 @@ private extension SourcesViewRowBuilderTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/Home/SourceModelBuilder.swift")
+    }
+
+    static func addMoreViewURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Home/AddMoreView.swift")
     }
 
     static func section(in text: String, from start: String, to end: String) throws -> String {

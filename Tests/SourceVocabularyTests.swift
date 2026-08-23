@@ -65,9 +65,15 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.trustLineConfigured, "syncs only to your journal")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
-        XCTAssertEqual(SourceVocabulary.bringingInYourselfHeader, "import other memories")
-        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false), "import from anywhere, it's saved here until you connect a journal.")
-        XCTAssertEqual(SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true), "share to your journal from any app")
+        XCTAssertEqual(SourceVocabulary.addMoreTitle, "add more")
+        XCTAssertEqual(SourceVocabulary.addMoreSubline, "sources and devices")
+        XCTAssertEqual(SourceVocabulary.importTitle, "import")
+        XCTAssertEqual(SourceVocabulary.importSubline, "photos, files, anything")
+        XCTAssertEqual(SourceVocabulary.journalMarkUnavailable, "unavailable")
+        XCTAssertEqual(SourceVocabulary.giveThisATileOnHome, "give this a tile on home")
+        XCTAssertEqual(SourceVocabulary.hidingThisNeverTurnsItOff, "hiding this never turns it off.")
+        XCTAssertEqual(SourceVocabulary.whatItAddsTitle, "what it adds")
+        XCTAssertEqual(SourceVocabulary.openSettings, "open settings")
         XCTAssertEqual(
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             "share is on. anything you send from another app is on this device until you connect a journal."
@@ -809,7 +815,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneConnectJournalButton,
             SourceVocabulary.offSubtext(isJournalPaired: false),
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
-            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             SourceVocabulary.watchSetupHeader,
             SourceVocabulary.watchSetupValueLine,
@@ -870,13 +875,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.offSubtext(isJournalPaired: true),
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
             SourceVocabulary.enrollingSubtext(isJournalPaired: true),
-            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
-            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
             SourceVocabulary.standingSyncFootnote(sustaining: true),
             SourceVocabulary.standingSyncFootnote(sustaining: false),
-            SourceVocabulary.bringingInYourselfHeader,
             SourceVocabulary.dayLocalityNoJournal,
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOnYourPhoneTitle,
@@ -928,8 +930,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.needsAttentionSubtext,
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
-            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: false),
-            SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
             SourceVocabulary.shareSheetDisplayName,
@@ -940,8 +940,15 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.sendStateCompactSaved,
             SourceVocabulary.sendStateCompactOnTheWay,
             SourceVocabulary.sendStateCompactInJournal,
-            SourceVocabulary.experiencingAlongsideYouHeader,
-            SourceVocabulary.bringingInYourselfHeader,
+            SourceVocabulary.addMoreTitle,
+            SourceVocabulary.addMoreSubline,
+            SourceVocabulary.importTitle,
+            SourceVocabulary.importSubline,
+            SourceVocabulary.journalMarkUnavailable,
+            SourceVocabulary.giveThisATileOnHome,
+            SourceVocabulary.hidingThisNeverTurnsItOff,
+            SourceVocabulary.whatItAddsTitle,
+            SourceVocabulary.openSettings,
             SourceVocabulary.trustLineConfigured,
             SourceVocabulary.recentEmpty,
             SourceVocabulary.recentFailed,

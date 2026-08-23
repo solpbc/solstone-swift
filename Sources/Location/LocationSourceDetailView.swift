@@ -29,6 +29,7 @@ struct LocationSourceDetailView: View {
                     self.stateContent
                 }
 
+                SourceHomeTileControl(sourceID: "location")
                 self.deleteResultBlock
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
@@ -79,15 +80,33 @@ private extension LocationSourceDetailView {
 
     var stateBlock: some View {
         let sourceState = self.locationManager.sourceState
-        let recoveryActions = self.locationManager.recoveryActions
         let sharingStatus = LocationVocabulary.sharingStatus(for: self.locationManager.sharingGrant)
+        let fault = locationSourceFault(
+            effective: self.locationManager.sharingGrant,
+            tier: self.locationManager.tier,
+            paused: sourceState == .paused
+        )
+        let action = fault.map(sourceFaultAction) ?? .none
 
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: sourceState.symbol)
-                Text(sourceState.label)
-            }
-            .font(.headline)
+            SourceDetailVerdictLine(state: sourceState)
+            SourceDetailReasonLine(message: self.locationManager.sourceAttention?.message)
+            SourceFaultActionControl(
+                action: action,
+                title: action == .matchToAllowed
+                    ? LocationVocabulary.matchToAllowedAction
+                    : LocationVocabulary.openSettingsAction,
+                hint: action == .openSettings
+                    ? "Opens iOS Settings for location access."
+                    : "Changes the detail level to what iOS allows.",
+                perform: {
+                    if action == .matchToAllowed {
+                        self.handleRecovery(.matchToAllowed(suggestedTier: self.locationManager.tier))
+                    } else {
+                        self.handleRecovery(.openSettings)
+                    }
+                }
+            )
 
             Text(sourceState.subtext(
                 activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: self.appConfig.isPaired),
@@ -100,25 +119,6 @@ private extension LocationSourceDetailView {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel(sharingStatus.replacingOccurrences(of: " · ", with: ", "))
-
-            if let attention = self.locationManager.sourceAttention {
-                Text(attention.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            if !recoveryActions.isEmpty {
-                HStack {
-                    ForEach(Array(recoveryActions.enumerated()), id: \.offset) { _, action in
-                        Button(LocationDetailPresentation.recoveryButtonLabel(for: action)) {
-                            self.handleRecovery(action)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityHint(action == .openSettings ? "Opens iOS Settings for location access." : "Changes the detail level to what iOS allows.")
-                    }
-                }
-            }
 
             Button(self.pauseResumeLabel) {
                 Task {
@@ -454,7 +454,7 @@ private extension LocationEnrollmentContent {
             .foregroundStyle(.secondary)
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
     }
 
     func tierOption(_ tier: LocationTier) -> some View {
@@ -489,9 +489,9 @@ private extension LocationEnrollmentContent {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color(.tertiarySystemBackground), in: ConcentricRectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                ConcentricRectangle()
                     .stroke(isSelected ? Color.solOrange : Color(.separator), lineWidth: isSelected ? 2 : 1)
             }
         }

@@ -6,34 +6,17 @@ import Observation
 
 nonisolated enum SourceKind: Equatable, Sendable {
     case observer
-    case importer
     case location
     case omi
     case screencast
     case watch
 }
 
-nonisolated enum SourceGroup: Equatable, Sendable {
-    case experiencingAlongsideYou
-    case bringingInYourself
-
-    var header: String {
-        switch self {
-        case .experiencingAlongsideYou:
-            SourceVocabulary.experiencingAlongsideYouHeader
-        case .bringingInYourself:
-            SourceVocabulary.bringingInYourselfHeader
-        }
-    }
-}
-
 nonisolated struct SourceAttention: Equatable, Sendable {
     let message: String
-    let actionHint: String?
 
-    init(message: String, actionHint: String? = nil) {
+    init(message: String) {
         self.message = message
-        self.actionHint = actionHint
     }
 }
 
@@ -45,7 +28,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let id: String
     let displayName: String
     let kind: SourceKind
-    let group: SourceGroup
     let state: SourceState
     let isJournalPaired: Bool
     let activeSubtext: String
@@ -59,7 +41,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         id: String,
         displayName: String,
         kind: SourceKind,
-        group: SourceGroup,
         state: SourceState,
         isJournalPaired: Bool,
         activeSubtext: String,
@@ -72,7 +53,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.id = id
         self.displayName = displayName
         self.kind = kind
-        self.group = group
         self.state = state
         self.isJournalPaired = isJournalPaired
         self.activeSubtext = activeSubtext

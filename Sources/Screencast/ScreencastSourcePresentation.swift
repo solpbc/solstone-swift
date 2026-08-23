@@ -33,7 +33,6 @@ nonisolated func screencastSourcePresentation(
         id: "screencast",
         displayName: SourceVocabulary.screencastDisplayName,
         kind: .screencast,
-        group: .experiencingAlongsideYou,
         state: state,
         isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.screencastActiveSubtext,

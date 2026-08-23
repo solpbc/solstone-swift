@@ -12,17 +12,17 @@ struct WelcomeScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "this is the solstone app.",
-            subtitle: "the solstone app runs on your devices and takes in what you share with it. your journal holds it. your journal is always private, only yours.",
+            title: "welcome to solstone.",
+            subtitle: "the solstone app takes in what you share with it, and all of it goes into your journal.",
             showsBrandMark: true,
             ground: Color(.systemBackground),
             alignment: .center
         ) {
             VStack(alignment: .center, spacing: 16) {
-                Label("private by design", systemImage: "lock.fill")
-                    .font(.headline)
-                Label("no ads, no analytics", systemImage: "hand.raised.fill")
-                    .font(.headline)
+                Text("your journal is always private, only yours.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
 
                 Button("get started", action: self.onGetStarted)
                     .buttonStyle(.borderedProminent)

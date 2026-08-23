@@ -108,8 +108,6 @@ nonisolated enum SourceVocabulary {
 
     static let observerActiveSubtext = "on"
     static let modeExplanation = "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
-    private static let shareAlwaysOnSubtextUnpaired = "import from anywhere, it's saved here until you connect a journal."
-    private static let shareAlwaysOnSubtextPaired = "share to your journal from any app"
     private static let shareAlwaysOnExplainerUnpaired = "share is on. anything you send from another app is on this device until you connect a journal."
     private static let shareAlwaysOnExplainerPaired = "share is on. anything you send from the share sheet comes into your journal here."
     static let shareSheetDisplayName = "share sheet"
@@ -144,8 +142,15 @@ nonisolated enum SourceVocabulary {
     static let screencastFinalizeFailedText = "screen video could not be saved"
     static let screencastPointerFailedText = "screen could not connect to this journal"
 
-    static let experiencingAlongsideYouHeader = "experiencing your day with you"
-    static let bringingInYourselfHeader = "import other memories"
+    static let addMoreTitle = "add more"
+    static let addMoreSubline = "sources and devices"
+    static let importTitle = "import"
+    static let importSubline = "photos, files, anything"
+    static let journalMarkUnavailable = "unavailable"
+    static let giveThisATileOnHome = "give this a tile on home"
+    static let hidingThisNeverTurnsItOff = "hiding this never turns it off."
+    static let whatItAddsTitle = "what it adds"
+    static let openSettings = "open settings"
     static let trustLineConfigured = "syncs only to your journal"
     static let watchHeadlineOff = "off"
     static let watchHeadlineEnrolling = "setting up"
@@ -515,10 +520,6 @@ nonisolated enum SourceVocabulary {
 
     static func enrollingSubtext(isJournalPaired: Bool) -> String {
         isJournalPaired ? Self.enrollingSubtextPaired : Self.enrollingSubtextUnpaired
-    }
-
-    static func shareAlwaysOnSubtext(isJournalPaired: Bool) -> String {
-        isJournalPaired ? Self.shareAlwaysOnSubtextPaired : Self.shareAlwaysOnSubtextUnpaired
     }
 
     static func shareAlwaysOnExplainer(isJournalPaired: Bool) -> String {

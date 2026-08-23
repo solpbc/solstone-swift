@@ -112,6 +112,7 @@ struct WatchSourceDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 self.content
+                SourceHomeTileControl(sourceID: "watch")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -168,7 +169,17 @@ private extension WatchSourceDetailView {
 
     var stateBlock: some View {
         let verdict = self.watchSteadyVerdict
+        let lane = self.watchPipelineAssembly.lane
+        let fault = watchSourceFault(lane)
         return VStack(alignment: .leading, spacing: 12) {
+            SourceDetailVerdictLine(state: phoneWatchSourcePresentation(lane: lane).state)
+            SourceDetailReasonLine(message: phoneWatchSourcePresentation(lane: lane).attention?.message)
+            SourceFaultActionControl(
+                action: fault.map(sourceFaultAction) ?? .none,
+                title: SourceVocabulary.watchSetupInstallButton,
+                hint: SourceVocabulary.watchSetupInstallButtonHint,
+                perform: {}
+            )
             self.verdictBlock(verdict)
             self.steadyDetailsDisclosure(verdict)
             if self.watchPipelineAssembly.waiting.watch.count > 0 {
@@ -277,7 +288,7 @@ private extension WatchSourceDetailView {
             .foregroundStyle(Color.orangeInk)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.solGold.opacity(0.22), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color.solGold.opacity(0.22), in: ConcentricRectangle())
             .onAppear {
                 self.celebrationRenderedThisVisit = true
                 self.watchSourceFacts.noteFirstSegmentCelebrationShown()

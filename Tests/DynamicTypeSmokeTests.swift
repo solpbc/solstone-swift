@@ -250,7 +250,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(observerRegistration)
         }
         let importerSourceDetailView = NavigationStack {
-            ImporterSourceDetailView(source: Self.shareSource())
+            ImportView()
                 .environment(appConfig)
                 .environment(shareImportStore)
                 .environment(shareTransferHolder)
@@ -363,20 +363,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 sourcesBadgeVisible: self.sourcesBadgeVisible
             )
         }
-    }
-
-    private static func shareSource() -> Source {
-        Source(
-            id: "share-sheet",
-            displayName: SourceVocabulary.shareSheetDisplayName,
-            kind: .importer,
-            group: .bringingInYourself,
-            state: .active,
-            isJournalPaired: true,
-            activeSubtext: SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
-            attention: nil,
-            pendingStatus: .nonePending
-        )
     }
 
     private static func onThisPhoneItem() -> OnThisPhoneItem {

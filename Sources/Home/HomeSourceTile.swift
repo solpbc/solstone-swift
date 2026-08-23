@@ -75,7 +75,7 @@ struct HomeSourceTile: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(self.source.displayName)
-        .accessibilityValue(homeSourceTileAccessibilityFacts(for: self.source.state).value)
+        .accessibilityValue(self.source.state.label)
         .accessibilityIdentifier("dayHome.tile.\(self.source.id)")
     }
 
@@ -95,7 +95,7 @@ struct HomeSourceTile: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isToggle)
         .accessibilityLabel(self.source.displayName)
-        .accessibilityValue(homeSourceTileAccessibilityFacts(for: self.source.state).value)
+        .accessibilityValue(self.source.state.label)
     }
 
     private var stateLabelColor: Color {
@@ -126,9 +126,12 @@ struct HomeAddMoreTile: View {
                                 .offset(x: 4, y: -4)
                         }
                     }
-                Text("dev-copy: add more")
+                Text(SourceVocabulary.addMoreTitle)
                     .font(.headline)
                     .foregroundStyle(.primary)
+                Text(SourceVocabulary.addMoreSubline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
             .padding(14)
@@ -137,7 +140,35 @@ struct HomeAddMoreTile: View {
         .buttonStyle(.plain)
         .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle())
         .contentShape(ConcentricRectangle())
-        .accessibilityLabel("dev-copy: add more")
+        .accessibilityLabel(SourceVocabulary.addMoreTitle)
+        .accessibilityValue(SourceVocabulary.addMoreSubline)
         .accessibilityIdentifier("dayHome.sourcesEntry")
+    }
+}
+
+struct HomeImportTile: View {
+    var body: some View {
+        NavigationLink(value: ShellDestination.import) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(SourceVocabulary.importTitle)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(SourceVocabulary.importSubline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
+            .padding(14)
+            .contentShape(ConcentricRectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle())
+        .contentShape(ConcentricRectangle())
+        .accessibilityLabel(SourceVocabulary.importTitle)
+        .accessibilityValue(SourceVocabulary.importSubline)
+        .accessibilityIdentifier("dayHome.importEntry")
     }
 }

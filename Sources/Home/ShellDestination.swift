@@ -6,16 +6,18 @@ import SwiftUI
 /// Wave 3 iPad `NavigationSplitView` selection vocabulary. Hashable, Sendable,
 /// no View payloads.
 ///
-/// On iPhone only `.source(...)` is pushed (deck tiles via `DayHomeView`).
-/// `.status`, `.journal`, `.journalSetup`, `.shelf`, and the five shelf-row
-/// cases are unreachable on iPhone; they resolve to a self-naming
+/// On iPhone, deck tiles push `.source(...)` and `.import`. `.addMore` is hosted
+/// as the sources sheet body (`SourcesView` → `AddMoreView`) rather than pushed
+/// from the deck. `.status`, `.journal`, `.journalSetup`, `.shelf`, and the five
+/// shelf-row cases are unreachable on iPhone; they resolve to a self-naming
 /// `ShellPaneStub` so an accidental push is visible rather than a silent blank.
-/// Never replace stubs with `EmptyView()`. `.addMore` and `.import` resolve to
-/// L2.3 placeholders.
+/// Never replace stubs with `EmptyView()`.
 ///
 /// Live iPhone wiring (not this enum):
 ///   leading shelf control → ShelfPane overlay (`dayHome.yourSolstoneEntry`)
 ///   add-more tile         → SourcesView sheet (`dayHome.sourcesEntry`)
+///   import tile           → `ImportView` via `ShellDestination.import`
+///                           (`dayHome.importEntry`)
 ///   journal pill          → InAppJournalView sheet when paired+reachable
 ///                           (`dayHome.openInJournal`); otherwise JournalLivesSheet
 ///                           (`dayHome.journalSetup`)
@@ -41,7 +43,6 @@ nonisolated enum ShellDestination: Hashable, Sendable {
 /// visible rather than a silent blank. Never replace them with `EmptyView()`.
 struct ShellDestinationView: View {
     let destination: ShellDestination
-    @Environment(AppConfig.self) private var appConfig
 
     var body: some View {
         switch self.destination {
@@ -55,8 +56,6 @@ struct ShellDestinationView: View {
             OmiSourceDetailView()
         case .source(.watch):
             WatchSourceDetailView()
-        case .source(.share):
-            ImporterSourceDetailView(source: makeShareSource(isJournalPaired: self.appConfig.isPaired))
         case .status:
             ShellPaneStub(name: "status", identifier: "status")
         case .journal:
@@ -64,7 +63,7 @@ struct ShellDestinationView: View {
         case .journalSetup:
             ShellPaneStub(name: "journalSetup", identifier: "journalSetup")
         case .addMore:
-            AddMoreView()
+            AddMorePushHost()
         case .import:
             ImportView()
         case .shelf:
@@ -80,5 +79,16 @@ struct ShellDestinationView: View {
         case .shelfAbout:
             ShellPaneStub(name: "about solstone", identifier: "aboutSolstone")
         }
+    }
+}
+
+private struct AddMorePushHost: View {
+    @State private var selectedRoute: SourceRoute?
+
+    var body: some View {
+        AddMoreView(selectedRoute: self.$selectedRoute)
+            .navigationDestination(item: self.$selectedRoute) { route in
+                ShellDestinationView(destination: .source(route))
+            }
     }
 }

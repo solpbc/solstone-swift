@@ -12,25 +12,10 @@ nonisolated func makeAudioSource(
         id: "audio",
         displayName: "audio",
         kind: .observer,
-        group: .experiencingAlongsideYou,
         state: state,
         isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.observerActiveSubtext,
         attention: attention,
-        pendingStatus: .nonePending
-    )
-}
-
-nonisolated func makeShareSource(isJournalPaired: Bool) -> Source {
-    Source(
-        id: "share-sheet",
-        displayName: SourceVocabulary.shareSheetDisplayName,
-        kind: .importer,
-        group: .bringingInYourself,
-        state: .active,
-        isJournalPaired: isJournalPaired,
-        activeSubtext: SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: isJournalPaired),
-        attention: nil,
         pendingStatus: .nonePending
     )
 }
@@ -44,7 +29,6 @@ nonisolated func makeLocationSource(
         id: "location",
         displayName: LocationVocabulary.sourceDisplayName,
         kind: .location,
-        group: .experiencingAlongsideYou,
         state: state,
         isJournalPaired: isJournalPaired,
         activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: isJournalPaired),
@@ -80,7 +64,6 @@ nonisolated func makeOmiSource(
         id: "omi",
         displayName: "omi pendant",
         kind: .omi,
-        group: .experiencingAlongsideYou,
         state: mapped.0,
         isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.observerActiveSubtext,
@@ -106,7 +89,6 @@ nonisolated func watchSourceModel(from lane: PhoneWatchSourceLane, isJournalPair
         id: "watch",
         displayName: SourceVocabulary.watchSourceDisplayName,
         kind: .watch,
-        group: .experiencingAlongsideYou,
         state: presentation.state,
         isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.watchListeningSubtext,
@@ -120,7 +102,6 @@ nonisolated func watchSourceModel(from lane: PhoneWatchSourceLane, isJournalPair
 
 nonisolated struct HomeSourceBundle: Equatable, Sendable {
     var audio: Source
-    var share: Source
     var location: Source
     var screencast: Source
     var omi: Source
@@ -147,7 +128,6 @@ func makeHomeSourceBundle(
     }()
     return HomeSourceBundle(
         audio: makeAudioSource(state: audioState, attention: audioAttention, isJournalPaired: isJournalPaired),
-        share: makeShareSource(isJournalPaired: isJournalPaired),
         location: makeLocationSource(
             state: locationManager.sourceState,
             attention: locationManager.sourceAttention,

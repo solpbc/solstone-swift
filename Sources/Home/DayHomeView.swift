@@ -66,6 +66,7 @@ struct DayHomeView: View {
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
+    @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
     @ScaledMetric(relativeTo: .body) private var tileMin: CGFloat = 160
     @State private var containerWidth: CGFloat = 0
     @State private var now = Date()
@@ -134,46 +135,58 @@ private extension DayHomeView {
         return [GridItem(.flexible(), spacing: 12)]
     }
 
+    var hiddenHomeSourceIDs: Set<String> {
+        UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
+    }
+
+    func isOnHome(_ id: String) -> Bool {
+        !self.hiddenHomeSourceIDs.contains(id)
+    }
+
     var deckGrid: some View {
         LazyVGrid(columns: self.gridColumns, spacing: 12) {
-            HomeSourceTile(
-                source: self.bundle.audio,
-                route: .audio,
-                control: .toggle,
-                isOn: self.audioIsOn
-            )
-            HomeSourceTile(
-                source: self.bundle.location,
-                route: .location,
-                control: .toggle,
-                isOn: self.locationIsOn
-            )
-            HomeSourceTile(
-                source: self.bundle.screencast,
-                route: .screencast,
-                control: .toggle,
-                isOn: self.screencastIsOn,
-                presentsScreencastPicker: true,
-                onScreencastWillOpen: { self.screencastManager.beginStarting() }
-            )
-            HomeSourceTile(
-                source: self.bundle.omi,
-                route: .omi,
-                control: .toggle,
-                isOn: self.omiIsOn
-            )
-            if let watch = self.bundle.watch {
+            if self.isOnHome(self.bundle.audio.id) {
+                HomeSourceTile(
+                    source: self.bundle.audio,
+                    route: .audio,
+                    control: .toggle,
+                    isOn: self.audioIsOn
+                )
+            }
+            if self.isOnHome(self.bundle.location.id) {
+                HomeSourceTile(
+                    source: self.bundle.location,
+                    route: .location,
+                    control: .toggle,
+                    isOn: self.locationIsOn
+                )
+            }
+            if self.isOnHome(self.bundle.screencast.id) {
+                HomeSourceTile(
+                    source: self.bundle.screencast,
+                    route: .screencast,
+                    control: .toggle,
+                    isOn: self.screencastIsOn,
+                    presentsScreencastPicker: true,
+                    onScreencastWillOpen: { self.screencastManager.beginStarting() }
+                )
+            }
+            if self.isOnHome(self.bundle.omi.id) {
+                HomeSourceTile(
+                    source: self.bundle.omi,
+                    route: .omi,
+                    control: .toggle,
+                    isOn: self.omiIsOn
+                )
+            }
+            if let watch = self.bundle.watch, self.isOnHome(watch.id) {
                 HomeSourceTile(
                     source: watch,
                     route: .watch,
                     control: .none
                 )
             }
-            HomeSourceTile(
-                source: self.bundle.share,
-                route: .share,
-                control: .none
-            )
+            HomeImportTile()
             HomeAddMoreTile(badgeVisible: self.sourcesBadgeVisible) {
                 self.onOpenSources()
             }

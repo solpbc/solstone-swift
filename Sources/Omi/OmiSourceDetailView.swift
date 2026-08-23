@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import UIKit
 
 struct OmiSourceDetailView: View {
     @Environment(AppConfig.self) private var appConfig
@@ -17,6 +18,7 @@ struct OmiSourceDetailView: View {
                 } else {
                     self.offContent
                 }
+                SourceHomeTileControl(sourceID: "omi")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -53,7 +55,7 @@ private extension OmiSourceDetailView {
                 .foregroundStyle(.secondary)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
 
             SourceDetailBlock(title: "state") {
                 VStack(alignment: .leading, spacing: 12) {
@@ -66,9 +68,22 @@ private extension OmiSourceDetailView {
 
     var stateBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
-            self.stateLine
-
             let mapped = self.mappedState
+            let fault = omiSourceFault(
+                state: self.manager.effectiveConnectionState(now: Date()),
+                enabled: self.manager.enabled
+            )
+            SourceDetailVerdictLine(state: mapped.state)
+            SourceDetailReasonLine(message: mapped.attention?.message)
+            SourceFaultActionControl(
+                action: fault.map(sourceFaultAction) ?? .none,
+                title: SourceVocabulary.openSettings,
+                hint: "opens iOS Settings for bluetooth access.",
+                perform: {
+                    UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                }
+            )
+
             Text(mapped.state.subtext(
                 activeSubtext: SourceVocabulary.observerActiveSubtext,
                 isJournalPaired: self.appConfig.isPaired
@@ -76,23 +91,12 @@ private extension OmiSourceDetailView {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if let attention = mapped.attention {
-                Text(attention.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
             self.toggleButton
         }
     }
 
     var stateLine: some View {
-        let sourceState = self.mappedState.state
-        return HStack(spacing: 8) {
-            Image(systemName: sourceState.symbol)
-            Text(sourceState.label)
-        }
-        .font(.headline)
+        SourceDetailVerdictLine(state: self.mappedState.state)
     }
 
     var toggleButton: some View {

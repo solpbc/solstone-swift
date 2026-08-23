@@ -26,6 +26,8 @@ struct ScreencastSourceDetailView: View {
                 SourceDetailBlock(title: SourceVocabulary.screencastDeliveryTitle) {
                     self.deliveryBlock
                 }
+
+                SourceHomeTileControl(sourceID: "screencast")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -44,11 +46,14 @@ private extension ScreencastSourceDetailView {
         )
 
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: source.state.symbol)
-                Text(source.state.label)
-            }
-            .font(.headline)
+            SourceDetailVerdictLine(state: source.state)
+            SourceDetailReasonLine(message: source.attention?.message)
+            SourceFaultActionControl(
+                action: screencastSourceFault(self.screencastManager.state).map(sourceFaultAction) ?? .none,
+                title: SourceVocabulary.retry,
+                hint: "tries sending screen updates again.",
+                perform: {}
+            )
 
             Text(self.statusText)
                 .font(.subheadline)
@@ -65,12 +70,6 @@ private extension ScreencastSourceDetailView {
                     .font(.subheadline.weight(.semibold))
             }
             .frame(minHeight: 44)
-
-            if let attention = source.attention {
-                Text(attention.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 

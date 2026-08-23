@@ -3,12 +3,56 @@
 
 import SwiftUI
 
-/// L2.3 placeholder. Not pushed on iPhone.
 struct ImportView: View {
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
-        Text("dev-copy: import")
-            .navigationTitle("dev-copy: import")
-            .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier("shell.pane.import")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                SourceDetailBlock(title: SourceVocabulary.whatItAddsTitle) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(SourceVocabulary.importerWhatItAdds)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: self.appConfig.isPaired))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                SourceDetailBlock(title: "recent") {
+                    Text(ImporterSourceDetailPresentation.recentText(
+                        pendingCount: self.shareTransferHolder.pendingCount,
+                        lastDeliveredAt: self.shareTransferHolder.lastUploadAt,
+                        failedCount: self.shareTransferHolder.failedCount
+                    ))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
+
+                SourceDetailBlock(title: SourceVocabulary.onThisPhone) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(SourceVocabulary.onThisPhoneScope)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        NavigationLink(SourceVocabulary.onThisPhone) {
+                            OnThisPhoneView()
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel(SourceVocabulary.onThisPhone)
+                        .accessibilityHint("Shows what you've sent to your journal.")
+                    }
+                }
+            }
+            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+            .padding()
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle(SourceVocabulary.importTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("shell.pane.import")
     }
 }

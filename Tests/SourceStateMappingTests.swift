@@ -64,7 +64,6 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             id: "active",
             displayName: "audio",
             kind: .observer,
-            group: .experiencingAlongsideYou,
             state: .active,
             isJournalPaired: true,
             activeSubtext: SourceVocabulary.observerActiveSubtext,
@@ -74,12 +73,11 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         )
         let needsAttentionSource = Source(
             id: "needs-attention",
-            displayName: SourceVocabulary.shareSheetDisplayName,
-            kind: .importer,
-            group: .bringingInYourself,
+            displayName: "audio",
+            kind: .observer,
             state: .needsAttention,
             isJournalPaired: true,
-            activeSubtext: SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: true),
+            activeSubtext: SourceVocabulary.observerActiveSubtext,
             attention: SourceAttention(message: SourceVocabulary.needsAttentionSubtext),
             pendingStatus: .nonePending
         )
@@ -87,7 +85,6 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             id: "watch",
             displayName: SourceVocabulary.watchSourceDisplayName,
             kind: .watch,
-            group: .experiencingAlongsideYou,
             state: .off,
             isJournalPaired: true,
             activeSubtext: SourceVocabulary.watchListeningSubtext,
@@ -99,7 +96,6 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             id: "watch-checking",
             displayName: SourceVocabulary.watchSourceDisplayName,
             kind: .watch,
-            group: .experiencingAlongsideYou,
             state: .checking,
             isJournalPaired: true,
             activeSubtext: SourceVocabulary.watchListeningSubtext,

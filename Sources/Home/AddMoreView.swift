@@ -3,12 +3,58 @@
 
 import SwiftUI
 
-/// L2.3 placeholder. Not pushed on iPhone.
 struct AddMoreView: View {
+    @Binding var selectedRoute: SourceRoute?
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(ObserverManager.self) private var observerManager
+    @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
+    @Environment(LocationManager.self) private var locationManager
+    @Environment(ScreencastManager.self) private var screencastManager
+    @Environment(OmiSourceManager.self) private var omiSourceManager
+    @WatchPipelineInputReader private var watchPipelineInputs
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
+    @State private var now = Date()
+
     var body: some View {
-        Text("dev-copy: add more")
-            .navigationTitle("dev-copy: add more")
-            .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier("shell.pane.addMore")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(self.rows) { row in
+                    SourceRowView(source: row.source) {
+                        self.selectedRoute = row.route
+                    }
+                }
+            }
+            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+            .padding()
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle(SourceVocabulary.addMoreTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("shell.pane.addMore")
+        .task {
+            await refreshNowPeriodically { self.now = Date() }
+        }
+    }
+
+    private var rows: [SourcesViewRow] {
+        let bundle = makeHomeSourceBundle(
+            now: self.now,
+            isJournalPaired: self.appConfig.isPaired,
+            observerManager: self.observerManager,
+            observerSourcePauseState: self.observerSourcePauseState,
+            locationManager: self.locationManager,
+            screencastManager: self.screencastManager,
+            omiSourceManager: self.omiSourceManager,
+            watchLane: self.watchPipelineInputs.assembly(now: self.now).lane
+        )
+        return SourcesViewRowBuilder.addMoreRows(
+            audio: bundle.audio,
+            location: bundle.location,
+            screencast: bundle.screencast,
+            omi: bundle.omi,
+            watch: bundle.watch,
+            hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
+        )
     }
 }

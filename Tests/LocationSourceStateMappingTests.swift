@@ -38,33 +38,29 @@ nonisolated final class LocationSourceStateMappingTests: XCTestCase {
         XCTAssertNil(result.1)
     }
 
-    func testRestrictedUsesDistinctBodyWithoutActionHint() {
+    func testRestrictedUsesDistinctBody() {
         let result = locationSourceState(effective: .restricted, tier: .balanced, paused: false)
 
         XCTAssertEqual(result.0, .needsAttention)
         XCTAssertEqual(result.1, SourceAttention(message: LocationVocabulary.restrictedBody))
     }
 
-    func testDeniedAndServicesDisabledUseOpenSettingsHint() {
+    func testDeniedAndServicesDisabledUseDowngradeBody() {
         let denied = locationSourceState(effective: .denied, tier: .balanced, paused: false)
         let servicesDisabled = locationSourceState(effective: .servicesDisabled, tier: .balanced, paused: false)
         let expectedMessage = LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label)
 
         XCTAssertEqual(denied.1?.message, expectedMessage)
-        XCTAssertEqual(denied.1?.actionHint, LocationVocabulary.openSettingsAction)
         XCTAssertEqual(servicesDisabled.1?.message, expectedMessage)
-        XCTAssertEqual(servicesDisabled.1?.actionHint, LocationVocabulary.openSettingsAction)
     }
 
-    func testLesserGrantUsesMatchToAllowedHint() {
+    func testLesserGrantUsesDowngradeBody() {
         let result = locationSourceState(effective: .whenInUse(accuracy: .full), tier: .balanced, paused: false)
         let alwaysReduced = locationSourceState(effective: .always(accuracy: .reduced), tier: .full, paused: false)
 
         XCTAssertEqual(result.0, .needsAttention)
         XCTAssertEqual(result.1?.message, LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label))
-        XCTAssertEqual(result.1?.actionHint, LocationVocabulary.matchToAllowedAction)
         XCTAssertEqual(alwaysReduced.0, .needsAttention)
         XCTAssertEqual(alwaysReduced.1?.message, LocationVocabulary.downgradeBody(tierLabel: LocationTier.full.label))
-        XCTAssertEqual(alwaysReduced.1?.actionHint, LocationVocabulary.matchToAllowedAction)
     }
 }

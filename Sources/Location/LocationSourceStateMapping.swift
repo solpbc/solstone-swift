@@ -22,18 +22,12 @@ nonisolated func locationSourceState(
     case .denied, .servicesDisabled:
         return (
             .needsAttention,
-            SourceAttention(
-                message: LocationVocabulary.downgradeBody(tierLabel: tier.label),
-                actionHint: LocationVocabulary.openSettingsAction
-            )
+            SourceAttention(message: LocationVocabulary.downgradeBody(tierLabel: tier.label))
         )
     case .notDetermined, .whenInUse, .always:
         return (
             .needsAttention,
-            SourceAttention(
-                message: LocationVocabulary.downgradeBody(tierLabel: tier.label),
-                actionHint: LocationVocabulary.matchToAllowedAction
-            )
+            SourceAttention(message: LocationVocabulary.downgradeBody(tierLabel: tier.label))
         )
     }
 }

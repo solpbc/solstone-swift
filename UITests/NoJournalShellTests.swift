@@ -74,8 +74,6 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         self.tapDayHomeSourcesEntry(in: app)
 
-        XCTAssertTrue(app.staticTexts["experiencing your day with you"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["import other memories"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["sources.connectBanner"].exists)
         XCTAssertFalse(app.staticTexts["sources.trustLine"].exists)

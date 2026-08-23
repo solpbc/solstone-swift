@@ -78,37 +78,42 @@ extension JournalMark {
 #endif
 
 struct JournalMarkView: View {
-    let mark: JournalMark
+    let mark: JournalMark?
     var isConfirmed = false
 
     var body: some View {
-        VStack(spacing: MarkGeometry.verticalGap) {
-            HStack(spacing: MarkGeometry.iconGap) {
-                JournalMarkIconChip(icon: self.mark.icon1)
-                JournalMarkIconChip(icon: self.mark.icon2)
-            }
+        Group {
+            if let mark {
+                VStack(spacing: MarkGeometry.verticalGap) {
+                    HStack(spacing: MarkGeometry.iconGap) {
+                        JournalMarkIconChip(icon: mark.icon1)
+                        JournalMarkIconChip(icon: mark.icon2)
+                    }
 
-            Text(self.mark.words.joined(separator: " · "))
-                .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize, relativeTo: .headline))
-                .foregroundStyle(MarkGeometry.wordColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                    Text(mark.words.joined(separator: " · "))
+                        .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize, relativeTo: .headline))
+                        .foregroundStyle(MarkGeometry.wordColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
 
-            if self.isConfirmed {
-                Text(SourceVocabulary.journalMarkConfirmedLine)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(MarkGeometry.confirmationColor)
+                    if self.isConfirmed {
+                        Text(SourceVocabulary.journalMarkConfirmedLine)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(MarkGeometry.confirmationColor)
+                    }
+                }
+                .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
+                .padding(.vertical, MarkGeometry.cardVerticalPadding)
+                .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
+                        .stroke(self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder, lineWidth: self.isConfirmed ? 2 : 1)
+                }
+                .shadow(color: self.isConfirmed ? MarkGeometry.confirmedBorder.opacity(0.35) : .clear, radius: 10)
             }
         }
-        .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
-        .padding(.vertical, MarkGeometry.cardVerticalPadding)
-        .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
-                .stroke(self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder, lineWidth: self.isConfirmed ? 2 : 1)
-        }
-        .shadow(color: self.isConfirmed ? MarkGeometry.confirmedBorder.opacity(0.35) : .clear, radius: 10)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityValue(JournalMarkTint.spokenValue(mark: self.mark))
     }
 }
 

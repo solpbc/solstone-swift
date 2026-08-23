@@ -5,21 +5,32 @@
 import XCTest
 
 nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
-    func testFactsForAllSourceStates() {
-        let cases: [(SourceState, String, String)] = [
-            (.off, "dev-copy: not taking it in now", "good"),
-            (.enrolling, "dev-copy: not taking it in now", "good"),
-            (.readyToSetUp, "dev-copy: not taking it in now", "unavailable"),
-            (.checking, "dev-copy: not taking it in now", "degraded"),
-            (.active, "dev-copy: taking it in now", "good"),
-            (.paused, "dev-copy: not taking it in now", "good"),
-            (.needsAttention, "dev-copy: not taking it in now", "degraded"),
-        ]
-        for (state, taking, verdict) in cases {
-            let facts = homeSourceTileAccessibilityFacts(for: state)
-            XCTAssertEqual(facts.takingItIn, taking, String(describing: state))
-            XCTAssertEqual(facts.verdict, verdict, String(describing: state))
-            XCTAssertEqual(facts.value, "\(taking), \(verdict)", String(describing: state))
+    func testAccessibilityValueIsSourceStateLabel() {
+        for state in [
+            SourceState.off,
+            .enrolling,
+            .readyToSetUp,
+            .checking,
+            .active,
+            .paused,
+            .needsAttention,
+        ] {
+            XCTAssertEqual(state.label, state.label)
         }
+        XCTAssertEqual(SourceState.off.label, "off")
+        XCTAssertEqual(SourceState.paused.label, "paused")
+        XCTAssertNotEqual(SourceState.off.label, SourceState.paused.label)
+    }
+
+    func testHomeSourceTileUsesStateLabelAsAccessibilityValue() throws {
+        let text = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/Home/HomeSourceTile.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(text.contains(".accessibilityValue(self.source.state.label)"))
+        XCTAssertFalse(text.contains("homeSourceTileAccessibilityFacts"))
     }
 }

@@ -12,17 +12,17 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
         XCTAssertEqual(source.id, "screencast")
         XCTAssertEqual(source.displayName, SourceVocabulary.screencastDisplayName)
         XCTAssertEqual(source.kind, .screencast)
-        XCTAssertEqual(source.group, .experiencingAlongsideYou)
         XCTAssertEqual(source.subtext, SourceVocabulary.screencastOffSubtext)
     }
 
     func testScreencastRowIsPlacedAfterLocationBeforeOmi() throws {
-        let rows = SourcesViewRowBuilder.primaryRows(
+        let rows = SourcesViewRowBuilder.addMoreRows(
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screen", kind: .screencast),
             omi: Self.source(id: "omi", kind: .omi),
-            watch: Self.source(id: "watch", kind: .watch)
+            watch: Self.source(id: "watch", kind: .watch),
+            hiddenIDs: []
         )
         let routes = rows.map(\.route)
         let locationIndex = try XCTUnwrap(routes.firstIndex(of: .location))
@@ -88,7 +88,6 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
             id: id,
             displayName: id,
             kind: kind,
-            group: .experiencingAlongsideYou,
             state: .off,
             isJournalPaired: true,
             activeSubtext: "on",

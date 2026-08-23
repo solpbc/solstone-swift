@@ -25,6 +25,7 @@ struct SourceDetailView: View {
                 } else {
                     AudioEnrollmentContent(mode: self.selectedModeBinding.wrappedValue)
                 }
+                SourceHomeTileControl(sourceID: "audio")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -48,7 +49,19 @@ private extension SourceDetailView {
     @ViewBuilder
     var enrolledContent: some View {
         SourceDetailBlock(title: "state") {
-            self.stateBlock
+            VStack(alignment: .leading, spacing: 12) {
+                SourceDetailVerdictLine(state: self.currentSourceState)
+                SourceDetailReasonLine(message: self.errorMessage)
+                SourceFaultActionControl(
+                    action: observerSourceFault(self.observerManager.state).map(sourceFaultAction) ?? .none,
+                    title: SourceVocabulary.openSettings,
+                    hint: "opens iOS Settings for microphone access.",
+                    perform: {
+                        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                    }
+                )
+                self.stateBlock
+            }
         }
 
         SourceDetailBlock(title: "what it adds") {
@@ -177,22 +190,7 @@ private extension SourceDetailView {
                 .accessibilityLabel(SourceDetailPresentation.elapsedLine(formatted: elapsedText))
             }
 
-            if let errorMessage = self.errorMessage {
-                VStack(spacing: 8) {
-                    Text(errorMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
 
-                    if self.observerManager.state == .error(.permissionDenied) {
-                        Button("open settings") {
-                            UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                    }
-                }
-            }
 
             Button(self.pauseButtonLabel) {
                 Task {
@@ -221,7 +219,7 @@ private extension SourceDetailView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
             }
         case .loadedEmpty:
             Text(SourceVocabulary.recentEmpty)
@@ -442,7 +440,7 @@ private extension AudioEnrollmentContent {
             .foregroundStyle(.secondary)
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
             .accessibilityIdentifier("audioEnrollment.value")
     }
 

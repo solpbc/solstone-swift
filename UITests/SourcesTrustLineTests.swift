@@ -45,11 +45,9 @@ nonisolated final class SourcesTrustLineTests: XCTestCase {
 
     @MainActor
     private func assertSimplifiedSourcesSheet(in app: XCUIApplication) {
-        XCTAssertTrue(app.staticTexts["experiencing your day with you"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["import other memories"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["source.row.location"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["source.row.share-sheet"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["source.row.share-sheet"].exists)
         XCTAssertFalse(app.buttons["sources.connectBanner"].exists)
         XCTAssertFalse(app.staticTexts["sources.trustLine"].exists)
         XCTAssertFalse(app.staticTexts["nothing is on right now"].exists)
