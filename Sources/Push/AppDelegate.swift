@@ -87,6 +87,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
         completionHandler()
     }
+
+    // Returns UISceneConfiguration (NS_SWIFT_UI_ACTOR), so this cannot be nonisolated and cannot Task-hop.
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(
+            name: nil,
+            sessionRole: connectingSceneSession.role
+        )
+        configuration.delegateClass = SolstoneSceneDelegate.self
+        return configuration
+    }
 }
 
 #if DEBUG
