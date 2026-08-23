@@ -137,14 +137,14 @@ struct ShelfPane: View {
     @ViewBuilder
     private var shelfRows: some View {
         NavigationLink(value: ShelfPush.journal) {
-            Text("dev-copy: journal")
+            Text("journal")
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
         .accessibilityIdentifier("shell.pane.shelf.journal")
         .hoverEffect(.highlight)
 
         NavigationLink(value: ShelfPush.thisDevice) {
-            Text("dev-copy: this device")
+            Text("this device")
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
         .accessibilityIdentifier("shell.pane.shelf.thisDevice")
@@ -158,7 +158,7 @@ struct ShelfPane: View {
         .hoverEffect(.highlight)
 
         NavigationLink(value: ShelfPush.help) {
-            Text("dev-copy: help")
+            Text("help")
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
         .accessibilityIdentifier("shell.pane.shelf.help")
