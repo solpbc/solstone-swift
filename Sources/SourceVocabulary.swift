@@ -392,7 +392,6 @@ nonisolated enum SourceVocabulary {
     static let journalConnected = "your journal · connected"
     static let journalOffline = "your journal · offline"
     static let dayToday = "today"
-    static let yourSolstoneTitle = "your journal"
     static let onThisPhoneScope = "everything you've shared, on this device until you connect a journal."
     static let onThisPhoneScopeConnected = "everything you've shared, moving into your journal."
     static let onThisPhoneScopeOfflinePaired = "everything you've shared, ready for your journal when it reconnects."

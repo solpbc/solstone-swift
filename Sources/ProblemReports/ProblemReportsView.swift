@@ -4,6 +4,7 @@
 import SwiftUI
 
 struct ProblemReportsView: View {
+    var showsSupportHeader = false
     @Environment(ProblemReportsManager.self) private var manager
 
     @State private var shareAllURL: URL?
@@ -11,6 +12,13 @@ struct ProblemReportsView: View {
 
     var body: some View {
         List {
+            if self.showsSupportHeader {
+                Section {
+                    Text("dev-copy: support site")
+                    Text(SourceVocabulary.journalMarkMismatchEmailSupport)
+                }
+            }
+
             if !self.manager.isEnabled {
                 Section {
                     ProblemReportsEmptyState(

@@ -96,7 +96,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "on this device · not paired")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
-        XCTAssertEqual(SourceVocabulary.yourSolstoneTitle, "your journal")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
         XCTAssertEqual(
             SourceVocabulary.connectJournalIntro,
@@ -640,7 +639,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     func testNotConnectedRowAffordanceRenderSitesPassPairingState() throws {
         let expected = "SourceVocabulary.notConnectedRowAffordance(isJournalPaired: self.appConfig.isPaired)"
         for relativePath in [
-            "Sources/MoreView.swift",
+            "Sources/Home/ShelfPane.swift",
             "Sources/Location/LocationSourceDetailView.swift",
         ] {
             let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
@@ -982,7 +981,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.dayLocalityNoJournal,
             SourceVocabulary.journalConnected,
             SourceVocabulary.journalOffline,
-            SourceVocabulary.yourSolstoneTitle,
             SourceVocabulary.onThisPhoneScope,
             SourceVocabulary.onThisPhoneScopeConnected,
             SourceVocabulary.onThisPhoneScopeOfflinePaired,

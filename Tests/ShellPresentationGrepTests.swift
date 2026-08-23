@@ -64,7 +64,7 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         )
         XCTAssertTrue(apply.contains("self.pendingRoute.route = nil"))
         XCTAssertTrue(apply.contains("self.presentedPane = nil"))
-        XCTAssertTrue(apply.contains("self.showingYourSolstone = false"))
+        XCTAssertFalse(apply.contains("self.showingYourSolstone"))
     }
 
     func testJournalPaneUsesWebPageAndPolicy() throws {

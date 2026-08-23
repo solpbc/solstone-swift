@@ -156,32 +156,13 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             subscriber: NoOpMetricSubscriber(),
             initialEnabled: false
         )
-        let moreView = NavigationStack {
-            MoreView(
-                localPort: 7071,
-                via: .lan,
-                connectedSince: .now,
-                navigateToDiagnostics: .constant(false)
-            )
+        let shelfPane = ShelfPane(presentedPane: Binding<PresentedShellPane?>.constant(nil))
             .environment(appConfig)
             .environment(OnboardingFlow())
             .environment(tunnelManager)
-            .environment(connectionSyncModel)
-            .environment(diagnosticLog)
-            .environment(problemReportsManager)
-            .environment(PushNotificationManager())
             .environment(observerRegistration)
-            .environment(mobileSegmentTransferHolder)
-            .environment(omiUploaderHolder)
-            .environment(watchUploaderHolder)
-            .environment(shareImportStore)
-            .environment(shareTransferHolder)
-            .environment(locationManager)
-            .environment(mobileSegmentUploader)
-            .environment(mobileSegmentTransferHolder)
-            .environment(mobileSegmentEngine)
-            .environment(observerManager)
-        }
+            .environment(PushNotificationManager())
+            .environment(problemReportsManager)
 
         let sourcesView = NavigationStack {
             SourcesView()
@@ -335,7 +316,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(shareTransferHolder)
                 .environment(locationManager)
         }
-        try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(shelfPane.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(statusPane.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(dayHomeView.environment(\.dynamicTypeSize, .accessibility3))

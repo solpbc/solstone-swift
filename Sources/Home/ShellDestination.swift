@@ -18,7 +18,7 @@ import SwiftUI
 ///   `.shelfAbout` (about solstone).
 ///
 /// Interim wiring (this lode, not the enum):
-///   leading shelf control → MoreView sheet (`dayHome.yourSolstoneEntry`)
+///   leading shelf control → ShelfPane overlay (`dayHome.yourSolstoneEntry`)
 ///   add-more tile         → SourcesView sheet (`dayHome.sourcesEntry`)
 ///   journal pill          → InAppJournalView sheet when paired+reachable
 ///                           (`dayHome.openInJournal`); otherwise JournalLivesSheet

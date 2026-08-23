@@ -21,7 +21,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         self.dismissPresentedSheet(in: app, untilMissingElementID: "source.row.audio")
 
         app.buttons["dayHome.yourSolstoneEntry"].tap()
-        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 5))
     }
 
     @MainActor

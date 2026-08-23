@@ -24,8 +24,8 @@ required_hints=(
   'Sources/Location/LocationSourceDetailView.swift:Chooses places only for location.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses places plus comings and goings for location. This is the recommended default.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses the complete picture for location.'
-  'Sources/MoreView.swift:Turns interface haptics on or off'
-  'Sources/MoreView.swift:Clears this device pairing and returns to onboarding'
+  'Sources/Home/ShelfPane.swift:Turns interface haptics on or off'
+  'Sources/Home/ShelfPane.swift:Clears this device pairing and returns to onboarding'
 )
 
 for entry in "${required_hints[@]}"; do

@@ -61,7 +61,6 @@ struct ContentView: View {
                 OnboardingRootView()
             } else {
                 RootShellView(
-                    localPort: self.effectivePort,
                     via: self.effectiveVia
                 )
             }

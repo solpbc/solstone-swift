@@ -2,9 +2,8 @@
 # <path-pattern> is * for globals, an exact relative path, or a complete terminal component.
 # `|` is the delimiter because allowed substrings may contain `:`; keep entries to approved copy exceptions and internal-only identifiers.
 
-MoreView.swift|Cancel
-MoreView.swift|Reset
-MoreView.swift|Unpair
+ShelfPane.swift|Cancel
+ShelfPane.swift|Unpair
 ImporterSourceDetailView.swift|Cancel
 LocationSourceDetailView.swift|Cancel
 PairScreen.swift|solstone://

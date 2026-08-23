@@ -15,8 +15,8 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
     }
 
     @MainActor
-    func testMoreViewExposesAccessibilityMetadata() {
-        self.assertMoreViewAccessibility()
+    func testShelfExposesAccessibilityMetadata() {
+        self.assertShelfAccessibility()
     }
 }
 
@@ -32,21 +32,29 @@ private extension OnboardingAccessibilityTests {
         self.assertMetadata(for: getStarted, in: app)
     }
 
-    func assertMoreViewAccessibility() {
+    func assertShelfAccessibility() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
 
         app.buttons["dayHome.yourSolstoneEntry"].tap()
-        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 5))
 
+        let notifications = app.descendants(matching: .any)["shell.pane.shelf.notifications"]
+        XCTAssertTrue(notifications.waitForExistence(timeout: 5))
+        notifications.tap()
         self.scrollToElement(app.buttons["enable notifications"], in: app)
         self.assertMetadata(for: app.buttons["enable notifications"], in: app)
+        app.navigationBars.buttons.firstMatch.tap()
+
+        let thisDevice = app.descendants(matching: .any)["shell.pane.shelf.thisDevice"]
+        XCTAssertTrue(thisDevice.waitForExistence(timeout: 5))
+        thisDevice.tap()
         self.scrollToElement(app.switches["haptics"], in: app)
         self.assertMetadata(for: app.switches["haptics"], in: app)
         self.scrollToElement(app.buttons["unpair this device"], in: app)
         self.assertMetadata(for: app.buttons["unpair this device"], in: app)
-        XCTAssertTrue(app.staticTexts["identity"].exists || app.staticTexts["about"].exists)
     }
 
     func assertMetadata(for element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval = 10) {

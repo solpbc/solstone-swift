@@ -7,7 +7,6 @@ import os
 private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
 
 struct RootShellView: View {
-    let localPort: Int
     let via: ConnectionEndpoint
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
@@ -25,50 +24,27 @@ struct RootShellView: View {
     @State private var statusPath = NavigationPath()
     @State private var statusDetent: PresentationDetent = .medium
     @State private var showingSources = false
-    @State private var showingYourSolstone = false
-    @State private var navigateToDiagnostics = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
 
     init(
-        localPort: Int,
         via: ConnectionEndpoint
     ) {
-        self.localPort = localPort
         self.via = via
     }
 
     var body: some View {
-        NavigationStack(path: self.$path) {
-            DayHomeView(
-                journalState: self.dayHomeJournalState,
-                journalMark: self.journalMark,
-                homeChrome: self.homeChrome,
-                onOpenJournal: {
-                    self.presentedPane = .journal
-                },
-                onOpenSources: {
-                    self.showingSources = true
-                },
-                onOpenYourSolstone: {
-                    self.navigateToDiagnostics = false
-                    self.showingYourSolstone = true
-                },
-                onOpenStatus: {
-                    self.presentedPane = .status
-                },
-                sourcesBadgeVisible: self.sourcesBadgeVisible
-            )
-            .navigationDestination(for: ShellDestination.self) { destination in
-                ShellDestinationView(destination: destination)
+        ZStack {
+            if self.presentedPane == .shelf {
+                self.homeStack
+                    .accessibilityHidden(true)
+                    .accessibilityChildren { EmptyView() }
+            } else {
+                self.homeStack
             }
-            .overlay(alignment: .leading) {
-                if self.path.isEmpty {
-                    ShelfHitStrip(onOpen: {
-                        self.navigateToDiagnostics = false
-                        self.showingYourSolstone = true
-                    })
-                }
+
+            if self.presentedPane == .shelf {
+                ShelfPane(presentedPane: self.$presentedPane)
             }
         }
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -86,18 +62,6 @@ struct RootShellView: View {
         }
         .sheet(isPresented: self.isStatusPresented) {
             self.statusSheet
-        }
-        .sheet(isPresented: self.$showingYourSolstone, onDismiss: {
-            self.navigateToDiagnostics = false
-        }) {
-            NavigationStack {
-                MoreView(
-                    localPort: self.localPort,
-                    via: self.via,
-                    connectedSince: self.connectedSince,
-                    navigateToDiagnostics: self.$navigateToDiagnostics
-                )
-            }
         }
         .task(id: self.observerRegistration.activeLocalPort) {
             await self.fetchJournalMark()
@@ -135,6 +99,40 @@ struct RootShellView: View {
                 self.statusDetent = .medium
             }
         }
+    }
+
+    private var homeStack: some View {
+        NavigationStack(path: self.$path) {
+            DayHomeView(
+                journalState: self.dayHomeJournalState,
+                journalMark: self.journalMark,
+                homeChrome: self.homeChrome,
+                onOpenJournal: {
+                    self.presentedPane = .journal
+                },
+                onOpenSources: {
+                    self.showingSources = true
+                },
+                onOpenYourSolstone: {
+                    self.presentedPane = .shelf
+                },
+                onOpenStatus: {
+                    self.presentedPane = .status
+                },
+                sourcesBadgeVisible: self.sourcesBadgeVisible
+            )
+            .navigationDestination(for: ShellDestination.self) { destination in
+                ShellDestinationView(destination: destination)
+            }
+            .overlay(alignment: .leading) {
+                if self.path.isEmpty {
+                    ShelfHitStrip(onOpen: {
+                        self.presentedPane = .shelf
+                    })
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var isJournalPresented: Binding<Bool> {
@@ -208,8 +206,7 @@ struct RootShellView: View {
             case "journal":
                 self.presentedPane = .journal
             case "shelf":
-                self.navigateToDiagnostics = false
-                self.showingYourSolstone = true
+                self.presentedPane = .shelf
             default:
                 break
             }
@@ -242,8 +239,6 @@ struct RootShellView: View {
 
     private func apply(_: NotificationRoute) {
         self.showingSources = false
-        self.showingYourSolstone = false
-        self.navigateToDiagnostics = false
         self.presentedPane = nil
         self.pendingRoute.route = nil
     }

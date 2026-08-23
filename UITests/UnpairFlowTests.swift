@@ -25,6 +25,10 @@ nonisolated final class UnpairFlowTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
         app.buttons["dayHome.yourSolstoneEntry"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        let thisDevice = app.descendants(matching: .any)["shell.pane.shelf.thisDevice"]
+        XCTAssertTrue(thisDevice.waitForExistence(timeout: 5))
+        thisDevice.tap()
 
         let unpairButton = app.buttons["unpair this device"]
         self.scrollToElement(unpairButton, in: app)

@@ -53,7 +53,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(shelf.waitForExistence(timeout: 5))
         shelf.tap()
 
-        XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["journalLives.sheet"].exists)
     }
 

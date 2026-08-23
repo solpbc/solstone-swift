@@ -4,7 +4,7 @@
 
 Sources/ShareImport/ShareImportCoordinator.swift|couldn't save this — \(plainReason). nothing was added.
 Sources/ShareImport/ShareImportCoordinator.swift|couldn't save \(failed) items — nothing was added.
-Sources/MoreView.swift|registration: failed — \(reason)
+Sources/Home/NotificationsPane.swift|registration: failed — \(reason)
 Sources/Observer/ObserverManager.swift|observer: tap-write stall — stopping
 Sources/SourceVocabulary+ConnectionProbe.swift|checked \(relative) — \(Self.probeReachable) · \(milliseconds) ms
 Sources/SourceVocabulary+ConnectionProbe.swift|checked \(relative) — \(Self.probeNotReachable)

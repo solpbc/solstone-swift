@@ -92,6 +92,58 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
+    func testShelfPresentsFromOpener() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        let opener = app.buttons["dayHome.yourSolstoneEntry"]
+        XCTAssertTrue(opener.waitForExistence(timeout: 10))
+        opener.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["done"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testShelfLeavesTrailingDeckBand() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-open-pane=shelf"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        let panel = app.descendants(matching: .any)["shell.pane.shelf.panel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        let panelMaxX = panel.frame.maxX
+        let windowMaxX = window.frame.maxX
+        let margin = windowMaxX - panelMaxX
+        XCTContext.runActivity(
+            named: "shelf-panel panelMaxX=\(Self.pt(panelMaxX)) windowMaxX=\(Self.pt(windowMaxX)) margin=\(Self.pt(margin))"
+        ) { _ in }
+        // AC2 measures the leading panel, not the modal container. The container
+        // includes the trailing dim and is full-window by design; asserting
+        // against it would not prove the deck is visible trailing.
+        XCTAssertGreaterThanOrEqual(margin, 24, "shelf panel maxX margin \(margin)")
+    }
+
+    @MainActor
+    func testShelfHidesDeckFromAccessibilityTree() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-open-pane=shelf"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["dayHome.statusPill"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["dayHome.tile.audio"].exists)
+        app.buttons["done"].tap()
+        XCTAssertTrue(app.buttons["dayHome.yourSolstoneEntry"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["shell.pane.shelf"].exists)
+    }
+
+    @MainActor
     func testJournalPanePresentsFromOpener() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
