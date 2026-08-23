@@ -39,6 +39,25 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertFalse(text.contains("preferredScreenEdgesDeferringSystemGestures"))
     }
 
+    func testShelfUsesVerticalSizeClass() throws {
+        let text = try Self.sourceText("Sources/Home/ShelfPane.swift")
+        XCTAssertTrue(text.contains("@Environment(\\.verticalSizeClass)"))
+        XCTAssertTrue(text.contains("verticalSizeClass == .compact"))
+        XCTAssertTrue(text.contains("LazyVGrid"))
+    }
+
+    func testPanesCrossFadeWhenPreferred() throws {
+        let text = try Self.sourceText("Sources/RootShellView.swift")
+        XCTAssertTrue(text.contains("AccessibilityCrossFadePreference()"))
+        XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitions"))
+        XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitionsStatusDidChange"))
+        XCTAssertFalse(text.contains("extension EnvironmentValues"))
+        XCTAssertTrue(text.contains(".transition(self.prefersCrossFade ? .opacity : .move(edge: .leading))"))
+        XCTAssertTrue(text.contains(".transition(self.prefersCrossFade ? .opacity : .move(edge: .bottom))"))
+        XCTAssertTrue(text.contains("self.reduceMotion || self.prefersCrossFade"))
+        XCTAssertFalse(text.contains("--accessibility-prefers-cross-fade"))
+    }
+
     func testReduceMotionOmitsStatusZoom() throws {
         let text = try Self.sourceText("Sources/RootShellView.swift")
         XCTAssertTrue(text.contains("@Environment(\\.accessibilityReduceMotion)"))

@@ -58,7 +58,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: solstone
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in."
         INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "you can connect the solstone app to wearable audio devices like the Omi pendant over Bluetooth. what you share stays on this device until you connect a journal for it to land in."

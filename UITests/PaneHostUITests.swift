@@ -144,6 +144,67 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
+    func testShelfPanelFillsWindowInLandscape() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-open-pane=shelf"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
+        let panel = app.descendants(matching: .any)["shell.pane.shelf.panel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        let panelFrame = panel.frame
+        let windowFrame = window.frame
+        XCTContext.runActivity(
+            named: "ac8-shelf panel=\(Self.pt(panelFrame)) window=\(Self.pt(windowFrame))"
+        ) { _ in }
+        XCTAssertEqual(panelFrame.minX, windowFrame.minX, accuracy: 2)
+        XCTAssertEqual(panelFrame.minY, windowFrame.minY, accuracy: 2)
+        XCTAssertEqual(panelFrame.width, windowFrame.width, accuracy: 2)
+        XCTAssertEqual(panelFrame.height, windowFrame.height, accuracy: 2)
+    }
+
+    @MainActor
+    func testJournalPresentsInLandscape() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-open-pane=journal"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let pane = app.descendants(matching: .any)["shell.pane.journal"]
+        XCTAssertTrue(pane.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        XCTContext.runActivity(
+            named: "ac8-journal pane=\(Self.pt(pane.frame)) window=\(Self.pt(window.frame))"
+        ) { _ in }
+    }
+
+    @MainActor
+    func testStatusPresentsInLandscape() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-open-pane=status"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.status"].waitForExistence(timeout: 10))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let pane = app.descendants(matching: .any)["shell.pane.status"]
+        XCTAssertTrue(pane.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        XCTContext.runActivity(
+            named: "ac8-status pane=\(Self.pt(pane.frame)) window=\(Self.pt(window.frame))"
+        ) { _ in }
+    }
+
+    @MainActor
     func testJournalPanePresentsFromOpener() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]

@@ -16,26 +16,40 @@ nonisolated enum ShelfPush: Hashable, Sendable {
 
 struct ShelfPane: View {
     @Binding var presentedPane: PresentedShellPane?
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(OnboardingFlow.self) private var onboardingFlow
+    @Environment(TunnelManager.self) private var tunnelManager
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var path = NavigationPath()
+    @State private var showingUnpairConfirm = false
 
     private var headingString: String { "dev-copy: settings" }
+    private var isCompactHeight: Bool { self.verticalSizeClass == .compact }
 
     var body: some View {
         GeometryReader { geometry in
-            let panelWidth = min(geometry.size.width - 24, 320)
-            HStack(spacing: 0) {
-                self.panel
-                    .frame(width: panelWidth)
-                    .frame(maxHeight: .infinity, alignment: .leading)
-                    .background(Color(.systemBackground))
-                    .clipped()
-                    .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Group {
+                if self.isCompactHeight {
+                    self.panel
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(.systemBackground))
+                } else {
+                    let panelWidth = min(geometry.size.width - 24, 320)
+                    HStack(spacing: 0) {
+                        self.panel
+                            .frame(width: panelWidth)
+                            .frame(maxHeight: .infinity, alignment: .leading)
+                            .background(Color(.systemBackground))
+                            .clipped()
+                            .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                Color.black.opacity(0.24)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(true)
-                    .accessibilityHidden(true)
+                        Color.black.opacity(0.24)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .allowsHitTesting(true)
+                            .accessibilityHidden(true)
+                    }
+                }
             }
             .accessibilityAddTraits(.isModal)
             .accessibilityIdentifier("shell.pane.shelf")
@@ -44,47 +58,47 @@ struct ShelfPane: View {
             self.dismissOneLevel()
         }
         .onAppear { self.headingFocused = true }
+        .alert("unpair this device?", isPresented: self.$showingUnpairConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Unpair", role: .destructive) {
+                Task {
+                    await self.unpairDevice()
+                }
+            }
+        } message: {
+            Text("this clears the paired session on this device and returns you to setup.")
+        }
     }
 
     private var panel: some View {
         NavigationStack(path: self.$path) {
-            List {
-                NavigationLink(value: ShelfPush.journal) {
-                    Text("dev-copy: journal")
-                }
-                .accessibilityIdentifier("shell.pane.shelf.journal")
-                .hoverEffect(.highlight)
-
-                NavigationLink(value: ShelfPush.thisDevice) {
-                    Text("dev-copy: this device")
-                }
-                .accessibilityIdentifier("shell.pane.shelf.thisDevice")
-                .hoverEffect(.highlight)
-
-                NavigationLink(value: ShelfPush.notifications) {
-                    Text("notifications")
-                }
-                .accessibilityIdentifier("shell.pane.shelf.notifications")
-                .hoverEffect(.highlight)
-
-                NavigationLink(value: ShelfPush.help) {
-                    Text("dev-copy: help")
-                }
-                .accessibilityIdentifier("shell.pane.shelf.help")
-                .hoverEffect(.highlight)
-
-                NavigationLink(value: ShelfPush.about) {
-                    Text("about solstone")
-                }
-                .accessibilityIdentifier("shell.pane.shelf.about")
-                .hoverEffect(.highlight)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Width of this strip is the panel width, not the modal overlay.
-                Text("\u{200B}")
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 1)
+            Group {
+                if self.isCompactHeight {
+                    ScrollView {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12),
+                            ],
+                            spacing: 12
+                        ) {
+                            self.shelfRows
+                        }
+                        .padding()
+                    }
                     .accessibilityIdentifier("shell.pane.shelf.panel")
+                } else {
+                    List {
+                        self.shelfRows
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        // Width of this strip is the panel width, not the modal overlay.
+                        Text("\u{200B}")
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 1)
+                            .accessibilityIdentifier("shell.pane.shelf.panel")
+                    }
+                }
             }
             .navigationTitle(self.headingString)
             .navigationBarTitleDisplayMode(.inline)
@@ -99,6 +113,19 @@ struct ShelfPane: View {
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("shell.pane.shelf.heading")
                         .accessibilityFocused(self.$headingFocused)
+                }
+                if self.isCompactHeight, self.appConfig.isPaired {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Button("unpair this device", role: .destructive) {
+                                self.showingUnpairConfirm = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityHint("Clears this device pairing and returns to onboarding")
+                    }
                 }
             }
             .navigationDestination(for: ShelfPush.self) { push in
@@ -116,6 +143,51 @@ struct ShelfPane: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var shelfRows: some View {
+        NavigationLink(value: ShelfPush.journal) {
+            Text("dev-copy: journal")
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .accessibilityIdentifier("shell.pane.shelf.journal")
+        .hoverEffect(.highlight)
+
+        NavigationLink(value: ShelfPush.thisDevice) {
+            Text("dev-copy: this device")
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .accessibilityIdentifier("shell.pane.shelf.thisDevice")
+        .hoverEffect(.highlight)
+
+        NavigationLink(value: ShelfPush.notifications) {
+            Text("notifications")
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .accessibilityIdentifier("shell.pane.shelf.notifications")
+        .hoverEffect(.highlight)
+
+        NavigationLink(value: ShelfPush.help) {
+            Text("dev-copy: help")
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .accessibilityIdentifier("shell.pane.shelf.help")
+        .hoverEffect(.highlight)
+
+        NavigationLink(value: ShelfPush.about) {
+            Text("about solstone")
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .accessibilityIdentifier("shell.pane.shelf.about")
+        .hoverEffect(.highlight)
+    }
+
+    private func unpairDevice() async {
+        shelfLog.info("unpair clearing local SPL pairing")
+        self.appConfig.clearPairing()
+        self.onboardingFlow.reset()
+        await self.tunnelManager.disconnect()
     }
 
     private func dismissOneLevel() {

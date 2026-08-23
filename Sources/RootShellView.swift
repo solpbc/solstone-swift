@@ -26,6 +26,9 @@ struct RootShellView: View {
     @State private var showingSources = false
     @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
+    @State private var crossFadePreference = AccessibilityCrossFadePreference()
+
+    private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
 
     init(
         via: ConnectionEndpoint
@@ -45,16 +48,23 @@ struct RootShellView: View {
 
             if self.presentedPane == .shelf {
                 ShelfPane(presentedPane: self.$presentedPane)
+                    .transition(self.prefersCrossFade ? .opacity : .move(edge: .leading))
             }
         }
+        .animation(self.prefersCrossFade ? .easeInOut : .default, value: self.presentedPane)
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(self.observerSourcePauseState)
+        .environment(self.crossFadePreference)
+        .task {
+            await self.crossFadePreference.observe()
+        }
         .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView(mark: self.journalMark)
                 // 0.75 keeps the first deck tile row in the band above the pane on iPhone 17 Pro.
                 .presentationDetents([.fraction(0.75)])
                 .presentationDragIndicator(.visible)
                 .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .transition(self.prefersCrossFade ? .opacity : .move(edge: .bottom))
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
@@ -153,7 +163,7 @@ struct RootShellView: View {
     private var statusSheet: some View {
         NavigationStack(path: self.$statusPath) {
             Group {
-                if self.reduceMotion {
+                if self.reduceMotion || self.prefersCrossFade {
                     StatusPane(via: self.via, connectedSince: self.connectedSince)
                 } else {
                     StatusPane(via: self.via, connectedSince: self.connectedSince)
@@ -172,6 +182,7 @@ struct RootShellView: View {
         .presentationDetents([.medium, .large], selection: self.$statusDetent)
         .presentationDragIndicator(.visible)
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .transition(self.prefersCrossFade ? .opacity : .identity)
     }
 
     private func fetchJournalMark() async {
@@ -273,5 +284,20 @@ private struct ShelfHitStrip: View {
             )
             .accessibilityHidden(true)
             .accessibilityIdentifier("shell.hitStrip")
+    }
+}
+
+@Observable
+final class AccessibilityCrossFadePreference {
+    private(set) var prefersCrossFadeTransitions = UIAccessibility.prefersCrossFadeTransitions
+
+    func observe() async {
+        self.prefersCrossFadeTransitions = UIAccessibility.prefersCrossFadeTransitions
+        let notifications = NotificationCenter.default.notifications(
+            named: UIAccessibility.prefersCrossFadeTransitionsStatusDidChange
+        )
+        for await _ in notifications {
+            self.prefersCrossFadeTransitions = UIAccessibility.prefersCrossFadeTransitions
+        }
     }
 }

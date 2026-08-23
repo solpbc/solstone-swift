@@ -792,7 +792,10 @@ run: deploy
 # Validation for the mobile-shell arc is the simulator plus screenshots; this is that
 # instrument. NOTE: the `screenshot` target below is the DEVICE path and is unrelated.
 sim-shots: sim
-	SHOTS_APP=$(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app 		SHOTS_SIM=$(SIM) bash test/capture_shots.sh
+	SHOTS_APP="$(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app" \
+		SHOTS_SIM="$(SIM)" \
+		$(if $(SHOTS_STATES),SHOTS_STATES="$(SHOTS_STATES)") \
+		bash test/capture_shots.sh
 
 screenshot:
 	@pymobiledevice3 developer dvt screenshot /tmp/solstone-swift-screenshot.png --tunnel '' 2>&1 || \
