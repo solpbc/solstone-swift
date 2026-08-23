@@ -9,6 +9,23 @@ nonisolated final class PaneHostUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// True when the app is running in an iPad-shaped window.
+    ///
+    /// Two tests below assert behaviour that belongs to the compact phone shell: the shelf panel
+    /// filling the window (a ruling-7 compact-HEIGHT rule) and the status sheet's detent. Both are
+    /// correctly different on iPad, where the shelf panel is a list with a one-point bottom inset
+    /// and the sheet opens half-screen. `make ci-ipad` runs this same suite against an iPad
+    /// simulator, so those two are skipped there rather than deleted. They stay live on the iPhone
+    /// lane, which is the lane whose behaviour they describe.
+    ///
+    /// Measured on the window rather than on `UIDevice.current.userInterfaceIdiom` so the check is
+    /// usable from this class's nonisolated context. iPad Pro 13-inch is 1032 x 1376; iPhone 17 Pro
+    /// is 402 x 874 in either orientation, so the short edge separates them with wide margin.
+    func isPadShapedWindow(_ app: XCUIApplication) -> Bool {
+        let frame = app.windows.firstMatch.frame
+        return min(frame.width, frame.height) >= 700
+    }
+
     @MainActor
     func testHitStripExistsOnlyOnRoot() {
         let app = XCUIApplication()
@@ -34,11 +51,15 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testStatusPushOpensDiagnostics() {
+    func testStatusPushOpensDiagnostics() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=status"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(
+            self.isPadShapedWindow(app),
+            "the sheet detent this asserts is the phone shell's; iPad opens half-screen"
+        )
 
         let pane = app.descendants(matching: .any)["shell.pane.status"]
         XCTAssertTrue(pane.waitForExistence(timeout: 10))
@@ -144,11 +165,15 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testShelfPanelFillsWindowInLandscape() {
+    func testShelfPanelFillsWindowInLandscape() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=shelf"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(
+            self.isPadShapedWindow(app),
+            "ruling 7 is a compact-height rule; an iPad stays regular height in landscape"
+        )
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
