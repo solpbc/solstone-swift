@@ -62,7 +62,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     }
 
     func testLockedOwnerSourceCopy() {
-        XCTAssertEqual(SourceVocabulary.trustLineConfigured, "syncs only to your journal — nowhere else")
+        XCTAssertEqual(SourceVocabulary.trustLineConfigured, "syncs only to your journal")
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
         XCTAssertEqual(SourceVocabulary.bringingInYourselfHeader, "import other memories")

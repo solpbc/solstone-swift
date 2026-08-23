@@ -146,7 +146,7 @@ nonisolated enum SourceVocabulary {
 
     static let experiencingAlongsideYouHeader = "experiencing your day with you"
     static let bringingInYourselfHeader = "import other memories"
-    static let trustLineConfigured = "syncs only to your journal — nowhere else"
+    static let trustLineConfigured = "syncs only to your journal"
     static let watchHeadlineOff = "off"
     static let watchHeadlineEnrolling = "setting up"
     static let watchHeadlineListening = "on"

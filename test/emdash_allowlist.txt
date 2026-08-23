@@ -13,9 +13,6 @@ Sources/Tunnel/TunnelError.swift|connection failed — \(detail)
 Sources/Tunnel/TunnelManager.swift|[solstone-swift] connect() skipped — already in progress
 Sources/Tunnel/TunnelManager.swift|[solstone-swift] connect() skipped — already \(self.state)
 Sources/SourceVocabulary.swift|getting ready — connecting to your journal.
-# Trust line: current watch-companion M-W.8 implementation.
-# Held byte-for-byte pending product ruling on the open `feeds`/`syncs` divergence.
-Sources/SourceVocabulary.swift|syncs only to your journal — nowhere else
 Sources/SourceVocabulary.swift|—
 Sources/SourceVocabulary.swift|not in your journal yet — it'll appear once it's sent.
 Sources/SourceVocabulary.swift|your journal shows this same mark in its network app. it should match — exactly.
