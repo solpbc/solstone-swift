@@ -9,21 +9,15 @@ nonisolated final class PaneHostUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// True when the app is running in an iPad-shaped window.
+    /// True when the app is running in an iPad-shaped window. See `UITests/PadShapedWindow.swift`.
     ///
-    /// Two tests below assert behaviour that belongs to the compact phone shell: the shelf panel
-    /// filling the window (a ruling-7 compact-HEIGHT rule) and the status sheet's detent. Both are
-    /// correctly different on iPad, where the shelf panel is a list with a one-point bottom inset
-    /// and the sheet opens half-screen. `make ci-ipad` runs this same suite against an iPad
-    /// simulator, so those two are skipped there rather than deleted. They stay live on the iPhone
-    /// lane, which is the lane whose behaviour they describe.
-    ///
-    /// Measured on the window rather than on `UIDevice.current.userInterfaceIdiom` so the check is
-    /// usable from this class's nonisolated context. iPad Pro 13-inch is 1032 x 1376; iPhone 17 Pro
-    /// is 402 x 874 in either orientation, so the short edge separates them with wide margin.
+    /// Two tests in this class use it: the shelf panel filling the window (a ruling-7
+    /// compact-HEIGHT rule) and the status sheet's detent. Both are correctly different on iPad,
+    /// so both are skipped there rather than deleted, and both stay live on the iPhone lane.
     func isPadShapedWindow(_ app: XCUIApplication) -> Bool {
-        let frame = app.windows.firstMatch.frame
-        return min(frame.width, frame.height) >= 700
+        // The definition and the threshold live in UITests/PadShapedWindow.swift, so the two
+        // call sites cannot drift apart. This stays as a thin wrapper for the existing callers.
+        UITestsIsPadShapedWindow(app)
     }
 
     @MainActor

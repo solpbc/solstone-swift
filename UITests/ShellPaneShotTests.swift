@@ -272,7 +272,11 @@ private extension ShellPaneShotTests {
         )
         self.attach(app, "27-addMore-\(suffix)")
 
-        if !capturedWatch {
+        // WatchConnectivity is unavailable on iPad -- WCSession.isSupported() is false there, so
+        // watchSessionReadiness returns .unsupported, watchSourceModel returns nil, and
+        // addMoreRows correctly omits the row. Asserting it on the iPad lane asserts the phone
+        // shell. The captures either side of this block still run on both lanes.
+        if !capturedWatch, !UITestsIsPadShapedWindow(app) {
             let watchRow = app.buttons["source.row.watch"]
             XCTAssertTrue(watchRow.waitForExistence(timeout: 10), "watch row missing in add more")
             watchRow.tap()
