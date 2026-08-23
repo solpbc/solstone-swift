@@ -49,12 +49,16 @@ enum UserSettings: Sendable {
     nonisolated static let hiddenHomeSourceIDsKey = "hiddenHomeSourceIDs"
 
     nonisolated static var hiddenHomeSourceIDs: Set<String> {
-        get {
-            Self.decodeHiddenHomeSourceIDs(UserDefaults.standard.data(forKey: Self.hiddenHomeSourceIDsKey))
-        }
-        set {
-            UserDefaults.standard.set(Self.encodeHiddenHomeSourceIDs(newValue), forKey: Self.hiddenHomeSourceIDsKey)
-        }
+        get { Self.hiddenHomeSourceIDs(in: .standard) }
+        set { Self.setHiddenHomeSourceIDs(newValue, in: .standard) }
+    }
+
+    nonisolated static func hiddenHomeSourceIDs(in defaults: UserDefaults) -> Set<String> {
+        Self.decodeHiddenHomeSourceIDs(defaults.data(forKey: Self.hiddenHomeSourceIDsKey))
+    }
+
+    nonisolated static func setHiddenHomeSourceIDs(_ ids: Set<String>, in defaults: UserDefaults) {
+        defaults.set(Self.encodeHiddenHomeSourceIDs(ids), forKey: Self.hiddenHomeSourceIDsKey)
     }
 
     nonisolated static func encodeHiddenHomeSourceIDs(_ ids: Set<String>) -> Data {
@@ -70,4 +74,8 @@ enum UserSettings: Sendable {
         }
         return Set(ids)
     }
+}
+
+nonisolated func isHomeSourceVisible(id: String, hiddenIDs: Set<String>) -> Bool {
+    !hiddenIDs.contains(id)
 }

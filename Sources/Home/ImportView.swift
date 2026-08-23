@@ -23,7 +23,7 @@ struct ImportView: View {
                 }
 
                 SourceDetailBlock(title: "recent") {
-                    Text(ImporterSourceDetailPresentation.recentText(
+                    Text(ImportRecentPresentation.recentText(
                         pendingCount: self.shareTransferHolder.pendingCount,
                         lastDeliveredAt: self.shareTransferHolder.lastUploadAt,
                         failedCount: self.shareTransferHolder.failedCount

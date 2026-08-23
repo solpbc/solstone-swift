@@ -48,12 +48,6 @@ private extension ScreencastSourceDetailView {
         return VStack(alignment: .leading, spacing: 12) {
             SourceDetailVerdictLine(state: source.state)
             SourceDetailReasonLine(message: source.attention?.message)
-            SourceFaultActionControl(
-                action: screencastSourceFault(self.screencastManager.state).map(sourceFaultAction) ?? .none,
-                title: SourceVocabulary.retry,
-                hint: "tries sending screen updates again.",
-                perform: {}
-            )
 
             Text(self.statusText)
                 .font(.subheadline)

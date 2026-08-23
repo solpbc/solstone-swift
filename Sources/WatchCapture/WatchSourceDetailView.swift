@@ -170,16 +170,8 @@ private extension WatchSourceDetailView {
     var stateBlock: some View {
         let verdict = self.watchSteadyVerdict
         let lane = self.watchPipelineAssembly.lane
-        let fault = watchSourceFault(lane)
         return VStack(alignment: .leading, spacing: 12) {
-            SourceDetailVerdictLine(state: phoneWatchSourcePresentation(lane: lane).state)
             SourceDetailReasonLine(message: phoneWatchSourcePresentation(lane: lane).attention?.message)
-            SourceFaultActionControl(
-                action: fault.map(sourceFaultAction) ?? .none,
-                title: SourceVocabulary.watchSetupInstallButton,
-                hint: SourceVocabulary.watchSetupInstallButtonHint,
-                perform: {}
-            )
             self.verdictBlock(verdict)
             self.steadyDetailsDisclosure(verdict)
             if self.watchPipelineAssembly.waiting.watch.count > 0 {

@@ -5,10 +5,10 @@
 import Foundation
 import XCTest
 
-nonisolated final class ImporterSourceDetailPresentationTests: XCTestCase {
+nonisolated final class ImportRecentPresentationTests: XCTestCase {
     func testPendingCountUsesSendingProgressAndWinsOverFailures() {
         XCTAssertEqual(
-            ImporterSourceDetailPresentation.recentText(
+            ImportRecentPresentation.recentText(
                 pendingCount: 1,
                 lastDeliveredAt: nil,
                 failedCount: 1
@@ -19,7 +19,7 @@ nonisolated final class ImporterSourceDetailPresentationTests: XCTestCase {
 
     func testLastDeliveredAtUsesDeliveredProgressAndWinsOverFailures() {
         XCTAssertEqual(
-            ImporterSourceDetailPresentation.recentText(
+            ImportRecentPresentation.recentText(
                 pendingCount: 0,
                 lastDeliveredAt: Date(timeIntervalSince1970: 1_800_000_000),
                 failedCount: 1
@@ -29,7 +29,7 @@ nonisolated final class ImporterSourceDetailPresentationTests: XCTestCase {
     }
 
     func testFailedCountUsesWaitingCopyNotNeedsAttention() {
-        let text = ImporterSourceDetailPresentation.recentText(
+        let text = ImportRecentPresentation.recentText(
             pendingCount: 0,
             lastDeliveredAt: nil,
             failedCount: 1
@@ -41,7 +41,7 @@ nonisolated final class ImporterSourceDetailPresentationTests: XCTestCase {
 
     func testEmptyRecentTextUsesRecentEmpty() {
         XCTAssertEqual(
-            ImporterSourceDetailPresentation.recentText(
+            ImportRecentPresentation.recentText(
                 pendingCount: 0,
                 lastDeliveredAt: nil,
                 failedCount: 0

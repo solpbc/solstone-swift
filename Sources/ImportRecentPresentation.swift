@@ -3,7 +3,7 @@
 
 import Foundation
 
-nonisolated enum ImporterSourceDetailPresentation {
+nonisolated enum ImportRecentPresentation {
     static func recentText(pendingCount: Int, lastDeliveredAt: Date?, failedCount: Int) -> String {
         if pendingCount > 0 {
             return SourceVocabulary.shareSendingProgress

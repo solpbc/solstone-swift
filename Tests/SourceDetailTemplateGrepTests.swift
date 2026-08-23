@@ -5,13 +5,13 @@ import Foundation
 import XCTest
 
 nonisolated final class SourceDetailTemplateGrepTests: XCTestCase {
-    func testTemplateOrderForThreeSourceKinds() throws {
-        let files = [
+    func testTemplateOrderForFiveSourceDetails() throws {
+        let withMappedAction = [
             "Sources/Location/LocationSourceDetailView.swift",
             "Sources/SourceDetailView.swift",
             "Sources/Omi/OmiSourceDetailView.swift",
         ]
-        for relative in files {
+        for relative in withMappedAction {
             let text = try Self.contents(relative)
             XCTAssertTrue(text.contains("SourceDetailVerdictLine"), relative)
             XCTAssertTrue(text.contains("SourceDetailReasonLine"), relative)
@@ -23,6 +23,21 @@ nonisolated final class SourceDetailTemplateGrepTests: XCTestCase {
             XCTAssertLessThan(verdict.lowerBound, reason.lowerBound, relative)
             XCTAssertLessThan(reason.lowerBound, action.lowerBound, relative)
         }
+
+        let screencast = try Self.contents("Sources/Screencast/ScreencastSourceDetailView.swift")
+        XCTAssertTrue(screencast.contains("SourceDetailVerdictLine"))
+        XCTAssertTrue(screencast.contains("SourceDetailReasonLine"))
+        XCTAssertTrue(screencast.contains("SourceHomeTileControl"))
+        XCTAssertFalse(screencast.contains("SourceFaultActionControl"))
+        let screencastVerdict = try XCTUnwrap(screencast.range(of: "SourceDetailVerdictLine("))
+        let screencastReason = try XCTUnwrap(screencast.range(of: "SourceDetailReasonLine("))
+        XCTAssertLessThan(screencastVerdict.lowerBound, screencastReason.lowerBound)
+
+        let watch = try Self.contents("Sources/WatchCapture/WatchSourceDetailView.swift")
+        XCTAssertTrue(watch.contains("SourceDetailReasonLine"))
+        XCTAssertTrue(watch.contains("SourceHomeTileControl"))
+        XCTAssertFalse(watch.contains("SourceDetailVerdictLine"))
+        XCTAssertFalse(watch.contains("SourceFaultActionControl"))
     }
 }
 

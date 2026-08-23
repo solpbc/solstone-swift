@@ -152,7 +152,6 @@ private struct JournalMarkIconChip: View {
         }
         .frame(width: MarkGeometry.size, height: MarkGeometry.size)
         .rotationEffect(.degrees(self.icon.rot == 45 ? 45 : 0))
-        .accessibilityLabel(self.icon.name)
     }
 }
 

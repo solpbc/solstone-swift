@@ -140,7 +140,7 @@ private extension DayHomeView {
     }
 
     func isOnHome(_ id: String) -> Bool {
-        !self.hiddenHomeSourceIDs.contains(id)
+        isHomeSourceVisible(id: id, hiddenIDs: self.hiddenHomeSourceIDs)
     }
 
     var deckGrid: some View {

@@ -64,7 +64,7 @@ private extension SourceDetailView {
             }
         }
 
-        SourceDetailBlock(title: "what it adds") {
+        SourceDetailBlock(title: SourceVocabulary.whatItAddsTitle) {
             Text(SourceVocabulary.whatItAdds)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -121,13 +121,6 @@ private extension SourceDetailView {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(SourceDetailPresentation.listeningIndicatorWord)
                 .accessibilityIdentifier("source.listening")
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: self.currentSourceState.symbol)
-                    Text(self.currentSourceState.label)
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Picker("mode", selection: self.selectedModeBinding) {

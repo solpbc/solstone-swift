@@ -62,8 +62,8 @@ nonisolated enum SourcesViewRowBuilder {
         if let watch {
             canonical.append(SourcesViewRow(route: .watch, source: watch))
         }
-        let hidden = canonical.filter { hiddenIDs.contains($0.source.id) }
-        let visible = canonical.filter { !hiddenIDs.contains($0.source.id) }
+        let hidden = canonical.filter { !isHomeSourceVisible(id: $0.source.id, hiddenIDs: hiddenIDs) }
+        let visible = canonical.filter { isHomeSourceVisible(id: $0.source.id, hiddenIDs: hiddenIDs) }
         return hidden + visible
     }
 }

@@ -24,4 +24,17 @@ nonisolated final class UserSettingsHiddenHomeSourceIDsTests: XCTestCase {
         XCTAssertTrue(decoded.contains("audio"))
         XCTAssertFalse(decoded.contains("location"))
     }
+
+    func testPersistedHiddenIdDropsTileFromHomeFilter() throws {
+        let suiteName = "hiddenHomeSourceIDs.\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        suite.removePersistentDomain(forName: suiteName)
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        UserSettings.setHiddenHomeSourceIDs(["audio"], in: suite)
+        let stored = UserSettings.hiddenHomeSourceIDs(in: suite)
+        XCTAssertEqual(stored, ["audio"])
+        XCTAssertFalse(isHomeSourceVisible(id: "audio", hiddenIDs: stored))
+        XCTAssertTrue(isHomeSourceVisible(id: "location", hiddenIDs: stored))
+    }
 }

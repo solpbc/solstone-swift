@@ -6,17 +6,6 @@ import XCTest
 
 nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
     func testAccessibilityValueIsSourceStateLabel() {
-        for state in [
-            SourceState.off,
-            .enrolling,
-            .readyToSetUp,
-            .checking,
-            .active,
-            .paused,
-            .needsAttention,
-        ] {
-            XCTAssertEqual(state.label, state.label)
-        }
         XCTAssertEqual(SourceState.off.label, "off")
         XCTAssertEqual(SourceState.paused.label, "paused")
         XCTAssertNotEqual(SourceState.off.label, SourceState.paused.label)

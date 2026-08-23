@@ -30,6 +30,8 @@ nonisolated enum SourceFault: Equatable, Sendable {
 
 nonisolated enum SourceFaultAction: Equatable, Sendable {
     case none
+    /// Deliberately unproduced today: AC2's never-retry contract is "no fault maps here."
+    /// Delivery retry is a real action in facts, not this slot.
     case retry
     case routeToInstallOrOpen
     case openSettings
