@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       sim-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -54,6 +54,11 @@ CI_SIM_RUNTIME     ?= com.apple.CoreSimulator.SimRuntime.iOS-26-5
 CI_WATCH_SIM_NAME        ?= solstone-watch-ci
 CI_WATCH_SIM_DEVICETYPE  ?= com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm
 CI_WATCH_SIM_RUNTIME     ?= com.apple.CoreSimulator.SimRuntime.watchOS-26-5
+# The iPad lane (`make ci-ipad`) shares CI_SIM_RUNTIME and the default iOS Simulator
+# platform with the iPhone lane; only the device type differs. It is deliberately NOT
+# chained into `ci` — a third full lane on every run is a cost only the iPad work needs.
+CI_IPAD_SIM_NAME         ?= solstone-ipad-ci
+CI_IPAD_SIM_DEVICETYPE   ?= com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M4-8GB
 CI_ATTEMPT_TIMEOUT ?= 1200
 CI_MAX_ATTEMPTS    ?= 2
 
@@ -645,6 +650,24 @@ ci-watch: deps
 		CI_SIM_NAME='$(CI_WATCH_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_WATCH_SIM_DEVICETYPE)' \
 		CI_SIM_RUNTIME='$(CI_WATCH_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
 		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
+
+# The iPad test-execution lane. Until this existed the only iPad targets were
+# `sim-ipad` and `sim-ipad-json`, both of which are `xcodebuild build` — so no line of
+# this app had ever been EXECUTED on an iPad simulator, and an iPad acceptance
+# criterion had no oracle behind it. Same runner, same classifier, same retry-once
+# behaviour as the iPhone and watch lanes; artifacts are namespaced by CI_TEST_LANE.
+ci-ipad: deps
+	PROJECT='$(PROJECT)' SCHEME='$(SCHEME)' DERIVED='$(DERIVED)' \
+		CI_TEST_LANE='ipad' \
+		CI_SIM_NAME='$(CI_IPAD_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_IPAD_SIM_DEVICETYPE)' \
+		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
+		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
+
+# Capture launch-state screenshots on an iPad instead of the iPhone. No target change
+# was needed: `sim` builds one universal Debug-iphonesimulator product and SIM_DESTINATION
+# derives from SIM, so overriding SIM alone retargets both the build and the boot.
+sim-shots-ipad:
+	$(MAKE) sim-shots SIM='$(SIM_IPAD)'
 
 # Validate the CI runner's trust-critical classification logic (no simulator needed).
 ci-selftest:
