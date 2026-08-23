@@ -54,7 +54,6 @@ struct RootShellView: View {
         .animation(self.prefersCrossFade ? .easeInOut : .default, value: self.presentedPane)
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(self.observerSourcePauseState)
-        .environment(self.crossFadePreference)
         .task {
             await self.crossFadePreference.observe()
         }
@@ -64,7 +63,6 @@ struct RootShellView: View {
                 .presentationDetents([.fraction(0.75)])
                 .presentationDragIndicator(.visible)
                 .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .transition(self.prefersCrossFade ? .opacity : .move(edge: .bottom))
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
@@ -131,9 +129,6 @@ struct RootShellView: View {
                 },
                 sourcesBadgeVisible: self.sourcesBadgeVisible
             )
-            .navigationDestination(for: ShellDestination.self) { destination in
-                ShellDestinationView(destination: destination)
-            }
             .overlay(alignment: .leading) {
                 if self.path.isEmpty {
                     ShelfHitStrip(onOpen: {
@@ -182,7 +177,6 @@ struct RootShellView: View {
         .presentationDetents([.medium, .large], selection: self.$statusDetent)
         .presentationDragIndicator(.visible)
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .transition(self.prefersCrossFade ? .opacity : .identity)
     }
 
     private func fetchJournalMark() async {

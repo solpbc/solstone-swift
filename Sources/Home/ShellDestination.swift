@@ -3,30 +3,23 @@
 
 import SwiftUI
 
-/// Handoff to the panes lode.
+/// Wave 3 iPad `NavigationSplitView` selection vocabulary. Hashable, Sendable,
+/// no View payloads.
 ///
-/// Registered with real bodies:
-///   `.source(SourceRoute)` → SourceDetailView / LocationSourceDetailView /
-///   ScreencastSourceDetailView / OmiSourceDetailView / WatchSourceDetailView /
-///   ImporterSourceDetailView.
+/// On iPhone only `.source(...)` is pushed (deck tiles via `DayHomeView`).
+/// `.status`, `.journal`, `.journalSetup`, `.shelf`, and the five shelf-row
+/// cases are unreachable on iPhone; they resolve to a self-naming
+/// `ShellPaneStub` so an accidental push is visible rather than a silent blank.
+/// Never replace stubs with `EmptyView()`. `.addMore` and `.import` resolve to
+/// L2.3 placeholders.
 ///
-/// Registered with self-naming developer stubs (this lode does not fill them):
-///   `.status`, `.journal`, `.journalSetup`, `.addMore`, `.import`, `.shelf`,
-///   plus the five shelf rows in §4.2 order:
-///   `.shelfJournal` (journal), `.shelfThisDevice` (this device),
-///   `.shelfNotifications` (notifications), `.shelfHelp` (help),
-///   `.shelfAbout` (about solstone).
-///
-/// Interim wiring (this lode, not the enum):
+/// Live iPhone wiring (not this enum):
 ///   leading shelf control → ShelfPane overlay (`dayHome.yourSolstoneEntry`)
 ///   add-more tile         → SourcesView sheet (`dayHome.sourcesEntry`)
 ///   journal pill          → InAppJournalView sheet when paired+reachable
 ///                           (`dayHome.openInJournal`); otherwise JournalLivesSheet
 ///                           (`dayHome.journalSetup`)
 ///   status pill           → StatusPane detent sheet (`dayHome.statusPill`)
-///
-/// Wave 3 `NavigationSplitView` reuses this type as a selection: Hashable,
-/// Sendable, no View payloads, no non-Hashable associated values.
 nonisolated enum ShellDestination: Hashable, Sendable {
     case status
     case journal

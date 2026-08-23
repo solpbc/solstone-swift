@@ -18,8 +18,6 @@ struct ShelfPane: View {
     @Binding var presentedPane: PresentedShellPane?
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppConfig.self) private var appConfig
-    @Environment(OnboardingFlow.self) private var onboardingFlow
-    @Environment(TunnelManager.self) private var tunnelManager
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var path = NavigationPath()
     @State private var showingUnpairConfirm = false
@@ -58,16 +56,7 @@ struct ShelfPane: View {
             self.dismissOneLevel()
         }
         .onAppear { self.headingFocused = true }
-        .alert("unpair this device?", isPresented: self.$showingUnpairConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Unpair", role: .destructive) {
-                Task {
-                    await self.unpairDevice()
-                }
-            }
-        } message: {
-            Text("this clears the paired session on this device and returns you to setup.")
-        }
+        .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
     }
 
     private var panel: some View {
@@ -181,13 +170,6 @@ struct ShelfPane: View {
         }
         .accessibilityIdentifier("shell.pane.shelf.about")
         .hoverEffect(.highlight)
-    }
-
-    private func unpairDevice() async {
-        shelfLog.info("unpair clearing local SPL pairing")
-        self.appConfig.clearPairing()
-        self.onboardingFlow.reset()
-        await self.tunnelManager.disconnect()
     }
 
     private func dismissOneLevel() {
@@ -317,8 +299,6 @@ struct JournalSettingsPane: View {
 
 struct ThisDevicePane: View {
     @Environment(AppConfig.self) private var appConfig
-    @Environment(OnboardingFlow.self) private var onboardingFlow
-    @Environment(TunnelManager.self) private var tunnelManager
     @State private var showingUnpairConfirm = false
 
     var body: some View {
@@ -347,11 +327,28 @@ struct ThisDevicePane: View {
                 }
             }
         }
-        .alert("unpair this device?", isPresented: self.$showingUnpairConfirm) {
+        .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
+    }
+}
+
+private extension View {
+    func unpairThisDeviceAlert(isPresented: Binding<Bool>) -> some View {
+        modifier(UnpairThisDeviceAlert(isPresented: isPresented))
+    }
+}
+
+private struct UnpairThisDeviceAlert: ViewModifier {
+    @Binding var isPresented: Bool
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(OnboardingFlow.self) private var onboardingFlow
+    @Environment(TunnelManager.self) private var tunnelManager
+
+    func body(content: Content) -> some View {
+        content.alert("unpair this device?", isPresented: self.$isPresented) {
             Button("Cancel", role: .cancel) {}
             Button("Unpair", role: .destructive) {
                 Task {
-                    await self.unpairDevice()
+                    await self.unpair()
                 }
             }
         } message: {
@@ -359,7 +356,7 @@ struct ThisDevicePane: View {
         }
     }
 
-    private func unpairDevice() async {
+    private func unpair() async {
         shelfLog.info("unpair clearing local SPL pairing")
         self.appConfig.clearPairing()
         self.onboardingFlow.reset()

@@ -3,6 +3,7 @@
 
 import SwiftUI
 
+/// L2.3 placeholder. Not pushed on iPhone.
 struct AddMoreView: View {
     var body: some View {
         Text("dev-copy: add more")

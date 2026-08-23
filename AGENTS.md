@@ -18,7 +18,7 @@ Native SwiftUI observer + importer + control center. The phone observes mic audi
 
 Local-first observation works unpaired. Captured data is held durably on-phone and drains to the journal once a pairing + tunnel exist. `AppConfig`'s `isPaired` (`Sources/Services/AppConfig.swift`) gates journal features, never observation.
 
-The UI shell has no tab bar. `Sources/ContentView.swift` gates on `onboardingFlow.isCompleted`, then renders `RootShellView` (`Sources/RootShellView.swift`), a `NavigationStack` over `DayHomeView` (`Sources/DayHomeView.swift`). The sources control center (`SourcesView`, `Sources/SourcesView.swift`), the embedded journal web view (`InAppJournalView`, `Sources/Portal/InAppJournalView.swift`), and more (`MoreView`, `Sources/MoreView.swift`) are presented as sheets / navigation destinations, not tabs.
+The UI shell has no tab bar. `Sources/ContentView.swift` gates on `onboardingFlow.isCompleted`, then renders `RootShellView` (`Sources/RootShellView.swift`), a `NavigationStack` over `DayHomeView` (`Sources/Home/DayHomeView.swift`). The sources control center (`SourcesView`, `Sources/SourcesView.swift`), the embedded journal web view (`InAppJournalView`, `Sources/Portal/InAppJournalView.swift`), and the shelf (`ShelfPane`, `Sources/Home/ShelfPane.swift`, opened via `dayHome.yourSolstoneEntry`) are presented as sheets, overlays, or navigation destinations, not tabs.
 
 Capture pipelines:
 - `Sources/Observer/` — audio recorder/manager.

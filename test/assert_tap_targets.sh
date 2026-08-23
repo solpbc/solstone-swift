@@ -11,7 +11,6 @@ TARGETS=(
   Sources/Onboarding
   Sources/Home
   Sources/Location
-  Sources/Home/ShelfPane.swift
 )
 
 status=0

@@ -13,7 +13,7 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         XCTAssertFalse(body.contains("tunnelManager.state.isConnected"))
     }
 
-    func testMoreViewStatusDoesNotUseRetiredStandingHelpers() throws {
+    func testStatusPaneDoesNotUseRetiredStandingHelpers() throws {
         let text = try Self.sourceText("Sources/Home/StatusPane.swift")
 
         for forbidden in ["standingHealth", "standingSegmentReach", "standingSyncLine", "uploadReach"] {

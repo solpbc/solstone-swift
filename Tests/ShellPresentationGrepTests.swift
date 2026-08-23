@@ -53,7 +53,8 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitionsStatusDidChange"))
         XCTAssertFalse(text.contains("extension EnvironmentValues"))
         XCTAssertTrue(text.contains(".transition(self.prefersCrossFade ? .opacity : .move(edge: .leading))"))
-        XCTAssertTrue(text.contains(".transition(self.prefersCrossFade ? .opacity : .move(edge: .bottom))"))
+        XCTAssertFalse(text.contains(".move(edge: .bottom)"))
+        XCTAssertFalse(text.contains(".transition(self.prefersCrossFade ? .opacity : .identity)"))
         XCTAssertTrue(text.contains("self.reduceMotion || self.prefersCrossFade"))
         XCTAssertFalse(text.contains("--accessibility-prefers-cross-fade"))
     }

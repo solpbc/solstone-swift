@@ -3,6 +3,7 @@
 
 import SwiftUI
 
+/// Wave 3 iPad split-view stub: self-naming so an accidental iPhone push is visible. Not dead code.
 struct ShellPaneStub: View {
     let name: String
     let identifier: String
