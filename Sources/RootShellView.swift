@@ -54,6 +54,7 @@ struct RootShellView: View {
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
+                .environment(self.observerSourcePauseState)
         }
         .sheet(isPresented: self.$showingYourSolstone, onDismiss: {
             self.navigateToDiagnostics = false
@@ -100,6 +101,9 @@ struct RootShellView: View {
         ].contains(where: \.showsSourcesBadge)
     }
 
+    // Inline switch is pinned by ConnectionSyncGrepTests /
+    // IntegrationGateG4G5ConnectionSyncTests. Do not replace with
+    // dayHomeJournalState(isPaired:status:).
     private var dayHomeJournalState: DayHomeJournalState {
         if !self.appConfig.isPaired {
             return .noJournal

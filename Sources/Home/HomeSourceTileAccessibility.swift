@@ -11,9 +11,9 @@ nonisolated struct HomeSourceTileAccessibilityFacts: Equatable, Sendable {
 
     fileprivate static func takingItIn(_ state: SourceState) -> String {
         switch state {
-        case .enrolling, .active:
+        case .active:
             "dev-copy: taking it in now"
-        case .off, .readyToSetUp, .checking, .paused, .needsAttention:
+        case .off, .enrolling, .readyToSetUp, .checking, .paused, .needsAttention:
             "dev-copy: not taking it in now"
         }
     }

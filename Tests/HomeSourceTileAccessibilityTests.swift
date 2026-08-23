@@ -8,7 +8,7 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
     func testFactsForAllSourceStates() {
         let cases: [(SourceState, String, String)] = [
             (.off, "dev-copy: not taking it in now", "good"),
-            (.enrolling, "dev-copy: taking it in now", "good"),
+            (.enrolling, "dev-copy: not taking it in now", "good"),
             (.readyToSetUp, "dev-copy: not taking it in now", "unavailable"),
             (.checking, "dev-copy: not taking it in now", "degraded"),
             (.active, "dev-copy: taking it in now", "good"),

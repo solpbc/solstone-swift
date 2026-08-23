@@ -297,6 +297,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
                 .environment(tunnelManager)
+                .environment(connectionSyncModel)
                 .environment(finishSyncingCoordinator)
                 .environment(locationManager)
                 .environment(mobileSegmentUploader)

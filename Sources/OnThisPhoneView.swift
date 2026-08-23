@@ -5,6 +5,8 @@ import SwiftUI
 
 struct OnThisPhoneView: View {
     let onTurnOnSource: () -> Void
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @State private var showingSources = false
 
     init(onTurnOnSource: @escaping () -> Void = {}) {
@@ -16,7 +18,11 @@ struct OnThisPhoneView: View {
             onTurnOnSource: {
                 self.onTurnOnSource()
                 self.showingSources = true
-            }
+            },
+            journalState: dayHomeJournalState(
+                isPaired: self.appConfig.isPaired,
+                status: self.connectionSyncModel.status
+            )
         )
         .navigationTitle(SourceVocabulary.onThisPhone)
         .navigationBarTitleDisplayMode(.inline)

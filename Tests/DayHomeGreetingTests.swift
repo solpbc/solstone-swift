@@ -17,4 +17,17 @@ nonisolated final class DayHomeGreetingTests: XCTestCase {
         XCTAssertEqual(greeting(forHour: 0), "good evening")
         XCTAssertEqual(greeting(forHour: 23), "good evening")
     }
+
+    func testDayHomeJournalStateFromPairingAndSyncStatus() {
+        XCTAssertEqual(dayHomeJournalState(isPaired: false, status: .connectedIdle), .noJournal)
+        XCTAssertEqual(dayHomeJournalState(isPaired: false, status: .offline), .noJournal)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .connectedIdle), .linkedOnline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .connectedWaiting), .linkedOnline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .connectedTransferring), .linkedOnline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .offline), .linkedOffline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .connecting), .linkedOffline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .waitingForHome), .linkedOffline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .reconnecting), .linkedOffline)
+        XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .unreachable), .linkedOffline)
+    }
 }

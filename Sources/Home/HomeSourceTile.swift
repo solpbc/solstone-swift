@@ -137,13 +137,7 @@ struct HomeAddMoreTile: View {
         .buttonStyle(.plain)
         .background(Color(.secondarySystemGroupedBackground), in: ConcentricRectangle())
         .contentShape(ConcentricRectangle())
-        .simultaneousGesture(TapGesture().onEnded { self.onTap() })
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("dev-copy: add more")
         .accessibilityIdentifier("dayHome.sourcesEntry")
-        .accessibilityAction {
-            self.onTap()
-        }
     }
 }

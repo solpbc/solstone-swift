@@ -5,11 +5,12 @@ import SwiftUI
 
 struct ShellPaneStub: View {
     let name: String
+    let identifier: String
 
     var body: some View {
         Text(self.name)
             .navigationTitle(self.name)
             .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier("shell.stub.\(self.name)")
+            .accessibilityIdentifier("shell.stub.\(self.identifier)")
     }
 }

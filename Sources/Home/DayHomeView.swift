@@ -11,10 +11,35 @@ func greeting(forHour hour: Int) -> String {
     }
 }
 
-enum DayHomeJournalState: Equatable {
+nonisolated enum DayHomeJournalState: Equatable, Sendable {
     case noJournal
     case linkedOffline
     case linkedOnline
+}
+
+nonisolated func dayHomeJournalState(
+    isPaired: Bool,
+    status: ConnectionSyncStatus
+) -> DayHomeJournalState {
+    if !isPaired {
+        return .noJournal
+    }
+    switch status {
+    case .connectedIdle, .connectedWaiting, .connectedTransferring:
+        return .linkedOnline
+    case .offline, .connecting, .waitingForHome, .reconnecting, .unreachable:
+        return .linkedOffline
+    }
+}
+
+func refreshNowPeriodically(update: @escaping () -> Void) async {
+    while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(30))
+        guard !Task.isCancelled else {
+            return
+        }
+        update()
+    }
 }
 
 struct DayHomeView: View {
@@ -43,7 +68,6 @@ struct DayHomeView: View {
     @State private var containerWidth: CGFloat = 0
     @State private var now = Date()
     @State private var showingJournalLives = false
-    @State private var showingSources = false
 
     var body: some View {
         ScrollView {
@@ -64,7 +88,7 @@ struct DayHomeView: View {
         .navigationTitle(greeting(forHour: Calendar.current.component(.hour, from: self.now)))
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(for: ShellDestination.self) { destination in
-            HomeShellDestinationView(destination: destination)
+            ShellDestinationView(destination: destination)
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -77,12 +101,9 @@ struct DayHomeView: View {
             }
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        .task { await self.refreshNowPeriodically() }
+        .task { await refreshNowPeriodically { self.now = Date() } }
         .sheet(isPresented: self.$showingJournalLives) {
             JournalLivesSheet(isPresented: self.$showingJournalLives)
-        }
-        .sheet(isPresented: self.$showingSources) {
-            SourcesView()
         }
     }
 }
@@ -152,7 +173,7 @@ private extension DayHomeView {
                 control: .none
             )
             HomeAddMoreTile(badgeVisible: self.sourcesBadgeVisible) {
-                self.showingSources = true
+                self.onOpenSources()
             }
         }
     }
@@ -257,16 +278,19 @@ private extension DayHomeView {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(self.statusLine)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
                 if self.backlogCount > 0 {
                     Text("\(self.backlogCount)")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                         .layoutPriority(1)
                         .accessibilityAddTraits(.updatesFrequently)
                 }
             }
         }
+        .tint(.primary)
         .matchedTransitionSource(id: ShellDestination.status, in: self.homeChrome)
         .accessibilityIdentifier("dayHome.statusPill")
         .accessibilityValue(self.statusPillAccessibilityValue)
@@ -289,9 +313,11 @@ private extension DayHomeView {
             }
         } label: {
             Text(self.journalPillTitle)
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.bordered)
+        .tint(.primary)
         .controlSize(.regular)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityShowsLargeContentViewer()
@@ -320,15 +346,5 @@ private extension DayHomeView {
         .frame(minWidth: 44, minHeight: 44)
         .accessibilityLabel(SourceVocabulary.yourSolstoneTitle)
         .accessibilityIdentifier("dayHome.yourSolstoneEntry")
-    }
-
-    func refreshNowPeriodically() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(30))
-            guard !Task.isCancelled else {
-                return
-            }
-            self.now = Date()
-        }
     }
 }

@@ -44,7 +44,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     case shelfAbout
 }
 
-struct HomeShellDestinationView: View {
+struct ShellDestinationView: View {
     let destination: ShellDestination
     @Environment(AppConfig.self) private var appConfig
 
@@ -63,27 +63,27 @@ struct HomeShellDestinationView: View {
         case .source(.share):
             ImporterSourceDetailView(source: makeShareSource(isJournalPaired: self.appConfig.isPaired))
         case .status:
-            ShellPaneStub(name: "status")
+            ShellPaneStub(name: "status", identifier: "status")
         case .journal:
-            ShellPaneStub(name: "journal")
+            ShellPaneStub(name: "journal", identifier: "journal")
         case .journalSetup:
-            ShellPaneStub(name: "journalSetup")
+            ShellPaneStub(name: "journalSetup", identifier: "journalSetup")
         case .addMore:
-            ShellPaneStub(name: "addMore")
+            ShellPaneStub(name: "addMore", identifier: "addMore")
         case .import:
-            ShellPaneStub(name: "import")
+            ShellPaneStub(name: "import", identifier: "import")
         case .shelf:
-            ShellPaneStub(name: "shelf")
+            ShellPaneStub(name: "shelf", identifier: "shelf")
         case .shelfJournal:
-            ShellPaneStub(name: "journal")
+            ShellPaneStub(name: "journal", identifier: "shelfJournal")
         case .shelfThisDevice:
-            ShellPaneStub(name: "this device")
+            ShellPaneStub(name: "this device", identifier: "thisDevice")
         case .shelfNotifications:
-            ShellPaneStub(name: "notifications")
+            ShellPaneStub(name: "notifications", identifier: "shelfNotifications")
         case .shelfHelp:
-            ShellPaneStub(name: "help")
+            ShellPaneStub(name: "help", identifier: "shelfHelp")
         case .shelfAbout:
-            ShellPaneStub(name: "about solstone")
+            ShellPaneStub(name: "about solstone", identifier: "aboutSolstone")
         }
     }
 }

@@ -77,7 +77,7 @@ struct SourcesView: View {
                 }
             }
             .task {
-                await self.refreshNowPeriodically()
+                await refreshNowPeriodically { self.now = Date() }
             }
         }
     }
@@ -142,15 +142,5 @@ private extension SourcesView {
             omiSourceManager: self.omiSourceManager,
             watchLane: self.watchPipelineInputs.assembly(now: self.now).lane
         )
-    }
-
-    func refreshNowPeriodically() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(30))
-            guard !Task.isCancelled else {
-                return
-            }
-            self.now = Date()
-        }
     }
 }
