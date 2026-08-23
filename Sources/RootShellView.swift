@@ -35,9 +35,6 @@ struct RootShellView: View {
         NavigationStack {
             DayHomeView(
                 journalState: self.dayHomeJournalState,
-                onTurnOnSource: {
-                    self.showingSources = true
-                },
                 onOpenJournal: {
                     self.showingJournal = true
                 },
@@ -51,12 +48,12 @@ struct RootShellView: View {
                 sourcesBadgeVisible: self.sourcesBadgeVisible
             )
         }
+        .environment(self.observerSourcePauseState)
         .sheet(isPresented: self.$showingJournal) {
             InAppJournalView()
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
-                .environment(self.observerSourcePauseState)
         }
         .sheet(isPresented: self.$showingYourSolstone, onDismiss: {
             self.navigateToDiagnostics = false

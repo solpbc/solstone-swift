@@ -6,6 +6,7 @@ import SwiftUI
 struct SourceRowView: View {
     let source: Source
     let onTap: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: self.onTap) {
@@ -47,7 +48,7 @@ struct SourceRowView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
@@ -74,7 +75,7 @@ private extension SourceRowView {
     var stateLabelColor: Color {
         switch self.source.state {
         case .readyToSetUp:
-            .orangeInk
+            self.colorScheme == .dark ? .primary : .textOrangeAA
         case .off, .enrolling, .checking, .active, .paused, .needsAttention:
             .primary
         }

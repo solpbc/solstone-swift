@@ -11,6 +11,7 @@ struct JournalLivesSheet: View {
     @Binding var isPresented: Bool
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(\.colorScheme) private var colorScheme
     @State private var path: [Destination] = []
 
     var body: some View {
@@ -33,7 +34,7 @@ struct JournalLivesSheet: View {
                         ) {
                             Text(SourceVocabulary.journalLivesAction(isPaired: self.appConfig.isPaired))
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.orangeInk)
+                                .foregroundStyle(self.colorScheme == .dark ? Color.primary : Color.textOrangeAA)
                         }
                     }
                     .accessibilityIdentifier("journalLives.ownJournal")

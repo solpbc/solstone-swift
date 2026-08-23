@@ -13,11 +13,10 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testNoJournalShellShowsPlaceholdersAndTabs() {
         let app = self.launchNoJournalApp()
 
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].exists)
 
-        app.buttons["dayHome.sourcesEntry"].tap()
+        self.tapDayHomeSourcesEntry(in: app)
         XCTAssertTrue(app.buttons["source.row.audio"].waitForExistence(timeout: 5))
         self.dismissPresentedSheet(in: app, untilMissingElementID: "source.row.audio")
 
@@ -28,6 +27,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testOnThisPhoneEmptyShowsTurnOnSourceAndNoBackedUpBanner() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         let turnOnSource = app.buttons["onThisPhone.turnOnSource"]
         XCTAssertTrue(turnOnSource.waitForExistence(timeout: 10))
@@ -48,14 +48,14 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(app.buttons["get started"].waitForExistence(timeout: 10))
         app.buttons["get started"].tap()
 
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
     }
 
     @MainActor
     func testAudioEnrollmentAvailableAtZeroJournal() {
         let app = self.launchNoJournalApp()
 
-        app.buttons["dayHome.sourcesEntry"].tap()
+        self.tapDayHomeSourcesEntry(in: app)
         let audioRow = app.buttons["source.row.audio"]
         XCTAssertTrue(audioRow.waitForExistence(timeout: 5))
         audioRow.tap()
@@ -72,7 +72,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testNoJournalSourcesShowsSimplifiedSheet() {
         let app = self.launchNoJournalApp()
 
-        app.buttons["dayHome.sourcesEntry"].tap()
+        self.tapDayHomeSourcesEntry(in: app)
 
         XCTAssertTrue(app.staticTexts["experiencing your day with you"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["import other memories"].waitForExistence(timeout: 5))
@@ -85,6 +85,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testConnectEntryOpensPairFlowAndShowsOnYourPhoneLane() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         app.buttons["onThisPhone.connectJournalButton"].tap()
         XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
@@ -104,13 +105,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testStandaloneOnThisPhoneViewHasNoAskBar() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        app.buttons["dayHome.sourcesEntry"].tap()
-        app.buttons["source.row.share-sheet"].tap()
-        let onThisPhoneLink = app.buttons["on this device"]
-        XCTAssertTrue(onThisPhoneLink.waitForExistence(timeout: 5))
-        onThisPhoneLink.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
-        // Standalone on-this-phone (sources → share-sheet → on this phone) has no ask bar.
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
     }
 
@@ -118,16 +113,14 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testSeededNoJournalTodayShowsOnThisPhoneSurface() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
-        let greeting = app.staticTexts["dayHome.greeting"]
-        XCTAssertTrue(greeting.waitForExistence(timeout: 5))
-        XCTAssertTrue(["good morning", "good afternoon", "good evening"].contains(greeting.label))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        self.assertDayHomeGreeting(in: app)
         XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
-        let locality = app.buttons["dayHome.locality"]
-        XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        XCTAssertEqual(locality.label, "on this device, not paired")
+        let status = app.buttons["dayHome.statusPill"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(status.label.contains("on this device · not paired"), status.label)
         XCTAssertFalse(app.navigationBars["on this device"].exists)
     }
 
@@ -135,7 +128,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     func testJournalLivesSheetShowsPositionsAndDismisses() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
-        app.buttons["dayHome.locality"].tap()
+        let journalSetup = app.buttons["dayHome.journalSetup"]
+        XCTAssertTrue(journalSetup.waitForExistence(timeout: 5))
+        journalSetup.tap()
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
 
         let promise = app.descendants(matching: .any)["journalLives.promise"]
@@ -165,14 +160,16 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         app.buttons["done"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].exists)
     }
 
     @MainActor
     func testJournalLivesConnectReachesPairFlow() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
 
-        app.buttons["dayHome.locality"].tap()
+        let journalSetup = app.buttons["dayHome.journalSetup"]
+        XCTAssertTrue(journalSetup.waitForExistence(timeout: 5))
+        journalSetup.tap()
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
         app.buttons["journalLives.ownJournal"].tap()
 
@@ -182,6 +179,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testHowJournalsWorkPresentsJournalLivesAboveConnectSheet() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         app.buttons["onThisPhone.connectJournalButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].waitForExistence(timeout: 5))
@@ -202,6 +200,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-seed-audio-magic",
             "--ui-test-seed-audio-magic-duration=185",
         ])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
         let duration = app.staticTexts["magicMoment.duration"]
@@ -213,7 +212,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.assertDayHomeRoot(in: app)
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         XCTAssertFalse(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 2))
     }
 
@@ -223,6 +222,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-seed-audio-magic",
             "--ui-test-seed-audio-magic-duration=242",
         ])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
         let duration = app.staticTexts["magicMoment.duration"]
@@ -238,7 +238,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-observer-permission-denied",
         ])
 
-        app.buttons["dayHome.sourcesEntry"].tap()
+        self.tapDayHomeSourcesEntry(in: app)
         let audioRow = app.buttons["source.row.audio"]
         XCTAssertTrue(audioRow.waitForExistence(timeout: 5))
         audioRow.tap()
@@ -251,14 +251,14 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(app.buttons["turn on audio"].exists)
 
         self.dismissPresentedSheet(in: app, untilMissingElementID: "audioEnrollment.value")
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 2))
     }
 
     @MainActor
     func testSeededOnThisPhoneSummaryHidesNeedsAttentionBanner() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         let needsAttention = app.descendants(matching: .any)["onThisPhone.status.needsAttention"]
 
         XCTAssertFalse(needsAttention.waitForExistence(timeout: 2))
@@ -267,6 +267,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testSeededOnThisPhoneDropGuardrailShowsSnackbar() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         let row = self.seedAudioRow(in: app)
         let surface = app.descendants(matching: .any)["onThisPhone.surface"]
         self.scrollToElement(row, in: surface)
@@ -296,6 +297,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testSeededOnThisPhoneSwipeToDropThenUndo() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         let row = self.seedAudioRow(in: app)
         let surface = app.descendants(matching: .any)["onThisPhone.surface"]
         self.scrollToElement(row, in: surface)
@@ -340,6 +342,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testOnThisPhoneNotBackedUpNudgeOpensConnectSheet() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         XCTAssertTrue(app.staticTexts["onThisPhone.notBackedUp"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.staticTexts.matching(identifier: "onThisPhone.notBackedUp").count, 1)
@@ -352,6 +355,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     @MainActor
     func testMagicMomentSecondaryButtonOpensConnectSheetDirectly() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-audio-magic"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
         app.buttons["magicMoment.connectJournal"].tap()
@@ -366,6 +370,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "--ui-test-seed-aged-backlog",
             "--ui-test-reset-nudge-dismissal",
         ])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         let text = "51 memories are on this device. connect a journal whenever you're ready."
 
         XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 10))
@@ -377,7 +382,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.assertDayHomeRoot(in: app)
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         XCTAssertFalse(app.staticTexts["onThisPhone.agedBacklog"].waitForExistence(timeout: 2))
     }
 }
@@ -391,7 +396,6 @@ private extension NoJournalShellTests {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.assertDayHomeRoot(in: app)
-        XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10))
         return app
     }
 

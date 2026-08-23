@@ -204,6 +204,33 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(phoneSessionHistoryStore)
                 .environment(connectionSyncModel)
         }
+        let dayHomeView = NavigationStack {
+            DayHomeView(
+                journalState: .noJournal,
+                onOpenJournal: {},
+                onOpenSources: {},
+                onOpenYourSolstone: {},
+                sourcesBadgeVisible: false
+            )
+            .environment(appConfig)
+            .environment(observerManager)
+            .environment(ObserverSourcePauseState())
+            .environment(locationManager)
+            .environment(ScreencastManager())
+            .environment(mobileSegmentUploader)
+            .environment(mobileSegmentTransferHolder)
+            .environment(omiSourceManager)
+            .environment(omiUploaderHolder)
+            .environment(watchSourceFacts)
+            .environment(watchLink)
+            .environment(watchRelayReceiver)
+            .environment(watchUploaderHolder)
+            .environment(watchSegmentLedger)
+            .environment(phoneSessionHistoryStore)
+            .environment(shareImportStore)
+            .environment(shareTransferHolder)
+            .environment(connectionSyncModel)
+        }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
                 .environment(appConfig)
@@ -299,6 +326,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         )
         try self.assertHosted(moreView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
+        try self.assertHosted(dayHomeView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(omiSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(watchSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))

@@ -13,7 +13,7 @@ nonisolated final class SourceStateSwitchGrepTests: XCTestCase {
 
         XCTAssertTrue(row.contains("case .active, .enrolling, .readyToSetUp:"))
         XCTAssertTrue(row.contains("case .off, .paused, .checking:"))
-        XCTAssertTrue(row.contains("case .readyToSetUp:\n            .orangeInk"))
+        XCTAssertTrue(row.contains("case .readyToSetUp:\n            self.colorScheme == .dark ? .primary : .textOrangeAA"))
         XCTAssertTrue(shell.contains("case .off, .readyToSetUp, .checking, .paused:"))
         XCTAssertTrue(detail.contains("case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:"))
     }

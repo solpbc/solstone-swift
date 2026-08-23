@@ -5,6 +5,7 @@ import SwiftUI
 
 struct OnThisPhoneView: View {
     let onTurnOnSource: () -> Void
+    @State private var showingSources = false
 
     init(onTurnOnSource: @escaping () -> Void = {}) {
         self.onTurnOnSource = onTurnOnSource
@@ -12,10 +13,16 @@ struct OnThisPhoneView: View {
 
     var body: some View {
         OnThisPhoneMomentsView(
-            onTurnOnSource: self.onTurnOnSource
-        ) { EmptyView() }
-            .navigationTitle(SourceVocabulary.onThisPhone)
-            .navigationBarTitleDisplayMode(.inline)
+            onTurnOnSource: {
+                self.onTurnOnSource()
+                self.showingSources = true
+            }
+        )
+        .navigationTitle(SourceVocabulary.onThisPhone)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: self.$showingSources) {
+            SourcesView()
+        }
     }
 }
 
@@ -85,7 +92,7 @@ nonisolated func magicMomentShownCandidate(
     return snapshot.items.first
 }
 
-struct OnThisPhoneMomentsView<Header: View>: View {
+struct OnThisPhoneMomentsView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(ObserverManager.self) private var observerManager
@@ -114,16 +121,13 @@ struct OnThisPhoneMomentsView<Header: View>: View {
     @State private var coalescer = OnThisPhoneSnapshotCoalescer()
     private let pulsePoller = HomePulsePoller()
     private let journalState: DayHomeJournalState?
-    private let header: Header
 
     init(
         onTurnOnSource: @escaping () -> Void = {},
-        journalState: DayHomeJournalState? = nil,
-        @ViewBuilder header: () -> Header
+        journalState: DayHomeJournalState? = nil
     ) {
         self.onTurnOnSource = onTurnOnSource
         self.journalState = journalState
-        self.header = header()
     }
 
     var body: some View {
@@ -133,8 +137,6 @@ struct OnThisPhoneMomentsView<Header: View>: View {
                 let migration = displayAggregate.map { onThisPhoneMigration(snapshot: $0) }
                     ?? OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
                 let hasItems = displayAggregate?.items.isEmpty == false
-
-                self.header
 
                 if let welcomeFraming = self.welcomeFraming {
                     Text(welcomeFraming)

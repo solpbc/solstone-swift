@@ -48,7 +48,7 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
         let watchSourceConstruction = try Self.section(
             in: text,
             from: "nonisolated func watchSourceModel(",
-            to: "private extension SourcesView"
+            to: "// watchSourceModel-end"
         )
 
         XCTAssertFalse(watchSourceConstruction.contains("detailSubtext:"))
@@ -74,7 +74,7 @@ private extension SourcesViewRowBuilderTests {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/SourcesView.swift")
+            .appendingPathComponent("Sources/Home/SourceModelBuilder.swift")
     }
 
     static func section(in text: String, from start: String, to end: String) throws -> String {

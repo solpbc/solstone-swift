@@ -24,11 +24,11 @@ struct SourcesView: View {
                             .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
                         ForEach(SourcesViewRowBuilder.primaryRows(
-                            audio: self.audioSource,
-                            location: self.locationSource,
-                            screencast: self.screencastSource,
-                            omi: self.omiSource,
-                            watch: self.watchSource
+                            audio: self.bundle.audio,
+                            location: self.bundle.location,
+                            screencast: self.bundle.screencast,
+                            omi: self.bundle.omi,
+                            watch: self.bundle.watch
                         )) { row in
                             SourceRowView(source: row.source) {
                                 self.selectedSourceRoute = row.route
@@ -40,7 +40,7 @@ struct SourcesView: View {
                         Text(SourceGroup.bringingInYourself.header)
                             .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
 
-                        ForEach(SourcesViewRowBuilder.importRows(share: self.shareSource)) { row in
+                        ForEach(SourcesViewRowBuilder.importRows(share: self.bundle.share)) { row in
                             SourceRowView(source: row.source) {
                                 self.selectedSourceRoute = row.route
                             }
@@ -73,7 +73,7 @@ struct SourcesView: View {
                 case .watch:
                     WatchSourceDetailView()
                 case .share:
-                    ImporterSourceDetailView(source: self.shareSource)
+                    ImporterSourceDetailView(source: self.bundle.share)
                 }
             }
             .task {
@@ -130,121 +130,18 @@ nonisolated enum SourcesViewRowBuilder {
     }
 }
 
-nonisolated func watchSourceModel(from lane: PhoneWatchSourceLane, isJournalPaired: Bool) -> Source? {
-    guard lane != .unsupported else {
-        return nil
-    }
-    let presentation = phoneWatchSourcePresentation(lane: lane)
-    return Source(
-        id: "watch",
-        displayName: SourceVocabulary.watchSourceDisplayName,
-        kind: .watch,
-        group: .experiencingAlongsideYou,
-        state: presentation.state,
-        isJournalPaired: isJournalPaired,
-        activeSubtext: SourceVocabulary.watchListeningSubtext,
-        subtextOverride: presentation.subtext,
-        attention: presentation.attention,
-        pendingStatus: .nonePending,
-        showsSubtext: presentation.subtext != nil
-    )
-}
-
 private extension SourcesView {
-    var audioSource: Source {
-        let state = sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
-        let attention: SourceAttention?
-        if case .error(let error) = self.observerManager.state {
-            attention = SourceAttention(message: error.message)
-        } else {
-            attention = nil
-        }
-
-        return Source(
-            id: "audio",
-            displayName: "audio",
-            kind: .observer,
-            group: .experiencingAlongsideYou,
-            state: state,
+    var bundle: HomeSourceBundle {
+        makeHomeSourceBundle(
+            now: self.now,
             isJournalPaired: self.appConfig.isPaired,
-            activeSubtext: SourceVocabulary.observerActiveSubtext,
-            attention: attention,
-            pendingStatus: .nonePending
+            observerManager: self.observerManager,
+            observerSourcePauseState: self.observerSourcePauseState,
+            locationManager: self.locationManager,
+            screencastManager: self.screencastManager,
+            omiSourceManager: self.omiSourceManager,
+            watchLane: self.watchPipelineInputs.assembly(now: self.now).lane
         )
-    }
-
-    var shareSource: Source {
-        return Source(
-            id: "share-sheet",
-            displayName: SourceVocabulary.shareSheetDisplayName,
-            kind: .importer,
-            group: .bringingInYourself,
-            state: .active,
-            isJournalPaired: self.appConfig.isPaired,
-            activeSubtext: SourceVocabulary.shareAlwaysOnSubtext(isJournalPaired: self.appConfig.isPaired),
-            attention: nil,
-            pendingStatus: .nonePending
-        )
-    }
-
-    var locationSource: Source {
-        return Source(
-            id: "location",
-            displayName: LocationVocabulary.sourceDisplayName,
-            kind: .location,
-            group: .experiencingAlongsideYou,
-            state: self.locationManager.sourceState,
-            isJournalPaired: self.appConfig.isPaired,
-            activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: self.appConfig.isPaired),
-            attention: self.locationManager.sourceAttention,
-            pendingStatus: .nonePending
-        )
-    }
-
-    var screencastSource: Source {
-        screencastSourcePresentation(
-            managerState: self.screencastManager.state,
-            isJournalPaired: self.appConfig.isPaired
-        )
-    }
-
-    var omiSource: Source {
-        let now = self.now
-        let effectiveState = self.omiSourceManager.effectiveConnectionState(now: now)
-        let mapped = omiSourceState(
-            for: effectiveState,
-            enabled: self.omiSourceManager.enabled
-        )
-        let battery = OmiSourceLogic.surfacedBattery(
-            live: self.omiSourceManager.battery,
-            lastKnown: self.omiSourceManager.lastKnownBattery
-        )
-        let signal = OmiSourceLogic.surfacedSignal(
-            live: self.omiSourceManager.connectedRSSI,
-            lastKnown: self.omiSourceManager.lastKnownSignal
-        )
-        return Source(
-            id: "omi",
-            displayName: "omi pendant",
-            kind: .omi,
-            group: .experiencingAlongsideYou,
-            state: mapped.0,
-            isJournalPaired: self.appConfig.isPaired,
-            activeSubtext: SourceVocabulary.observerActiveSubtext,
-            attention: mapped.1,
-            pendingStatus: .nonePending,
-            // VPX: tune row summary composition once multiple last-known states are visible.
-            detailSubtext: OmiSourceLogic.sourceReadingSubtext(
-                battery: battery,
-                signal: signal,
-                now: now
-            )
-        )
-    }
-
-    var watchSource: Source? {
-        let assembly = self.watchPipelineInputs.assembly(now: self.now)
-        return watchSourceModel(from: assembly.lane, isJournalPaired: self.appConfig.isPaired)
     }
 
     func refreshNowPeriodically() async {

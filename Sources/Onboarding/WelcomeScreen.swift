@@ -15,7 +15,7 @@ struct WelcomeScreen: View {
             title: "this is the solstone app.",
             subtitle: "the solstone app runs on your devices and takes in what you share with it. your journal holds it. your journal is always private, only yours.",
             showsBrandMark: true,
-            ground: Color.solCream,
+            ground: Color(.systemBackground),
             alignment: .center
         ) {
             VStack(alignment: .center, spacing: 16) {
@@ -31,7 +31,6 @@ struct WelcomeScreen: View {
                     .accessibilityHint("finishes setup and opens your day")
             }
         }
-        .preferredColorScheme(.light)
         .navigationTitle("")
         .onAppear {
             guard !self.didAutoAdvance else { return }

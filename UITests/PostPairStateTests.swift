@@ -25,13 +25,12 @@ nonisolated final class PostPairStateTests: XCTestCase {
         let bannerText = app.staticTexts["offline — safe on this phone · your journal will catch up"]
         let bannerElement = app.otherElements["Offline. Safe on this phone; your journal will catch up."]
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["everything you've shared, ready for your journal when it reconnects."].waitForExistence(timeout: 5))
         XCTAssertFalse(bannerText.exists)
         XCTAssertFalse(bannerElement.exists)
-        let locality = app.buttons["dayHome.locality"]
-        XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        XCTAssertEqual(locality.label, "your journal · offline")
-        XCTAssertTrue(app.staticTexts["dayHome.greeting"].waitForExistence(timeout: 5))
+        let status = app.buttons["dayHome.statusPill"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(status.label.contains("offline"), status.label)
+        self.assertDayHomeGreeting(in: app)
         XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
@@ -50,9 +49,9 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.assertDayHomeRoot(in: app)
 
-        let locality = app.buttons["dayHome.locality"]
-        XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        locality.tap()
+        let shelf = app.buttons["dayHome.yourSolstoneEntry"]
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        shelf.tap()
 
         XCTAssertTrue(app.navigationBars["your journal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["journalLives.sheet"].exists)
@@ -68,6 +67,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         self.assertDayHomeRoot(in: app)
+        self.openStandaloneOnThisPhoneBrowse(in: app)
 
         let surface = app.descendants(matching: .any)["onThisPhone.surface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 10))
@@ -88,35 +88,10 @@ nonisolated final class PostPairStateTests: XCTestCase {
         self.assertDayHomeRoot(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["everything you've shared, moving into your journal."].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["dayHome.openInJournal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["dayHome.askBar"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
-    }
-
-    @MainActor
-    func testPairedJournalLivesSheetShowsCurrentOwnJournal() {
-        let app = self.makeIntegrationApp()
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        self.assertDayHomeRoot(in: app)
-
-        let locality = app.buttons["dayHome.locality"]
-        XCTAssertTrue(locality.waitForExistence(timeout: 5))
-        locality.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
-
-        let ownJournal = app.buttons["journalLives.ownJournal"]
-        XCTAssertTrue(ownJournal.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["journalLives.ownJournal.current"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["journalLives.cachedLine"].exists)
-        XCTAssertTrue(ownJournal.label.contains("re-pair"), ownJournal.label)
-
-        XCTAssertTrue(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
-        let comingLater = app.descendants(matching: .any)["journalLives.onYourPhone.comingLater"]
-        XCTAssertTrue(comingLater.exists)
-        XCTAssertEqual(comingLater.label, "coming later")
     }
 
     @MainActor

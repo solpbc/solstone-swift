@@ -38,6 +38,16 @@ nonisolated final class BrandColorTests: XCTestCase {
     }
 
     @MainActor
+    func testTextOrangeAAMatchesBrandSpec() throws {
+        try self.assertMatchesBrandSpec(
+            Color.textOrangeAA,
+            red: 0.631,
+            green: 0.373,
+            blue: 0.090
+        )
+    }
+
+    @MainActor
     func testAccentColorLightMatchesSolOrange() throws {
         let bundle = Bundle(for: AppDelegate.self)
         let traits = UITraitCollection(userInterfaceStyle: .light)

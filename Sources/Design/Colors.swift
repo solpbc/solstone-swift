@@ -17,6 +17,9 @@ extension Color {
     static let solCreamBright = Color(red: 0.996, green: 0.988, blue: 0.973)
     /// Orange ink — WCAG 3:1 non-text and large-text contrast bar on light surfaces (#B06A1A)
     static let orangeInk = Color(red: 0.690, green: 0.416, blue: 0.102)
+    /// Normal-size orange text on light ground (#A15F17). Flat, not trait-adaptive.
+    /// Dark ground: do not use orange text; use `.primary` / `.secondary` or the SF Symbol tint.
+    static let textOrangeAA = Color(red: 0.631, green: 0.373, blue: 0.090)
     /// Saved-state green — local "saved on this phone" confirmation (#2E7C32 light / brighter dark)
     static let solSavedGreen = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark

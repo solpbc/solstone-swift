@@ -37,6 +37,9 @@ nonisolated final class SourcesTrustLineTests: XCTestCase {
     private func openSources(in app: XCUIApplication) {
         let sourcesEntry = app.buttons["dayHome.sourcesEntry"]
         XCTAssertTrue(sourcesEntry.waitForExistence(timeout: 10))
+        if !sourcesEntry.isHittable {
+            app.swipeUp()
+        }
         sourcesEntry.tap()
     }
 
