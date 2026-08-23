@@ -3,7 +3,7 @@
 .PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
-			       screenshot logs logs-collect log-show crash devices deps clean signing-check
+			       sim-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
 PROJECT   ?= solstone-swift.xcodeproj
@@ -787,6 +787,12 @@ run: deploy
 	xcrun devicectl device process launch --device $(DEVICE) $(BUNDLE_ID)
 
 # --- Device debugging (requires pymobiledevice3 tunneld running) ---
+
+# Simulator screenshots across the accessibility matrix, for visual validation.
+# Validation for the mobile-shell arc is the simulator plus screenshots; this is that
+# instrument. NOTE: the `screenshot` target below is the DEVICE path and is unrelated.
+sim-shots: sim
+	SHOTS_APP=$(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app 		SHOTS_SIM=$(SIM) bash test/capture_shots.sh
 
 screenshot:
 	@pymobiledevice3 developer dvt screenshot /tmp/solstone-swift-screenshot.png --tunnel '' 2>&1 || \
