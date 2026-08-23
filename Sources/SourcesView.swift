@@ -61,20 +61,7 @@ struct SourcesView: View {
                 }
             }
             .navigationDestination(item: self.$selectedSourceRoute) { route in
-                switch route {
-                case .audio:
-                    SourceDetailView()
-                case .location:
-                    LocationSourceDetailView()
-                case .screencast:
-                    ScreencastSourceDetailView()
-                case .omi:
-                    OmiSourceDetailView()
-                case .watch:
-                    WatchSourceDetailView()
-                case .share:
-                    ImporterSourceDetailView(source: self.bundle.share)
-                }
+                ShellDestinationView(destination: .source(route))
             }
             .task {
                 await refreshNowPeriodically { self.now = Date() }
