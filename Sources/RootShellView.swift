@@ -74,7 +74,11 @@ struct RootShellView: View {
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(self.observerSourcePauseState)
         .sheet(isPresented: self.isJournalPresented) {
-            InAppJournalView()
+            InAppJournalView(mark: self.journalMark)
+                // 0.75 keeps the first deck tile row in the band above the pane on iPhone 17 Pro.
+                .presentationDetents([.fraction(0.75)])
+                .presentationDragIndicator(.visible)
+                .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()

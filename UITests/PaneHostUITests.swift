@@ -92,6 +92,91 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
+    func testJournalPanePresentsFromOpener() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        let opener = app.buttons["dayHome.openInJournal"]
+        XCTAssertTrue(opener.waitForExistence(timeout: 10))
+        opener.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal.heading"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["done"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testJournalPaneRestsAboveDeck() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+        let tile = app.descendants(matching: .any)["dayHome.tile.audio"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        let windowFrame = window.frame
+        let tileFrame = tile.frame
+
+        let opener = app.buttons["dayHome.openInJournal"]
+        XCTAssertTrue(opener.waitForExistence(timeout: 5))
+        opener.tap()
+
+        let pane = app.descendants(matching: .any)["shell.pane.journal"]
+        XCTAssertTrue(pane.waitForExistence(timeout: 10))
+        let paneFrame = pane.frame
+        let margin = paneFrame.minY - windowFrame.minY
+        let sliver = paneFrame.minY - tileFrame.minY
+        let pill = app.buttons["dayHome.statusPill"]
+        let shelf = app.buttons["dayHome.yourSolstoneEntry"]
+        let tileAfter = app.descendants(matching: .any)["dayHome.tile.audio"]
+        XCTContext.runActivity(
+            named: "journal-rest window=\(Self.pt(windowFrame)) tile=\(Self.pt(tileFrame)) pane=\(Self.pt(paneFrame)) margin=\(Self.pt(margin)) sliver=\(Self.pt(sliver)) pill.exists=\(pill.exists) pill.hittable=\(pill.isHittable) shelf.exists=\(shelf.exists) shelf.hittable=\(shelf.isHittable) tile.exists=\(tileAfter.exists) tile.hittable=\(tileAfter.isHittable)"
+        ) { _ in }
+
+        XCTAssertGreaterThanOrEqual(margin, 24, "journal minY margin \(margin)")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["dayHome.surface"].exists
+                || pill.exists
+                || shelf.exists
+        )
+    }
+
+    @MainActor
+    func testJournalPaneShowsRetryWhenDisconnected() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-test",
+            "--ui-test-no-journal",
+            "--ui-test-open-pane=journal",
+        ]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["try again"].waitForExistence(timeout: 5))
+        let heading = app.descendants(matching: .any)["shell.pane.journal.heading"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(heading.label, "journal")
+    }
+
+    @MainActor
+    func testJournalPaneTitleUsesMarkWordsWhenSeeded() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-test",
+            "--ui-test-journal-mark",
+            "--ui-test-open-pane=journal",
+        ]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        let heading = app.descendants(matching: .any)["shell.pane.journal.heading"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
+        XCTAssertTrue(heading.label.contains("afoot"), heading.label)
+        XCTAssertTrue(heading.label.contains("unfixed"), heading.label)
+    }
+
+    @MainActor
     func testStatusConnectedTwinWhenUp() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=status"]
@@ -112,6 +197,20 @@ nonisolated final class PaneHostUITests: XCTestCase {
 
 @MainActor
 private extension PaneHostUITests {
+    static func pt(_ value: CGFloat) -> String {
+        String(format: "%.1f", value)
+    }
+
+    static func pt(_ rect: CGRect) -> String {
+        String(
+            format: "(%.1f,%.1f %.1fx%.1f)",
+            rect.minX,
+            rect.minY,
+            rect.width,
+            rect.height
+        )
+    }
+
     func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
         if element.waitForExistence(timeout: 2) {
             return

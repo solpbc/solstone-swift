@@ -4,141 +4,27 @@
 import SwiftUI
 import WebKit
 
-struct JournalWebView: UIViewRepresentable {
-    let url: URL
-    let reloadToken: Int
-    @Binding var loadState: JournalWebPresentation.LoadState
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator { state in
-            self.loadState = state
-        }
-    }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        webView.navigationDelegate = context.coordinator
-        context.coordinator.requestLoad(url: self.url, reloadToken: self.reloadToken, webView: webView)
-        return webView
-    }
-
-    func updateUIView(_ uiView: WKWebView, context: Context) {
-        context.coordinator.requestLoad(url: self.url, reloadToken: self.reloadToken, webView: uiView)
-    }
-
-    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
-        coordinator.teardown()
-        uiView.stopLoading()
-        uiView.navigationDelegate = nil
-    }
-
-    nonisolated final class Coordinator: NSObject, WKNavigationDelegate, @unchecked Sendable {
-        private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
-        @MainActor private var session: JournalWebNavigationSession?
-
-        init(setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void) {
-            self.setState = setState
-        }
-
-        @MainActor
-        func requestLoad(url: URL, reloadToken: Int, webView: WKWebView) {
-            self.creatingSession(for: webView).requestLoad(url: url, reloadToken: reloadToken)
-        }
-
-        @MainActor
-        func teardown() {
-            self.session?.teardown()
-            self.session = nil
-        }
-
-        @MainActor
-        private func creatingSession(for webView: WKWebView) -> JournalWebNavigationSession {
-            if let session = self.session {
-                return session
-            }
-            let session = JournalWebNavigationSession(
-                load: { [weak webView] request in
-                    webView?.load(request)
-                },
-                setState: self.setState
-            )
-            self.session = session
-            return session
-        }
-
-        @MainActor
-        private var existingSession: JournalWebNavigationSession? {
-            self.session
-        }
-
-        nonisolated func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction,
-            decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
-        ) {
-            let request = navigationAction.request
-            let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
-            Task { @MainActor in
-                guard let session = self.existingSession else {
-                    decisionHandler(.allow)
-                    return
-                }
-                let decision = session.decidePolicy(for: request, isMainFrame: isMainFrame)
-                switch decision {
-                case .allow:
-                    decisionHandler(.allow)
-                case .rewrite:
-                    decisionHandler(.cancel)
-                }
-            }
-        }
-
-        nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            Task { @MainActor in
-                self.existingSession?.didStart(navigation: navigation)
-            }
-        }
-
-        nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            Task { @MainActor in
-                self.existingSession?.didCommit(navigation: navigation)
-            }
-        }
-
-        nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            Task { @MainActor in
-                self.existingSession?.didFinish(navigation: navigation)
-            }
-        }
-
-        nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-            Task { @MainActor in
-                self.existingSession?.didFail(navigation: navigation, error: error)
-            }
-        }
-
-        nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-            Task { @MainActor in
-                self.existingSession?.didFail(navigation: navigation, error: error)
-            }
-        }
-    }
-}
-
 struct InAppJournalView: View {
+    var mark: JournalMark? = nil
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.dismiss) private var dismiss
+    @AccessibilityFocusState private var headingFocused: Bool
     @State private var loadState: JournalWebPresentation.LoadState = .loading
     @State private var reloadToken = 0
+    @State private var controller: JournalWebPageController?
 
     private var resolvedURL: URL? {
         JournalWebPresentation.resolvedURL(activeLocalPort: self.observerRegistration.activeLocalPort)
     }
 
+    private var headingString: String {
+        journalPaneTitle(mark: self.mark, pageTitle: self.controller?.page.title ?? "")
+    }
+
     var body: some View {
         NavigationStack {
             self.content
-                .navigationTitle("journal")
+                .navigationTitle(self.headingString)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -146,12 +32,29 @@ struct InAppJournalView: View {
                             self.dismiss()
                         }
                     }
+                    ToolbarItem(placement: .principal) {
+                        Text(self.headingString)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("shell.pane.journal.heading")
+                            .accessibilityFocused(self.$headingFocused)
+                    }
                 }
         }
+        .accessibilityAddTraits(.isModal)
+        .accessibilityIdentifier("shell.pane.journal")
+        .accessibilityAction(.escape) {
+            self.dismiss()
+        }
+        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onAppear { self.headingFocused = true }
         .onChange(of: self.observerRegistration.activeLocalPort) { _, newPort in
             if newPort == nil {
                 self.loadState = JournalWebPresentation.connectionLostState
             }
+        }
+        .onDisappear {
+            self.controller?.teardown()
+            self.controller = nil
         }
     }
 
@@ -159,11 +62,29 @@ struct InAppJournalView: View {
     private var content: some View {
         if let url = self.resolvedURL {
             ZStack {
-                JournalWebView(url: url, reloadToken: self.reloadToken, loadState: self.$loadState)
+                self.webCanvas(url: url)
                 self.stateOverlay
             }
         } else {
             self.errorView(message: JournalWebPresentation.connectionLostMessage)
+        }
+    }
+
+    private func webCanvas(url: URL) -> some View {
+        Group {
+            if let controller = self.controller {
+                WebView(controller.page)
+                    .webViewBackForwardNavigationGestures(.disabled)
+            }
+        }
+        .onAppear {
+            self.ensureController().requestLoad(url: url, reloadToken: self.reloadToken)
+        }
+        .onChange(of: url) { _, newURL in
+            self.controller?.requestLoad(url: newURL, reloadToken: self.reloadToken)
+        }
+        .onChange(of: self.reloadToken) { _, newToken in
+            self.controller?.requestLoad(url: url, reloadToken: newToken)
         }
     }
 
@@ -203,5 +124,17 @@ struct InAppJournalView: View {
             return
         }
         self.reloadToken += 1
+    }
+
+    @discardableResult
+    private func ensureController() -> JournalWebPageController {
+        if let controller = self.controller {
+            return controller
+        }
+        let controller = JournalWebPageController { state in
+            self.loadState = state
+        }
+        self.controller = controller
+        return controller
     }
 }

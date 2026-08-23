@@ -314,9 +314,14 @@ private extension DayHomeView {
                 self.showingJournalLives = true
             }
         } label: {
-            Text(self.journalPillTitle)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, minHeight: 44)
+            HStack(spacing: 8) {
+                if let mark = self.journalMark {
+                    JournalMarkCompactChips(mark: mark)
+                }
+                Text(self.journalPillTitle)
+                    .foregroundStyle(.primary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.bordered)
         .tint(.primary)

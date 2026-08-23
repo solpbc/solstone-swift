@@ -67,6 +67,36 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(apply.contains("self.showingYourSolstone = false"))
     }
 
+    func testJournalPaneUsesWebPageAndPolicy() throws {
+        let view = try Self.sourceText("Sources/Portal/InAppJournalView.swift")
+        XCTAssertTrue(view.contains("WebView("))
+        XCTAssertFalse(view.contains("UIViewRepresentable"))
+        XCTAssertFalse(view.contains("WKNavigationDelegate"))
+        XCTAssertFalse(view.contains("WKScriptMessageHandler"))
+        XCTAssertFalse(view.contains("URLSchemeHandler"))
+
+        let controller = try Self.sourceText("Sources/Portal/JournalWebPageController.swift")
+        XCTAssertTrue(controller.contains("WebPage"))
+        XCTAssertTrue(controller.contains("journalWebActionPolicy"))
+        XCTAssertTrue(controller.contains("session.decidePolicy(for: request, isMainFrame: isMainFrame)"))
+        XCTAssertTrue(controller.contains("case .rewrite:"))
+        XCTAssertTrue(controller.contains("return .cancel"))
+        XCTAssertFalse(controller.contains("URLSchemeHandler"))
+        XCTAssertFalse(controller.contains("WKScriptMessageHandler"))
+
+        let pane = view + controller
+        XCTAssertTrue(pane.contains("JournalWebNavigationDecider") || controller.contains("JournalWebNavigationDecider"))
+        XCTAssertFalse(view.contains("navigationTitle(\"journal\")"))
+        XCTAssertTrue(view.contains("journalPaneTitle("))
+        XCTAssertTrue(controller.contains("page.navigations"))
+        XCTAssertFalse(controller.contains("for try await event in page.load"))
+    }
+
+    func testJournalPaneDisablesBackForwardGestures() throws {
+        let text = try Self.sourceText("Sources/Portal/InAppJournalView.swift")
+        XCTAssertTrue(text.contains(".webViewBackForwardNavigationGestures(.disabled)"))
+    }
+
     func testDayHomeStatusPillIsButtonNotNavigationLink() throws {
         let text = try Self.sourceText("Sources/Home/DayHomeView.swift")
         let pill = try Self.slice(

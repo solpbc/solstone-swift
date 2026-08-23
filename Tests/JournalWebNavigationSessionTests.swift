@@ -986,32 +986,19 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         XCTAssertEqual(gate.pendingCount, 0)
     }
 
-    func testCoordinatorCallbacksDoNotRecreateSessionAfterTeardown() async throws {
+    func testControllerDoesNotLoadAfterTeardown() async throws {
         var states: [JournalWebPresentation.LoadState] = []
-        let coordinator = JournalWebView.Coordinator { state in
+        let controller = JournalWebPageController { state in
             states.append(state)
         }
-        let webView = WKWebView(frame: .zero)
         let url = try self.url("http://127.0.0.1:8080/")
 
-        coordinator.requestLoad(url: url, reloadToken: 0, webView: webView)
+        controller.requestLoad(url: url, reloadToken: 0)
         XCTAssertEqual(states, [.loading])
-        coordinator.teardown()
+        controller.teardown()
         states.removeAll()
 
-        coordinator.webView(webView, didStartProvisionalNavigation: nil)
-        coordinator.webView(webView, didCommit: nil)
-        coordinator.webView(webView, didFinish: nil)
-        coordinator.webView(
-            webView,
-            didFailProvisionalNavigation: nil,
-            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
-        )
-        coordinator.webView(
-            webView,
-            didFail: nil,
-            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
-        )
+        controller.requestLoad(url: url, reloadToken: 1)
         await Task.yield()
 
         XCTAssertEqual(states, [])
