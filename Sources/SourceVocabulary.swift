@@ -146,7 +146,6 @@ nonisolated enum SourceVocabulary {
     static let addMoreSubline = "sources and devices"
     static let importTitle = "import"
     static let importSubline = "photos, files, anything"
-    static let journalMarkUnavailable = "unavailable"
     static let giveThisATileOnHome = "give this a tile on home"
     static let hidingThisNeverTurnsItOff = "hiding this never turns it off."
     static let whatItAddsTitle = "what it adds"

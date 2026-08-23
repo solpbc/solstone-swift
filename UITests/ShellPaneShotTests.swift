@@ -128,6 +128,15 @@ final class ShellPaneShotTests: XCTestCase {
         self.captureOwnedLeaves(suffix: "landscape", style: "Light", ax5: false, landscape: true)
     }
 
+    /// Generic mark (nil identity): light/dark × default/AX5.
+    @MainActor
+    func testCaptureGenericJournalMark() {
+        self.captureGenericMark(name: "40-generic-mark-light", style: "Light", ax5: false)
+        self.captureGenericMark(name: "41-generic-mark-dark", style: "Dark", ax5: false)
+        self.captureGenericMark(name: "42-generic-mark-ax5", style: "Light", ax5: true)
+        self.captureGenericMark(name: "43-generic-mark-ax5-dark", style: "Dark", ax5: true)
+    }
+
     /// Splash is a launch state, not a tap target. Captured here so landscape and AX5
     /// exist in the UITest attachments; `make sim-shots` covers splash/deck appearance.
     @MainActor
@@ -280,6 +289,27 @@ private extension ShellPaneShotTests {
         }
 
         self.dismissSheet(in: app, untilMissing: "shell.pane.addMore")
+    }
+
+    func captureGenericMark(name: String, style: String, ax5: Bool) {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "--ui-test",
+            "--ui-test-journal-mark-generic",
+            "-AppleInterfaceStyle",
+            style,
+        ]
+        if ax5 {
+            app.launchEnvironment["UIPreferredContentSizeCategoryName"] =
+                "UICTContentSizeCategoryAccessibilityXXXL"
+        }
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["journalMark.generic"].waitForExistence(timeout: 15),
+            "generic mark missing"
+        )
+        self.attach(app, name)
     }
 
     func captureSplash(name: String, style: String, ax5: Bool, landscape: Bool) {

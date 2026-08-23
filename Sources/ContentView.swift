@@ -23,6 +23,9 @@ struct ContentView: View {
     @State private var showPairing = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
+#if DEBUG
+    @State private var showGenericJournalMarkPreview = false
+#endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var effectivePort: Int {
@@ -149,7 +152,7 @@ struct ContentView: View {
                 let shouldSeedPairing = !noJournal && (onboardingStep == nil || onboardingStep == .done)
                 let openPane = arguments.first { $0.hasPrefix("--ui-test-open-pane=") } ?? ""
                 log.info(
-                    "ui-test seeding journalRoot=\(journalRoot, privacy: .public) deviceID=\(deviceID, privacy: .public) hasSession=\(sessionKey != nil) openPane=\(openPane, privacy: .public) journalMark=\(arguments.contains("--ui-test-journal-mark"), privacy: .public)"
+                    "ui-test seeding journalRoot=\(journalRoot, privacy: .public) deviceID=\(deviceID, privacy: .public) hasSession=\(sessionKey != nil) openPane=\(openPane, privacy: .public) journalMark=\(arguments.contains("--ui-test-journal-mark"), privacy: .public) genericMark=\(arguments.contains("--ui-test-journal-mark-generic"), privacy: .public)"
                 )
 
                 if !shouldSeedPairing {
@@ -174,6 +177,10 @@ struct ContentView: View {
                         )
                     }
                     self.onboardingFlow.markCompletedForUITest()
+                }
+
+                if arguments.contains("--ui-test-journal-mark-generic") {
+                    self.showGenericJournalMarkPreview = true
                 }
 
                 if arguments.contains("--ui-test-mark-confirm") {
@@ -272,6 +279,17 @@ struct ContentView: View {
             self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
         }
+#if DEBUG
+        .overlay {
+            if self.showGenericJournalMarkPreview {
+                ZStack {
+                    Color(.systemBackground).ignoresSafeArea()
+                    JournalMarkView(mark: nil)
+                }
+                .accessibilityIdentifier("journalMark.generic")
+            }
+        }
+#endif
     }
 }
 

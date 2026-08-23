@@ -24,6 +24,12 @@ nonisolated struct JournalMark: Decodable, Equatable, Sendable {
 
     nonisolated struct MarkColor: Decodable, Equatable, Sendable {
         let hex: String
+        let name: String?
+
+        init(hex: String, name: String? = nil) {
+            self.hex = hex
+            self.name = name
+        }
     }
 
     static func validate(_ mark: JournalMark) -> JournalMark? {
@@ -62,13 +68,13 @@ extension JournalMark {
     static let uiTestSample = JournalMark(
         icon1: Icon(
             name: "bug",
-            color: MarkColor(hex: "#f59e0b"),
+            color: MarkColor(hex: "#f59e0b", name: "amber"),
             rot: 0,
             svg: #"<path d="M12 20v-9" /> <path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z" /> <path d="M14.12 3.88 16 2" /> <path d="M21 21a4 4 0 0 0-3.81-4" /> <path d="M21 5a4 4 0 0 1-3.55 3.97" /> <path d="M22 13h-4" /> <path d="M3 21a4 4 0 0 1 3.81-4" /> <path d="M3 5a4 4 0 0 0 3.55 3.97" /> <path d="M6 13H2" /> <path d="m8 2 1.88 1.88" /> <path d="M9 7.13V6a3 3 0 1 1 6 0v1.13" />"#
         ),
         icon2: Icon(
             name: "gem",
-            color: MarkColor(hex: "#84cc16"),
+            color: MarkColor(hex: "#84cc16", name: "lime"),
             rot: 45,
             svg: #"<path d="M10.5 3 8 9l4 13 4-13-2.5-6" /> <path d="M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z" /> <path d="M2 9h20" />"#
         ),
@@ -90,11 +96,7 @@ struct JournalMarkView: View {
                         JournalMarkIconChip(icon: mark.icon2)
                     }
 
-                    Text(mark.words.joined(separator: " · "))
-                        .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize, relativeTo: .headline))
-                        .foregroundStyle(MarkGeometry.wordColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                    JournalMarkWordLine(words: mark.words)
 
                     if self.isConfirmed {
                         Text(SourceVocabulary.journalMarkConfirmedLine)
@@ -110,10 +112,73 @@ struct JournalMarkView: View {
                         .stroke(self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder, lineWidth: self.isConfirmed ? 2 : 1)
                 }
                 .shadow(color: self.isConfirmed ? MarkGeometry.confirmedBorder.opacity(0.35) : .clear, radius: 10)
+            } else {
+                VStack(spacing: MarkGeometry.verticalGap) {
+                    HStack(spacing: MarkGeometry.iconGap) {
+                        JournalMarkGenericChip(
+                            hex: JournalMarkGeneric.orangeHex,
+                            rotated: false
+                        )
+                        JournalMarkGenericChip(
+                            hex: JournalMarkGeneric.goldHex,
+                            rotated: true
+                        )
+                    }
+
+                    JournalMarkWordLine(words: JournalMarkGeneric.words)
+                }
+                .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
+                .padding(.vertical, MarkGeometry.cardVerticalPadding)
+                .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
+                        .stroke(MarkGeometry.cardBorder, lineWidth: 1)
+                }
             }
         }
+        // ignore is load-bearing for the four-token / generic spoken value; chips must not be separate elements.
         .accessibilityElement(children: .ignore)
-        .accessibilityValue(JournalMarkTint.spokenValue(mark: self.mark))
+        .accessibilityValue(JournalMarkAccessibility.spokenValue(mark: self.mark))
+        .accessibilityIdentifier("journalMark")
+    }
+}
+
+private struct JournalMarkWordLine: View {
+    let words: [String]
+
+    var body: some View {
+        Text(self.words.joined(separator: " · "))
+            .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize, relativeTo: .headline))
+            .foregroundStyle(MarkGeometry.wordColor)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+    }
+}
+
+private struct JournalMarkGenericChip: View {
+    let hex: String
+    let rotated: Bool
+
+    var body: some View {
+        let side = MarkGeometry.size
+        let color = MarkGeometry.color(hex: self.hex)
+        RoundedRectangle(cornerRadius: MarkGeometry.chipRadius, style: .continuous)
+            .fill(color.opacity(JournalMarkGeneric.fillOpacity))
+            .overlay {
+                RoundedRectangle(cornerRadius: MarkGeometry.chipRadius, style: .continuous)
+                    .stroke(
+                        color,
+                        style: StrokeStyle(
+                            lineWidth: MarkGeometry.chipBorderWidth,
+                            dash: [
+                                JournalMarkGeneric.dashOn(side: side),
+                                JournalMarkGeneric.dashOff(side: side),
+                            ]
+                        )
+                    )
+            }
+            .frame(width: side, height: side)
+            .rotationEffect(.degrees(self.rotated ? 45 : 0))
     }
 }
 
@@ -846,8 +911,13 @@ private nonisolated struct PathDataParser {
 }
 
 #if DEBUG
-#Preview {
+#Preview("committed") {
     JournalMarkView(mark: .uiTestSample, isConfirmed: true)
+        .padding()
+}
+
+#Preview("generic") {
+    JournalMarkView(mark: nil)
         .padding()
 }
 #endif

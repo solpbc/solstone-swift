@@ -69,7 +69,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.addMoreSubline, "sources and devices")
         XCTAssertEqual(SourceVocabulary.importTitle, "import")
         XCTAssertEqual(SourceVocabulary.importSubline, "photos, files, anything")
-        XCTAssertEqual(SourceVocabulary.journalMarkUnavailable, "unavailable")
         XCTAssertEqual(SourceVocabulary.giveThisATileOnHome, "give this a tile on home")
         XCTAssertEqual(SourceVocabulary.hidingThisNeverTurnsItOff, "hiding this never turns it off.")
         XCTAssertEqual(SourceVocabulary.whatItAddsTitle, "what it adds")
@@ -944,7 +943,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.addMoreSubline,
             SourceVocabulary.importTitle,
             SourceVocabulary.importSubline,
-            SourceVocabulary.journalMarkUnavailable,
             SourceVocabulary.giveThisATileOnHome,
             SourceVocabulary.hidingThisNeverTurnsItOff,
             SourceVocabulary.whatItAddsTitle,
