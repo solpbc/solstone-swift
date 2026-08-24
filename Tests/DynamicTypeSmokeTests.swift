@@ -208,6 +208,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(shareImportStore)
             .environment(shareTransferHolder)
             .environment(connectionSyncModel)
+            .environment(ShellNavModel())
         }
         let locationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -357,6 +358,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 journalMark: nil,
                 homeChrome: self.homeChrome,
                 onOpenJournal: {},
+                onOpenJournalSetup: {},
                 onOpenSources: {},
                 onOpenYourSolstone: {},
                 onOpenStatus: {},

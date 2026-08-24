@@ -37,8 +37,9 @@ final class ShellPaneShotTests: XCTestCase {
     /// Every pane, captured at rest. Each assertion is what makes the shot worth looking at:
     /// a screenshot of a pane that never opened looks like a screenshot of the deck.
     @MainActor
-    func testCaptureEachPaneAtRest() {
+    func testCaptureEachPaneAtRest() throws {
         let app = launch()
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         attach(app, "00-deck")
 
         // shelf — the one pane that is a ZStack sibling rather than a sheet
@@ -75,13 +76,14 @@ final class ShellPaneShotTests: XCTestCase {
     /// The AX5 + landscape pass. These are threshold behaviours the default size cannot show:
     /// the deck's reflow, the pill leaving the bar, and ruling 7's full-window panes.
     @MainActor
-    func testCaptureAccessibilityThresholds() {
+    func testCaptureAccessibilityThresholds() throws {
         let app = XCUIApplication()
         app.launchArguments += ["--ui-test", "--ui-test-no-journal"]
         app.launchEnvironment["UIPreferredContentSizeCategoryName"] =
             "UICTContentSizeCategoryAccessibilityXXXL"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(
             app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 15),
             "deck never appeared at AX5"
@@ -106,26 +108,26 @@ final class ShellPaneShotTests: XCTestCase {
 
     /// Owned L2.3 leaves at default type, light, portrait.
     @MainActor
-    func testCaptureOwnedLeavesDefaultLight() {
-        self.captureOwnedLeaves(suffix: "light", style: "Light", ax5: false, landscape: false)
+    func testCaptureOwnedLeavesDefaultLight() throws {
+        try self.captureOwnedLeaves(suffix: "light", style: "Light", ax5: false, landscape: false)
     }
 
     /// Owned L2.3 leaves at default type, dark, portrait.
     @MainActor
-    func testCaptureOwnedLeavesDefaultDark() {
-        self.captureOwnedLeaves(suffix: "dark", style: "Dark", ax5: false, landscape: false)
+    func testCaptureOwnedLeavesDefaultDark() throws {
+        try self.captureOwnedLeaves(suffix: "dark", style: "Dark", ax5: false, landscape: false)
     }
 
     /// Owned L2.3 leaves at AX5, light, portrait.
     @MainActor
-    func testCaptureOwnedLeavesAX5() {
-        self.captureOwnedLeaves(suffix: "ax5", style: "Light", ax5: true, landscape: false)
+    func testCaptureOwnedLeavesAX5() throws {
+        try self.captureOwnedLeaves(suffix: "ax5", style: "Light", ax5: true, landscape: false)
     }
 
     /// Owned L2.3 leaves at default type, light, iPhone landscape.
     @MainActor
-    func testCaptureOwnedLeavesLandscape() {
-        self.captureOwnedLeaves(suffix: "landscape", style: "Light", ax5: false, landscape: true)
+    func testCaptureOwnedLeavesLandscape() throws {
+        try self.captureOwnedLeaves(suffix: "landscape", style: "Light", ax5: false, landscape: true)
     }
 
     /// Generic mark (nil identity): light/dark × default/AX5.
@@ -172,8 +174,9 @@ private extension ShellPaneShotTests {
         return app
     }
 
-    func captureOwnedLeaves(suffix: String, style: String, ax5: Bool, landscape: Bool) {
+    func captureOwnedLeaves(suffix: String, style: String, ax5: Bool, landscape: Bool) throws {
         let app = self.launchOwned(style: style, ax5: ax5)
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         if landscape {
             XCUIDevice.shared.orientation = .landscapeLeft
             Thread.sleep(forTimeInterval: 2)

@@ -10,8 +10,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testNoJournalShellShowsPlaceholdersAndTabs() {
+    func testNoJournalShellShowsPlaceholdersAndTabs() throws {
         let app = self.launchNoJournalApp()
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].exists)
@@ -123,8 +124,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testJournalLivesSheetShowsPositionsAndDismisses() {
+    func testJournalLivesSheetShowsPositionsAndDismisses() throws {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let journalSetup = app.buttons["dayHome.journalSetup"]
         XCTAssertTrue(journalSetup.waitForExistence(timeout: 5))
@@ -162,8 +164,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testJournalLivesConnectReachesPairFlow() {
+    func testJournalLivesConnectReachesPairFlow() throws {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let journalSetup = app.buttons["dayHome.journalSetup"]
         XCTAssertTrue(journalSetup.waitForExistence(timeout: 5))
@@ -229,12 +232,13 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testAudioEnrollmentPermissionDeniedDoesNotShowMagicMoment() {
+    func testAudioEnrollmentPermissionDeniedDoesNotShowMagicMoment() throws {
         let app = self.launchNoJournalApp(extraArguments: [
             "--ui-test-reset-on-this-phone",
             "--ui-test-reset-audio-l5",
             "--ui-test-observer-permission-denied",
         ])
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         self.tapDayHomeSourcesEntry(in: app)
         let audioRow = app.buttons["source.row.audio"]

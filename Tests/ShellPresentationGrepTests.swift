@@ -32,9 +32,14 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         }
     }
 
-    func testHitStripIsStructurallyPathEmpty() throws {
+    /// The `if self.path.isEmpty` literal this used to pin is gone: the shell is a
+    /// `NavigationSplitView` and the deck no longer owns a stack. The strip's real
+    /// requirements survive here; that it appears only when the phone shell is at
+    /// rest, and never on iPad, is covered behaviourally by
+    /// `PaneHostUITests.testHitStripExistsOnlyOnRoot` and
+    /// `PadSplitShellUITests.testHitStripIsAbsentOnPad`.
+    func testHitStripExistsWithoutDeferringSystemGestures() throws {
         let text = try Self.sourceText("Sources/RootShellView.swift")
-        XCTAssertTrue(text.contains("if self.path.isEmpty"))
         XCTAssertTrue(text.contains("shell.hitStrip"))
         XCTAssertFalse(text.contains("preferredScreenEdgesDeferringSystemGestures"))
     }

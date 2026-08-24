@@ -32,6 +32,95 @@ nonisolated func dayHomeJournalState(
     }
 }
 
+/// Fixed measurements the deck grid is laid out from.
+///
+/// Every number here is either measured from the deck's own modifiers or derived
+/// from the others.
+nonisolated enum DeckMetrics {
+    /// The deck's `.padding()`, 16 pt per side. The grid lays out inside it, so a
+    /// column must carry this on top of what the tiles need.
+    static let horizontalPadding: CGFloat = 32
+    static let tileSpacing: CGFloat = 12
+
+    /// One tile minimum, everywhere. A source tile puts a 44 pt control beside its
+    /// label with 14 pt of padding either side, so a tile narrower than this
+    /// truncates the source name mid-word rather than merely wrapping it.
+    static let tileMinimum: CGFloat = 160
+
+    /// The column width at which two tiles first fit at the default text size.
+    /// Derived, so it cannot drift from `tileMinimum`.
+    static var twoColumnThreshold: CGFloat {
+        2 * self.tileMinimum + self.tileSpacing + self.horizontalPadding
+    }
+
+    /// The band the deck column is pinned to in the split.
+    ///
+    /// `columnMinimum` is the upper bound on the collapse threshold: at this width
+    /// and above, the split must not collapse. It is set so two tiles stay
+    /// readable one Dynamic Type step above the default, which needs more room
+    /// than `twoColumnThreshold` reserves at the default size.
+    static let columnMinimum: CGFloat = 404
+    static let columnIdeal: CGFloat = 412
+    static let columnMaximum: CGFloat = 420
+}
+
+/// How the deck lays out at one width and text size.
+nonisolated struct DeckLayout: Equatable, Sendable {
+    /// The scaled minimum width of one tile.
+    let tileMinimum: CGFloat
+    /// 1 for a single flexible column, 2 for an adaptive grid of at least two.
+    let columnCount: Int
+}
+
+/// `.body` point sizes over the default, matching what
+/// `@ScaledMetric(relativeTo: .body)` computes, but callable from a test at a
+/// named `DynamicTypeSize`.
+nonisolated func bodyTextScale(for size: DynamicTypeSize) -> CGFloat {
+    let points: CGFloat = switch size {
+    case .xSmall: 14
+    case .small: 15
+    case .medium: 16
+    case .large: 17
+    case .xLarge: 19
+    case .xxLarge: 21
+    case .xxxLarge: 23
+    case .accessibility1: 28
+    case .accessibility2: 33
+    case .accessibility3: 40
+    case .accessibility4: 47
+    case .accessibility5: 53
+    @unknown default: 17
+    }
+    return points / 17
+}
+
+/// The deck's layout decision, from measured column width and text size alone.
+///
+/// `columnWidth` is the full width of the column the deck occupies, including the
+/// deck's own padding; this function subtracts it.
+nonisolated func deckLayout(columnWidth: CGFloat, dynamicTypeSize: DynamicTypeSize) -> DeckLayout {
+    let minimum = DeckMetrics.tileMinimum * bodyTextScale(for: dynamicTypeSize)
+    if dynamicTypeSize.isAccessibilitySize {
+        return DeckLayout(tileMinimum: minimum, columnCount: 1)
+    }
+    let available = columnWidth - DeckMetrics.horizontalPadding
+    let fitsTwo = available >= 2 * minimum + DeckMetrics.tileSpacing
+    return DeckLayout(tileMinimum: minimum, columnCount: fitsTwo ? 2 : 1)
+}
+
+/// Whether a split shell has to collapse rather than show a one-column deck.
+///
+/// The deck is never degenerated to one column inside a split: if the pinned
+/// leading column cannot hold two tiles, the split collapses and the shell
+/// behaves as compact. Evaluated at the pinned column, so it depends only on the
+/// text size.
+nonisolated func splitCollapses(dynamicTypeSize: DynamicTypeSize) -> Bool {
+    deckLayout(
+        columnWidth: DeckMetrics.columnIdeal,
+        dynamicTypeSize: dynamicTypeSize
+    ).columnCount < 2
+}
+
 func refreshNowPeriodically(update: @escaping () -> Void) async {
     while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(30))
@@ -47,6 +136,7 @@ struct DayHomeView: View {
     let journalMark: JournalMark?
     let homeChrome: Namespace.ID
     let onOpenJournal: () -> Void
+    let onOpenJournalSetup: () -> Void
     let onOpenSources: () -> Void
     let onOpenYourSolstone: () -> Void
     let onOpenStatus: () -> Void
@@ -67,10 +157,11 @@ struct DayHomeView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
     @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
-    @ScaledMetric(relativeTo: .body) private var tileMin: CGFloat = 160
-    @State private var containerWidth: CGFloat = 0
+    /// The full width of the column the deck occupies, including the deck's own
+    /// padding. Measured on the scroll view so the value cannot depend on which
+    /// side of `.padding()` the geometry read sits.
+    @State private var deckColumnWidth: CGFloat = 0
     @State private var now = Date()
-    @State private var showingJournalLives = false
 
     var body: some View {
         ScrollView {
@@ -82,17 +173,14 @@ struct DayHomeView: View {
             }
             .padding()
             .padding(.bottom, 24)
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { self.containerWidth = $0 }
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { self.deckColumnWidth = $0 }
         .accessibilityIdentifier("dayHome.surface")
         .safeAreaBar(edge: .bottom) { self.journalPill }
         .navigationTitle(greeting(forHour: Calendar.current.component(.hour, from: self.now)))
         .navigationBarTitleDisplayMode(.large)
-        .navigationDestination(for: ShellDestination.self) { destination in
-            ShellDestinationView(destination: destination)
-        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 self.shelfButton
@@ -105,9 +193,6 @@ struct DayHomeView: View {
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
-        .sheet(isPresented: self.$showingJournalLives) {
-            JournalLivesSheet(isPresented: self.$showingJournalLives)
-        }
     }
 }
 
@@ -125,14 +210,16 @@ private extension DayHomeView {
         )
     }
 
+    var layout: DeckLayout {
+        deckLayout(columnWidth: self.deckColumnWidth, dynamicTypeSize: self.dynamicTypeSize)
+    }
+
     var gridColumns: [GridItem] {
-        if self.dynamicTypeSize.isAccessibilitySize {
-            return [GridItem(.flexible(), spacing: 12)]
+        let layout = self.layout
+        if layout.columnCount < 2 {
+            return [GridItem(.flexible(), spacing: DeckMetrics.tileSpacing)]
         }
-        if self.containerWidth >= (2 * self.tileMin + 12) {
-            return [GridItem(.adaptive(minimum: self.tileMin), spacing: 12)]
-        }
-        return [GridItem(.flexible(), spacing: 12)]
+        return [GridItem(.adaptive(minimum: layout.tileMinimum), spacing: DeckMetrics.tileSpacing)]
     }
 
     var hiddenHomeSourceIDs: Set<String> {
@@ -324,7 +411,7 @@ private extension DayHomeView {
             case .linkedOnline:
                 self.onOpenJournal()
             case .noJournal, .linkedOffline:
-                self.showingJournalLives = true
+                self.onOpenJournalSetup()
             }
         } label: {
             HStack(spacing: 8) {

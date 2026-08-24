@@ -18,6 +18,7 @@ struct HomeSourceTile: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(ShellNavModel.self) private var nav
 
     var body: some View {
         Group {
@@ -55,7 +56,9 @@ struct HomeSourceTile: View {
     }
 
     private var cardLink: some View {
-        NavigationLink(value: ShellDestination.source(self.route)) {
+        Button {
+            self.nav.selectFromDeck(ShellDestination.source(self.route))
+        } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(self.source.displayName)
@@ -147,8 +150,12 @@ struct HomeAddMoreTile: View {
 }
 
 struct HomeImportTile: View {
+    @Environment(ShellNavModel.self) private var nav
+
     var body: some View {
-        NavigationLink(value: ShellDestination.import) {
+        Button {
+            self.nav.selectFromDeck(ShellDestination.import)
+        } label: {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "square.and.arrow.down")
                     .font(.title2.weight(.semibold))

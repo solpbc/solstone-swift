@@ -20,6 +20,9 @@ struct ContentView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
+    /// The shell's two navigation channels. Constructed once here and read
+    /// from the environment everywhere else.
+    @State private var shellNav = ShellNavModel()
     @State private var showPairing = false
     @State private var lastPort: Int = 0
     @State private var lastVia: ConnectionEndpoint = .lan
@@ -68,6 +71,7 @@ struct ContentView: View {
                 )
             }
         }
+        .environment(self.shellNav)
         .safeAreaInset(edge: .top, spacing: 0) {
             if self.appConfig.isPaired && self.isRevoked {
                 RePairBanner {

@@ -10,7 +10,7 @@ nonisolated final class UnpairFlowTests: XCTestCase {
     }
 
     @MainActor
-    func testUnpairReturnsToOnboarding() {
+    func testUnpairReturnsToOnboarding() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
 
@@ -23,6 +23,7 @@ nonisolated final class UnpairFlowTests: XCTestCase {
 
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         app.buttons["dayHome.yourSolstoneEntry"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))

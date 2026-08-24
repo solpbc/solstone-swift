@@ -9,23 +9,13 @@ nonisolated final class PaneHostUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// True when the app is running in an iPad-shaped window. See `UITests/PadShapedWindow.swift`.
-    ///
-    /// Two tests in this class use it: the shelf panel filling the window (a ruling-7
-    /// compact-HEIGHT rule) and the status sheet's detent. Both are correctly different on iPad,
-    /// so both are skipped there rather than deleted, and both stay live on the iPhone lane.
-    func isPadShapedWindow(_ app: XCUIApplication) -> Bool {
-        // The definition and the threshold live in UITests/PadShapedWindow.swift, so the two
-        // call sites cannot drift apart. This stays as a thin wrapper for the existing callers.
-        UITestsIsPadShapedWindow(app)
-    }
-
     @MainActor
-    func testHitStripExistsOnlyOnRoot() {
+    func testHitStripExistsOnlyOnRoot() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
 
         let strip = app.descendants(matching: .any)["shell.hitStrip"]
@@ -88,7 +78,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testStatusDegradedWhenDisconnected() {
+    func testStatusDegradedWhenDisconnected() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",
@@ -97,6 +87,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         ]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let degraded = app.descendants(matching: .any)["shell.pane.status.degraded"]
         XCTAssertTrue(degraded.waitForExistence(timeout: 10))
@@ -107,11 +98,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testShelfPresentsFromOpener() {
+    func testShelfPresentsFromOpener() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         let opener = app.buttons["dayHome.yourSolstoneEntry"]
         XCTAssertTrue(opener.waitForExistence(timeout: 10))
         opener.tap()
@@ -121,11 +113,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testShelfLeavesTrailingDeckBand() {
+    func testShelfLeavesTrailingDeckBand() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=shelf"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
         let panel = app.descendants(matching: .any)["shell.pane.shelf.panel"]
         XCTAssertTrue(panel.waitForExistence(timeout: 10))
@@ -144,11 +137,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testShelfHidesDeckFromAccessibilityTree() {
+    func testShelfHidesDeckFromAccessibilityTree() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=shelf"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["dayHome.statusPill"].exists)
@@ -188,11 +182,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testJournalPresentsInLandscape() {
+    func testJournalPresentsInLandscape() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=journal"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
@@ -206,11 +201,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testStatusPresentsInLandscape() {
+    func testStatusPresentsInLandscape() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=status"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.status"].waitForExistence(timeout: 10))
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
@@ -224,11 +220,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testJournalPanePresentsFromOpener() {
+    func testJournalPanePresentsFromOpener() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         let opener = app.buttons["dayHome.openInJournal"]
         XCTAssertTrue(opener.waitForExistence(timeout: 10))
         opener.tap()
@@ -238,11 +235,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testJournalPaneRestsAboveDeck() {
+    func testJournalPaneRestsAboveDeck() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5))
@@ -276,7 +274,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testJournalPaneShowsRetryWhenDisconnected() {
+    func testJournalPaneShowsRetryWhenDisconnected() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",
@@ -285,6 +283,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         ]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["try again"].waitForExistence(timeout: 5))
         let heading = app.descendants(matching: .any)["shell.pane.journal.heading"]
@@ -293,7 +292,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testJournalPaneTitleUsesMarkWordsWhenSeeded() {
+    func testJournalPaneTitleUsesMarkWordsWhenSeeded() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",
@@ -302,6 +301,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         ]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         let heading = app.descendants(matching: .any)["shell.pane.journal.heading"]
         XCTAssertTrue(heading.waitForExistence(timeout: 10))
         XCTAssertTrue(heading.label.contains("afoot"), heading.label)
@@ -309,11 +309,12 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testStatusConnectedTwinWhenUp() {
+    func testStatusConnectedTwinWhenUp() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=status"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let connected = app.descendants(matching: .any)["shell.pane.status.connected"]
         XCTAssertTrue(connected.waitForExistence(timeout: 10))

@@ -39,7 +39,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
     }
 
     @MainActor
-    func testOfflineLocalityOpensYourJournalDetails() {
+    func testOfflineLocalityOpensYourJournalDetails() throws {
         let app = self.makeSeededApp(extraArguments: [
             "--ui-test-seed-on-this-phone",
             "--ui-test-shell-disconnected",
@@ -47,6 +47,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         ])
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         self.assertDayHomeRoot(in: app)
 
         let shelf = app.buttons["dayHome.yourSolstoneEntry"]

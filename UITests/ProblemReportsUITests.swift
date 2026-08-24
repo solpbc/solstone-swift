@@ -10,8 +10,8 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     }
 
     @MainActor
-    func testOptedOutState() {
-        let app = self.launchProblemReportsApp(seed: "opted-out")
+    func testOptedOutState() throws {
+        let app = try self.launchProblemReportsApp(seed: "opted-out")
         self.openStatus(in: app)
         let toggle = app.switches["shell.pane.status.problemReports.toggle"]
         self.scrollToElement(toggle, in: app)
@@ -22,8 +22,8 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     }
 
     @MainActor
-    func testOptedInEmptyState() {
-        let app = self.launchProblemReportsApp(seed: "opted-in-empty")
+    func testOptedInEmptyState() throws {
+        let app = try self.launchProblemReportsApp(seed: "opted-in-empty")
         self.openStatus(in: app)
         self.openProblemReports(in: app)
 
@@ -31,8 +31,8 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     }
 
     @MainActor
-    func testPopulatedListState() {
-        let app = self.launchProblemReportsApp(seed: "populated-list")
+    func testPopulatedListState() throws {
+        let app = try self.launchProblemReportsApp(seed: "populated-list")
         self.openStatus(in: app)
         let row = app.buttons["shell.pane.status.problemReports"]
         self.scrollToElement(row, in: app)
@@ -45,8 +45,8 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
     }
 
     @MainActor
-    func testDetailState() {
-        let app = self.launchProblemReportsApp(seed: "detail")
+    func testDetailState() throws {
+        let app = try self.launchProblemReportsApp(seed: "detail")
         self.openStatus(in: app)
         self.openProblemReports(in: app)
 
@@ -61,7 +61,7 @@ nonisolated final class ProblemReportsUITests: XCTestCase {
 
 @MainActor
 private extension ProblemReportsUITests {
-    func launchProblemReportsApp(seed: String) -> XCUIApplication {
+    func launchProblemReportsApp(seed: String) throws -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",
@@ -70,6 +70,7 @@ private extension ProblemReportsUITests {
         ]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the status pane is a phone-shell sheet; iPad routes the status opener to the pane root")
         return app
     }
 

@@ -15,8 +15,8 @@ nonisolated final class OnboardingAccessibilityTests: XCTestCase {
     }
 
     @MainActor
-    func testShelfExposesAccessibilityMetadata() {
-        self.assertShelfAccessibility()
+    func testShelfExposesAccessibilityMetadata() throws {
+        try self.assertShelfAccessibility()
     }
 }
 
@@ -32,10 +32,11 @@ private extension OnboardingAccessibilityTests {
         self.assertMetadata(for: getStarted, in: app)
     }
 
-    func assertShelfAccessibility() {
+    func assertShelfAccessibility() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         app.buttons["dayHome.yourSolstoneEntry"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))

@@ -17,8 +17,12 @@ struct RootShellView: View {
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(ShellNavModel.self) private var nav
     @Namespace private var homeChrome
-    @State private var path = NavigationPath()
+    @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
+    @State private var showingJournalLives = false
     @State private var presentedPane: PresentedShellPane?
     @State private var journalMark: JournalMark?
     @State private var statusPath = NavigationPath()
@@ -36,15 +40,11 @@ struct RootShellView: View {
         self.via = via
     }
 
-    var body: some View {
+    /// The shell with the shelf layered over it. Kept separate from `body` so
+    /// neither expression grows past what the type-checker will take.
+    private var shellLayers: some View {
         ZStack {
-            if self.presentedPane == .shelf {
-                self.homeStack
-                    .accessibilityHidden(true)
-                    .accessibilityChildren { EmptyView() }
-            } else {
-                self.homeStack
-            }
+            self.shellBehindShelf
 
             if self.presentedPane == .shelf {
                 ShelfPane(presentedPane: self.$presentedPane)
@@ -57,6 +57,12 @@ struct RootShellView: View {
         .task {
             await self.crossFadePreference.observe()
         }
+    }
+
+    /// The phone shell's four presentations. Split from `body` for the same reason
+    /// as `shellLayers`: one chain of this length does not type-check.
+    private var shellWithSheets: some View {
+        self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView(mark: self.journalMark)
                 // 0.75 keeps the first deck tile row in the band above the pane on iPhone 17 Pro.
@@ -68,9 +74,16 @@ struct RootShellView: View {
             SourcesView()
                 .environment(self.observerSourcePauseState)
         }
+        .sheet(isPresented: self.$showingJournalLives) {
+            JournalLivesSheet(isPresented: self.$showingJournalLives)
+        }
         .sheet(isPresented: self.isStatusPresented) {
             self.statusSheet
         }
+    }
+
+    var body: some View {
+        self.shellWithSheets
         .task(id: self.observerRegistration.activeLocalPort) {
             await self.fetchJournalMark()
         }
@@ -109,35 +122,190 @@ struct RootShellView: View {
         }
     }
 
-    private var homeStack: some View {
-        NavigationStack(path: self.$path) {
-            DayHomeView(
-                journalState: self.dayHomeJournalState,
-                journalMark: self.journalMark,
-                homeChrome: self.homeChrome,
-                onOpenJournal: {
-                    self.presentedPane = .journal
-                },
-                onOpenSources: {
-                    self.showingSources = true
-                },
-                onOpenYourSolstone: {
-                    self.presentedPane = .shelf
-                },
-                onOpenStatus: {
-                    self.presentedPane = .status
-                },
-                sourcesBadgeVisible: self.sourcesBadgeVisible
-            )
-            .overlay(alignment: .leading) {
-                if self.path.isEmpty {
-                    ShelfHitStrip(onOpen: {
-                        self.presentedPane = .shelf
-                    })
+    /// The shell, with the deck taken out of the accessibility tree while the
+    /// shelf covers it.
+    @ViewBuilder
+    private var shellBehindShelf: some View {
+        if self.presentedPane == .shelf {
+            self.splitShell
+                .accessibilityHidden(true)
+                .accessibilityChildren { EmptyView() }
+        } else {
+            self.splitShell
+        }
+    }
+
+    /// The shell.
+    ///
+    /// The shape decision keys on size class ABOVE the split. At regular width the
+    /// deck is permanently the leading column of a two-column split. Collapsed,
+    /// the shell is the phone's single stack: a `NavigationSplitView` only pushes
+    /// its detail from a selection-driven sidebar, and the deck is a grid of
+    /// controls rather than a selection list, so a collapsed split strands every
+    /// deck tap. Both shapes read the same two channels, so neither the pane root
+    /// nor the pane stack is disturbed by crossing between them.
+    /// Type-erased deliberately. The two shapes are large, unrelated view types,
+    /// and carrying both through every modifier in `body` is what the type-checker
+    /// gives up on. Crossing between them is a genuine shell change, so a fresh
+    /// identity here is right rather than merely tolerable.
+    private var splitShell: AnyView {
+        self.isPhoneShell ? AnyView(self.phoneStack) : AnyView(self.padSplit)
+    }
+
+    /// Whether the shell is the phone's single stack rather than the split.
+    ///
+    /// Compact width, or a pinned deck column that cannot hold two tiles. The deck
+    /// is never degenerated to one column inside a split: at an accessibility text
+    /// size, and past the text size the column band was derived for, the split
+    /// collapses and the shell behaves as compact.
+    private var isPhoneShell: Bool {
+        if self.horizontalSizeClass != .regular {
+            return true
+        }
+        return splitCollapses(dynamicTypeSize: self.dynamicTypeSize)
+    }
+
+    private var padSplit: some View {
+        @Bindable var nav = self.nav
+        return NavigationSplitView(
+            columnVisibility: $nav.columnVisibility,
+            preferredCompactColumn: self.$preferredCompactColumn
+        ) {
+            self.deckColumn
+                .navigationSplitViewColumnWidth(
+                    min: DeckMetrics.columnMinimum,
+                    ideal: DeckMetrics.columnIdeal,
+                    max: DeckMetrics.columnMaximum
+                )
+        } detail: {
+            self.paneColumn
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// The collapsed shell. One stack whose path is the two channels laid end to
+    /// end, so a deck tap pushes and a back navigation returns to the deck.
+    private var phoneStack: some View {
+        NavigationStack(path: self.phonePath) {
+            self.deckColumn
+                .navigationDestination(for: ShellDestination.self) { destination in
+                    ShellDestinationView(destination: destination)
                 }
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// `paneRoot` followed by `paneStack`. Writing a shorter path back pops, and
+    /// popping all the way clears the deck's selection.
+    private var phonePath: Binding<[ShellDestination]> {
+        Binding(
+            get: {
+                guard let root = self.nav.paneRoot else { return [] }
+                return [root] + self.nav.paneStack
+            },
+            set: { path in
+                guard let root = path.first else {
+                    self.nav.selectFromDeck(nil)
+                    return
+                }
+                if root == self.nav.paneRoot {
+                    self.nav.paneStack = Array(path.dropFirst())
+                } else {
+                    self.nav.selectFromDeck(root)
+                }
+            }
+        )
+    }
+
+    private var deckColumn: some View {
+        DayHomeView(
+            journalState: self.dayHomeJournalState,
+            journalMark: self.journalMark,
+            homeChrome: self.homeChrome,
+            onOpenJournal: { self.openJournal() },
+            onOpenJournalSetup: { self.openJournalSetup() },
+            onOpenSources: { self.openSources() },
+            onOpenYourSolstone: { self.openYourSolstone() },
+            onOpenStatus: { self.openStatus() },
+            sourcesBadgeVisible: self.sourcesBadgeVisible
+        )
+        .overlay(alignment: .leading) {
+            if self.isPhoneShellAtRest {
+                ShelfHitStrip(onOpen: { self.openYourSolstone() })
+            }
+        }
+    }
+
+    /// The pane. Its stack carries the push channel, and it holds the only
+    /// `ShellDestination` registration in the shell, so a link inside the pane
+    /// pushes while a tap in the deck replaces.
+    private var paneColumn: some View {
+        @Bindable var nav = self.nav
+        return NavigationStack(path: $nav.paneStack) {
+            ShellDestinationView(destination: self.paneRootDestination)
+                .navigationDestination(for: ShellDestination.self) { destination in
+                    ShellDestinationView(destination: destination)
+                }
+        }
+    }
+
+    /// What the pane shows at its root: the deck's selection, or the computed
+    /// default when the owner has not chosen yet.
+    private var paneRootDestination: ShellDestination {
+        self.nav.resolvedPaneRoot(isPaired: self.appConfig.isPaired)
+    }
+
+    /// The edge gestures and the hit strip belong to the phone shell only: on
+    /// iPad the leading edge is the system sidebar swipe and the top edge is the
+    /// menu bar.
+    private var isPhoneShellAtRest: Bool {
+        self.isPhoneShell && self.nav.paneRoot == nil && self.nav.paneStack.isEmpty
+    }
+
+    /// The four fixed openers, plus the journal-setup door.
+    ///
+    /// The shape decision sits here, above the split: at regular width each one
+    /// replaces the pane root; collapsed, each one keeps the phone shell's own
+    /// presentation. `applyDebugSeeds()` routes through these same methods so the
+    /// seed and the real opener cannot drift.
+    private func openJournal() {
+        if self.isPhoneShell {
+            self.presentedPane = .journal
+        } else {
+            self.nav.selectFromDeck(.journal)
+        }
+    }
+
+    private func openJournalSetup() {
+        if self.isPhoneShell {
+            self.showingJournalLives = true
+        } else {
+            self.nav.selectFromDeck(.journalSetup)
+        }
+    }
+
+    private func openSources() {
+        if self.isPhoneShell {
+            self.showingSources = true
+        } else {
+            self.nav.selectFromDeck(.addMore)
+        }
+    }
+
+    private func openYourSolstone() {
+        if self.isPhoneShell {
+            self.presentedPane = .shelf
+        } else {
+            self.nav.selectFromDeck(.shelf)
+        }
+    }
+
+    private func openStatus() {
+        if self.isPhoneShell {
+            self.presentedPane = .status
+        } else {
+            self.nav.selectFromDeck(.status)
+        }
     }
 
     private var isJournalPresented: Binding<Bool> {
@@ -207,11 +375,11 @@ struct RootShellView: View {
             let pane = String(raw.dropFirst("--ui-test-open-pane=".count))
             switch pane {
             case "status":
-                self.presentedPane = .status
+                self.openStatus()
             case "journal":
-                self.presentedPane = .journal
+                self.openJournal()
             case "shelf":
-                self.presentedPane = .shelf
+                self.openYourSolstone()
             default:
                 break
             }
@@ -244,6 +412,7 @@ struct RootShellView: View {
 
     private func apply(_: NotificationRoute) {
         self.showingSources = false
+        self.showingJournalLives = false
         self.presentedPane = nil
         self.pendingRoute.route = nil
     }
