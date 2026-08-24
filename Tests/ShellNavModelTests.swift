@@ -71,4 +71,39 @@ final class ShellNavModelTests: XCTestCase {
             XCTAssertEqual(nav.paneStack, stackBefore)
         }
     }
+
+    func testToggleDeckVisibilityChangesOnlyColumnVisibility() {
+        let nav = ShellNavModel()
+        nav.selectFromDeck(.source(.audio))
+        nav.paneStack = [.shelfThisDevice]
+        let rootBefore = nav.paneRoot
+        let stackBefore = nav.paneStack
+
+        nav.columnVisibility = .detailOnly
+        nav.toggleDeckVisibility()
+        XCTAssertEqual(nav.columnVisibility, .all)
+        XCTAssertEqual(nav.paneRoot, rootBefore)
+        XCTAssertEqual(nav.paneStack, stackBefore)
+
+        for visibility in [
+            NavigationSplitViewVisibility.all,
+            .doubleColumn,
+        ] {
+            nav.columnVisibility = visibility
+            nav.toggleDeckVisibility()
+            XCTAssertEqual(nav.columnVisibility, .detailOnly)
+            XCTAssertEqual(nav.paneRoot, rootBefore)
+            XCTAssertEqual(nav.paneStack, stackBefore)
+        }
+
+        // This SDK canonicalizes `.automatic` to `.detailOnly` when it is
+        // assigned to the binding. The toggle therefore follows the binding's
+        // observable value, which is the only public state SwiftUI exposes.
+        nav.columnVisibility = .automatic
+        XCTAssertEqual(nav.columnVisibility, .detailOnly)
+        nav.toggleDeckVisibility()
+        XCTAssertEqual(nav.columnVisibility, .all)
+        XCTAssertEqual(nav.paneRoot, rootBefore)
+        XCTAssertEqual(nav.paneStack, stackBefore)
+    }
 }

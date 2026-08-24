@@ -46,6 +46,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchLink: WatchLink
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pairingHandoff = PairingHandoffState()
+    @State private var shellNav = ShellNavModel()
     @State private var pairingCredentialRecovery: PairingCredentialRecoveryCoordinator
     @State private var omiSourceManager: OmiSourceManager
     @State private var launchCaptureCommitCoordinator: OmiLaunchCaptureCommitCoordinator
@@ -749,6 +750,7 @@ struct SolstoneSwiftApp: App {
             ContentView()
                 .environment(self.appConfig)
                 .environment(self.onboardingFlow)
+                .environment(self.shellNav)
                 .environment(self.tunnelManager)
                 .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
@@ -1017,6 +1019,16 @@ struct SolstoneSwiftApp: App {
                 }
             case .idle, .starting, .stopping, .error:
                 break
+            }
+        }
+        .commands {
+            if shouldBuildShellMenuCommands(userInterfaceIdiom: UIDevice.current.userInterfaceIdiom) {
+                ShellMenuCommands(
+                    nav: self.shellNav,
+                    onboardingFlow: self.onboardingFlow,
+                    appConfig: self.appConfig,
+                    connectionSyncModel: self.connectionSyncModel
+                )
             }
         }
     }

@@ -42,6 +42,16 @@ final class ShellNavModel {
         self.paneStack.removeAll()
     }
 
+    /// Swap between the full split and its detail column without disturbing
+    /// either navigation channel.
+    func toggleDeckVisibility() {
+        if self.columnVisibility == .detailOnly {
+            self.columnVisibility = .all
+        } else {
+            self.columnVisibility = .detailOnly
+        }
+    }
+
     /// What the pane shows before the owner has chosen anything.
     ///
     /// Journal setup when there is no journal to show yet, status once there is.

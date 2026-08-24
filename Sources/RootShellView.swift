@@ -178,7 +178,35 @@ struct RootShellView: View {
             self.paneColumn
         }
         .navigationSplitViewStyle(.balanced)
+#if DEBUG
+        .overlay(alignment: .topLeading) {
+            if self.showsColumnVisibilityProbe {
+                Text("")
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier(self.columnVisibilityProbeIdentifier)
+                    .id(self.columnVisibilityProbeIdentifier)
+            }
+        }
+#endif
     }
+
+#if DEBUG
+    private var showsColumnVisibilityProbe: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-test")
+    }
+
+    private var columnVisibilityProbeIdentifier: String {
+        if self.nav.columnVisibility == .all {
+            "shell.columnVisibility.all"
+        } else if self.nav.columnVisibility == .detailOnly {
+            "shell.columnVisibility.detailOnly"
+        } else {
+            "shell.columnVisibility.unknown"
+        }
+    }
+#endif
 
     /// The collapsed shell. One stack whose path is the two channels laid end to
     /// end, so a deck tap pushes and a back navigation returns to the deck.

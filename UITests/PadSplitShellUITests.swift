@@ -38,6 +38,24 @@ final class PadSplitShellUITests: XCTestCase {
         element.tap()
     }
 
+    private func assertMenuKeyChannelLive(
+        _ app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let importPane = app.descendants(matching: .any)["shell.pane.import"]
+        let deadline = Date().addingTimeInterval(40)
+
+        repeat {
+            app.typeKey("4", modifierFlags: .command)
+            if importPane.waitForExistence(timeout: 2) {
+                return
+            }
+        } while Date() < deadline
+
+        XCTFail("⌘4 never reached the enabled import command", file: file, line: line)
+    }
+
     // MARK: - AC1: the shape
 
     /// The deck is the leading column in every state: at rest, after a deck tap,
@@ -321,6 +339,119 @@ final class PadSplitShellUITests: XCTestCase {
             heading: "shell.pane.shelfAbout.heading",
             shot: "l33-ipad-shelf-about"
         )
+    }
+
+    // MARK: - L3.4: iPad menu shortcuts
+
+    @MainActor
+    func testMenuShortcutReplacesPaneRootAndClearsPushedPane() throws {
+        let app = try self.launchPad()
+        self.assertMenuKeyChannelLive(app)
+        app.typeKey("5", modifierFlags: .command)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["shell.pane.addMore"].waitForExistence(timeout: 10)
+        )
+
+        let audio = app.buttons["source.row.audio"]
+        XCTAssertTrue(audio.waitForExistence(timeout: 10))
+        audio.tap()
+        let pushedAudio = app.navigationBars["audio"]
+        XCTAssertTrue(pushedAudio.waitForExistence(timeout: 10))
+
+        app.typeKey("4", modifierFlags: .command)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10)
+        )
+        XCTAssertTrue(pushedAudio.waitForNonExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testJournalShortcutBecomesEffectiveAfterNetworkRestore() async throws {
+        let app = try self.launchPad([
+            "--ui-test-network-unsatisfied",
+            "--ui-test-network-reconnect-after=8",
+        ])
+        let journal = app.descendants(matching: .any)["shell.pane.journal.heading"]
+        self.assertMenuKeyChannelLive(app)
+
+        app.typeKey("2", modifierFlags: .command)
+        XCTAssertFalse(journal.waitForExistence(timeout: 3))
+
+        try await Task.sleep(for: .seconds(10))
+        app.typeKey("2", modifierFlags: .command)
+        XCTAssertTrue(journal.waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testMenuDeckVisibilityShortcutRendersAndMatchesNavState() throws {
+        let app = try self.launchPad()
+        let visibilityAll = app.descendants(matching: .any)["shell.columnVisibility.all"]
+        let visibilityDetailOnly = app.descendants(matching: .any)["shell.columnVisibility.detailOnly"]
+        XCTAssertTrue(visibilityAll.waitForExistence(timeout: 10))
+        self.assertMenuKeyChannelLive(app)
+
+        app.typeKey("0", modifierFlags: .command)
+        XCTAssertTrue(visibilityDetailOnly.waitForExistence(timeout: 10))
+        XCTAssertTrue(self.deck(in: app).waitForNonExistence(timeout: 10))
+        self.attach(app, "l34-menu-deck-hidden")
+
+        app.typeKey("0", modifierFlags: .command)
+        XCTAssertTrue(visibilityAll.waitForExistence(timeout: 10))
+        XCTAssertTrue(self.deck(in: app).waitForExistence(timeout: 10))
+        self.attach(app, "l34-menu-deck-shown")
+    }
+
+    @MainActor
+    func testMenuShellDestinationsStayInactiveDuringOnboarding() throws {
+        let app = try self.launchPad(["--ui-test-onboarding-step=welcome"])
+        let onboarding = app.buttons["get started"]
+        XCTAssertTrue(onboarding.waitForExistence(timeout: 10))
+
+        // No menu key is enabled during onboarding. Wait past the measured menu
+        // attachment latency before asserting the disabled shortcuts stay inert.
+        RunLoop.current.run(until: Date().addingTimeInterval(20))
+
+        for shortcut in ["1", "2", "3", "4", "5", "6"] {
+            app.typeKey(shortcut, modifierFlags: .command)
+            XCTAssertTrue(onboarding.exists, "⌘\(shortcut) left onboarding")
+        }
+
+        for pane in [
+            "shell.pane.status.heading",
+            "shell.pane.journal.heading",
+            "shell.pane.journalSetup.heading",
+            "shell.pane.import",
+            "shell.pane.addMore",
+            "shell.pane.shelf.heading",
+        ] {
+            XCTAssertFalse(app.descendants(matching: .any)[pane].exists, "\(pane) appeared during onboarding")
+        }
+
+        app.terminate()
+        let completed = try self.launchPad()
+        self.assertMenuKeyChannelLive(completed)
+        completed.typeKey("5", modifierFlags: .command)
+        XCTAssertTrue(completed.descendants(matching: .any)["shell.pane.addMore"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testDeckAffordanceIdentifiersResolveWhenLinked() throws {
+        let app = try self.launchPad()
+        for identifier in [
+            "dayHome.statusPill",
+            "dayHome.openInJournal",
+            "dayHome.sourcesEntry",
+            "dayHome.importEntry",
+            "dayHome.yourSolstoneEntry",
+        ] {
+            XCTAssertTrue(app.buttons[identifier].waitForExistence(timeout: 10), "\(identifier) missing")
+        }
+    }
+
+    @MainActor
+    func testJournalSetupDeckAffordanceIdentifierResolvesWhenUnpaired() throws {
+        let app = try self.launchPad(["--ui-test-no-journal"])
+        XCTAssertTrue(app.buttons["dayHome.journalSetup"].waitForExistence(timeout: 10))
     }
 
     // MARK: - AC8: the collapsed shell is the phone shell
