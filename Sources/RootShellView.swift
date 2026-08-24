@@ -233,9 +233,9 @@ struct RootShellView: View {
         }
     }
 
-    /// The pane. Its stack carries the push channel, and it holds the only
-    /// `ShellDestination` registration in the shell, so a link inside the pane
-    /// pushes while a tap in the deck replaces.
+    /// The pane. Its stack carries the push channel and owns the detail column's
+    /// `ShellDestination` registration, so a link inside the pane pushes while a
+    /// tap in the deck replaces.
     private var paneColumn: some View {
         @Bindable var nav = self.nav
         return NavigationStack(path: $nav.paneStack) {

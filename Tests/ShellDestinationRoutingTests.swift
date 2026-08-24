@@ -11,6 +11,9 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
         let text = try String(contentsOf: destinationURL, encoding: .utf8)
         let viewStart = try XCTUnwrap(text.range(of: "struct ShellDestinationView: View {"))
         let viewText = String(text[viewStart.lowerBound...])
+        let switchStart = try XCTUnwrap(viewText.range(of: "switch self.destination {"))
+        let switchEnd = try XCTUnwrap(viewText.range(of: "\n    private func openJournal"))
+        let destinationSwitch = viewText[switchStart.lowerBound..<switchEnd.lowerBound]
 
         let routes = [
             ("case .source(.audio):", "SourceDetailView()"),
@@ -33,6 +36,13 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
             ("case .problemReports:", "ProblemReportsView()"),
             ("case .pairFlow:", "PairFlowView("),
         ]
+
+        let branchCount = destinationSwitch.components(separatedBy: "\n        case ").count - 1
+        XCTAssertEqual(
+            branchCount,
+            routes.count,
+            "add the new ShellDestination case to routes so its detail branch is checked"
+        )
 
         for route in routes {
             let branch = try XCTUnwrap(viewText.range(of: route.0), "missing \(route.0)")
