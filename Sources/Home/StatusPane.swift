@@ -4,16 +4,11 @@
 import SwiftUI
 import UIKit
 
-nonisolated enum StatusPush: Hashable, Sendable {
-    case diagnostics
-    case problemReports
-}
-
 struct StatusPane: View {
-    let via: ConnectionEndpoint
-    let connectedSince: Date
+    let presentation: ShellPanePresentation
 
     @Environment(AppConfig.self) private var appConfig
+    @Environment(ShellStatusContext.self) private var shellStatusContext
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(DiagnosticLog.self) private var diagnosticLog
@@ -53,7 +48,18 @@ struct StatusPane: View {
         self.probeAlive ? .green : .orange
     }
 
+    @ViewBuilder
     var body: some View {
+        if self.presentation.isPhoneModal {
+            self.paneContent
+                .accessibilityAddTraits(.isModal)
+                .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else {
+            self.paneContent
+        }
+    }
+
+    private var paneContent: some View {
         List {
             Section {
                 let region = statusPaneRegion(self.connectionSyncModel.status)
@@ -63,10 +69,13 @@ struct StatusPane: View {
                     .accessibilityValue(region.value)
 
                 if self.appConfig.isPaired {
-                    LabeledContent("method", value: self.via == .lan ? "local network" : "remote journal")
+                    LabeledContent(
+                        "method",
+                        value: self.shellStatusContext.via == .lan ? "local network" : "remote journal"
+                    )
                     LabeledContent("journal", value: self.serverHost)
                     LabeledContent("uptime") {
-                        Text(self.connectedSince, style: .timer)
+                        Text(self.shellStatusContext.connectedSince, style: .timer)
                     }
                     LabeledContent(SourceVocabulary.transferRateLabel) {
                         Text(
@@ -100,7 +109,7 @@ struct StatusPane: View {
                 .accessibilityIdentifier("shell.pane.status.problemReports.toggle")
                 .accessibilityHint(SourceVocabulary.problemReportsToggleHint)
 
-                NavigationLink(value: StatusPush.problemReports) {
+                NavigationLink(value: ShellDestination.problemReports) {
                     HStack {
                         Text(SourceVocabulary.problemReportsRow)
                         Spacer()
@@ -150,7 +159,7 @@ struct StatusPane: View {
                 .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
                 .hoverEffect(.highlight)
 
-                NavigationLink(value: StatusPush.diagnostics) {
+                NavigationLink(value: ShellDestination.diagnostics) {
                     Text("event log")
                 }
                 .accessibilityIdentifier("shell.pane.status.diagnostics")
@@ -160,9 +169,11 @@ struct StatusPane: View {
         .navigationTitle(self.headingString)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("done") {
-                    self.dismiss()
+            if self.presentation.isPhoneModal {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") {
+                        self.dismiss()
+                    }
                 }
             }
             ToolbarItem(placement: .principal) {
@@ -172,9 +183,7 @@ struct StatusPane: View {
                     .accessibilityFocused(self.$headingFocused)
             }
         }
-        .accessibilityAddTraits(.isModal)
         .accessibilityIdentifier("shell.pane.status")
-        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear { self.headingFocused = true }
         .onDisappear { self.snapshotCopyTask?.cancel() }
         .task { await self.refreshTransferRate() }

@@ -5,6 +5,7 @@ import SwiftUI
 
 struct NotificationsPane: View {
     @Environment(PushNotificationManager.self) private var pushManager
+    @AccessibilityFocusState private var headingFocused: Bool
 
     private var permissionStatusText: String {
         switch self.pushManager.permissionState {
@@ -58,5 +59,16 @@ struct NotificationsPane: View {
             .accessibilityLabel("send test notification")
             .hoverEffect(.highlight)
         }
+        .navigationTitle(ShellDestination.shelfNotifications.shelfTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(ShellDestination.shelfNotifications.shelfTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("shell.pane.shelfNotifications.heading")
+                    .accessibilityFocused(self.$headingFocused)
+            }
+        }
+        .onAppear { self.headingFocused = true }
     }
 }

@@ -13,6 +13,13 @@ private struct ContentPairingIdentity: Equatable {
     let pairedAt: Date?
 }
 
+@Observable
+@MainActor
+final class ShellStatusContext {
+    var via: ConnectionEndpoint = .lan
+    var connectedSince = Date()
+}
+
 struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
@@ -23,9 +30,9 @@ struct ContentView: View {
     /// The shell's two navigation channels. Constructed once here and read
     /// from the environment everywhere else.
     @State private var shellNav = ShellNavModel()
+    @State private var shellStatusContext = ShellStatusContext()
     @State private var showPairing = false
     @State private var lastPort: Int = 0
-    @State private var lastVia: ConnectionEndpoint = .lan
 #if DEBUG
     @State private var showGenericJournalMarkPreview = false
 #endif
@@ -36,13 +43,6 @@ struct ContentView: View {
             return port
         }
         return self.lastPort
-    }
-
-    private var effectiveVia: ConnectionEndpoint {
-        if case .connected(_, let via) = self.tunnelManager.state {
-            return via
-        }
-        return self.lastVia
     }
 
     private var isRevoked: Bool {
@@ -66,12 +66,11 @@ struct ContentView: View {
             if !self.onboardingFlow.isCompleted {
                 OnboardingRootView()
             } else {
-                RootShellView(
-                    via: self.effectiveVia
-                )
+                RootShellView()
             }
         }
         .environment(self.shellNav)
+        .environment(self.shellStatusContext)
         .safeAreaInset(edge: .top, spacing: 0) {
             if self.appConfig.isPaired && self.isRevoked {
                 RePairBanner {
@@ -97,7 +96,7 @@ struct ContentView: View {
         .onChange(of: self.tunnelManager.state) { _, newState in
             if case .connected(let port, let via) = newState {
                 self.lastPort = port
-                self.lastVia = via
+                self.shellStatusContext.via = via
                 Task {
                     await self.pushManager.handleTunnelConnected(localPort: port)
                 }
@@ -200,7 +199,7 @@ struct ContentView: View {
                         isWiFi: true
                     )
                     self.lastPort = port
-                    self.lastVia = .lan
+                    self.shellStatusContext.via = .lan
                     self.showPairing = true
                     self.connectionSyncModel.refreshNow()
                     return
@@ -219,7 +218,7 @@ struct ContentView: View {
                     )
                     self.tunnelManager.state = .error(.revoked)
                     self.lastPort = port
-                    self.lastVia = .lan
+                    self.shellStatusContext.via = .lan
                     self.connectionSyncModel.refreshNow()
                     return
                 }
@@ -239,7 +238,7 @@ struct ContentView: View {
                         )
                     }
                     self.lastPort = port
-                    self.lastVia = .lan
+                    self.shellStatusContext.via = .lan
                 } else if arguments.contains("--ui-test-network-unsatisfied") {
                     self.tunnelManager.forceNetworkStatus(isSatisfied: false, isWiFi: true)
                 }
@@ -259,7 +258,7 @@ struct ContentView: View {
                 self.onboardingFlow.markCompletedForUITest()
                 self.tunnelManager.forceConnected(port: mockPort, via: .lan)
                 self.lastPort = mockPort
-                self.lastVia = .lan
+                self.shellStatusContext.via = .lan
                 self.connectionSyncModel.refreshNow()
                 Task {
                     await self.pushManager.handleTunnelConnected(localPort: mockPort)
@@ -272,7 +271,7 @@ struct ContentView: View {
                 self.onboardingFlow.markCompletedForUITest()
                 self.tunnelManager.forceConnected(port: livePort, via: .lan)
                 self.lastPort = livePort
-                self.lastVia = .lan
+                self.shellStatusContext.via = .lan
                 self.connectionSyncModel.refreshNow()
                 Task {
                     await self.pushManager.handleTunnelConnected(localPort: livePort)

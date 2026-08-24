@@ -3,17 +3,9 @@
 
 import SwiftUI
 
-/// Wave 3 iPad `NavigationSplitView` selection vocabulary. Hashable, Sendable,
-/// no View payloads.
+/// The shared shell navigation vocabulary. Hashable, Sendable, no View payloads.
 ///
-/// On iPhone, deck tiles push `.source(...)` and `.import`. `.addMore` is hosted
-/// as the sources sheet body (`SourcesView` → `AddMoreView`) rather than pushed
-/// from the deck. `.status`, `.journal`, `.journalSetup`, `.shelf`, and the five
-/// shelf-row cases are unreachable on iPhone; they resolve to a self-naming
-/// `ShellPaneStub` so an accidental push is visible rather than a silent blank.
-/// Never replace stubs with `EmptyView()`.
-///
-/// Live iPhone wiring (not this enum):
+/// Live iPhone wiring outside the phone stack:
 ///   leading shelf control → ShelfPane overlay (`dayHome.yourSolstoneEntry`)
 ///   add-more tile         → SourcesView sheet (`dayHome.sourcesEntry`)
 ///   import tile           → `ImportView` via `ShellDestination.import`
@@ -35,14 +27,69 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     case shelfNotifications
     case shelfHelp
     case shelfAbout
+    case diagnostics
+    case problemReports
+    case pairFlow
+
+    var shelfTitle: String {
+        switch self {
+        case .shelfJournal:
+            "journal"
+        case .shelfThisDevice:
+            "this device"
+        case .shelfNotifications:
+            "notifications"
+        case .shelfHelp:
+            "help"
+        case .shelfAbout:
+            "about solstone"
+        case .status, .journal, .journalSetup, .source, .addMore, .import, .shelf,
+             .diagnostics, .problemReports, .pairFlow:
+            preconditionFailure("shelfTitle is only available for shelf destinations")
+        }
+    }
+
+    var shelfRowIdentifier: String {
+        switch self {
+        case .shelfJournal:
+            "shell.pane.shelf.journal"
+        case .shelfThisDevice:
+            "shell.pane.shelf.thisDevice"
+        case .shelfNotifications:
+            "shell.pane.shelf.notifications"
+        case .shelfHelp:
+            "shell.pane.shelf.help"
+        case .shelfAbout:
+            "shell.pane.shelf.about"
+        case .status, .journal, .journalSetup, .source, .addMore, .import, .shelf,
+             .diagnostics, .problemReports, .pairFlow:
+            preconditionFailure("shelfRowIdentifier is only available for shelf destinations")
+        }
+    }
 }
 
-/// Wave 3 iPad `NavigationSplitView` vocabulary. These cases are Hashable
-/// selection values for that split view; they are not pushed on iPhone. The
-/// self-naming `ShellPaneStub` bodies are deliberate so an accidental push is
-/// visible rather than a silent blank. Never replace them with `EmptyView()`.
+nonisolated enum ShellPanePresentation: Sendable {
+    case phoneModal
+    case detail
+
+    var isPhoneModal: Bool {
+        switch self {
+        case .phoneModal:
+            true
+        case .detail:
+            false
+        }
+    }
+}
+
 struct ShellDestinationView: View {
     let destination: ShellDestination
+    var journalMark: JournalMark? = nil
+    var onOpenJournal: (() -> Void)? = nil
+
+    @Environment(ShellNavModel.self) private var nav
+    @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         switch self.destination {
@@ -57,38 +104,52 @@ struct ShellDestinationView: View {
         case .source(.watch):
             WatchSourceDetailView()
         case .status:
-            ShellPaneStub(name: "status", identifier: "status")
+            StatusPane(presentation: .detail)
         case .journal:
-            ShellPaneStub(name: "journal", identifier: "journal")
+            InAppJournalView(mark: self.journalMark, presentation: .detail)
         case .journalSetup:
-            ShellPaneStub(name: "journalSetup", identifier: "journalSetup")
+            JournalLivesPane()
         case .addMore:
-            AddMorePushHost()
+            AddMoreView { route in
+                self.nav.paneStack.append(.source(route))
+            }
         case .import:
             ImportView()
         case .shelf:
-            ShellPaneStub(name: "shelf", identifier: "shelf")
+            ShelfPane(
+                presentation: .detail,
+                onOpenJournal: { self.openJournal() }
+            )
         case .shelfJournal:
-            ShellPaneStub(name: "journal", identifier: "shelfJournal")
+            JournalSettingsPane(onOpenJournal: { self.openJournal() })
         case .shelfThisDevice:
-            ShellPaneStub(name: "this device", identifier: "thisDevice")
+            ThisDevicePane()
         case .shelfNotifications:
-            ShellPaneStub(name: "notifications", identifier: "shelfNotifications")
+            NotificationsPane()
         case .shelfHelp:
-            ShellPaneStub(name: "help", identifier: "shelfHelp")
+            HelpPane()
         case .shelfAbout:
-            ShellPaneStub(name: "about solstone", identifier: "aboutSolstone")
+            AboutPane()
+        case .diagnostics:
+            DiagnosticsView()
+        case .problemReports:
+            ProblemReportsView()
+        case .pairFlow:
+            PairFlowView(
+                onBack: { self.dismiss() },
+                onComplete: {
+                    OwnerPairingCompletion.completeOwnerPairing(tunnelManager: self.tunnelManager)
+                    self.dismiss()
+                }
+            )
         }
     }
-}
 
-private struct AddMorePushHost: View {
-    @State private var selectedRoute: SourceRoute?
-
-    var body: some View {
-        AddMoreView(selectedRoute: self.$selectedRoute)
-            .navigationDestination(item: self.$selectedRoute) { route in
-                ShellDestinationView(destination: .source(route))
-            }
+    private func openJournal() {
+        if let onOpenJournal {
+            onOpenJournal()
+        } else {
+            self.nav.paneStack.append(.journal)
+        }
     }
 }

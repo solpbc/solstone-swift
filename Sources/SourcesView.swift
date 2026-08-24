@@ -8,7 +8,9 @@ struct SourcesView: View {
 
     var body: some View {
         NavigationStack {
-            AddMoreView(selectedRoute: self.$selectedSourceRoute)
+            AddMoreView { route in
+                self.selectedSourceRoute = route
+            }
                 .navigationTitle("")
                 .toolbar {
                     ToolbarItem(placement: .principal) {

@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct AddMoreView: View {
-    @Binding var selectedRoute: SourceRoute?
+    let onSelect: (SourceRoute) -> Void
     @Environment(AppConfig.self) private var appConfig
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
@@ -21,7 +21,7 @@ struct AddMoreView: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(self.rows) { row in
                     SourceRowView(source: row.source) {
-                        self.selectedRoute = row.route
+                        self.onSelect(row.route)
                     }
                 }
             }

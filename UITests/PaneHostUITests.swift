@@ -35,7 +35,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testStatusPushOpensDiagnostics() throws {
+    func testStatusLinksOpenDiagnostics() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-open-pane=status"]
         app.launch()
@@ -120,7 +120,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
-        let panel = app.descendants(matching: .any)["shell.pane.shelf.panel"]
+        let panel = app.descendants(matching: .any)["shell.pane.shelf.panelWidthProbe"]
         XCTAssertTrue(panel.waitForExistence(timeout: 10))
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5))

@@ -6,36 +6,43 @@ import os
 
 private let shelfLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
 
-nonisolated enum ShelfPush: Hashable, Sendable {
-    case journal
-    case thisDevice
-    case notifications
-    case help
-    case about
-}
-
 struct ShelfPane: View {
-    @Binding var presentedPane: PresentedShellPane?
+    let presentation: ShellPanePresentation
+    let onOpenJournal: () -> Void
+    var onDismiss: (() -> Void)? = nil
+
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(AppConfig.self) private var appConfig
     @AccessibilityFocusState private var headingFocused: Bool
-    @State private var path = NavigationPath()
+    @State private var path: [ShellDestination] = []
     @State private var showingUnpairConfirm = false
 
     private var headingString: String { "dev-copy: settings" }
     private var isCompactHeight: Bool { self.verticalSizeClass == .compact }
 
+    @ViewBuilder
     var body: some View {
+        if self.presentation.isPhoneModal {
+            self.phoneDrawer
+        } else {
+            self.pane
+                .accessibilityIdentifier("shell.pane.shelf")
+                .onAppear { self.headingFocused = true }
+                .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
+        }
+    }
+
+    private var phoneDrawer: some View {
         GeometryReader { geometry in
             Group {
                 if self.isCompactHeight {
-                    self.panel
+                    self.phonePanel
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color(.systemBackground))
                 } else {
                     let panelWidth = min(geometry.size.width - 24, 320)
                     HStack(spacing: 0) {
-                        self.panel
+                        self.phonePanel
                             .frame(width: panelWidth)
                             .frame(maxHeight: .infinity, alignment: .leading)
                             .background(Color(.systemBackground))
@@ -59,42 +66,28 @@ struct ShelfPane: View {
         .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
     }
 
-    private var panel: some View {
+    private var phonePanel: some View {
         NavigationStack(path: self.$path) {
-            Group {
-                if self.isCompactHeight {
-                    ScrollView {
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: 12),
-                                GridItem(.flexible(), spacing: 12),
-                            ],
-                            spacing: 12
-                        ) {
-                            self.shelfRows
-                        }
-                        .padding()
-                    }
-                    .accessibilityIdentifier("shell.pane.shelf.panel")
-                } else {
-                    List {
-                        self.shelfRows
-                    }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        // Width of this strip is the panel width, not the modal overlay.
-                        Text("\u{200B}")
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 1)
-                            .accessibilityIdentifier("shell.pane.shelf.panel")
-                    }
+            self.pane
+                .navigationDestination(for: ShellDestination.self) { destination in
+                    ShellDestinationView(
+                        destination: destination,
+                        onOpenJournal: self.onOpenJournal
+                    )
                 }
-            }
+        }
+    }
+
+    private var pane: some View {
+        self.shelfContent
             .navigationTitle(self.headingString)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("done") {
-                        self.presentedPane = nil
+                if self.presentation.isPhoneModal {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("done") {
+                            self.onDismiss?()
+                        }
                     }
                 }
                 ToolbarItem(placement: .principal) {
@@ -117,72 +110,72 @@ struct ShelfPane: View {
                     }
                 }
             }
-            .navigationDestination(for: ShelfPush.self) { push in
-                switch push {
-                case .journal:
-                    JournalSettingsPane(presentedPane: self.$presentedPane)
-                case .thisDevice:
-                    ThisDevicePane()
-                case .notifications:
-                    NotificationsPane()
-                case .help:
-                    HelpPane()
-                case .about:
-                    AboutPane()
+    }
+
+    @ViewBuilder
+    private var shelfContent: some View {
+        if self.isCompactHeight {
+            ScrollView {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                    ],
+                    spacing: 12
+                ) {
+                    self.shelfRows
                 }
+                .padding()
+            }
+            .accessibilityIdentifier("shell.pane.shelf.panel")
+        } else {
+            List {
+                self.shelfRows
+            }
+            .accessibilityIdentifier("shell.pane.shelf.panel")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // Width of this strip is the panel width, not the modal overlay.
+                Text("\u{200B}")
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 1)
+                    .accessibilityIdentifier("shell.pane.shelf.panelWidthProbe")
             }
         }
     }
 
     @ViewBuilder
     private var shelfRows: some View {
-        NavigationLink(value: ShelfPush.journal) {
-            Text("journal")
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        }
-        .accessibilityIdentifier("shell.pane.shelf.journal")
-        .hoverEffect(.highlight)
+        self.shelfRow(.shelfJournal)
+            .hoverEffect(.highlight)
+        self.shelfRow(.shelfThisDevice)
+            .hoverEffect(.highlight)
+        self.shelfRow(.shelfNotifications)
+            .hoverEffect(.highlight)
+        self.shelfRow(.shelfHelp)
+            .hoverEffect(.highlight)
+        self.shelfRow(.shelfAbout)
+            .hoverEffect(.highlight)
+    }
 
-        NavigationLink(value: ShelfPush.thisDevice) {
-            Text("this device")
+    private func shelfRow(_ destination: ShellDestination) -> some View {
+        NavigationLink(value: destination) {
+            Text(destination.shelfTitle)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
-        .accessibilityIdentifier("shell.pane.shelf.thisDevice")
-        .hoverEffect(.highlight)
-
-        NavigationLink(value: ShelfPush.notifications) {
-            Text("notifications")
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        }
-        .accessibilityIdentifier("shell.pane.shelf.notifications")
-        .hoverEffect(.highlight)
-
-        NavigationLink(value: ShelfPush.help) {
-            Text("help")
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        }
-        .accessibilityIdentifier("shell.pane.shelf.help")
-        .hoverEffect(.highlight)
-
-        NavigationLink(value: ShelfPush.about) {
-            Text("about solstone")
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        }
-        .accessibilityIdentifier("shell.pane.shelf.about")
-        .hoverEffect(.highlight)
+        .accessibilityIdentifier(destination.shelfRowIdentifier)
     }
 
     private func dismissOneLevel() {
         if !self.path.isEmpty {
             self.path.removeLast()
         } else {
-            self.presentedPane = nil
+            self.onDismiss?()
         }
     }
 }
 
 struct JournalSettingsPane: View {
-    @Binding var presentedPane: PresentedShellPane?
+    let onOpenJournal: () -> Void
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
@@ -191,6 +184,7 @@ struct JournalSettingsPane: View {
     @State private var showingForgetConfirm = false
     @State private var showingPairNewConfirm = false
     @State private var showingPairFlow = false
+    @AccessibilityFocusState private var headingFocused: Bool
 
     private var conveyURL: URL? {
         ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
@@ -200,7 +194,7 @@ struct JournalSettingsPane: View {
         List {
             Section {
                 Button(SourceVocabulary.openJournalLink) {
-                    self.presentedPane = .journal
+                    self.onOpenJournal()
                 }
                 .disabled(self.conveyURL == nil)
                 .hoverEffect(.highlight)
@@ -229,6 +223,17 @@ struct JournalSettingsPane: View {
                 }
             }
         }
+        .navigationTitle(ShellDestination.shelfJournal.shelfTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(ShellDestination.shelfJournal.shelfTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("shell.pane.shelfJournal.heading")
+                    .accessibilityFocused(self.$headingFocused)
+            }
+        }
+        .onAppear { self.headingFocused = true }
         .alert("forget this journal?", isPresented: self.$showingForgetConfirm) {
             Button("cancel", role: .cancel) {}
             Button("forget", role: .destructive) {
@@ -300,6 +305,7 @@ struct JournalSettingsPane: View {
 struct ThisDevicePane: View {
     @Environment(AppConfig.self) private var appConfig
     @State private var showingUnpairConfirm = false
+    @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
         List {
@@ -327,6 +333,17 @@ struct ThisDevicePane: View {
                 }
             }
         }
+        .navigationTitle(ShellDestination.shelfThisDevice.shelfTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(ShellDestination.shelfThisDevice.shelfTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("shell.pane.shelfThisDevice.heading")
+                    .accessibilityFocused(self.$headingFocused)
+            }
+        }
+        .onAppear { self.headingFocused = true }
         .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
     }
 }
@@ -365,13 +382,25 @@ private struct UnpairThisDeviceAlert: ViewModifier {
 }
 
 struct HelpPane: View {
+    @AccessibilityFocusState private var headingFocused: Bool
+
     var body: some View {
         ProblemReportsView(showsSupportHeader: true)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(ShellDestination.shelfHelp.shelfTitle)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("shell.pane.shelfHelp.heading")
+                        .accessibilityFocused(self.$headingFocused)
+                }
+            }
+            .onAppear { self.headingFocused = true }
     }
 }
 
 struct AboutPane: View {
     @Environment(AppConfig.self) private var appConfig
+    @AccessibilityFocusState private var headingFocused: Bool
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -426,5 +455,16 @@ struct AboutPane: View {
                 }
             }
         }
+        .navigationTitle(ShellDestination.shelfAbout.shelfTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(ShellDestination.shelfAbout.shelfTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("shell.pane.shelfAbout.heading")
+                    .accessibilityFocused(self.$headingFocused)
+            }
+        }
+        .onAppear { self.headingFocused = true }
     }
 }

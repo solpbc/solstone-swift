@@ -7,7 +7,6 @@ import os
 private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
 
 struct RootShellView: View {
-    let via: ConnectionEndpoint
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
@@ -20,6 +19,7 @@ struct RootShellView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(ShellNavModel.self) private var nav
+    @Environment(ShellStatusContext.self) private var shellStatusContext
     @Namespace private var homeChrome
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var showingJournalLives = false
@@ -28,17 +28,10 @@ struct RootShellView: View {
     @State private var statusPath = NavigationPath()
     @State private var statusDetent: PresentationDetent = .medium
     @State private var showingSources = false
-    @State private var connectedSince = Date()
     @State private var observerSourcePauseState = ObserverSourcePauseState()
     @State private var crossFadePreference = AccessibilityCrossFadePreference()
 
     private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
-
-    init(
-        via: ConnectionEndpoint
-    ) {
-        self.via = via
-    }
 
     /// The shell with the shelf layered over it. Kept separate from `body` so
     /// neither expression grows past what the type-checker will take.
@@ -47,7 +40,11 @@ struct RootShellView: View {
             self.shellBehindShelf
 
             if self.presentedPane == .shelf {
-                ShelfPane(presentedPane: self.$presentedPane)
+                ShelfPane(
+                    presentation: .phoneModal,
+                    onOpenJournal: { self.presentedPane = .journal },
+                    onDismiss: { self.presentedPane = nil }
+                )
                     .transition(self.prefersCrossFade ? .opacity : .move(edge: .leading))
             }
         }
@@ -64,7 +61,7 @@ struct RootShellView: View {
     private var shellWithSheets: some View {
         self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
-            InAppJournalView(mark: self.journalMark)
+            InAppJournalView(mark: self.journalMark, presentation: .phoneModal)
                 // 0.75 keeps the first deck tile row in the band above the pane on iPhone 17 Pro.
                 .presentationDetents([.fraction(0.75)])
                 .presentationDragIndicator(.visible)
@@ -98,7 +95,7 @@ struct RootShellView: View {
         }
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
-                self.connectedSince = Date()
+                self.shellStatusContext.connectedSince = Date()
                 if let route = self.pendingRoute.route {
                     self.apply(route)
                 }
@@ -189,7 +186,7 @@ struct RootShellView: View {
         NavigationStack(path: self.phonePath) {
             self.deckColumn
                 .navigationDestination(for: ShellDestination.self) { destination in
-                    ShellDestinationView(destination: destination)
+                    ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -242,9 +239,12 @@ struct RootShellView: View {
     private var paneColumn: some View {
         @Bindable var nav = self.nav
         return NavigationStack(path: $nav.paneStack) {
-            ShellDestinationView(destination: self.paneRootDestination)
+            ShellDestinationView(
+                destination: self.paneRootDestination,
+                journalMark: self.journalMark
+            )
                 .navigationDestination(for: ShellDestination.self) { destination in
-                    ShellDestinationView(destination: destination)
+                    ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
         }
     }
@@ -327,19 +327,14 @@ struct RootShellView: View {
         NavigationStack(path: self.$statusPath) {
             Group {
                 if self.reduceMotion || self.prefersCrossFade {
-                    StatusPane(via: self.via, connectedSince: self.connectedSince)
+                    StatusPane(presentation: .phoneModal)
                 } else {
-                    StatusPane(via: self.via, connectedSince: self.connectedSince)
+                    StatusPane(presentation: .phoneModal)
                         .navigationTransition(.zoom(sourceID: HomeChromeID.status, in: self.homeChrome))
                 }
             }
-            .navigationDestination(for: StatusPush.self) { push in
-                switch push {
-                case .diagnostics:
-                    DiagnosticsView()
-                case .problemReports:
-                    ProblemReportsView()
-                }
+            .navigationDestination(for: ShellDestination.self) { destination in
+                ShellDestinationView(destination: destination, journalMark: self.journalMark)
             }
         }
         .presentationDetents([.medium, .large], selection: self.$statusDetent)

@@ -80,6 +80,7 @@ struct HomeSourceTile: View {
         .accessibilityLabel(self.source.displayName)
         .accessibilityValue(self.source.state.label)
         .accessibilityIdentifier("dayHome.tile.\(self.source.id)")
+        .hoverEffect(.highlight)
     }
 
     @ViewBuilder
@@ -146,6 +147,7 @@ struct HomeAddMoreTile: View {
         .accessibilityLabel(SourceVocabulary.addMoreTitle)
         .accessibilityValue(SourceVocabulary.addMoreSubline)
         .accessibilityIdentifier("dayHome.sourcesEntry")
+        .hoverEffect(.highlight)
     }
 }
 
@@ -177,5 +179,6 @@ struct HomeImportTile: View {
         .accessibilityLabel(SourceVocabulary.importTitle)
         .accessibilityValue(SourceVocabulary.importSubline)
         .accessibilityIdentifier("dayHome.importEntry")
+        .hoverEffect(.highlight)
     }
 }

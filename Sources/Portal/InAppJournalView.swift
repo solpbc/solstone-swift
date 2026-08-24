@@ -6,6 +6,7 @@ import WebKit
 
 struct InAppJournalView: View {
     var mark: JournalMark? = nil
+    var presentation: ShellPanePresentation = .phoneModal
     @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
@@ -21,31 +22,42 @@ struct InAppJournalView: View {
         journalPaneTitle(mark: self.mark, pageTitle: self.controller?.page.title ?? "")
     }
 
+    @ViewBuilder
     var body: some View {
-        NavigationStack {
-            self.content
-                .navigationTitle(self.headingString)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
+        if self.presentation.isPhoneModal {
+            NavigationStack {
+                self.paneContent
+            }
+            .accessibilityAddTraits(.isModal)
+            .accessibilityAction(.escape) {
+                self.dismiss()
+            }
+            .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else {
+            self.paneContent
+        }
+    }
+
+    private var paneContent: some View {
+        self.content
+            .navigationTitle(self.headingString)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if self.presentation.isPhoneModal {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("done") {
                             self.dismiss()
                         }
                     }
-                    ToolbarItem(placement: .principal) {
-                        Text(self.headingString)
-                            .accessibilityAddTraits(.isHeader)
-                            .accessibilityIdentifier("shell.pane.journal.heading")
-                            .accessibilityFocused(self.$headingFocused)
-                    }
                 }
-        }
-        .accessibilityAddTraits(.isModal)
+                ToolbarItem(placement: .principal) {
+                    Text(self.headingString)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("shell.pane.journal.heading")
+                        .accessibilityFocused(self.$headingFocused)
+                }
+            }
         .accessibilityIdentifier("shell.pane.journal")
-        .accessibilityAction(.escape) {
-            self.dismiss()
-        }
-        .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear { self.headingFocused = true }
         .onChange(of: self.observerRegistration.activeLocalPort) { _, newPort in
             if newPort == nil {

@@ -129,7 +129,7 @@ final class PadSplitShellUITests: XCTestCase {
         let app = try self.launchPad()
         self.tapDeck("dayHome.statusPill", in: app)
         XCTAssertTrue(
-            app.descendants(matching: .any)["shell.stub.status"].waitForExistence(timeout: 10)
+            app.descendants(matching: .any)["shell.pane.status.heading"].waitForExistence(timeout: 10)
         )
         XCTAssertTrue(self.deck(in: app).exists)
     }
@@ -139,7 +139,7 @@ final class PadSplitShellUITests: XCTestCase {
         let app = try self.launchPad()
         self.tapDeck("dayHome.yourSolstoneEntry", in: app)
         XCTAssertTrue(
-            app.descendants(matching: .any)["shell.stub.shelf"].waitForExistence(timeout: 10)
+            app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 10)
         )
         XCTAssertTrue(self.deck(in: app).exists)
     }
@@ -164,7 +164,7 @@ final class PadSplitShellUITests: XCTestCase {
         }
         opener.tap()
         XCTAssertTrue(
-            app.descendants(matching: .any)["shell.stub.journal"].waitForExistence(timeout: 10)
+            app.descendants(matching: .any)["shell.pane.journal.heading"].waitForExistence(timeout: 10)
         )
         XCTAssertTrue(self.deck(in: app).exists)
     }
@@ -176,9 +176,151 @@ final class PadSplitShellUITests: XCTestCase {
         let app = try self.launchPad(["--ui-test-no-journal"])
         self.tapDeck("dayHome.journalSetup", in: app)
         XCTAssertTrue(
-            app.descendants(matching: .any)["shell.stub.journalSetup"].waitForExistence(timeout: 10)
+            app.descendants(matching: .any)["shell.pane.journalSetup.heading"].waitForExistence(timeout: 10)
         )
         XCTAssertTrue(self.deck(in: app).exists)
+    }
+
+    @MainActor
+    func testShelfRowsShowDedicatedPaneHeadings() throws {
+        let app = try self.launchPad()
+        self.tapDeck("dayHome.yourSolstoneEntry", in: app)
+
+        let rows = [
+            ("shell.pane.shelf.journal", "shell.pane.shelfJournal.heading"),
+            ("shell.pane.shelf.thisDevice", "shell.pane.shelfThisDevice.heading"),
+            ("shell.pane.shelf.notifications", "shell.pane.shelfNotifications.heading"),
+            ("shell.pane.shelf.help", "shell.pane.shelfHelp.heading"),
+            ("shell.pane.shelf.about", "shell.pane.shelfAbout.heading"),
+        ]
+        for row in rows {
+            let button = app.buttons[row.0]
+            XCTAssertTrue(button.waitForExistence(timeout: 10), "\(row.0) missing")
+            button.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)[row.1].waitForExistence(timeout: 10),
+                "\(row.1) missing"
+            )
+            self.popPane(in: app)
+            XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 10))
+        }
+    }
+
+    @MainActor
+    func testStatusPanePushesDiagnosticsAndProblemReports() throws {
+        let app = try self.launchPad(["--ui-test-open-pane=status"])
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.status.heading"].waitForExistence(timeout: 10))
+
+        let diagnostics = app.buttons["shell.pane.status.diagnostics"]
+        XCTAssertTrue(diagnostics.waitForExistence(timeout: 10))
+        diagnostics.tap()
+        XCTAssertTrue(app.navigationBars["diagnostics"].waitForExistence(timeout: 10))
+        self.popPane(in: app)
+
+        let reports = app.buttons["shell.pane.status.problemReports"]
+        XCTAssertTrue(reports.waitForExistence(timeout: 10))
+        reports.tap()
+        XCTAssertTrue(app.navigationBars["problem reports"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testShelfRowPushesAndPopsInsidePane() throws {
+        let app = try self.launchPad()
+        self.tapDeck("dayHome.yourSolstoneEntry", in: app)
+        let row = app.buttons["shell.pane.shelf.thisDevice"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelfThisDevice.heading"].waitForExistence(timeout: 10))
+        XCTAssertTrue(self.deck(in: app).exists)
+        self.popPane(in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testJournalSetupOwnJournalPushesPairFlow() throws {
+        let app = try self.launchPad(["--ui-test-no-journal"])
+        self.tapDeck("dayHome.journalSetup", in: app)
+        let ownJournal = app.buttons["journalLives.ownJournal"]
+        XCTAssertTrue(ownJournal.waitForExistence(timeout: 10))
+        ownJournal.tap()
+        let marker = app.staticTexts["scan your pairing code"]
+        XCTAssertTrue(marker.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "scan your pairing code")).count, 1)
+    }
+
+    @MainActor
+    func testAddMoreSelectionPushesSourceDetail() throws {
+        let app = try self.launchPad()
+        self.tapDeck("dayHome.sourcesEntry", in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.addMore"].waitForExistence(timeout: 10))
+        let audio = app.buttons["source.row.audio"]
+        XCTAssertTrue(audio.waitForExistence(timeout: 10))
+        audio.tap()
+        XCTAssertTrue(app.navigationBars["audio"].waitForExistence(timeout: 10))
+        XCTAssertTrue(self.deck(in: app).exists)
+    }
+
+    @MainActor
+    func testCaptureRewiredPaneShots() throws {
+        let status = try self.launchPad(["--ui-test-open-pane=status"])
+        XCTAssertTrue(status.descendants(matching: .any)["shell.pane.status.heading"].waitForExistence(timeout: 10))
+        self.attach(status, "l33-ipad-status-root")
+        status.buttons["shell.pane.status.diagnostics"].tap()
+        XCTAssertTrue(status.navigationBars["diagnostics"].waitForExistence(timeout: 10))
+        self.attach(status, "l33-ipad-status-diagnostics")
+        self.popPane(in: status)
+        status.buttons["shell.pane.status.problemReports"].tap()
+        XCTAssertTrue(status.navigationBars["problem reports"].waitForExistence(timeout: 10))
+        self.attach(status, "l33-ipad-status-problem-reports")
+        status.terminate()
+
+        let journal = try self.launchPad(["--ui-test-journal-mark", "--ui-test-open-pane=journal"])
+        XCTAssertTrue(journal.descendants(matching: .any)["shell.pane.journal.heading"].waitForExistence(timeout: 10))
+        self.attach(journal, "l33-ipad-journal-root")
+        journal.terminate()
+
+        let setup = try self.launchPad(["--ui-test-no-journal"])
+        self.tapDeck("dayHome.journalSetup", in: setup)
+        XCTAssertTrue(setup.descendants(matching: .any)["shell.pane.journalSetup.heading"].waitForExistence(timeout: 10))
+        self.attach(setup, "l33-ipad-journal-setup")
+        setup.buttons["journalLives.ownJournal"].tap()
+        XCTAssertTrue(setup.staticTexts["scan your pairing code"].waitForExistence(timeout: 10))
+        self.attach(setup, "l33-ipad-pair-flow")
+        setup.terminate()
+
+        let shelf = try self.launchPad(["--ui-test-open-pane=shelf"])
+        XCTAssertTrue(shelf.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 10))
+        self.attach(shelf, "l33-ipad-shelf-root")
+        self.captureShelfLeaf(
+            in: shelf,
+            row: "shell.pane.shelf.journal",
+            heading: "shell.pane.shelfJournal.heading",
+            shot: "l33-ipad-shelf-journal"
+        )
+        self.captureShelfLeaf(
+            in: shelf,
+            row: "shell.pane.shelf.thisDevice",
+            heading: "shell.pane.shelfThisDevice.heading",
+            shot: "l33-ipad-shelf-this-device"
+        )
+        self.captureShelfLeaf(
+            in: shelf,
+            row: "shell.pane.shelf.notifications",
+            heading: "shell.pane.shelfNotifications.heading",
+            shot: "l33-ipad-shelf-notifications"
+        )
+        self.captureShelfLeaf(
+            in: shelf,
+            row: "shell.pane.shelf.help",
+            heading: "shell.pane.shelfHelp.heading",
+            shot: "l33-ipad-shelf-help"
+        )
+        self.captureShelfLeaf(
+            in: shelf,
+            row: "shell.pane.shelf.about",
+            heading: "shell.pane.shelfAbout.heading",
+            shot: "l33-ipad-shelf-about"
+        )
     }
 
     // MARK: - AC8: the collapsed shell is the phone shell
@@ -221,6 +363,30 @@ final class PadSplitShellUITests: XCTestCase {
         )
     }
 
+    @MainActor
+    private func popPane(in app: XCUIApplication) {
+        let back = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        back.tap()
+    }
+
+    @MainActor
+    private func captureShelfLeaf(
+        in app: XCUIApplication,
+        row: String,
+        heading: String,
+        shot: String
+    ) {
+        let button = app.buttons[row]
+        XCTAssertTrue(button.waitForExistence(timeout: 10), "\(row) missing")
+        button.tap()
+        XCTAssertTrue(app.descendants(matching: .any)[heading].waitForExistence(timeout: 10))
+        self.attach(app, shot)
+        self.popPane(in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
     private func attach(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name

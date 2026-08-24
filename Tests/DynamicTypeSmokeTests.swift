@@ -156,13 +156,18 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             subscriber: NoOpMetricSubscriber(),
             initialEnabled: false
         )
-        let shelfPane = ShelfPane(presentedPane: Binding<PresentedShellPane?>.constant(nil))
+        let shelfPane = ShelfPane(
+            presentation: .phoneModal,
+            onOpenJournal: {},
+            onDismiss: {}
+        )
             .environment(appConfig)
             .environment(OnboardingFlow())
             .environment(tunnelManager)
             .environment(observerRegistration)
             .environment(PushNotificationManager())
             .environment(problemReportsManager)
+            .environment(ShellNavModel())
 
         let sourcesView = NavigationStack {
             SourcesView()
@@ -305,8 +310,9 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
         let statusPane = NavigationStack {
-            StatusPane(via: .lan, connectedSince: .now)
+            StatusPane(presentation: .phoneModal)
                 .environment(appConfig)
+                .environment(ShellStatusContext())
                 .environment(tunnelManager)
                 .environment(connectionSyncModel)
                 .environment(diagnosticLog)
