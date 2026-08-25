@@ -473,6 +473,7 @@ private extension DayHomeView {
                     HStack(spacing: 2) {
                         Text("\(known)+")
                             .font(.subheadline.monospacedDigit().weight(.semibold))
+                        // L4.4 placeholder glyph pending signoff — not a final choice.
                         Image(systemName: "questionmark.circle")
                     }
                     .foregroundStyle(.primary)
