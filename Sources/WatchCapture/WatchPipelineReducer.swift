@@ -146,9 +146,9 @@ nonisolated struct WatchWaitingBreakdown: Equatable, Sendable {
     let leading: WatchWaitingLead?
 }
 
-nonisolated struct WatchSideWaiting: Equatable, Sendable {
-    let count: Int
-    let freshness: WatchClaimFreshness
+nonisolated enum WatchSideWaiting: Equatable, Sendable {
+    case unknown
+    case reported(count: Int, freshness: WatchClaimFreshness)
 }
 
 nonisolated struct PhoneSideWaiting: Equatable, Sendable {
@@ -156,7 +156,6 @@ nonisolated struct PhoneSideWaiting: Equatable, Sendable {
 }
 
 nonisolated enum WatchClaimFreshness: Equatable, Sendable {
-    case unknown
     case fresh(asOf: Date)
     case stale(asOf: Date, age: TimeInterval)
 }
@@ -254,20 +253,20 @@ nonisolated enum WatchPipelineReducer {
             let freshness: WatchClaimFreshness = age > self.watchClaimFreshnessWindow
                 ? .stale(asOf: context.asOf, age: age)
                 : .fresh(asOf: context.asOf)
-            watch = WatchSideWaiting(count: watchCount, freshness: freshness)
+            watch = .reported(count: watchCount, freshness: freshness)
         } else {
-            watch = WatchSideWaiting(count: 0, freshness: .unknown)
+            watch = .unknown
         }
 
         let leading: WatchWaitingLead?
-        switch watch.freshness {
-        case .fresh where watch.count > phone.count:
-            leading = .watch(count: watch.count, freshness: watch.freshness)
+        switch watch {
+        case .reported(let count, .fresh(let asOf)) where count > phone.count:
+            leading = .watch(count: count, freshness: .fresh(asOf: asOf))
         case _ where phone.count > 0:
             leading = .phone(count: phone.count)
-        case .fresh where watch.count > 0:
-            leading = .watch(count: watch.count, freshness: watch.freshness)
-        case .unknown, .stale, .fresh:
+        case .reported(let count, .fresh(let asOf)) where count > 0:
+            leading = .watch(count: count, freshness: .fresh(asOf: asOf))
+        case .unknown, .reported:
             leading = nil
         }
 
@@ -1076,25 +1075,10 @@ private extension WatchPipelineReducer {
         if let fact = facts.lastBackgroundWakeDeadline {
             rows.append(WatchDiagnosticsExportRow(label: "last background wake deadline", value: self.backgroundWakeText(fact, now: now)))
         }
-        if let fact = facts.lastManualRetry {
-            rows.append(WatchDiagnosticsExportRow(
-                label: "last manual watch transfer retry",
-                value: self.manualRetryText(fact, now: now)
-            ))
-        }
         if rows.isEmpty {
             rows.append(WatchDiagnosticsExportRow(label: "last facts", value: "not observed yet"))
         }
         return rows
-    }
-
-    nonisolated static func manualRetryText(_ fact: WatchRelayManualRetryFact, now: Date) -> String {
-        [
-            self.dateWithAgeText(fact.at, now: now),
-            "active manifests \(fact.activeManifestCount)",
-            "Apple transfers observed \(fact.observedFileTransferCount)",
-            "cancel requested \(fact.cancelledCount)",
-        ].joined(separator: " / ")
     }
 
     nonisolated static func staleWatchSnapshotAge(_ input: WatchPipelineInput) -> TimeInterval? {

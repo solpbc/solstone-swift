@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Foundation
 import WatchConnectivity
 import XCTest
 
@@ -124,7 +125,12 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
                 WatchNoticeCopy.audioStoppedItself.title,
                 SourceAttention(message: WatchNoticeCopy.audioStoppedItself.body)
             ),
-            (.installedActive(.idle), .off, SourceVocabulary.watchIdleNowSubtext, nil),
+            (
+                .installedActive(.idle(.unknown)),
+                .off,
+                SourceVocabulary.watchStatusUnknownSubtext,
+                nil
+            ),
         ]
 
         for (lane, expectedState, expectedSubtext, expectedAttention) in cases {
@@ -171,9 +177,10 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             watchInstalledFlow(Self.flow(recordingStatus: .stoppedItself(.audioCouldNotBeConfirmed), waiting: waiting)),
             .stoppedItself(.audioCouldNotBeConfirmed)
         )
+        let emptyWaiting = Self.waiting(count: 0)
         XCTAssertEqual(
-            watchInstalledFlow(Self.flow(recordingStatus: .idle, waiting: Self.waiting(count: 0))),
-            .idle
+            watchInstalledFlow(Self.flow(recordingStatus: .idle, waiting: emptyWaiting)),
+            .idle(emptyWaiting.watch)
         )
     }
 
@@ -194,6 +201,30 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
     }
 
+    func testUnknownAndStaleClaimsHaveDistinctSubtextAndReason() {
+        let unknown = phoneWatchSourcePresentation(
+            lane: .installedActive(.idle(.unknown))
+        )
+        let stale = phoneWatchSourcePresentation(
+            lane: .installedActive(.idle(.reported(
+                count: 2,
+                freshness: .stale(
+                    asOf: Date(timeIntervalSince1970: 880),
+                    age: 120
+                )
+            )))
+        )
+
+        XCTAssertEqual(unknown.subtext, SourceVocabulary.watchStatusUnknownSubtext)
+        XCTAssertEqual(unknown.statusReason, SourceVocabulary.watchStatusUnknownReason)
+        XCTAssertNotNil(stale.subtext)
+        XCTAssertNotNil(stale.statusReason)
+        XCTAssertFalse(stale.subtext?.isEmpty ?? true)
+        XCTAssertFalse(stale.statusReason?.isEmpty ?? true)
+        XCTAssertNotEqual(unknown.subtext, stale.subtext)
+        XCTAssertNotEqual(unknown.statusReason, stale.statusReason)
+    }
+
     func testWatchRowPresentationNeverFallsThroughToGenericAttentionCopy() {
         let lanes: [PhoneWatchSourceLane] = [
             .unsupported,
@@ -209,7 +240,7 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
             .installedActive(.receiving),
             .installedActive(.waiting(Self.waiting(count: 2))),
             .installedActive(.stoppedItself(.audioStoppedItself)),
-            .installedActive(.idle),
+            .installedActive(.idle(.unknown)),
         ]
 
         for lane in lanes {
@@ -294,7 +325,7 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         XCTAssertEqual(presentation.attention, SourceAttention(message: WatchNoticeCopy.audioStoppedItself.body))
         XCTAssertNotEqual(
             presentation,
-            phoneWatchSourcePresentation(lane: .installedActive(.idle))
+            phoneWatchSourcePresentation(lane: .installedActive(.idle(.unknown)))
         )
     }
 
@@ -323,14 +354,17 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
 
         XCTAssertEqual(idleStatus, .idle)
-        XCTAssertEqual(phoneWatchSourcePresentation(lane: .installedActive(.idle)).state, .off)
+        XCTAssertEqual(phoneWatchSourcePresentation(lane: .installedActive(.idle(.unknown))).state, .off)
         XCTAssertEqual(
-            phoneWatchSourcePresentation(lane: .installedActive(.idle)).subtext,
-            SourceVocabulary.watchIdleNowSubtext
+            phoneWatchSourcePresentation(lane: .installedActive(.idle(.unknown))).subtext,
+            SourceVocabulary.watchStatusUnknownSubtext
         )
         XCTAssertEqual(ownerStatus, .idle)
-        XCTAssertEqual(watchInstalledFlow(Self.flow(recordingStatus: ownerStatus)), .idle)
-        XCTAssertEqual(phoneWatchSourcePresentation(lane: .installedActive(.idle)).attention, nil)
+        XCTAssertEqual(
+            watchInstalledFlow(Self.flow(recordingStatus: ownerStatus)),
+            .idle(.reported(count: 0, freshness: .fresh(asOf: Self.waitingAsOf)))
+        )
+        XCTAssertEqual(phoneWatchSourcePresentation(lane: .installedActive(.idle(.unknown))).attention, nil)
         XCTAssertEqual(observingStatus, .observing)
     }
 
@@ -444,6 +478,8 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
 }
 
 private extension PhoneWatchSourceStateMappingTests {
+    static let waitingAsOf = Date(timeIntervalSince1970: 1_000)
+
     static func crashIfConsulted() -> WatchActivatedReadiness {
         fatalError("activated readiness should not be consulted before activation")
     }
@@ -471,7 +507,7 @@ private extension PhoneWatchSourceStateMappingTests {
     static func waiting(count: Int) -> WatchWaitingBreakdown {
         let phone = PhoneSideWaiting(count: count)
         return WatchWaitingBreakdown(
-            watch: WatchSideWaiting(count: 0, freshness: .unknown),
+            watch: .reported(count: 0, freshness: .fresh(asOf: Self.waitingAsOf)),
             phone: phone,
             leading: count > 0 ? .phone(count: count) : nil
         )

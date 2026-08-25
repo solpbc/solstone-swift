@@ -95,6 +95,13 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(summary.diagnosticsExportText.contains("\(SourceVocabulary.watchLastLedgerDetailLabel): persist failed"))
     }
 
+    func testMissingWatchStatusProducesCountlessUnknownWaiting() {
+        let waiting = WatchPipelineReducer.waitingBreakdown(Self.input(watchStatus: nil))
+
+        XCTAssertEqual(waiting.watch, .unknown)
+        // The type system makes a naive `waiting.watch.count` read impossible.
+    }
+
     func testDiagnosticsRowsAndExportIncludeWatchReachability() {
         let reachable = WatchPipelineReducer.reduce(Self.input(isReachable: true))
         XCTAssertEqual(
@@ -1347,8 +1354,7 @@ private extension WatchPipelineReducerTests {
                 lastDurableACK: nil,
                 lastQueueReconciliationObservation: nil,
                 lastBackgroundWakeCompletion: nil,
-                lastBackgroundWakeDeadline: nil,
-                lastManualRetry: nil
+                lastBackgroundWakeDeadline: nil
             )),
             observedFileTransfers: observations,
             omittedObservationCount: omittedObservationCount,

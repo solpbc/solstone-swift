@@ -37,7 +37,7 @@ nonisolated enum PhoneWatchSourceLane: Equatable, Sendable {
         case observing
         case receiving
         case waiting(WatchWaitingBreakdown)
-        case idle
+        case idle(WatchSideWaiting)
     }
 }
 
@@ -64,6 +64,19 @@ nonisolated struct PhoneWatchSourcePresentation: Equatable, Sendable {
     let state: SourceState
     let attention: SourceAttention?
     let subtext: String?
+    let statusReason: String?
+
+    init(
+        state: SourceState,
+        attention: SourceAttention?,
+        subtext: String?,
+        statusReason: String? = nil
+    ) {
+        self.state = state
+        self.attention = attention
+        self.subtext = subtext
+        self.statusReason = statusReason
+    }
 }
 
 nonisolated func watchSessionReadiness(
@@ -119,7 +132,7 @@ nonisolated func watchInstalledFlow(_ input: WatchInstalledFlowInput) -> PhoneWa
         if input.waiting.leading != nil {
             return .waiting(input.waiting)
         }
-        return .idle
+        return .idle(input.waiting.watch)
     }
 }
 
@@ -203,17 +216,40 @@ nonisolated func phoneWatchSourcePresentation(
             subtext: SourceVocabulary.watchReceivingNowSubtext
         )
     case .installedActive(.waiting(let waiting)):
+        let status = watchWaitingStatusPresentation(waiting.watch)
         return PhoneWatchSourcePresentation(
             state: .off,
             attention: nil,
-            subtext: waiting.leading.map { SourceVocabulary.watchWaitingToSyncFromWatch($0.count) }
+            subtext: status.subtext ?? waiting.leading.map { SourceVocabulary.watchWaitingToSyncFromWatch($0.count) },
+            statusReason: status.reason
         )
-    case .installedActive(.idle):
+    case .installedActive(.idle(let watchWaiting)):
+        let status = watchWaitingStatusPresentation(watchWaiting)
         return PhoneWatchSourcePresentation(
             state: .off,
             attention: nil,
-            subtext: SourceVocabulary.watchIdleNowSubtext
+            subtext: status.subtext ?? SourceVocabulary.watchIdleNowSubtext,
+            statusReason: status.reason
         )
+    }
+}
+
+private nonisolated func watchWaitingStatusPresentation(
+    _ waiting: WatchSideWaiting
+) -> (subtext: String?, reason: String?) {
+    switch waiting {
+    case .unknown:
+        return (
+            SourceVocabulary.watchStatusUnknownSubtext,
+            SourceVocabulary.watchStatusUnknownReason
+        )
+    case .reported(_, .fresh):
+        return (nil, nil)
+    case .reported(_, .stale(_, let age)):
+        let text = SourceVocabulary.watchStatusAsOf(
+            WatchPipelineReducer.relativeText(secondsAgo: age)
+        )
+        return (text, text)
     }
 }
 

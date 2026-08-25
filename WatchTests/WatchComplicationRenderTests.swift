@@ -61,6 +61,26 @@ nonisolated final class WatchComplicationRenderTests: XCTestCase {
     }
 
     @MainActor
+    func testAllFamiliesAndRenderingModesKeepStatesPairwiseDistinctByAlpha() throws {
+        for family in Self.supportedFamilies {
+            for renderingMode in Self.renderingModes {
+                try Self.assertStatesArePairwiseDistinct(
+                    family: family,
+                    renderingMode: renderingMode
+                )
+            }
+        }
+    }
+
+    @MainActor
+    func testSmartStackRectangularStatesArePairwiseDistinctByAlpha() throws {
+        try Self.assertStatesArePairwiseDistinct(
+            family: .accessoryRectangular,
+            renderingMode: .fullColor
+        )
+    }
+
+    @MainActor
     func testNilSnapshotMatchesDirectQuestionMarkPixels() throws {
         let nilRender = try WatchComplicationRenderHarness.render(Self.complicationView(for: .offline))
         let directRender = try WatchComplicationRenderHarness.render(DirectOfflineMarkView())
@@ -115,12 +135,57 @@ private extension WatchComplicationRenderTests {
     ]
 
     @MainActor
-    static func renderedStates() throws -> [ComplicationRenderState: RenderedComplicationImage] {
+    static var supportedFamilies: [WidgetFamily] {
+        [.accessoryCircular, .accessoryRectangular, .accessoryInline]
+    }
+
+    @MainActor
+    static var renderingModes: [WidgetRenderingMode] {
+        [.fullColor, .accented]
+    }
+
+    @MainActor
+    static func renderedStates(
+        family: WidgetFamily = .accessoryCircular,
+        renderingMode: WidgetRenderingMode = .fullColor
+    ) throws -> [ComplicationRenderState: RenderedComplicationImage] {
         var renders: [ComplicationRenderState: RenderedComplicationImage] = [:]
         for state in ComplicationRenderState.allCases {
-            renders[state] = try WatchComplicationRenderHarness.render(Self.complicationView(for: state))
+            renders[state] = try WatchComplicationRenderHarness.render(
+                Self.complicationView(for: state),
+                family: family,
+                renderingMode: renderingMode
+            )
         }
         return renders
+    }
+
+    @MainActor
+    static func assertStatesArePairwiseDistinct(
+        family: WidgetFamily,
+        renderingMode: WidgetRenderingMode
+    ) throws {
+        let renders = try Self.renderedStates(family: family, renderingMode: renderingMode)
+        let states = ComplicationRenderState.allCases
+
+        for lhsIndex in states.indices {
+            for rhsIndex in states.indices where rhsIndex > lhsIndex {
+                let lhs = states[lhsIndex]
+                let rhs = states[rhsIndex]
+                let difference = try XCTUnwrap(renders[lhs]).alphaDifferenceFraction(
+                    from: try XCTUnwrap(renders[rhs]),
+                    relativeToInk: family == .accessoryInline
+                )
+                print(
+                    "WATCH_RENDER_FAMILY family=\(String(describing: family)) mode=\(renderingMode.description) lhs=\(lhs.rawValue) rhs=\(rhs.rawValue) alphaDifferenceFraction=\(Self.format(difference))"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    difference,
+                    WatchComplicationRenderHarness.absolutePairwiseAlphaDifferenceFloor,
+                    "\(family) \(renderingMode) \(lhs.rawValue)/\(rhs.rawValue) difference \(Self.format(difference)) below absolute floor"
+                )
+            }
+        }
     }
 
     static func complicationView(for state: ComplicationRenderState) -> SolstoneWatchComplicationView {
@@ -209,6 +274,8 @@ private struct DirectOfflineMarkView: View {
 
 private enum WatchComplicationRenderHarness {
     static let complicationCanvasPoints: CGFloat = 64
+    static let rectangularCanvasSize = CGSize(width: 140, height: 60)
+    static let inlineCanvasSize = CGSize(width: 110, height: 22)
     static let rendererScale: CGFloat = 2
     // The accessory background rasterizes at alpha 25 in this hostless harness.
     // This threshold sits just above that low-alpha flood with enough margin to
@@ -238,18 +305,29 @@ private enum WatchComplicationRenderHarness {
     static let absolutePairwiseAlphaDifferenceFloor = 0.020
     static let nearIdenticalAlphaDifferenceCeiling = 0.005
 
-    // Rendering here intentionally diverges from the shipped view in three ways:
-    // the canvas uses a derived approximate accessory size, the widget family is
-    // injected through WidgetPreviewContext, and the result is clipped to a circle
-    // although the product view does not apply that clip. WidgetKit does not vend
-    // real accessory canvas dimensions to a host app, so this size is a derived
-    // approximation, not a platform guarantee.
+    // WidgetKit does not vend real accessory canvas dimensions to a host app, so
+    // these family-specific sizes are derived approximations, not platform guarantees.
     @MainActor
-    static func render<V: View>(_ view: V) throws -> RenderedComplicationImage {
-        let content = view
-            .frame(width: Self.complicationCanvasPoints, height: Self.complicationCanvasPoints)
-            .previewContext(WidgetPreviewContext(family: .accessoryCircular))
-            .clipShape(Circle())
+    static func render<V: View>(
+        _ view: V,
+        family: WidgetFamily = .accessoryCircular,
+        renderingMode: WidgetRenderingMode = .fullColor
+    ) throws -> RenderedComplicationImage {
+        let canvasSize = Self.canvasSize(for: family)
+        let content = Group {
+            switch family {
+            case .accessoryCircular:
+                view
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .clipShape(Circle())
+            case .accessoryRectangular, .accessoryInline:
+                view.frame(width: canvasSize.width, height: canvasSize.height)
+            default:
+                view.frame(width: canvasSize.width, height: canvasSize.height)
+            }
+        }
+        .previewContext(WidgetPreviewContext(family: family))
+        .environment(\.widgetRenderingMode, renderingMode)
         let renderer = ImageRenderer(content: content)
         renderer.scale = Self.rendererScale
         renderer.isOpaque = false
@@ -258,6 +336,19 @@ private enum WatchComplicationRenderHarness {
             throw RenderedComplicationImageError.missingImage
         }
         return try RenderedComplicationImage(cgImage: cgImage)
+    }
+
+    static func canvasSize(for family: WidgetFamily) -> CGSize {
+        switch family {
+        case .accessoryCircular:
+            CGSize(width: Self.complicationCanvasPoints, height: Self.complicationCanvasPoints)
+        case .accessoryRectangular:
+            Self.rectangularCanvasSize
+        case .accessoryInline:
+            Self.inlineCanvasSize
+        default:
+            Self.rectangularCanvasSize
+        }
     }
 }
 
@@ -317,14 +408,29 @@ private struct RenderedComplicationImage {
         Double(self.inkedPixels.count) / Double(self.pixels.count)
     }
 
-    func alphaDifferenceFraction(from other: RenderedComplicationImage) -> Double {
+    func alphaDifferenceFraction(
+        from other: RenderedComplicationImage,
+        relativeToInk: Bool = false
+    ) -> Double {
         precondition(self.width == other.width)
         precondition(self.height == other.height)
 
-        let differenceCount = zip(self.pixels, other.pixels).filter { lhs, rhs in
+        let pairs = zip(self.pixels, other.pixels)
+        let differenceCount = pairs.filter { lhs, rhs in
             abs(Int(lhs.alpha) - Int(rhs.alpha)) > Int(WatchComplicationRenderHarness.pairwiseAlphaDifferenceDelta)
         }.count
-        return Double(differenceCount) / Double(self.pixels.count)
+        guard relativeToInk else {
+            return Double(differenceCount) / Double(self.pixels.count)
+        }
+
+        let inkPixelCount = pairs.filter { lhs, rhs in
+            lhs.alpha > WatchComplicationRenderHarness.alphaInkThreshold
+                || rhs.alpha > WatchComplicationRenderHarness.alphaInkThreshold
+        }.count
+        guard inkPixelCount > 0 else {
+            return 0
+        }
+        return Double(differenceCount) / Double(inkPixelCount)
     }
 
     private var inkedPixels: [RenderedPixel] {

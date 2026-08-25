@@ -10,6 +10,15 @@ struct SolstoneWatchComplicationEntry: TimelineEntry {
     let snapshot: WatchComplicationSnapshot?
 }
 
+nonisolated enum SolstoneWatchStatusSmartStack {
+    static let widgetKind = "SolstoneWatchStatusSmartStack"
+    static let reloadInterval: TimeInterval = 30 * 60
+
+    static func nextReloadDate(after now: Date) -> Date {
+        now.addingTimeInterval(self.reloadInterval)
+    }
+}
+
 struct SolstoneWatchComplicationView: View {
     @Environment(\.widgetFamily) private var family
 

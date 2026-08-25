@@ -164,7 +164,9 @@ nonisolated enum WatchSourceDetailPresentation {
                 title: SourceVocabulary.watchSetupInstallTitle,
                 subline: SourceVocabulary.watchSetupInstallSubline,
                 state: self.stepState(index: 0, done: done, activeIndex: activeIndex),
-                buttonTitle: SourceVocabulary.watchSetupInstallButton,
+                buttonTitle: !installed && !checkedIn && !firstSegment
+                    ? SourceVocabulary.watchSetupInstallButton
+                    : nil,
                 disclosure: WatchSetupDisclosure(
                     summary: SourceVocabulary.watchSetupInstallDisclosureSummary,
                     body: SourceVocabulary.watchSetupInstallDisclosureBody
@@ -175,7 +177,9 @@ nonisolated enum WatchSourceDetailPresentation {
                 title: SourceVocabulary.watchSetupOpenTitle,
                 subline: SourceVocabulary.watchSetupOpenSubline,
                 state: self.stepState(index: 1, done: done, activeIndex: activeIndex),
-                buttonTitle: nil,
+                buttonTitle: installed && !checkedIn && !firstSegment
+                    ? SourceVocabulary.watchSetupInstallButton
+                    : nil,
                 disclosure: nil
             ),
             WatchSetupStep(

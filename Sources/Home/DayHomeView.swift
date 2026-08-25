@@ -76,7 +76,7 @@ nonisolated struct DeckLayout: Equatable, Sendable {
 private struct AppGroupSnapshotInputs: Equatable {
     let observerState: ObserverState
     let bundle: HomeSourceBundle
-    let backlogCount: Int
+    let backlogCount: WatchAwareBacklog
     let pairing: AppGroupMirror.PairingSnapshot
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
 }
@@ -153,6 +153,7 @@ struct DayHomeView: View {
 
     @Environment(AppConfig.self) private var appConfig
     @Environment(AppGroupMirror.self) private var appGroupMirror
+    @Environment(WatchBacklogSnapshotWriter.self) private var watchBacklogSnapshotWriter
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
@@ -209,7 +210,11 @@ struct DayHomeView: View {
                 microphonePermission: self.appGroupMicrophonePermission,
                 session: self.appGroupSessionState,
                 sourceStates: self.appGroupSourceStates,
-                backlogCount: self.backlogCount
+                backlogCount: self.backlogCount.knownCount
+            )
+            self.watchBacklogSnapshotWriter.write(
+                backlog: self.backlogCount,
+                watchStatusAsOf: self.watchPipelineAssembly.input.watchStatus?.asOf
             )
         }
     }
@@ -225,7 +230,7 @@ private extension DayHomeView {
             locationManager: self.locationManager,
             screencastManager: self.screencastManager,
             omiSourceManager: self.omiSourceManager,
-            watchLane: self.watchPipelineInputs.assembly(now: self.now).lane
+            watchLane: self.watchPipelineAssembly.lane
         )
     }
 
@@ -237,6 +242,10 @@ private extension DayHomeView {
             pairing: self.appGroupPairing,
             microphonePermission: self.appGroupMicrophonePermission
         )
+    }
+
+    var watchPipelineAssembly: WatchPipelineAssembly {
+        self.watchPipelineInputs.assembly(now: self.now)
     }
 
     var appGroupPairing: AppGroupMirror.PairingSnapshot {
@@ -431,14 +440,18 @@ private extension DayHomeView {
         return self.connectionSyncModel.status.statusLine
     }
 
-    var backlogCount: Int {
+    var backlogCount: WatchAwareBacklog {
         let totals = uploadTotals(
             mobileSegment: self.mobileSegmentTransferHolder,
             omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
             share: self.shareTransferHolder
         )
-        return totals.pending + totals.failed
+        return watchAwareBacklog(
+            phoneLocalCount: totals.pending + totals.failed,
+            session: self.watchPipelineAssembly.session,
+            waiting: self.watchPipelineAssembly.waiting.watch
+        )
     }
 
     var statusPill: some View {
@@ -448,13 +461,26 @@ private extension DayHomeView {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if self.backlogCount > 0 {
-                    Text("\(self.backlogCount)")
+                switch self.backlogCount {
+                case .known(let count) where count > 0:
+                    Text("\(count)")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .layoutPriority(1)
                         .accessibilityAddTraits(.updatesFrequently)
+                case .partiallyUnknown(let known, _):
+                    HStack(spacing: 2) {
+                        Text("\(known)+")
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                        Image(systemName: "questionmark.circle")
+                    }
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                    .accessibilityAddTraits(.updatesFrequently)
+                case .known:
+                    EmptyView()
                 }
             }
         }
@@ -465,10 +491,19 @@ private extension DayHomeView {
     }
 
     var statusPillAccessibilityValue: String {
-        if self.backlogCount > 0 {
-            return "\(self.statusLine), \(self.backlogCount) \(SourceVocabulary.waitingToSync)"
+        switch self.backlogCount {
+        case .known(let count) where count > 0:
+            return "\(self.statusLine), \(count) \(SourceVocabulary.waitingToSync)"
+        case .partiallyUnknown(let known, let asOf):
+            let status = asOf.map {
+                SourceVocabulary.watchStatusAsOf(
+                    WatchPipelineReducer.relativeText(secondsAgo: max(0, self.now.timeIntervalSince($0)))
+                )
+            } ?? SourceVocabulary.watchStatusUnknownReason
+            return "\(self.statusLine), \(known) \(SourceVocabulary.waitingToSync), \(status)"
+        case .known:
+            return self.statusLine
         }
-        return self.statusLine
     }
 
     var journalPill: some View {

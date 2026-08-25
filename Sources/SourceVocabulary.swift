@@ -324,6 +324,13 @@ nonisolated enum SourceVocabulary {
         "as of \(relative)"
     }
 
+    // L4.4 placeholders pending owner-facing copy signoff.
+    static func watchStatusAsOf(_ relative: String) -> String {
+        "watch status as of \(relative)"
+    }
+    static let watchStatusUnknownSubtext = "waiting for your watch to check in"
+    static let watchStatusUnknownReason = "no status from your watch yet"
+
     static func watchSavedOnWatchCount(_ n: Int) -> String {
         "\(n) \(Self.watchPipelineSaved)"
     }
@@ -370,9 +377,6 @@ nonisolated enum SourceVocabulary {
     static func watchSteadyDetailsSummary(watchWaiting: Int, phoneWaiting: Int) -> String {
         "details · watch \(watchWaiting) · iphone \(phoneWaiting) waiting"
     }
-
-    static let watchRetryTransfers = "try sending again"
-    static let watchRetryTransfersHint = "asks your watch to retry anything still waiting"
 
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"

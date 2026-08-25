@@ -28,12 +28,10 @@ nonisolated struct WatchSteadyVerdict: Equatable, Sendable {
 
 extension WatchWaitingBreakdown {
     nonisolated var freshWatchWaitingCount: Int {
-        switch self.watch.freshness {
-        case .fresh:
-            max(0, self.watch.count)
-        case .unknown, .stale:
-            0
+        guard case let .reported(count, .fresh) = self.watch else {
+            return 0
         }
+        return max(0, count)
     }
 }
 

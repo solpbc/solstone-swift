@@ -8,6 +8,7 @@ import WidgetKit
 struct SolstoneWatchComplicationBundle: WidgetBundle {
     var body: some Widget {
         SolstoneWatchComplication()
+        SolstoneWatchStatusSmartStackWidget()
     }
 }
 
@@ -29,7 +30,7 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
     func placeholder(in context: Context) -> SolstoneWatchComplicationEntry {
         SolstoneWatchComplicationEntry(
             date: Date(),
-            snapshot: context.isPreview ? Self.previewSnapshot : nil
+            snapshot: context.isPreview ? WatchComplicationSnapshotSource.previewSnapshot : nil
         )
     }
 
@@ -40,7 +41,7 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
         completion(
             SolstoneWatchComplicationEntry(
                 date: Date(),
-                snapshot: context.isPreview ? Self.previewSnapshot : Self.loadSnapshot()
+                snapshot: context.isPreview ? WatchComplicationSnapshotSource.previewSnapshot : WatchComplicationSnapshotSource.load()
             )
         )
     }
@@ -50,14 +51,64 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
         completion: @escaping (Timeline<SolstoneWatchComplicationEntry>) -> Void
     ) {
         let now = Date()
-        let entries = watchComplicationTimelinePoints(snapshot: Self.loadSnapshot(), now: now).map { point in
+        let entries = watchComplicationTimelinePoints(snapshot: WatchComplicationSnapshotSource.load(), now: now).map { point in
             SolstoneWatchComplicationEntry(date: point.date, snapshot: point.snapshot)
         }
         completion(Timeline(entries: entries, policy: .never))
     }
 }
 
-private extension SolstoneWatchComplicationProvider {
+struct SolstoneWatchStatusSmartStackWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(
+            kind: SolstoneWatchStatusSmartStack.widgetKind,
+            provider: SolstoneWatchStatusSmartStackProvider()
+        ) { entry in
+            SolstoneWatchComplicationView(entry: entry)
+        }
+        .configurationDisplayName("solstone")
+        .description(SourceVocabulary.watchSourceDisplayName)
+        .supportedFamilies([.accessoryRectangular])
+    }
+}
+
+struct SolstoneWatchStatusSmartStackProvider: TimelineProvider {
+    func placeholder(in context: Context) -> SolstoneWatchComplicationEntry {
+        SolstoneWatchComplicationEntry(
+            date: Date(),
+            snapshot: context.isPreview ? WatchComplicationSnapshotSource.previewSnapshot : nil
+        )
+    }
+
+    func getSnapshot(
+        in context: Context,
+        completion: @escaping (SolstoneWatchComplicationEntry) -> Void
+    ) {
+        completion(
+            SolstoneWatchComplicationEntry(
+                date: Date(),
+                snapshot: context.isPreview ? WatchComplicationSnapshotSource.previewSnapshot : WatchComplicationSnapshotSource.load()
+            )
+        )
+    }
+
+    func getTimeline(
+        in context: Context,
+        completion: @escaping (Timeline<SolstoneWatchComplicationEntry>) -> Void
+    ) {
+        let now = Date()
+        let entry = SolstoneWatchComplicationEntry(
+            date: now,
+            snapshot: WatchComplicationSnapshotSource.load()
+        )
+        completion(Timeline(
+            entries: [entry],
+            policy: .after(SolstoneWatchStatusSmartStack.nextReloadDate(after: now))
+        ))
+    }
+}
+
+private enum WatchComplicationSnapshotSource {
     static var previewSnapshot: WatchComplicationSnapshot {
         WatchComplicationSnapshot(
             presentation: WatchCaptureOwnerPresentation(
@@ -70,7 +121,7 @@ private extension SolstoneWatchComplicationProvider {
         )
     }
 
-    static func loadSnapshot() -> WatchComplicationSnapshot? {
+    static func load() -> WatchComplicationSnapshot? {
         do {
             return loadWatchComplicationSnapshot(from: try AppGroupContainer.rootURL())
         } catch {

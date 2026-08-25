@@ -48,7 +48,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertEqual(unopened.steps.map(\.state), [.done, .active, .pending])
 
         let checkedInAfterUninstall = try XCTUnwrap(Self.setupCard(from: Self.contentMode(
-            lane: .installedActive(.idle),
+            lane: .installedActive(.idle(.unknown)),
             checkedIn: true
         )))
         XCTAssertEqual(checkedInAfterUninstall.steps.map(\.state), [.active, .done, .pending])
@@ -65,7 +65,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
 
     func testStepStatesClampFirstSegmentWithoutPromotingInstallFromCheckIn() {
         let incoherent = WatchSourceDetailPresentation.stepStates(
-            lane: .installedActive(.idle),
+            lane: .installedActive(.idle(.unknown)),
             installed: false,
             checkedIn: false,
             firstSegment: true
@@ -73,7 +73,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         XCTAssertEqual(incoherent.map(\.state), [.done, .done, .done])
 
         let checkedInAfterUninstall = WatchSourceDetailPresentation.stepStates(
-            lane: .installedActive(.idle),
+            lane: .installedActive(.idle(.unknown)),
             installed: false,
             checkedIn: true,
             firstSegment: false
@@ -85,7 +85,7 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
         let pending = try XCTUnwrap(Self.setupCard(from: Self.contentMode(lane: .readyToSetUp(.installApp))))
         let active = try XCTUnwrap(Self.setupCard(from: Self.contentMode(lane: .installedNeverOpened, installed: true)))
         let done = try XCTUnwrap(Self.setupCard(from: Self.contentMode(
-            lane: .installedActive(.idle),
+            lane: .installedActive(.idle(.unknown)),
             installed: false,
             checkedIn: true
         )))
@@ -195,8 +195,51 @@ nonisolated final class WatchSourceDetailPresentationTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(viewText.contains(".accessibilityIdentifier(\"watch.installAffordance\")"))
+        XCTAssertTrue(viewText.contains(".accessibilityIdentifier(self.setupActionAccessibilityIdentifier(step.id))"))
+        XCTAssertTrue(viewText.contains("\"watch.installAffordance\""))
         XCTAssertTrue(viewText.contains(".accessibilityHint(SourceVocabulary.watchSetupInstallButtonHint)"))
+    }
+
+    func testSetupActionsFollowInstallAndCheckInStates() throws {
+        let installSteps = WatchSourceDetailPresentation.stepStates(
+            lane: .readyToSetUp(.installApp),
+            installed: false,
+            checkedIn: false,
+            firstSegment: false
+        )
+        XCTAssertEqual(try Self.setupStep(.install, in: installSteps).buttonTitle, SourceVocabulary.watchSetupInstallButton)
+        XCTAssertNil(try Self.setupStep(.open, in: installSteps).buttonTitle)
+
+        let openSteps = WatchSourceDetailPresentation.stepStates(
+            lane: .installedNeverOpened,
+            installed: true,
+            checkedIn: false,
+            firstSegment: false
+        )
+        XCTAssertNil(try Self.setupStep(.install, in: openSteps).buttonTitle)
+        XCTAssertEqual(try Self.setupStep(.open, in: openSteps).buttonTitle, SourceVocabulary.watchSetupInstallButton)
+
+        let checkedInSteps = WatchSourceDetailPresentation.stepStates(
+            lane: .installedActive(.idle(.unknown)),
+            installed: true,
+            checkedIn: true,
+            firstSegment: false
+        )
+        XCTAssertNil(try Self.setupStep(.install, in: checkedInSteps).buttonTitle)
+        XCTAssertNil(try Self.setupStep(.open, in: checkedInSteps).buttonTitle)
+    }
+
+    func testInstallAndOpenAffordancesHaveDistinctIdentifiersAndOneVerifiedRoute() throws {
+        let viewText = try String(
+            contentsOf: Self.worktreeRoot().appendingPathComponent("Sources/WatchCapture/WatchSourceDetailView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(viewText.contains("\"watch.installAffordance\""))
+        XCTAssertTrue(viewText.contains("\"watch.openAffordance\""))
+        XCTAssertEqual(viewText.components(separatedBy: "itms-watchs://").count, 2)
+        XCTAssertTrue(viewText.contains("if step.id == .install {\n                    self.watchSourceFacts.noteInstallTapped()"))
+        XCTAssertTrue(viewText.contains("self.openWatchApp()"))
     }
 
     func testSteadySourceOrderUsesVerdictDisclosureAndDeletesStuckNoticeBlock() throws {
@@ -338,6 +381,10 @@ private extension WatchSourceDetailPresentationTests {
             return nil
         }
         return card
+    }
+
+    static func setupStep(_ id: WatchSetupStepID, in steps: [WatchSetupStep]) throws -> WatchSetupStep {
+        try XCTUnwrap(steps.first { $0.id == id })
     }
 
     static func verdict(

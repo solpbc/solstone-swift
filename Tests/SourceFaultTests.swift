@@ -83,7 +83,7 @@ nonisolated final class SourceFaultTests: XCTestCase {
             .installedActive(.observing),
             .installedActive(.receiving),
             .installedActive(.waiting(Self.waiting)),
-            .installedActive(.idle),
+            .installedActive(.idle(.unknown)),
         ]
         for lane in noneLanes {
             if let fault = watchSourceFault(lane) {
@@ -173,7 +173,7 @@ nonisolated final class SourceFaultTests: XCTestCase {
 private extension SourceFaultTests {
     static var waiting: WatchWaitingBreakdown {
         WatchWaitingBreakdown(
-            watch: WatchSideWaiting(count: 0, freshness: .unknown),
+            watch: .unknown,
             phone: PhoneSideWaiting(count: 0),
             leading: nil
         )

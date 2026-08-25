@@ -108,13 +108,13 @@ nonisolated final class WatchNotificationAdapterGrepTests: XCTestCase {
     func testComplicationProviderUsesTimelineDerivation() throws {
         let body = try self.section(
             from: "func getTimeline(",
-            to: "private extension SolstoneWatchComplicationProvider",
+            to: "struct SolstoneWatchStatusSmartStackWidget: Widget",
             in: "SolstoneWatchComplication/SolstoneWatchComplication.swift"
         )
 
-        XCTAssertTrue(body.contains("watchComplicationTimelinePoints(snapshot: Self.loadSnapshot(), now: now)"))
+        XCTAssertTrue(body.contains("watchComplicationTimelinePoints(snapshot: WatchComplicationSnapshotSource.load(), now: now)"))
         XCTAssertTrue(body.contains("Timeline(entries: entries, policy: .never)"))
-        XCTAssertFalse(body.contains("SolstoneWatchComplicationEntry(date: Date(), snapshot: Self.loadSnapshot())"))
+        XCTAssertFalse(body.contains("SolstoneWatchComplicationEntry(date: Date(), snapshot: WatchComplicationSnapshotSource.load())"))
     }
 
     private func contents(_ path: String) throws -> String {

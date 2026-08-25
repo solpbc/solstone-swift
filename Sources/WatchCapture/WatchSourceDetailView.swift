@@ -89,7 +89,6 @@ nonisolated struct WatchDiagnosticsExport: Transferable, Equatable, Sendable {
 
 struct WatchSourceDetailView: View {
     @WatchPipelineInputReader private var watchPipelineInputs
-    @Environment(WatchLink.self) private var watchLink
     @Environment(WatchSourceFacts.self) private var watchSourceFacts
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
@@ -170,21 +169,12 @@ private extension WatchSourceDetailView {
     var stateBlock: some View {
         let verdict = self.watchSteadyVerdict
         let lane = self.watchPipelineAssembly.lane
+        let presentation = phoneWatchSourcePresentation(lane: lane)
         return VStack(alignment: .leading, spacing: 12) {
-            SourceDetailReasonLine(message: phoneWatchSourcePresentation(lane: lane).attention?.message)
+            SourceDetailReasonLine(message: presentation.attention?.message)
+            SourceDetailReasonLine(message: presentation.statusReason)
             self.verdictBlock(verdict)
             self.steadyDetailsDisclosure(verdict)
-            if self.watchPipelineAssembly.waiting.watch.count > 0 {
-                Button {
-                    self.watchLink.retryOutstandingTransfers()
-                } label: {
-                    Label(SourceVocabulary.watchRetryTransfers, systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!self.watchLink.isReachable || self.watchLink.activationState != .activated)
-                .accessibilityIdentifier("watch.retryTransfers")
-                .accessibilityHint(SourceVocabulary.watchRetryTransfersHint)
-            }
         }
     }
 
@@ -319,8 +309,8 @@ private extension WatchSourceDetailView {
                         .foregroundStyle(.secondary)
                 }
 
-                if step.id == .install {
-                    self.installStepControls(step)
+                if step.id == .install || step.id == .open {
+                    self.setupStepControls(step)
                 }
             }
         }
@@ -333,20 +323,18 @@ private extension WatchSourceDetailView {
     }
 
     @ViewBuilder
-    func installStepControls(_ step: WatchSetupStep) -> some View {
+    func setupStepControls(_ step: WatchSetupStep) -> some View {
         if let buttonTitle = step.buttonTitle {
             Button {
-                self.watchSourceFacts.noteInstallTapped()
-                self.openURL(URL(string: "itms-watchs://")!) { accepted in
-                    if !accepted {
-                        watchSourceLog.info("watch install deep link not accepted")
-                    }
+                if step.id == .install {
+                    self.watchSourceFacts.noteInstallTapped()
                 }
+                self.openWatchApp()
             } label: {
                 Label(buttonTitle, systemImage: "applewatch")
             }
             .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("watch.installAffordance")
+            .accessibilityIdentifier(self.setupActionAccessibilityIdentifier(step.id))
             .accessibilityHint(SourceVocabulary.watchSetupInstallButtonHint)
         }
 
@@ -360,6 +348,25 @@ private extension WatchSourceDetailView {
                 Text(disclosure.summary)
                     .font(.subheadline.weight(.semibold))
             }
+        }
+    }
+
+    func openWatchApp() {
+        self.openURL(URL(string: "itms-watchs://")!) { accepted in
+            if !accepted {
+                watchSourceLog.info("watch install deep link not accepted")
+            }
+        }
+    }
+
+    func setupActionAccessibilityIdentifier(_ stepID: WatchSetupStepID) -> String {
+        switch stepID {
+        case .install:
+            "watch.installAffordance"
+        case .open:
+            "watch.openAffordance"
+        case .firstMoment:
+            ""
         }
     }
 

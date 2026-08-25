@@ -19,19 +19,6 @@ nonisolated enum WatchRelayACK {
     }
 }
 
-nonisolated enum WatchRelayRetryRequest {
-    static let typeKey = "type"
-    static let type = "watch_relay_retry"
-
-    static var message: [String: Any] {
-        [Self.typeKey: Self.type]
-    }
-
-    static func matches(_ message: [String: Any]) -> Bool {
-        message[Self.typeKey] as? String == Self.type
-    }
-}
-
 @MainActor
 final class WatchRelaySender {
     // 15 min — normal transfer→stage→ACK is seconds; 900s sits between the reducer
@@ -150,11 +137,6 @@ final class WatchRelaySender {
 
 private extension WatchRelaySender {
     func handleUserInfo(_ userInfo: [String: Any]) {
-        if WatchRelayRetryRequest.matches(userInfo) {
-            self.retryOutstandingTransfers()
-            return
-        }
-
         guard userInfo[WatchRelayACK.typeKey] as? String == WatchRelayACK.type,
               let idString = userInfo[WatchRelayACK.idKey] as? String,
               let id = UUID(uuidString: idString)
@@ -357,82 +339,6 @@ private extension WatchRelaySender {
         for transfer in transfers {
             transfer.cancel()
         }
-    }
-
-    func retryOutstandingTransfers() {
-        guard self.session.activationState == .activated else {
-            watchRelaySenderLog.info("watch relay manual retry ignored while session inactive")
-            return
-        }
-
-        do {
-            let entries = try self.storage.scanManifests()
-            let activeEntries = entries.filter { entry in
-                entry.manifest.state == .queued || entry.manifest.state == .transferring
-            }
-            let observations = self.session.outstandingFileTransfers
-            let outstanding = self.groupedOutstandingFileTransfers(observations)
-            var cancelledIDs: [UUID] = []
-
-            for entry in activeEntries {
-                let id = entry.manifest.id
-                guard let group = outstanding.grouped[id], group.count == 1,
-                      let observation = group.first,
-                      Self.isZeroProgressRetryCandidate(observation),
-                      self.hasRetainedRetryBytes(entry)
-                else {
-                    continue
-                }
-                observation.cancel()
-                cancelledIDs.append(id)
-            }
-
-            self.diagnosticsStore?.recordManualRetry(
-                activeManifestCount: activeEntries.count,
-                observedFileTransferCount: observations.count,
-                cancelledCount: cancelledIDs.count,
-                at: self.clock()
-            )
-            watchRelaySenderLog.info(
-                "watch relay manual retry requested active=\(activeEntries.count, privacy: .public) observed=\(observations.count, privacy: .public) cancelled=\(cancelledIDs.count, privacy: .public)"
-            )
-            self.drain()
-        } catch {
-            watchRelaySenderLog.error(
-                "watch relay manual retry failed: \(String(describing: error), privacy: .public)"
-            )
-        }
-    }
-
-    nonisolated static func isZeroProgressRetryCandidate(
-        _ observation: WatchConnectivityFileTransferObservation
-    ) -> Bool {
-        let snapshot = observation.snapshot
-        let progress = snapshot.progress
-        return snapshot.idState == .parseable
-            && snapshot.isTransferring
-            && !progress.isIndeterminate
-            && !progress.isFinished
-            && !progress.isCancelled
-            && progress.totalUnitCount > 0
-            && progress.completedUnitCount == 0
-            && progress.fractionCompleted == 0
-    }
-
-    func hasRetainedRetryBytes(_ entry: WatchCaptureStorage.ManifestEntry) -> Bool {
-        let bundleHasBytes = self.fileHasBytes(self.bundleURL(for: entry.manifest.id))
-        guard bundleHasBytes else { return false }
-        return self.fileHasBytes(self.storage.audioURL(directory: entry.directoryURL))
-            || self.fileHasBytes(self.storage.locationURL(directory: entry.directoryURL))
-    }
-
-    func fileHasBytes(_ url: URL) -> Bool {
-        guard self.storage.fileWriter.fileExists(at: url),
-              let size = try? self.storage.fileWriter.fileSize(at: url)
-        else {
-            return false
-        }
-        return size > 0
     }
 
     func recordQueueReconciliation(

@@ -51,6 +51,61 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(relaunchedManifest.state, .transferring)
     }
 
+    func testWatchSegmentBuffersWithoutPhoneThenStagesAndDrainsOnceAvailable() async throws {
+        let storage = try self.makeStorage("buffer-without-phone")
+        let id = UUID()
+        let directory = try self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: storage, session: watchSession)
+
+        watchSession.activate()
+        sender.drain()
+
+        XCTAssertFalse(watchSession.isReachable)
+        XCTAssertEqual(watchSession.transferredFiles.count, 1)
+        XCTAssertEqual(try self.manifestState(storage: storage, id: id), .transferring)
+        XCTAssertTrue(storage.fileWriter.fileExists(at: storage.audioURL(directory: directory)))
+        XCTAssertGreaterThan(try storage.fileWriter.fileSize(at: storage.audioURL(directory: directory)), 0)
+
+        let phoneSession = MockWatchConnectivitySession()
+        let stagingRoot = self.tempDirectory.appendingPathComponent("buffer-staging", isDirectory: true)
+        let ledger = self.makeLedger("buffer-ledger")
+        let receiver = try self.makeReceiver(
+            session: phoneSession,
+            stagingRoot: stagingRoot,
+            ledger: ledger
+        )
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("buffer-transfer", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: ledger,
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
+        )
+        defer { withExtendedLifetime(receiver) {} }
+
+        XCTAssertEqual(ledger.lifetimeReceived, 0)
+        XCTAssertTrue(try self.stagedEntryIDs(at: stagingRoot).isEmpty)
+
+        watchSession.emitReachability(true)
+        phoneSession.emitReachability(true)
+        try self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+
+        XCTAssertEqual(ledger.lifetimeReceived, 1)
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
+
+        await drain.drain()
+        var snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots.first?.manifest.observerIngest?.sessionID, id)
+
+        await drain.drain()
+        snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+    }
+
     func testNeverDuplicateRestagesOnceAndReACKsDuplicate() throws {
         let storage = try self.makeStorage("never-duplicate-watch")
         let stagingRoot = self.tempDirectory.appendingPathComponent("never-duplicate-staging", isDirectory: true)
@@ -677,132 +732,6 @@ final class WatchRelayTests: XCTestCase {
         watchSession.finishTransfer(id: id, failure: Self.transferFailure("second failure"))
 
         XCTAssertEqual(try self.manifestState(storage: storage, id: id), .queued)
-    }
-
-    func testManualRetryCancelsExactZeroProgressTransferAndUsesNormalDrain() throws {
-        let storage = try self.makeStorage("manual-retry")
-        let id = UUID()
-        let directory = try self.writeSegment(storage: storage, id: id, index: 0)
-        let originalAudio = try storage.fileWriter.readData(from: storage.audioURL(directory: directory))
-        let session = MockWatchConnectivitySession()
-        let diagnosticsStore = WatchRelayDiagnosticsStore(storage: storage)
-        let sender = WatchRelaySender(
-            storage: storage,
-            session: session,
-            diagnosticsStore: diagnosticsStore
-        )
-        session.activate()
-        sender.drain()
-        let firstAttemptID = session.transferredFiles.first?.1["attempt_id"] as? String
-
-        session.deliverUserInfo(WatchRelayRetryRequest.message)
-
-        XCTAssertEqual(session.cancelledSegmentIDs, [id])
-        XCTAssertEqual(session.transferredFiles.count, 2)
-        XCTAssertNotEqual(session.transferredFiles[1].1["attempt_id"] as? String, firstAttemptID)
-        XCTAssertEqual(try self.manifestState(storage: storage, id: id), .transferring)
-        XCTAssertEqual(
-            try storage.fileWriter.readData(from: storage.audioURL(directory: directory)),
-            originalAudio
-        )
-        XCTAssertGreaterThan(try storage.fileWriter.fileSize(at: sender.bundleURL(for: id)), 0)
-        let retry = try XCTUnwrap(diagnosticsStore.readSummary().value?.lastManualRetry)
-        XCTAssertEqual(retry.activeManifestCount, 1)
-        XCTAssertEqual(retry.observedFileTransferCount, 1)
-        XCTAssertEqual(retry.cancelledCount, 1)
-    }
-
-    func testManualRetryDoesNothingWhileSessionIsInactive() throws {
-        let storage = try self.makeStorage("manual-retry-inactive")
-        let id = UUID()
-        let directory = try self.writeSegment(storage: storage, id: id, index: 0, state: .transferring)
-        let session = MockWatchConnectivitySession()
-        let diagnosticsStore = WatchRelayDiagnosticsStore(storage: storage)
-        let sender = WatchRelaySender(
-            storage: storage,
-            session: session,
-            diagnosticsStore: diagnosticsStore
-        )
-        try WatchSegmentBundleCodec.writeBundle(
-            segmentDirectory: directory,
-            storage: storage,
-            to: sender.bundleURL(for: id)
-        )
-        session.seedOutstandingTransfer(id: id)
-
-        session.deliverUserInfo(WatchRelayRetryRequest.message)
-
-        XCTAssertTrue(session.cancelledSegmentIDs.isEmpty)
-        XCTAssertEqual(session.outstandingFileTransfers.count, 1)
-        XCTAssertNil(diagnosticsStore.readSummary().value?.lastManualRetry)
-    }
-
-    func testManualRetryUsesRoutineReconciliationWithoutTouchingProgressedOrMissingSourceTransfers() throws {
-        let storage = try self.makeStorage("manual-retry-fail-closed")
-        let duplicateID = UUID()
-        let progressedID = UUID()
-        let missingSourceID = UUID()
-        let duplicateDirectory = try self.writeSegment(
-            storage: storage,
-            id: duplicateID,
-            index: 0,
-            state: .transferring
-        )
-        let progressedDirectory = try self.writeSegment(
-            storage: storage,
-            id: progressedID,
-            index: 1,
-            state: .transferring
-        )
-        let missingSourceDirectory = try self.writeSegment(
-            storage: storage,
-            id: missingSourceID,
-            index: 2,
-            state: .transferring
-        )
-        let session = MockWatchConnectivitySession()
-        let diagnosticsStore = WatchRelayDiagnosticsStore(storage: storage)
-        let sender = WatchRelaySender(
-            storage: storage,
-            session: session,
-            diagnosticsStore: diagnosticsStore
-        )
-
-        for entry in [
-            (duplicateID, duplicateDirectory),
-            (progressedID, progressedDirectory),
-            (missingSourceID, missingSourceDirectory),
-        ] {
-            try WatchSegmentBundleCodec.writeBundle(
-                segmentDirectory: entry.1,
-                storage: storage,
-                to: sender.bundleURL(for: entry.0)
-            )
-        }
-        try storage.fileWriter.removeItem(at: storage.audioURL(directory: missingSourceDirectory))
-        session.seedOutstandingTransfer(id: duplicateID)
-        session.seedOutstandingTransfer(id: duplicateID)
-        session.seedOutstandingTransfer(
-            id: progressedID,
-            progress: MockWatchConnectivitySession.defaultProgress(
-                completedUnitCount: 1,
-                totalUnitCount: 2,
-                fractionCompleted: 0.5
-            )
-        )
-        session.seedOutstandingTransfer(id: missingSourceID)
-        let orphanID = UUID()
-        session.seedOutstandingTransfer(id: orphanID)
-        session.activate()
-
-        session.deliverUserInfo(WatchRelayRetryRequest.message)
-
-        XCTAssertEqual(Set(session.cancelledSegmentIDs.compactMap { $0 }), Set([duplicateID, orphanID]))
-        XCTAssertTrue(session.transferredFiles.isEmpty)
-        let retry = try XCTUnwrap(diagnosticsStore.readSummary().value?.lastManualRetry)
-        XCTAssertEqual(retry.activeManifestCount, 3)
-        XCTAssertEqual(retry.observedFileTransferCount, 5)
-        XCTAssertEqual(retry.cancelledCount, 0)
     }
 
     func testDrainContinuesWithHealthySiblingAfterSegmentWriteFailure() throws {

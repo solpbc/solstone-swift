@@ -7,6 +7,7 @@ import SwiftUI
 struct WatchHomeView: View {
     let model: WatchSessionModel
     let captureModel: WatchCaptureModel
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
 
     var body: some View {
         let face = watchFaceModel(
@@ -63,6 +64,8 @@ struct WatchHomeView: View {
             .padding(.vertical, 12)
         }
         .background(Color.black)
+        .opacity(self.isLuminanceReduced ? 0.82 : 1)
+        .saturation(self.isLuminanceReduced ? 0.45 : 1)
     }
 }
 

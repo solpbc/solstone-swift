@@ -1993,8 +1993,7 @@ nonisolated final class WatchPipelineReducerDiagnosticsExportTests: XCTestCase {
                 lastDurableACK: nil,
                 lastQueueReconciliationObservation: nil,
                 lastBackgroundWakeCompletion: nil,
-                lastBackgroundWakeDeadline: nil,
-                lastManualRetry: nil
+                lastBackgroundWakeDeadline: nil
             )
         )
         let export = WatchPipelineReducer.reduce(Self.input(
@@ -2403,8 +2402,7 @@ private extension WatchRelayDiagnosticsCollectorTests {
             lastDurableACK: nil,
             lastQueueReconciliationObservation: nil,
             lastBackgroundWakeCompletion: nil,
-            lastBackgroundWakeDeadline: nil,
-            lastManualRetry: nil
+            lastBackgroundWakeDeadline: nil
         ),
         observations: [WatchRelayTransferObservation] = []
     ) -> WatchRelayDiagnosticsPayload {

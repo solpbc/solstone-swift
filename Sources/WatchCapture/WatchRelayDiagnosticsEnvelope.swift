@@ -703,7 +703,6 @@ nonisolated struct WatchRelayLastFactsSummary: Codable, Equatable, Sendable {
     let lastQueueReconciliationObservation: WatchRelayQueueReconciliationFact?
     let lastBackgroundWakeCompletion: WatchRelayBackgroundWakeFact?
     let lastBackgroundWakeDeadline: WatchRelayBackgroundWakeFact?
-    let lastManualRetry: WatchRelayManualRetryFact?
 }
 
 nonisolated struct WatchRelayFactCounter: Codable, Equatable, Sendable {
@@ -733,11 +732,4 @@ nonisolated struct WatchRelayBackgroundWakeFact: Codable, Equatable, Sendable {
     let heldTaskCount: Int
     let completedTaskCount: Int
     let deadlineCount: Int
-}
-
-nonisolated struct WatchRelayManualRetryFact: Codable, Equatable, Sendable {
-    let at: Date
-    let activeManifestCount: Int
-    let observedFileTransferCount: Int
-    let cancelledCount: Int
 }

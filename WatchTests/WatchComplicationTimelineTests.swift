@@ -5,6 +5,16 @@ import Foundation
 import XCTest
 
 nonisolated final class WatchComplicationTimelineTests: XCTestCase {
+    func testSmartStackReloadIntervalIsThirtyMinutes() {
+        let now = Date(timeIntervalSince1970: 1_713_624_000)
+
+        XCTAssertEqual(SolstoneWatchStatusSmartStack.reloadInterval, 30 * 60)
+        XCTAssertEqual(
+            SolstoneWatchStatusSmartStack.nextReloadDate(after: now),
+            now.addingTimeInterval(30 * 60)
+        )
+    }
+
     func testTimelineHelperReturnsLiveEntryBeforeAudioVerificationHorizon() {
         let verifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
         let now = verifiedAt.addingTimeInterval(120)
