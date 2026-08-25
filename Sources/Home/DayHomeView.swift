@@ -553,7 +553,7 @@ private extension DayHomeView {
             Image(systemName: "ellipsis.circle")
         }
         .frame(minWidth: 44, minHeight: 44)
-        .accessibilityLabel("dev-copy: settings")
+        .accessibilityLabel(SourceVocabulary.settingsTitle)
         .accessibilityIdentifier("dayHome.yourSolstoneEntry")
     }
 }

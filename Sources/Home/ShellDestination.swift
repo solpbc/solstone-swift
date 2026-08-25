@@ -34,7 +34,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     var shelfTitle: String {
         switch self {
         case .shelfJournal:
-            "journal"
+            "your journal"
         case .shelfThisDevice:
             "this device"
         case .shelfNotifications:

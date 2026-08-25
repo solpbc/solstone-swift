@@ -28,7 +28,7 @@ struct StatusPane: View {
     @State private var probeMilliseconds = 0
     @State private var transferRate: Double = 0
 
-    private var headingString: String { "dev-copy: status" }
+    private var headingString: String { SourceVocabulary.statusTitle }
 
     private var serverHost: String {
         self.appConfig.host

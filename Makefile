@@ -639,6 +639,7 @@ ci: deps
 	bash test/assert_tap_targets.sh
 	bash test/assert_casing.sh
 	bash test/assert_no_emdash.sh
+	bash test/assert_no_devcopy.sh
 	bash test/assert_background_modes.sh
 	bash test/assert_watch_background_modes.sh
 	bash test/assert_watch_privacy.sh

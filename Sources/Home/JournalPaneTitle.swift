@@ -3,15 +3,9 @@
 
 import Foundation
 
-nonisolated let journalPaneNilTitle = "dev-copy: this page"
-
-nonisolated func journalPaneTitle(mark: JournalMark?, pageTitle: String) -> String {
+nonisolated func journalPaneTitle(mark: JournalMark?) -> String {
     if let mark {
         return mark.words.joined(separator: " · ")
     }
-    let trimmed = pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !trimmed.isEmpty {
-        return trimmed
-    }
-    return journalPaneNilTitle
+    return JournalMarkGeneric.words.joined(separator: " · ")
 }

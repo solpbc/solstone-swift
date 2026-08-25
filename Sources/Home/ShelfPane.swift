@@ -17,7 +17,7 @@ struct ShelfPane: View {
     @State private var path: [ShellDestination] = []
     @State private var showingUnpairConfirm = false
 
-    private var headingString: String { "dev-copy: settings" }
+    private var headingString: String { SourceVocabulary.settingsTitle }
     private var isCompactHeight: Bool { self.verticalSizeClass == .compact }
 
     @ViewBuilder

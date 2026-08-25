@@ -19,7 +19,7 @@ struct InAppJournalView: View {
     }
 
     private var headingString: String {
-        journalPaneTitle(mark: self.mark, pageTitle: self.controller?.page.title ?? "")
+        journalPaneTitle(mark: self.mark)
     }
 
     @ViewBuilder

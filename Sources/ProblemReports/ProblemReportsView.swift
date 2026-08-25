@@ -14,8 +14,18 @@ struct ProblemReportsView: View {
         List {
             if self.showsSupportHeader {
                 Section {
-                    Text("dev-copy: support site")
-                    Text(SourceVocabulary.journalMarkMismatchEmailSupport)
+                    Link(
+                        SourceVocabulary.supportSiteTitle,
+                        destination: URL(string: "https://support.solstone.app")!
+                    )
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    Link(
+                        SourceVocabulary.journalMarkMismatchEmailSupport,
+                        destination: URL(string: "mailto:support@solstone.app")!
+                    )
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
             }
 

@@ -5,19 +5,13 @@
 import XCTest
 
 nonisolated final class JournalPaneTitleTests: XCTestCase {
-    func testNilMarkEmptyPageTitleUsesPlaceholderNotJournal() {
-        let title = journalPaneTitle(mark: nil, pageTitle: "")
-        XCTAssertNotEqual(title, "journal")
-        XCTAssertTrue(title.hasPrefix("dev-copy:"))
-    }
-
-    func testNilMarkUsesNonEmptyPageTitle() {
-        XCTAssertEqual(journalPaneTitle(mark: nil, pageTitle: "  morning notes  "), "morning notes")
+    func testNilMarkUsesPlaceholderWords() {
+        XCTAssertEqual(journalPaneTitle(mark: nil), "your · journal")
     }
 
 #if DEBUG
     func testPresentMarkUsesJoinedWords() {
-        XCTAssertEqual(journalPaneTitle(mark: .uiTestSample, pageTitle: "ignored"), "afoot · unfixed")
+        XCTAssertEqual(journalPaneTitle(mark: .uiTestSample), "afoot · unfixed")
     }
 #endif
 }

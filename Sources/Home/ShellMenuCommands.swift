@@ -50,13 +50,13 @@ nonisolated struct ShellMenuItem: Identifiable, Hashable, Sendable {
 
 nonisolated enum ShellMenuCatalog {
     nonisolated static let items: [ShellMenuItem] = [
-        ShellMenuItem(target: .deckToggle, title: "dev-copy: toggle deck", shortcut: "0"),
-        ShellMenuItem(target: .status, title: "dev-copy: status", shortcut: "1"),
+        ShellMenuItem(target: .deckToggle, title: SourceVocabulary.deckToggleTitle, shortcut: "0"),
+        ShellMenuItem(target: .status, title: SourceVocabulary.statusTitle, shortcut: "1"),
         ShellMenuItem(target: .journal, title: SourceVocabulary.openInJournal, shortcut: "2"),
         ShellMenuItem(target: .journalSetup, title: SourceVocabulary.journalLivesTitle, shortcut: "3"),
         ShellMenuItem(target: .import, title: SourceVocabulary.importTitle, shortcut: "4"),
         ShellMenuItem(target: .addMore, title: SourceVocabulary.addMoreTitle, shortcut: "5"),
-        ShellMenuItem(target: .shelf, title: "dev-copy: settings", shortcut: "6"),
+        ShellMenuItem(target: .shelf, title: SourceVocabulary.settingsTitle, shortcut: "6"),
         ShellMenuItem(target: .settings, title: SourceVocabulary.openSettings, shortcut: nil),
     ]
 }

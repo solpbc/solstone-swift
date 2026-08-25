@@ -72,7 +72,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.giveThisATileOnHome, "give this a tile on home")
         XCTAssertEqual(SourceVocabulary.hidingThisNeverTurnsItOff, "hiding this never turns it off.")
         XCTAssertEqual(SourceVocabulary.whatItAddsTitle, "what it adds")
-        XCTAssertEqual(SourceVocabulary.openSettings, "open settings")
+        XCTAssertEqual(SourceVocabulary.openSettings, "open iOS Settings")
         XCTAssertEqual(
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             "share is on. anything you send from another app is on this device until you connect a journal."
