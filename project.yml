@@ -229,6 +229,7 @@ targets:
     sources:
       - SolstoneLiveActivityWidget
       - Sources/Observer/ObserverMode.swift
+      - Sources/Observer/ObserverClock.swift
       - Sources/Observer/ObserverLiveActivity.swift
       - Sources/Design/Colors.swift
       - Sources/Services/AppGroupMirror.swift

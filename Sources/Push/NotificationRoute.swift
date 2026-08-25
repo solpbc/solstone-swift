@@ -6,6 +6,7 @@ import Foundation
 enum NotificationRoute: Sendable, Equatable {
     case today
     case sources
+    case observerActivityRearm
 
     var logLabel: String {
         switch self {
@@ -13,6 +14,8 @@ enum NotificationRoute: Sendable, Equatable {
             "today"
         case .sources:
             "sources"
+        case .observerActivityRearm:
+            "observerActivityRearm"
         }
     }
 }

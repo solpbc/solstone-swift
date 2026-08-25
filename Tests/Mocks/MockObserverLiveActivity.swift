@@ -7,24 +7,19 @@ import Foundation
 @MainActor
 final class MockObserverLiveActivity: ObserverLiveActivitying {
     var startDelay: Duration?
-    var startCalls: [(ObserverMode, UUID, TimeInterval)] = []
-    var updateCalls: [(ObserverMode, TimeInterval)] = []
-    var endCalls: [(ObserverMode, TimeInterval)] = []
+    var startCalls: [(ObserverMode, UUID, Date)] = []
+    var endCalls: [UUID] = []
     var endAllCallCount = 0
 
-    func start(mode: ObserverMode, sessionID: UUID, elapsed: TimeInterval) async {
-        self.startCalls.append((mode, sessionID, elapsed))
+    func start(mode: ObserverMode, sessionID: UUID, startedAt: Date) async {
+        self.startCalls.append((mode, sessionID, startedAt))
         if let startDelay {
             try? await Task.sleep(for: startDelay)
         }
     }
 
-    func update(mode: ObserverMode, elapsed: TimeInterval) async {
-        self.updateCalls.append((mode, elapsed))
-    }
-
-    func end(mode: ObserverMode, elapsed: TimeInterval) async {
-        self.endCalls.append((mode, elapsed))
+    func end(sessionID: UUID) async {
+        self.endCalls.append(sessionID)
     }
 
     func endAll() async {

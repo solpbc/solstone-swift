@@ -31,6 +31,17 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
     }
 
     @MainActor
+    func testObserverActivityRearmCategoryRoutesToObserverActivityRearm() {
+        let route = NotificationTapRouter.route(
+            categoryId: NotificationTapRouter.observerActivityRearmCategoryIdentifier,
+            userInfo: [:]
+        )
+
+        XCTAssertEqual(route, .observerActivityRearm)
+        XCTAssertEqual(route.logLabel, "observerActivityRearm")
+    }
+
+    @MainActor
     func testRetiredChatTokensRouteToToday() {
         XCTAssertEqual(
             NotificationTapRouter.route(categoryId: "SOLSTONE_SOL_CHAT_REQUEST", userInfo: [:]),
@@ -62,6 +73,13 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
         }
         sourcesRouter.debugSynthesizeTap("sources")
         XCTAssertEqual(sourcesRoute, .sources)
+
+        var rearmRoute: NotificationRoute?
+        let rearmRouter = NotificationTapRouter { route in
+            rearmRoute = route
+        }
+        rearmRouter.debugSynthesizeTap("observer-activity-rearm")
+        XCTAssertEqual(rearmRoute, .observerActivityRearm)
 
         var briefingRoute: NotificationRoute?
         let briefingRouter = NotificationTapRouter { route in

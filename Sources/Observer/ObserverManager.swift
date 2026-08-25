@@ -71,10 +71,8 @@ final class ObserverManager {
     @ObservationIgnored private var elapsedTask: Task<Void, Never>?
     @ObservationIgnored private var interruptionDeadlineTask: Task<Void, Never>?
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
-    @ObservationIgnored private var lastLiveActivitySecond: Int?
     @ObservationIgnored private var interruptionStartedAt: Date?
     @ObservationIgnored private var currentSessionID: UUID?
-    @ObservationIgnored private var currentMode: ObserverMode?
     @ObservationIgnored private var sessionStartedAt: Date?
     @ObservationIgnored private var currentChunkIndex = 0
     @ObservationIgnored private var silenceWindowStart: TimeInterval?
@@ -161,7 +159,6 @@ final class ObserverManager {
             }
 
             self.currentSessionID = sessionID
-            self.currentMode = mode
             self.sessionStartedAt = startedAt
             self.currentChunkIndex = 0
             self.silenceWindowStart = nil
@@ -177,7 +174,7 @@ final class ObserverManager {
                 currentChunkIndex: 0,
                 elapsed: 0
             ))
-            await self.liveActivity.start(mode: mode, sessionID: sessionID, elapsed: 0)
+            await self.liveActivity.start(mode: mode, sessionID: sessionID, startedAt: startedAt)
             guard self.isCurrentStart(startGeneration) else {
                 return .refused(.cancelled)
             }
@@ -225,11 +222,8 @@ final class ObserverManager {
             await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
         }
 
-        if wasActive {
-            await self.liveActivity.end(
-                mode: self.currentMode ?? .meeting,
-                elapsed: self.sessionStartedAt.map { self.clock.now().timeIntervalSince($0) } ?? 0
-            )
+        if wasActive, let sessionID = self.currentSessionID {
+            await self.liveActivity.end(sessionID: sessionID)
         }
 
         self.resetRuntime()
@@ -242,6 +236,15 @@ final class ObserverManager {
 
     func endStaleObserverActivities() async {
         await self.liveActivity.endAll()
+    }
+
+    func rearmLiveActivity() async {
+        guard case .active(let session) = self.state else { return }
+        await self.liveActivity.start(
+            mode: session.mode,
+            sessionID: session.sessionID,
+            startedAt: session.startedAt
+        )
     }
 }
 
@@ -302,14 +305,6 @@ private extension ObserverManager {
             elapsed: elapsed
         ))
 
-        let seconds = Int(elapsed)
-        if seconds % 15 == 0, self.lastLiveActivitySecond != seconds {
-            self.lastLiveActivitySecond = seconds
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.liveActivity.update(mode: session.mode, elapsed: elapsed)
-            }
-        }
     }
 
     func handleMeter(level: Float, duration: TimeInterval) {
@@ -466,11 +461,9 @@ private extension ObserverManager {
         self.cancelTasks()
         self.interruptionStartedAt = nil
         self.currentSessionID = nil
-        self.currentMode = nil
         self.sessionStartedAt = nil
         self.currentChunkIndex = 0
         self.silenceWindowStart = nil
-        self.lastLiveActivitySecond = nil
         self.configChangedDuringPause = false
         self.tapProgressCount = 0
         self.watchdogAnchorCount = 0

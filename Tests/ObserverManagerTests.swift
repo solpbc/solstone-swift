@@ -135,8 +135,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         XCTAssertEqual(self.manager.state, .idle)
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.endCalls.first?.0, .meeting)
-        XCTAssertEqual(self.liveActivity.endCalls.first?.1 ?? 0, 42, accuracy: 0.001)
+        XCTAssertEqual(self.liveActivity.endCalls.first, self.liveActivity.startCalls.first?.1)
     }
 
     @MainActor
@@ -545,6 +544,33 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(outcome, .alreadyStopped)
         XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
         XCTAssertTrue(self.liveActivity.endCalls.isEmpty)
+    }
+
+    @MainActor
+    func testRearmLiveActivityStartsFreshActivityForActiveSession() async {
+        await self.manager.startSession(mode: .meeting)
+        guard let original = self.liveActivity.startCalls.first else {
+            return XCTFail("Expected initial live activity start")
+        }
+
+        await self.manager.rearmLiveActivity()
+
+        XCTAssertEqual(self.liveActivity.startCalls.count, 2)
+        XCTAssertEqual(self.liveActivity.startCalls.last?.0, .meeting)
+        XCTAssertEqual(self.liveActivity.startCalls.last?.1, original.1)
+        XCTAssertEqual(self.liveActivity.startCalls.last?.2, original.2)
+    }
+
+    @MainActor
+    func testRearmLiveActivityIsNoOpOutsideAnActiveSession() async {
+        await self.manager.rearmLiveActivity()
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+
+        self.recorder.permissionGranted = false
+        await self.manager.startSession(mode: .meeting)
+        await self.manager.rearmLiveActivity()
+
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
     }
 
     @MainActor

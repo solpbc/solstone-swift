@@ -453,6 +453,10 @@ struct RootShellView: View {
             break
         case .sources:
             self.showingSources = true
+        case .observerActivityRearm:
+            Task { @MainActor in
+                await self.observerManager.rearmLiveActivity()
+            }
         }
         self.pendingRoute.route = nil
     }

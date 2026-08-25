@@ -9,6 +9,7 @@ nonisolated private let log = Logger(subsystem: "app.solstone.swift", category: 
 
 final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     nonisolated static let sourcesCategoryIdentifier = "SOLSTONE_SOURCES"
+    nonisolated static let observerActivityRearmCategoryIdentifier = ObserverLiveActivityWarningNotification.categoryIdentifier
 
     nonisolated struct TapPayload {
         let categoryIdentifier: String
@@ -75,6 +76,8 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
         switch categoryId {
         case Self.sourcesCategoryIdentifier:
             return .sources
+        case Self.observerActivityRearmCategoryIdentifier:
+            return .observerActivityRearm
         default:
             return .today
         }
@@ -83,7 +86,11 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
 #if DEBUG
     @MainActor
     func debugSynthesizeTap(_ kind: String) {
-        let categoryId = kind == "sources" ? Self.sourcesCategoryIdentifier : kind
+        let categoryId = switch kind {
+        case "sources": Self.sourcesCategoryIdentifier
+        case "observer-activity-rearm": Self.observerActivityRearmCategoryIdentifier
+        default: kind
+        }
         let route = Self.route(categoryId: categoryId, userInfo: [:])
         log.info("routed to \(route.logLabel, privacy: .public)")
         self.onRoute(route)
