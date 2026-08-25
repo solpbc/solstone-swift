@@ -20,15 +20,39 @@ final class ShellMenuCommandsGrepTests: XCTestCase {
         XCTAssertFalse(calls.isEmpty)
 
         for call in calls {
-            let collapsed = call.replacingOccurrences(
-                of: "\\s+",
-                with: " ",
-                options: .regularExpression
+            XCTAssertTrue(Self.keyboardShortcutUsesOnlyCommand(call), call)
+        }
+    }
+
+    func testKeyboardShortcutModifierClassifierRejectsNonCommandModifiers() throws {
+        let samples: [(source: String, expected: Bool)] = [
+            (".keyboardShortcut(\"1\")", true),
+            (".keyboardShortcut(\"1\", modifiers: .command)", true),
+            (".keyboardShortcut(\"1\", modifiers: [.command, .option])", false),
+            (".keyboardShortcut(\"1\", modifiers: .control)", false),
+            (".keyboardShortcut(\"1\", modifiers: [.command, .control])", false),
+            (
+                """
+                .keyboardShortcut(
+                    "1",
+                    modifiers: [
+                        .command,
+                        .option,
+                    ]
+                )
+                """,
+                false
+            ),
+        ]
+
+        for sample in samples {
+            let calls = try Self.keyboardShortcutCalls(in: sample.source)
+            XCTAssertEqual(calls.count, 1, sample.source)
+            XCTAssertEqual(
+                Self.keyboardShortcutUsesOnlyCommand(calls[0]),
+                sample.expected,
+                sample.source
             )
-            XCTAssertFalse(collapsed.contains(".control"), collapsed)
-            if Self.hasTopLevelComma(in: collapsed) {
-                XCTAssertTrue(collapsed.contains(".command"), collapsed)
-            }
         }
     }
 
@@ -98,5 +122,23 @@ final class ShellMenuCommandsGrepTests: XCTestCase {
             }
         }
         return false
+    }
+
+    private static func keyboardShortcutUsesOnlyCommand(_ arguments: String) -> Bool {
+        let collapsed = arguments.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        guard Self.hasTopLevelComma(in: collapsed) else {
+            return true
+        }
+        guard let modifiersRange = collapsed.range(of: "modifiers:") else {
+            return false
+        }
+
+        let modifiers = collapsed[modifiersRange.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return modifiers == ".command" || modifiers == "[.command]"
     }
 }
