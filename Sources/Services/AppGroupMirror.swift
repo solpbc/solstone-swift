@@ -9,18 +9,6 @@ import os
 nonisolated private let appGroupMirrorLog = Logger(subsystem: "app.solstone.swift", category: "app-group-mirror")
 
 @MainActor
-protocol AppGroupTimelineReloading {
-    func reloadTimelines(ofKind kind: String)
-}
-
-@MainActor
-struct AppGroupWidgetTimelineReloader: AppGroupTimelineReloading {
-    func reloadTimelines(ofKind kind: String) {
-        WidgetCenter.shared.reloadTimelines(ofKind: kind)
-    }
-}
-
-@MainActor
 @Observable
 final class AppGroupMirror {
     struct PairingSnapshot: Codable, Equatable, Sendable {
@@ -43,8 +31,6 @@ final class AppGroupMirror {
         static let currentSchemaVersion = 1
         static let maximumAge: Duration = .seconds(60)
         static let activeSessionHeartbeatInterval: Duration = .seconds(30)
-        static let widgetKind = "SolstoneObserverStatus"
-
         static let fileName = "observer-status.json"
 
         var schemaVersion: Int
@@ -64,16 +50,13 @@ final class AppGroupMirror {
 
     @ObservationIgnored private let rootURLProvider: @Sendable () throws -> URL
     @ObservationIgnored private let now: @Sendable () -> Date
-    @ObservationIgnored private let timelineReloader: any AppGroupTimelineReloading
 
     init(
         rootURLProvider: @escaping @Sendable () throws -> URL = { try AppGroupContainer.rootURL() },
-        now: @escaping @Sendable () -> Date = Date.init,
-        timelineReloader: any AppGroupTimelineReloading = AppGroupWidgetTimelineReloader()
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.rootURLProvider = rootURLProvider
         self.now = now
-        self.timelineReloader = timelineReloader
     }
 
     /// A missing, unreadable, malformed, or stale file is one uniform unknown.
@@ -132,7 +115,7 @@ final class AppGroupMirror {
 
         switch self.write(snapshot) {
         case .success:
-            self.timelineReloader.reloadTimelines(ofKind: Snapshot.widgetKind)
+            WidgetCenter.shared.reloadAllTimelines()
             return .success(())
         case .failure(let error):
             return .failure(error)

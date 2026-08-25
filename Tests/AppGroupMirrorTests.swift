@@ -22,15 +22,6 @@ private struct LegacyAppGroupMirrorSnapshot: Codable {
     let backlogCount: Int
 }
 
-@MainActor
-private final class AppGroupMirrorTimelineReloader: AppGroupTimelineReloading {
-    private(set) var kinds: [String] = []
-
-    func reloadTimelines(ofKind kind: String) {
-        self.kinds.append(kind)
-    }
-}
-
 nonisolated final class AppGroupMirrorTests: XCTestCase {
     private var rootURL: URL!
 
@@ -143,28 +134,9 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
     }
 
     @MainActor
-    func testSessionWriteReloadsTheSharedWidgetKind() {
-        let reloader = AppGroupMirrorTimelineReloader()
-        let mirror = self.makeMirror(timelineReloader: reloader)
-
-        self.assertSuccess(
-            mirror.updateSessionAndSources(
-                pairing: self.unpairedPairing,
-                microphonePermission: .granted,
-                session: .notLive,
-                sourceStates: [:],
-                backlogCount: 0
-            )
-        )
-
-        XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind])
-    }
-
-    @MainActor
-    func testMicrophonePermissionOnlyChangeWritesAndReloadsWithinHeartbeat() throws {
+    func testMicrophonePermissionOnlyChangeWritesWithinHeartbeat() throws {
         let dateSource = AppGroupMirrorDateSource(Date(timeIntervalSince1970: 1_776_144_000))
-        let reloader = AppGroupMirrorTimelineReloader()
-        let mirror = self.makeMirror(dateSource: dateSource, timelineReloader: reloader)
+        let mirror = self.makeMirror(dateSource: dateSource)
 
         self.assertSuccess(
             mirror.updateSessionAndSources(
@@ -191,14 +163,12 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         let updated = try XCTUnwrap(mirror.snapshot())
         XCTAssertEqual(updated.microphonePermission, .granted)
         XCTAssertEqual(updated.writtenAt, dateSource.value)
-        XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind, AppGroupMirror.Snapshot.widgetKind])
     }
 
     @MainActor
     func testUnchangedSessionWritesOnlyAtTheHeartbeatInterval() throws {
         let dateSource = AppGroupMirrorDateSource(Date(timeIntervalSince1970: 1_776_144_000))
-        let reloader = AppGroupMirrorTimelineReloader()
-        let mirror = self.makeMirror(dateSource: dateSource, timelineReloader: reloader)
+        let mirror = self.makeMirror(dateSource: dateSource)
 
         self.assertSuccess(
             mirror.updateSessionAndSources(
@@ -222,7 +192,6 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
             )
         )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, firstWrite.writtenAt)
-        XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind])
 
         dateSource.value = firstWrite.writtenAt.addingTimeInterval(31)
         self.assertSuccess(
@@ -235,7 +204,6 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
             )
         )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, dateSource.value)
-        XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind, AppGroupMirror.Snapshot.widgetKind])
     }
 
     @MainActor
@@ -390,15 +358,11 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
 
 @MainActor
 private extension AppGroupMirrorTests {
-    func makeMirror(
-        dateSource: AppGroupMirrorDateSource? = nil,
-        timelineReloader: any AppGroupTimelineReloading = AppGroupWidgetTimelineReloader()
-    ) -> AppGroupMirror {
+    func makeMirror(dateSource: AppGroupMirrorDateSource? = nil) -> AppGroupMirror {
         let rootURL = self.rootURL!
         return AppGroupMirror(
             rootURLProvider: { rootURL },
-            now: { dateSource?.value ?? Date() },
-            timelineReloader: timelineReloader
+            now: { dateSource?.value ?? Date() }
         )
     }
 

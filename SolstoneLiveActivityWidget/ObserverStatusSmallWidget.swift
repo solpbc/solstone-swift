@@ -4,32 +4,95 @@
 import SwiftUI
 import WidgetKit
 
-nonisolated struct ObserverStatusPlaceholderEntry: TimelineEntry {
-    let date: Date
-}
-
-nonisolated struct ObserverStatusPlaceholderTimelineProvider: TimelineProvider {
-    func placeholder(in _: Context) -> ObserverStatusPlaceholderEntry {
-        ObserverStatusPlaceholderEntry(date: Date())
-    }
-
-    func getSnapshot(in _: Context, completion: @escaping @Sendable (ObserverStatusPlaceholderEntry) -> Void) {
-        completion(ObserverStatusPlaceholderEntry(date: Date()))
-    }
-
-    func getTimeline(in _: Context, completion: @escaping @Sendable (Timeline<ObserverStatusPlaceholderEntry>) -> Void) {
-        let entry = ObserverStatusPlaceholderEntry(date: Date())
-        completion(Timeline(entries: [entry], policy: .never))
-    }
-}
-
 struct ObserverStatusSmallWidget: Widget {
     static let kind = "SolstoneObserverStatusSmall"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: Self.kind, provider: ObserverStatusPlaceholderTimelineProvider()) { _ in
-            Text("tbd")
+        AppIntentConfiguration(
+            kind: Self.kind,
+            intent: ObserverWidgetConfigurationIntent.self,
+            provider: ObserverStatusSmallTimelineProvider()
+        ) { entry in
+            ObserverStatusSmallView(entry: entry)
         }
         .supportedFamilies([.systemSmall])
+    }
+}
+
+private struct ObserverStatusSmallView: View {
+    let entry: ObserverStatusTimelineEntry
+
+    var body: some View {
+        if self.entry.isPlaceholder {
+            self.placeholder
+        } else {
+            self.content
+        }
+    }
+
+    private var presentation: ObserverStatusPresentation {
+        ObserverStatusPresentations.small(for: self.entry)
+    }
+
+    private var placeholder: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: "questionmark.circle")
+                .font(.title2)
+            Text("tbd")
+                .font(.headline)
+            Text("tbd")
+                .font(.caption)
+        }
+        .redacted(reason: .placeholder)
+        .padding(16)
+        .containerBackground(.fill.tertiary, for: .widget)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: self.presentation.symbol)
+                    .font(.title2)
+                if let sourceName = self.sourceName {
+                    Text(sourceName)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Text(self.presentation.label)
+                .font(.caption.weight(.semibold))
+                .lineLimit(2)
+
+            if let count = self.presentation.count {
+                Text("\(count)")
+                    .font(.title.monospacedDigit().weight(.bold))
+                    .invalidatableContent()
+                Text(self.entry.date, style: .relative)
+                    .font(.caption2)
+            } else {
+                Text(self.entry.date, style: .relative)
+                    .font(.caption2)
+            }
+        }
+        .padding(16)
+        .containerBackground(.fill.tertiary, for: .widget)
+    }
+
+    private var sourceName: String? {
+        switch self.entry.sourceKind {
+        case .observer:
+            "observer"
+        case .location:
+            "location"
+        case .omi:
+            "omi"
+        case .screencast:
+            SourceVocabulary.screencastDisplayName
+        case .watch, nil:
+            nil
+        }
     }
 }

@@ -393,6 +393,7 @@ nonisolated enum SourceVocabulary {
     static let greetingAfternoon = "good afternoon"
     static let greetingEvening = "good evening"
     static let dayLocalityNoJournal = "on this device · not paired"
+    static let notPaired = "not paired"
     static let journalConnected = "your journal · connected"
     static let journalOffline = "your journal · offline"
     static let dayToday = "today"

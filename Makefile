@@ -1,9 +1,9 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
-			       sim-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
+			       sim-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
 PROJECT   ?= solstone-swift.xcodeproj
@@ -28,6 +28,7 @@ BUILD_METADATA ?= config/BuildMetadata.generated.xcconfig
 PACKAGE_RESOLVED ?= $(PROJECT)/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 SIM_APP    = $(DERIVED)/Build/Products/Debug-iphonesimulator/$(SCHEME).app
 DEV_APP    = $(DERIVED)/Build/Products/Debug-iphoneos/$(SCHEME).app
+WIDGET_SHOTS_OUT ?= /var/tmp/solstone-widget-shots-$(notdir $(CURDIR))
 DEVICE_LOG ?= /tmp/solstone-swift.log
 # Brand asset source — REQUIRED by `make brand-sync` (no default); set BRAND_DIR=/path/to/brand
 BRAND_DIR  ?=
@@ -709,6 +710,16 @@ build: deps unlock
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build
 
+# Device-family signing build without a connected device.
+build-generic: deps unlock
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-skipMacroValidation \
+		-allowProvisioningUpdates \
+		-destination 'generic/platform=iOS' \
+		-derivedDataPath $(DERIVED) \
+		DEVELOPMENT_TEAM=$(TEAM_ID) \
+		build
+
 release: deps unlock
 	xcodebuild archive -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
@@ -823,6 +834,14 @@ sim-shots: sim
 		SHOTS_SIM="$(SIM)" \
 		$(if $(SHOTS_STATES),SHOTS_STATES="$(SHOTS_STATES)") \
 		bash test/capture_shots.sh
+
+# Widget gallery / Lock Screen screenshots use the lode-exclusive output path above.
+sim-widget-shots: sim
+	WIDGET_SHOTS_APP="$(SIM_APP)" \
+		WIDGET_SHOTS_BUNDLE_ID="$(BUNDLE_ID)" \
+		WIDGET_SHOTS_OUT="$(WIDGET_SHOTS_OUT)" \
+		WIDGET_SHOTS_SIM="$(SIM)" \
+		bash test/capture_widget_screenshots.sh
 
 screenshot:
 	@pymobiledevice3 developer dvt screenshot /tmp/solstone-swift-screenshot.png --tunnel '' 2>&1 || \
