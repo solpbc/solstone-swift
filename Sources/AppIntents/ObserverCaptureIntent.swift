@@ -109,7 +109,7 @@ enum ObserverCaptureControlMirrorWriter {
 private let observerCaptureIntentLog = Logger(subsystem: "app.solstone.swift", category: "app-intents")
 
 struct ObserverCaptureIntent: AppIntent, SetValueIntent, AudioRecordingIntent, LiveActivityIntent {
-    static var title: LocalizedStringResource { "solstone" }
+    static var title: LocalizedStringResource { "tbd" }
     static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
 
     @Parameter(title: "tbd", default: false)

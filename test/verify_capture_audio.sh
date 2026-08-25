@@ -27,6 +27,7 @@ TOLERANCE_SECONDS=2
 # rejecting an empty or header-only container.
 MINIMUM_BYTES_PER_SECOND=300
 MINIMUM_EXPECTED_BYTES=$((TARGET_SESSION_DURATION * MINIMUM_BYTES_PER_SECOND))
+# Keep this in sync with observerCaptureControlKind in Sources/AppIntents/ObserverCaptureIntent.swift.
 CONTROL_IDENTIFIER="SolstoneObserverCaptureControl"
 
 log() {
