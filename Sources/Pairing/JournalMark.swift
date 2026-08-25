@@ -147,9 +147,15 @@ private struct JournalMarkWordLine: View {
     let words: [String]
 
     var body: some View {
-        Text(self.words.joined(separator: " · "))
+        // Separate spans: the words carry the mark's own ink and only the middot is quiet.
+        // journal-mark.md section 5 specifies mark.words.ink #1A1A1A and mark.words.sep #6E6453,
+        // and the platform row names this exact shape for SwiftUI. Painting the whole line in one
+        // token greyed the words, which the generic mark's ruling forbids outright.
+        let joined = Text(self.words.first ?? "").foregroundColor(MarkGeometry.wordColor)
+            + Text(" · ").foregroundColor(MarkGeometry.wordSeparatorColor)
+            + Text(self.words.count > 1 ? self.words[1] : "").foregroundColor(MarkGeometry.wordColor)
+        return joined
             .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize, relativeTo: .headline))
-            .foregroundStyle(MarkGeometry.wordColor)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
     }
@@ -244,7 +250,8 @@ private enum MarkGeometry {
     static let cardFill = Self.color(hex: "#fffdf9")
     static let cardBorder = Self.color(hex: "#e7d8c6")
     static let chipBorder = Self.color(hex: "#e7d8c6")
-    static let wordColor = Self.color(hex: "#c2b9a6")
+    static let wordColor = Self.color(hex: "#1A1A1A")
+    static let wordSeparatorColor = Self.color(hex: "#6E6453")
     static let confirmationColor = Self.color(hex: "#166534")
     static let confirmedBorder = Self.color(hex: "#cfe3d3")
 
