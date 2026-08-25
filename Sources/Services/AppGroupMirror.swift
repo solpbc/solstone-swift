@@ -71,7 +71,8 @@ final class AppGroupMirror {
 
     /// A missing, unreadable, malformed, or stale file is one uniform unknown.
     func snapshot() -> Snapshot? {
-        guard let snapshot = self.readStoredSnapshot(), self.isFresh(snapshot) else {
+        let now = self.now()
+        guard let snapshot = self.readStoredSnapshot(), self.isFresh(snapshot, now: now) else {
             return nil
         }
         return snapshot
@@ -95,22 +96,25 @@ final class AppGroupMirror {
 
     @discardableResult
     func updateSessionAndSources(
+        pairing: PairingSnapshot,
         session: SessionState,
         sourceStates: [SourceKind: SourceState],
         backlogCount: Int
     ) -> Result<Void, StorageError> {
         let now = self.now()
-        let existing = self.readStoredSnapshot()
-        if let existing,
-           existing.session == session,
-           existing.sourceStates == sourceStates,
-           existing.backlogCount == backlogCount,
-           self.isWithinHeartbeatInterval(existing, now: now)
+        let existing = self.freshSnapshotOrDefault(now: now)
+        if existing.isStoredSnapshot,
+           existing.snapshot.session == session,
+           existing.snapshot.sourceStates == sourceStates,
+           existing.snapshot.backlogCount == backlogCount,
+           existing.snapshot.pairing == pairing,
+           self.isWithinHeartbeatInterval(existing.snapshot, now: now)
         {
             return .success(())
         }
 
-        var snapshot = existing ?? self.defaultSnapshot(writtenAt: now)
+        var snapshot = existing.snapshot
+        snapshot.pairing = pairing
         snapshot.session = session
         snapshot.sourceStates = sourceStates
         snapshot.backlogCount = backlogCount
@@ -129,7 +133,7 @@ final class AppGroupMirror {
 private extension AppGroupMirror {
     func write(_ update: (inout Snapshot, Date) -> Void) -> Result<Void, StorageError> {
         let now = self.now()
-        var snapshot = self.readStoredSnapshot() ?? self.defaultSnapshot(writtenAt: now)
+        var snapshot = self.freshSnapshotOrDefault(now: now).snapshot
         update(&snapshot, now)
         return self.write(snapshot)
     }
@@ -187,7 +191,19 @@ private extension AppGroupMirror {
         guard let data = try? Data(contentsOf: url) else {
             return nil
         }
-        return try? JSONDecoder().decode(Snapshot.self, from: data)
+        guard let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
+              snapshot.schemaVersion == Snapshot.currentSchemaVersion
+        else {
+            return nil
+        }
+        return snapshot
+    }
+
+    func freshSnapshotOrDefault(now: Date) -> (snapshot: Snapshot, isStoredSnapshot: Bool) {
+        guard let snapshot = self.readStoredSnapshot(), self.isFresh(snapshot, now: now) else {
+            return (self.defaultSnapshot(writtenAt: now), false)
+        }
+        return (snapshot, true)
     }
 
     func defaultSnapshot(writtenAt: Date) -> Snapshot {
@@ -201,8 +217,8 @@ private extension AppGroupMirror {
         )
     }
 
-    func isFresh(_ snapshot: Snapshot) -> Bool {
-        self.now() <= snapshot.writtenAt.addingTimeInterval(Self.seconds(Snapshot.maximumAge))
+    func isFresh(_ snapshot: Snapshot, now: Date) -> Bool {
+        now <= snapshot.writtenAt.addingTimeInterval(Self.seconds(Snapshot.maximumAge))
     }
 
     func isWithinHeartbeatInterval(_ snapshot: Snapshot, now: Date) -> Bool {

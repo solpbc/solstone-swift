@@ -76,6 +76,7 @@ private struct AppGroupSnapshotInputs: Equatable {
     let observerState: ObserverState
     let bundle: HomeSourceBundle
     let backlogCount: Int
+    let pairing: AppGroupMirror.PairingSnapshot
 }
 
 /// `.body` point sizes over the default, matching what
@@ -202,6 +203,7 @@ struct DayHomeView: View {
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
             _ = self.appGroupMirror.updateSessionAndSources(
+                pairing: self.appGroupPairing,
                 session: self.appGroupSessionState,
                 sourceStates: self.appGroupSourceStates,
                 backlogCount: self.backlogCount
@@ -228,7 +230,15 @@ private extension DayHomeView {
         AppGroupSnapshotInputs(
             observerState: self.observerManager.state,
             bundle: self.bundle,
-            backlogCount: self.backlogCount
+            backlogCount: self.backlogCount,
+            pairing: self.appGroupPairing
+        )
+    }
+
+    var appGroupPairing: AppGroupMirror.PairingSnapshot {
+        AppGroupMirror.PairingSnapshot(
+            journalName: self.appConfig.isPaired ? self.appConfig.homeLabel : nil,
+            isPaired: self.appConfig.isPaired
         )
     }
 

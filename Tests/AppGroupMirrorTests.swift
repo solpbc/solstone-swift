@@ -92,6 +92,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(mirror.writePairing(journalName: "sol"))
         self.assertSuccess(
             mirror.updateSessionAndSources(
+                pairing: self.pairedPairing,
                 session: .live(mode: .meeting, startedAt: Date(timeIntervalSince1970: 1_776_144_000)),
                 sourceStates: sourceStates,
                 backlogCount: 9
@@ -116,7 +117,14 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         let pairingWrite = try XCTUnwrap(mirror.snapshot())
 
         dateSource.value = pairingWrite.writtenAt.addingTimeInterval(1)
-        self.assertSuccess(mirror.updateSessionAndSources(session: .notLive, sourceStates: [.observer: .off], backlogCount: 0))
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.pairedPairing,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0
+            )
+        )
         let sessionWrite = try XCTUnwrap(mirror.snapshot())
 
         XCTAssertGreaterThan(sessionWrite.writtenAt, pairingWrite.writtenAt)
@@ -127,7 +135,14 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         let reloader = AppGroupMirrorTimelineReloader()
         let mirror = self.makeMirror(timelineReloader: reloader)
 
-        self.assertSuccess(mirror.updateSessionAndSources(session: .notLive, sourceStates: [:], backlogCount: 0))
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                session: .notLive,
+                sourceStates: [:],
+                backlogCount: 0
+            )
+        )
 
         XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind])
     }
@@ -138,16 +153,37 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         let reloader = AppGroupMirrorTimelineReloader()
         let mirror = self.makeMirror(dateSource: dateSource, timelineReloader: reloader)
 
-        self.assertSuccess(mirror.updateSessionAndSources(session: .notLive, sourceStates: [.observer: .off], backlogCount: 0))
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0
+            )
+        )
         let firstWrite = try XCTUnwrap(mirror.snapshot())
 
         dateSource.value = firstWrite.writtenAt.addingTimeInterval(29)
-        self.assertSuccess(mirror.updateSessionAndSources(session: .notLive, sourceStates: [.observer: .off], backlogCount: 0))
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0
+            )
+        )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, firstWrite.writtenAt)
         XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind])
 
         dateSource.value = firstWrite.writtenAt.addingTimeInterval(31)
-        self.assertSuccess(mirror.updateSessionAndSources(session: .notLive, sourceStates: [.observer: .off], backlogCount: 0))
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0
+            )
+        )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, dateSource.value)
         XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind, AppGroupMirror.Snapshot.widgetKind])
     }
@@ -182,6 +218,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
 
         self.assertSuccess(
             mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: totals.pending + totals.failed
@@ -197,6 +234,80 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         ))
 
         XCTAssertEqual(mirror.snapshot()?.backlogCount, 36)
+    }
+
+    @MainActor
+    func testPairingWriteDoesNotReviveStaleSessionData() throws {
+        let now = Date(timeIntervalSince1970: 1_776_144_000)
+        let dateSource = AppGroupMirrorDateSource(now)
+        let mirror = self.makeMirror(dateSource: dateSource)
+        let stale = self.snapshot(writtenAt: now.addingTimeInterval(-61))
+        try JSONEncoder().encode(stale).write(to: self.snapshotURL)
+
+        self.assertSuccess(mirror.writePairing(journalName: "current"))
+
+        let result = try XCTUnwrap(mirror.snapshot())
+        XCTAssertEqual(result.pairing, AppGroupMirror.PairingSnapshot(journalName: "current", isPaired: true))
+        XCTAssertEqual(result.session, .notLive)
+        XCTAssertEqual(result.sourceStates, [:])
+        XCTAssertEqual(result.backlogCount, 0)
+    }
+
+    @MainActor
+    func testSessionWriteReplacesStaleSnapshotEvenWhenValuesAreUnchanged() throws {
+        let now = Date(timeIntervalSince1970: 1_776_144_000)
+        let dateSource = AppGroupMirrorDateSource(now)
+        let mirror = self.makeMirror(dateSource: dateSource)
+        let stale = AppGroupMirror.Snapshot(
+            schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
+            writtenAt: now.addingTimeInterval(-61),
+            pairing: self.unpairedPairing,
+            session: .notLive,
+            sourceStates: [:],
+            backlogCount: 0
+        )
+        try JSONEncoder().encode(stale).write(to: self.snapshotURL)
+
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                session: .notLive,
+                sourceStates: [:],
+                backlogCount: 0
+            )
+        )
+
+        XCTAssertEqual(mirror.snapshot()?.writtenAt, now)
+    }
+
+    @MainActor
+    func testSessionWriteUsesPassedPairingAfterCorruptFile() throws {
+        let mirror = self.makeMirror()
+        let pairing = AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
+        try Data("not json".utf8).write(to: self.snapshotURL)
+
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: pairing,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 3
+            )
+        )
+
+        XCTAssertEqual(mirror.snapshot()?.pairing, pairing)
+    }
+
+    @MainActor
+    func testSnapshotReturnsUnknownForUnsupportedSchemaVersion() throws {
+        let mirror = self.makeMirror()
+        let unsupported = self.snapshot(
+            writtenAt: Date(),
+            schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion + 1
+        )
+        try JSONEncoder().encode(unsupported).write(to: self.snapshotURL)
+
+        XCTAssertNil(mirror.snapshot())
     }
 }
 
@@ -218,9 +329,20 @@ private extension AppGroupMirrorTests {
         self.rootURL.appendingPathComponent(AppGroupMirror.Snapshot.fileName)
     }
 
-    func snapshot(writtenAt: Date) -> AppGroupMirror.Snapshot {
+    var pairedPairing: AppGroupMirror.PairingSnapshot {
+        AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
+    }
+
+    var unpairedPairing: AppGroupMirror.PairingSnapshot {
+        AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false)
+    }
+
+    func snapshot(
+        writtenAt: Date,
+        schemaVersion: Int = AppGroupMirror.Snapshot.currentSchemaVersion
+    ) -> AppGroupMirror.Snapshot {
         AppGroupMirror.Snapshot(
-            schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
+            schemaVersion: schemaVersion,
             writtenAt: writtenAt,
             pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
             session: .live(mode: .meeting, startedAt: writtenAt),

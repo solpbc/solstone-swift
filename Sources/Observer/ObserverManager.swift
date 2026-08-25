@@ -178,6 +178,9 @@ final class ObserverManager {
                 elapsed: 0
             ))
             await self.liveActivity.start(mode: mode, sessionID: sessionID, elapsed: 0)
+            guard self.isCurrentStart(startGeneration) else {
+                return .refused(.cancelled)
+            }
             self.startElapsedTask()
             self.startWatchdogTask()
             return .started
@@ -209,6 +212,7 @@ final class ObserverManager {
             self.state = .stopping
         case .active:
             wasActive = true
+            self.startGeneration &+= 1
             self.state = .stopping
         case .stopping, .error:
             return .alreadyStopped

@@ -607,6 +607,37 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         _ = await self.manager.stopSession()
     }
+
+    @MainActor
+    func testStopDuringLiveActivityStartDoesNotRearmBackgroundTasks() async {
+        self.liveActivity.startDelay = .seconds(1)
+        let start = Task { @MainActor [manager = self.manager] in
+            await manager.startSession(mode: .meeting)
+        }
+
+        for _ in 0..<100 {
+            if case .active = self.manager.state, self.liveActivity.startCalls.count == 1 {
+                break
+            }
+            await Task.yield()
+        }
+        guard case .active = self.manager.state, self.liveActivity.startCalls.count == 1 else {
+            return XCTFail("Expected start to suspend during live activity activation")
+        }
+
+        let stopOutcome = await self.manager.stopSession()
+        self.liveActivity.startDelay = nil
+        let startOutcome = await start.value
+        await Task.yield()
+
+        XCTAssertEqual(stopOutcome, .stopped)
+        XCTAssertEqual(startOutcome, .refused(.cancelled))
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.recorder.startCallCount, 1)
+        XCTAssertEqual(self.recorder.stopCallCount, 1)
+        XCTAssertEqual(self.liveActivity.startCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+    }
 }
 
 private enum ObserverManagerTestError: Error {
