@@ -13,6 +13,15 @@ private final class AppGroupMirrorDateSource: @unchecked Sendable {
     }
 }
 
+private struct LegacyAppGroupMirrorSnapshot: Codable {
+    let schemaVersion: Int
+    let writtenAt: Date
+    let pairing: AppGroupMirror.PairingSnapshot
+    let session: AppGroupMirror.SessionState
+    let sourceStates: [SourceKind: SourceState]
+    let backlogCount: Int
+}
+
 @MainActor
 private final class AppGroupMirrorTimelineReloader: AppGroupTimelineReloading {
     private(set) var kinds: [String] = []
@@ -93,6 +102,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.pairedPairing,
+                microphonePermission: .granted,
                 session: .live(mode: .meeting, startedAt: Date(timeIntervalSince1970: 1_776_144_000)),
                 sourceStates: sourceStates,
                 backlogCount: 9
@@ -104,6 +114,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         XCTAssertEqual(stored, mirror.snapshot())
         XCTAssertEqual(stored.schemaVersion, AppGroupMirror.Snapshot.currentSchemaVersion)
         XCTAssertEqual(stored.pairing, AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true))
+        XCTAssertEqual(stored.microphonePermission, .granted)
         XCTAssertEqual(stored.sourceStates, sourceStates)
         XCTAssertEqual(stored.backlogCount, 9)
     }
@@ -120,6 +131,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.pairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0
@@ -138,6 +150,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.unpairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [:],
                 backlogCount: 0
@@ -145,6 +158,40 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         )
 
         XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind])
+    }
+
+    @MainActor
+    func testMicrophonePermissionOnlyChangeWritesAndReloadsWithinHeartbeat() throws {
+        let dateSource = AppGroupMirrorDateSource(Date(timeIntervalSince1970: 1_776_144_000))
+        let reloader = AppGroupMirrorTimelineReloader()
+        let mirror = self.makeMirror(dateSource: dateSource, timelineReloader: reloader)
+
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                microphonePermission: .undetermined,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0
+            )
+        )
+        let firstWrite = try XCTUnwrap(mirror.snapshot())
+
+        dateSource.value = firstWrite.writtenAt.addingTimeInterval(1)
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0
+            )
+        )
+
+        let updated = try XCTUnwrap(mirror.snapshot())
+        XCTAssertEqual(updated.microphonePermission, .granted)
+        XCTAssertEqual(updated.writtenAt, dateSource.value)
+        XCTAssertEqual(reloader.kinds, [AppGroupMirror.Snapshot.widgetKind, AppGroupMirror.Snapshot.widgetKind])
     }
 
     @MainActor
@@ -156,6 +203,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.unpairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0
@@ -167,6 +215,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.unpairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0
@@ -179,6 +228,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.unpairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0
@@ -219,6 +269,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.unpairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: totals.pending + totals.failed
@@ -249,6 +300,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         let result = try XCTUnwrap(mirror.snapshot())
         XCTAssertEqual(result.pairing, AppGroupMirror.PairingSnapshot(journalName: "current", isPaired: true))
         XCTAssertEqual(result.session, .notLive)
+        XCTAssertNil(result.microphonePermission)
         XCTAssertEqual(result.sourceStates, [:])
         XCTAssertEqual(result.backlogCount, 0)
     }
@@ -262,6 +314,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
             schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
             writtenAt: now.addingTimeInterval(-61),
             pairing: self.unpairedPairing,
+            microphonePermission: .granted,
             session: .notLive,
             sourceStates: [:],
             backlogCount: 0
@@ -271,6 +324,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: self.unpairedPairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [:],
                 backlogCount: 0
@@ -289,6 +343,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         self.assertSuccess(
             mirror.updateSessionAndSources(
                 pairing: pairing,
+                microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 3
@@ -308,6 +363,28 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         try JSONEncoder().encode(unsupported).write(to: self.snapshotURL)
 
         XCTAssertNil(mirror.snapshot())
+    }
+
+    @MainActor
+    func testDecodesLegacySnapshotWithoutMicrophonePermission() throws {
+        let now = Date(timeIntervalSince1970: 1_776_144_000)
+        let dateSource = AppGroupMirrorDateSource(now)
+        let mirror = self.makeMirror(dateSource: dateSource)
+        let legacy = LegacyAppGroupMirrorSnapshot(
+            schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
+            writtenAt: now,
+            pairing: self.pairedPairing,
+            session: .notLive,
+            sourceStates: [.observer: .off],
+            backlogCount: 4
+        )
+
+        try JSONEncoder().encode(legacy).write(to: self.snapshotURL)
+
+        let snapshot = try XCTUnwrap(mirror.snapshot())
+        XCTAssertNil(snapshot.microphonePermission)
+        XCTAssertEqual(snapshot.pairing, self.pairedPairing)
+        XCTAssertEqual(snapshot.sourceStates, [.observer: .off])
     }
 }
 
@@ -345,6 +422,7 @@ private extension AppGroupMirrorTests {
             schemaVersion: schemaVersion,
             writtenAt: writtenAt,
             pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
+            microphonePermission: .granted,
             session: .live(mode: .meeting, startedAt: writtenAt),
             sourceStates: [.observer: .active, .location: .off],
             backlogCount: 4

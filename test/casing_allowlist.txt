@@ -105,6 +105,11 @@ ChunkSidecar.swift|"HHmmss"
 WatchCaptureStorage.swift|"WatchCapture"
 WatchComplicationSnapshot.swift|SolstoneWatchStatus
 AppGroupMirror.swift|SolstoneObserverStatus
+ObserverCaptureIntent.swift|SolstoneObserverCaptureControl
+ObserverCaptureIntent.swift|SolstoneOpenJournalControl
+ObserverStatusSmallWidget.swift|SolstoneObserverStatusSmall
+ObserverStatusMediumWidget.swift|SolstoneObserverStatusMedium
+ObserverStatusAccessoryCircularWidget.swift|SolstoneObserverStatusAccessoryCircular
 WatchCaptureStorage.swift|"HHmmss"
 ShareImportCoordinator.swift|SolstoneShareImport
 

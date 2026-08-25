@@ -15,6 +15,7 @@ struct RootShellView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
+    @Environment(PendingJournalOpenState.self) private var pendingJournalOpen
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -88,6 +89,7 @@ struct RootShellView: View {
             if let route = self.pendingRoute.route {
                 self.apply(route)
             }
+            self.applyPendingJournalOpenIfNeeded()
             if !self.tunnelManager.state.isConnected {
                 mainTabLog.info("showing disconnected shell state")
             }
@@ -107,6 +109,9 @@ struct RootShellView: View {
             if let route {
                 self.apply(route)
             }
+        }
+        .onChange(of: self.pendingJournalOpen.isOpenRequested) { _, _ in
+            self.applyPendingJournalOpenIfNeeded()
         }
         .onChange(of: self.statusPath.count) { _, count in
             self.statusDetent = count > 0 ? .large : .medium
@@ -302,6 +307,12 @@ struct RootShellView: View {
         } else {
             self.nav.selectFromDeck(.journal)
         }
+    }
+
+    private func applyPendingJournalOpenIfNeeded() {
+        guard self.pendingJournalOpen.isOpenRequested else { return }
+        self.pendingJournalOpen.isOpenRequested = false
+        self.openJournal()
     }
 
     private func openJournalSetup() {

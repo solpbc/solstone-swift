@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       sim-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -195,6 +195,10 @@ sim-state:
 		done; \
 		xcrun simctl spawn "$$udid" log show --style compact --last '$(SIM_LOG_WINDOW)' \
 			--predicate 'subsystem == "$(LOG_SUB)"'
+
+# Host-side Control Center artifact check: proves duration/bytes, not a microphone-input connection.
+verify-capture-audio:
+	@SIM_UDID='$(SIM_UDID)' SIM_UDID_FILE='$(SIM_UDID_FILE)' BUNDLE_ID='$(BUNDLE_ID)' zsh test/verify_capture_audio.sh
 
 sim: deps
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \

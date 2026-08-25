@@ -28,6 +28,12 @@ final class AppGroupMirror {
         let isPaired: Bool
     }
 
+    enum MicrophonePermissionSnapshot: Codable, Equatable, Sendable {
+        case granted
+        case undetermined
+        case denied
+    }
+
     enum SessionState: Codable, Equatable, Sendable {
         case notLive
         case live(mode: ObserverMode, startedAt: Date)
@@ -44,6 +50,7 @@ final class AppGroupMirror {
         var schemaVersion: Int
         var writtenAt: Date
         var pairing: PairingSnapshot
+        var microphonePermission: MicrophonePermissionSnapshot?
         var session: SessionState
         var sourceStates: [SourceKind: SourceState]
         var backlogCount: Int
@@ -97,6 +104,7 @@ final class AppGroupMirror {
     @discardableResult
     func updateSessionAndSources(
         pairing: PairingSnapshot,
+        microphonePermission: MicrophonePermissionSnapshot,
         session: SessionState,
         sourceStates: [SourceKind: SourceState],
         backlogCount: Int
@@ -108,6 +116,7 @@ final class AppGroupMirror {
            existing.snapshot.sourceStates == sourceStates,
            existing.snapshot.backlogCount == backlogCount,
            existing.snapshot.pairing == pairing,
+           existing.snapshot.microphonePermission == microphonePermission,
            self.isWithinHeartbeatInterval(existing.snapshot, now: now)
         {
             return .success(())
@@ -115,6 +124,7 @@ final class AppGroupMirror {
 
         var snapshot = existing.snapshot
         snapshot.pairing = pairing
+        snapshot.microphonePermission = microphonePermission
         snapshot.session = session
         snapshot.sourceStates = sourceStates
         snapshot.backlogCount = backlogCount
@@ -211,6 +221,7 @@ private extension AppGroupMirror {
             schemaVersion: Snapshot.currentSchemaVersion,
             writtenAt: writtenAt,
             pairing: PairingSnapshot(journalName: nil, isPaired: false),
+            microphonePermission: nil,
             session: .notLive,
             sourceStates: [:],
             backlogCount: 0

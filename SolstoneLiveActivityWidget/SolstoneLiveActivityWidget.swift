@@ -9,6 +9,11 @@ import WidgetKit
 struct SolstoneLiveActivityBundle: WidgetBundle {
     var body: some Widget {
         SolstoneLiveActivityWidget()
+        ObserverCaptureControlWidget()
+        OpenJournalControlWidget()
+        ObserverStatusSmallWidget()
+        ObserverStatusMediumWidget()
+        ObserverStatusAccessoryCircularWidget()
     }
 }
 

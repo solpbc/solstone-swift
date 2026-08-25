@@ -47,6 +47,7 @@ struct SolstoneSwiftApp: App {
     @State private var observerManager: ObserverManager
     @State private var watchLink: WatchLink
     @State private var pendingObserverCommand = PendingObserverCommandState()
+    @State private var pendingJournalOpen = PendingJournalOpenState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var shellNav = ShellNavModel()
     @State private var pairingCredentialRecovery: PairingCredentialRecoveryCoordinator
@@ -536,6 +537,7 @@ struct SolstoneSwiftApp: App {
             clock: observerClock
         )
         AppDependencyManager.shared.add(dependency: observerManager)
+        AppDependencyManager.shared.add(dependency: observerManager as any ObserverSessionControlling)
         ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
         let omiSource = makeOmiSourceManager(clock: observerClock)
@@ -780,6 +782,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.screencastManager)
                 .environment(self.observerManager)
                 .environment(self.pendingObserverCommand)
+                .environment(self.pendingJournalOpen)
                 .environment(self.pairingHandoff)
                 .environment(self.pairingCredentialRecovery)
                 .environment(self.diagnosticLog)
@@ -793,6 +796,8 @@ struct SolstoneSwiftApp: App {
                     switch SolstoneDeepLink.parse(url) {
                     case .observerStop:
                         self.pendingObserverCommand.command = .stopRequested
+                    case .journal:
+                        self.pendingJournalOpen.isOpenRequested = true
                     case nil:
                         break
                     }

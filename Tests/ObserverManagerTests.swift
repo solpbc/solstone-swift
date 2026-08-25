@@ -65,6 +65,45 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testCaptureAdapterTreatsStartedAndAlreadyRunningAsSuccess() async {
+        let started = await self.manager.startCaptureSession(mode: .meeting)
+        let alreadyRunning = await self.manager.startCaptureSession(mode: .meeting)
+
+        XCTAssertTrue(started)
+        XCTAssertTrue(alreadyRunning)
+    }
+
+    @MainActor
+    func testCaptureAdapterTreatsStartRefusalAsFailure() async {
+        self.recorder.permissionGranted = false
+
+        let refused = await self.manager.startCaptureSession(mode: .meeting)
+
+        XCTAssertFalse(refused)
+    }
+
+    @MainActor
+    func testCaptureAdapterTreatsStoppedAndAlreadyStoppedAsSuccess() async {
+        let started = await self.manager.startCaptureSession(mode: .meeting)
+        let stopped = await self.manager.stopCaptureSession()
+        let alreadyStopped = await self.manager.stopCaptureSession()
+
+        XCTAssertTrue(started)
+        XCTAssertTrue(stopped)
+        XCTAssertTrue(alreadyStopped)
+    }
+
+    @MainActor
+    func testCaptureAdapterTreatsStopRefusalAsFailure() async {
+        let started = await self.manager.startCaptureSession(mode: .meeting)
+        self.recorder.stopError = ObserverManagerTestError.stopFailed
+        let refused = await self.manager.stopCaptureSession()
+
+        XCTAssertTrue(started)
+        XCTAssertFalse(refused)
+    }
+
+    @MainActor
     func testStopSessionWithNoLocalPortLeavesChunkPending() async throws {
         let mobileRoot = self.tempDirectory.appendingPathComponent("NoPortMobileSegment", isDirectory: true)
         let manager = ObserverManager(

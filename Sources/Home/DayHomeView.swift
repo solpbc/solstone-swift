@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import AVFoundation
 import SwiftUI
 
 func greeting(forHour hour: Int) -> String {
@@ -77,6 +78,7 @@ private struct AppGroupSnapshotInputs: Equatable {
     let bundle: HomeSourceBundle
     let backlogCount: Int
     let pairing: AppGroupMirror.PairingSnapshot
+    let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
 }
 
 /// `.body` point sizes over the default, matching what
@@ -204,6 +206,7 @@ struct DayHomeView: View {
         .task(id: self.appGroupSnapshotInputs) {
             _ = self.appGroupMirror.updateSessionAndSources(
                 pairing: self.appGroupPairing,
+                microphonePermission: self.appGroupMicrophonePermission,
                 session: self.appGroupSessionState,
                 sourceStates: self.appGroupSourceStates,
                 backlogCount: self.backlogCount
@@ -231,7 +234,8 @@ private extension DayHomeView {
             observerState: self.observerManager.state,
             bundle: self.bundle,
             backlogCount: self.backlogCount,
-            pairing: self.appGroupPairing
+            pairing: self.appGroupPairing,
+            microphonePermission: self.appGroupMicrophonePermission
         )
     }
 
@@ -240,6 +244,19 @@ private extension DayHomeView {
             journalName: self.appConfig.isPaired ? self.appConfig.homeLabel : nil,
             isPaired: self.appConfig.isPaired
         )
+    }
+
+    var appGroupMicrophonePermission: AppGroupMirror.MicrophonePermissionSnapshot {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            .granted
+        case .undetermined:
+            .undetermined
+        case .denied:
+            .denied
+        @unknown default:
+            .denied
+        }
     }
 
     var appGroupSessionState: AppGroupMirror.SessionState {

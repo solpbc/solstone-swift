@@ -14,6 +14,12 @@ nonisolated final class SolstoneDeepLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testJournalDeepLinkParses() {
+        XCTAssertEqual(SolstoneDeepLink.parse(URL(string: "solstone://journal")!), .journal)
+        XCTAssertNil(SolstoneDeepLink.parse(URL(string: "solstone://journal/open")!))
+    }
+
+    @MainActor
     func testPairingUniversalLinkStaysWithUniversalLinkRouter() {
         let url = URL(string: "https://go.solstone.app/p#?")!
 

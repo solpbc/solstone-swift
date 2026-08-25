@@ -252,6 +252,26 @@ extension ObserverManager {
     }
 }
 
+extension ObserverManager: ObserverSessionControlling {
+    func startCaptureSession(mode: ObserverMode) async -> Bool {
+        switch await self.startSession(mode: mode) {
+        case .started, .alreadyRunning:
+            true
+        case .refused:
+            false
+        }
+    }
+
+    func stopCaptureSession() async -> Bool {
+        switch await self.stopSession() {
+        case .stopped, .alreadyStopped:
+            true
+        case .refused:
+            false
+        }
+    }
+}
+
 private extension ObserverManager {
     func startElapsedTask() {
         self.elapsedTask?.cancel()
