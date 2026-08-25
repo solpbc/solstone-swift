@@ -347,10 +347,10 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .idle, .error:
             self.observerSourcePauseState.isPaused = false
-            await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
+            _ = await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
         case .starting, .active:
             self.observerSourcePauseState.isPaused = false
-            await self.observerManager.stopSession()
+            _ = await self.observerManager.stopSession()
         case .stopping:
             break
         }
@@ -359,11 +359,11 @@ private extension SourceDetailView {
     func handlePauseResumeTap() async {
         switch self.currentSourceState {
         case .active:
-            await self.observerManager.stopSession()
+            _ = await self.observerManager.stopSession()
             self.observerSourcePauseState.isPaused = true
         case .paused:
             self.observerSourcePauseState.isPaused = false
-            await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
+            _ = await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
         case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
             break
         }
@@ -448,7 +448,7 @@ private extension AudioEnrollmentContent {
         defer { self.isStarting = false }
 
         self.observerSourcePauseState.isPaused = false
-        await self.observerManager.startSession(mode: self.mode)
+        _ = await self.observerManager.startSession(mode: self.mode)
         self.observerManager.persistEnrolledIfActive()
     }
 }

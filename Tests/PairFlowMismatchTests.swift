@@ -36,17 +36,17 @@ nonisolated final class PairFlowMismatchTests: XCTestCase {
 
         let store = PairFlowMismatchPairingStore()
         let pairing = Self.fixturePairing()
-        let suiteName = "PairFlowMismatchTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let appGroupRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PairFlowMismatchTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appGroupRoot) }
 
         let appConfig = AppConfig(
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
             deletePairing: { store.delete() },
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
-            appGroupMirror: AppGroupMirror(defaults: defaults)
+            appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
         try appConfig.applyPairing(pairing)
 

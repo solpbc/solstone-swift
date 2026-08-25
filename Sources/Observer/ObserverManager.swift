@@ -26,6 +26,39 @@ enum ObserverState: Equatable, Sendable {
     case error(ObserverError)
 }
 
+enum ObserverSessionRefusalReason: Equatable, Sendable {
+    case cancelled
+    case error(ObserverError)
+}
+
+enum ObserverStartOutcome: Equatable, Sendable {
+    case started
+    case alreadyRunning
+    case refused(ObserverSessionRefusalReason)
+}
+
+enum ObserverStopOutcome: Equatable, Sendable {
+    case stopped
+    case alreadyStopped
+    case refused(ObserverSessionRefusalReason)
+}
+
+@MainActor
+enum ObserverManagerDependencyRegistrationWitness {
+    private(set) static var registrationCount = 0
+    private(set) static var registeredIdentifier: ObjectIdentifier?
+    private(set) static var resolvedIdentifier: ObjectIdentifier?
+
+    static func recordRegistration(of manager: ObserverManager) {
+        self.registrationCount += 1
+        self.registeredIdentifier = ObjectIdentifier(manager)
+    }
+
+    static func recordResolution(of manager: ObserverManager) {
+        self.resolvedIdentifier = ObjectIdentifier(manager)
+    }
+}
+
 @MainActor
 @Observable
 final class ObserverManager {
@@ -45,7 +78,7 @@ final class ObserverManager {
     @ObservationIgnored private var sessionStartedAt: Date?
     @ObservationIgnored private var currentChunkIndex = 0
     @ObservationIgnored private var silenceWindowStart: TimeInterval?
-    @ObservationIgnored private var startCancelled = false
+    @ObservationIgnored private var startGeneration = 0
     @ObservationIgnored private var configChangedDuringPause = false
     @ObservationIgnored private var tapProgressCount = 0
     @ObservationIgnored private var watchdogAnchorCount = 0
@@ -84,28 +117,27 @@ final class ObserverManager {
         }
     }
 
-    func startSession(mode: ObserverMode) async {
+    func startSession(mode: ObserverMode) async -> ObserverStartOutcome {
         switch self.state {
         case .idle, .error:
             break
         case .starting, .active, .stopping:
             managerLog.info("observer: start skipped while active")
-            return
+            return .alreadyRunning
         }
 
-        self.startCancelled = false
+        self.startGeneration &+= 1
+        let startGeneration = self.startGeneration
         self.state = .starting
         managerLog.info("observer: session starting")
 
-        guard await self.recorder.requestPermission() else {
-            self.state = .error(.permissionDenied)
-            return
+        let permissionGranted = await self.recorder.requestPermission()
+        guard self.isCurrentStart(startGeneration) else {
+            return .refused(.cancelled)
         }
-
-        if self.startCancelled {
-            self.resetRuntime()
-            self.state = .idle
-            return
+        guard permissionGranted else {
+            self.state = .error(.permissionDenied)
+            return .refused(.error(.permissionDenied))
         }
 
         let sessionID = UUID()
@@ -113,13 +145,19 @@ final class ObserverManager {
 
         do {
             let chunkURL = try await self.mobileSegmentEngine.startAudio(mode: mode)
+            guard self.isCurrentStart(startGeneration) else {
+                await self.mobileSegmentEngine.stopAudio(finalized: nil)
+                return .refused(.cancelled)
+            }
+
             _ = try await self.recorder.start(url: chunkURL, mode: mode)
-            if self.startCancelled {
-                let finalized = try? await self.recorder.stop()
-                await self.mobileSegmentEngine.stopAudio(finalized: finalized)
-                self.resetRuntime()
-                self.state = .idle
-                return
+            guard self.isCurrentStart(startGeneration) else {
+                let stopResult = await self.stopRecorder()
+                await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
+                if let failure = stopResult.failure {
+                    return .refused(.error(failure))
+                }
+                return .refused(.cancelled)
             }
 
             self.currentSessionID = sessionID
@@ -142,38 +180,45 @@ final class ObserverManager {
             await self.liveActivity.start(mode: mode, sessionID: sessionID, elapsed: 0)
             self.startElapsedTask()
             self.startWatchdogTask()
+            return .started
         } catch let observerError as ObserverError {
+            guard self.isCurrentStart(startGeneration) else {
+                return .refused(.cancelled)
+            }
             self.state = .error(observerError)
+            return .refused(.error(observerError))
         } catch {
-            self.state = .error(.unavailable(reason: String(describing: error)))
+            guard self.isCurrentStart(startGeneration) else {
+                return .refused(.cancelled)
+            }
+            let observerError = Self.observerError(from: error)
+            self.state = .error(observerError)
+            return .refused(.error(observerError))
         }
     }
 
-    func stopSession() async {
-        let preserveStartCancelled: Bool
+    func stopSession() async -> ObserverStopOutcome {
         let wasActive: Bool
         switch self.state {
         case .idle:
             await self.endStaleObserverActivities()
-            return
+            return .alreadyStopped
         case .starting:
-            preserveStartCancelled = true
             wasActive = false
-            self.startCancelled = true
+            self.startGeneration &+= 1
             self.state = .stopping
         case .active:
-            preserveStartCancelled = false
             wasActive = true
             self.state = .stopping
         case .stopping, .error:
-            return
+            return .alreadyStopped
         }
 
         self.cancelTasks()
 
-        let finalized = try? await self.recorder.stop()
+        let stopResult = await self.stopRecorder()
         if wasActive {
-            await self.mobileSegmentEngine.stopAudio(finalized: finalized)
+            await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
         }
 
         if wasActive {
@@ -183,8 +228,12 @@ final class ObserverManager {
             )
         }
 
-        self.resetRuntime(preserveStartCancelled: preserveStartCancelled)
+        self.resetRuntime()
         self.state = .idle
+        if let failure = stopResult.failure {
+            return .refused(.error(failure))
+        }
+        return .stopped
     }
 
     func endStaleObserverActivities() async {
@@ -250,7 +299,7 @@ private extension ObserverManager {
             } else if duration - (self.silenceWindowStart ?? duration) >= 3 {
                 managerLog.info("observer: silence-stop")
                 Task { @MainActor [weak self] in
-                    await self?.stopSession()
+                    _ = await self?.stopSession()
                 }
             }
         } else {
@@ -271,12 +320,12 @@ private extension ObserverManager {
                 self.rearmWatchdog()
             } catch {
                 managerLog.error("observer: engine restart failed")
-                await self.stopSession()
+                _ = await self.stopSession()
                 self.state = .error(.audioSessionConflict)
             }
         case .mediaServicesReset:
             managerLog.error("observer: media services reset")
-            await self.stopSession()
+            _ = await self.stopSession()
             self.state = .error(.audioSessionConflict)
         }
     }
@@ -310,11 +359,11 @@ private extension ObserverManager {
                     self.startWatchdogTask()
                 } catch {
                     managerLog.error("observer: resume after interruption failed")
-                    await self.stopSession()
+                    _ = await self.stopSession()
                     self.state = .error(.audioSessionConflict)
                 }
             } else {
-                await self.stopSession()
+                _ = await self.stopSession()
                 self.state = .error(.audioSessionConflict)
             }
         }
@@ -331,7 +380,7 @@ private extension ObserverManager {
             }
             guard !Task.isCancelled, self.interruptionStartedAt != nil else { return }
             managerLog.error("observer: interruption end never delivered")
-            await self.stopSession()
+            _ = await self.stopSession()
             self.state = .error(.audioSessionConflict)
         }
     }
@@ -368,7 +417,7 @@ private extension ObserverManager {
         self.watchdogStrikes += 1
         if self.watchdogStrikes >= observerWatchdogStrikeLimit {
             managerLog.error("observer: tap-write stall — stopping")
-            await self.stopSession()
+            _ = await self.stopSession()
             self.state = .error(.audioSessionConflict)
             return true
         }
@@ -389,7 +438,7 @@ private extension ObserverManager {
         self.interruptionDeadlineTask = nil
     }
 
-    func resetRuntime(preserveStartCancelled: Bool = false) {
+    func resetRuntime() {
         self.cancelTasks()
         self.interruptionStartedAt = nil
         self.currentSessionID = nil
@@ -397,12 +446,32 @@ private extension ObserverManager {
         self.sessionStartedAt = nil
         self.currentChunkIndex = 0
         self.silenceWindowStart = nil
-        self.startCancelled = preserveStartCancelled
         self.lastLiveActivitySecond = nil
         self.configChangedDuringPause = false
         self.tapProgressCount = 0
         self.watchdogAnchorCount = 0
         self.watchdogStrikes = 0
+    }
+
+    func isCurrentStart(_ generation: Int) -> Bool {
+        generation == self.startGeneration
+    }
+
+    func stopRecorder() async -> (finalized: ObserverRecordedChunk?, failure: ObserverError?) {
+        do {
+            return (try await self.recorder.stop(), nil)
+        } catch let observerError as ObserverError {
+            return (nil, observerError)
+        } catch {
+            return (nil, Self.observerError(from: error))
+        }
+    }
+
+    nonisolated static func observerError(from error: Error) -> ObserverError {
+        if let observerError = error as? ObserverError {
+            return observerError
+        }
+        return .unavailable(reason: String(describing: error))
     }
 }
 

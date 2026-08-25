@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import AppIntents
 import UIKit
 import UserNotifications
 import os
+
+#if DEBUG
+nonisolated private let appIntentProbeLog = Logger(subsystem: "app.solstone.swift", category: "app-intents")
+#endif
 
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -24,6 +29,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         Task { @MainActor [weak self] in
             guard let self else { return }
+#if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--integration-test-observer-dependency") {
+                do {
+                    try await ObserverManagerDependencyProbeIntent()(donate: false)
+                } catch {
+                    appIntentProbeLog.error("integration observer dependency resolve failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+#endif
             let center = UNUserNotificationCenter.current()
             center.delegate = self.tapRouter
             await self.pushManager.refreshPermissionState()
@@ -104,6 +118,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 #if DEBUG
+private struct ObserverManagerDependencyProbeIntent: AppIntent {
+    static var title: LocalizedStringResource { "observer dependency probe" }
+
+    @Dependency private var observerManager: ObserverManager
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let observerManager = self.observerManager
+        await MainActor.run {
+            _ = ObjectIdentifier(observerManager)
+        }
+        appIntentProbeLog.info("integration observer dependency resolve succeeded")
+        return .result(value: "resolved")
+    }
+}
+
 private extension AppDelegate {
     nonisolated static func integrationTestToken() -> Data {
         var value = UInt64(Date().timeIntervalSince1970 * 1_000).bigEndian

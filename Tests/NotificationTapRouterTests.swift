@@ -19,6 +19,18 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
     }
 
     @MainActor
+    func testSourcesCategoryRoutesToSources() {
+        let route = NotificationTapRouter.route(
+            categoryId: NotificationTapRouter.sourcesCategoryIdentifier,
+            userInfo: [:]
+        )
+
+        XCTAssertEqual(route, .sources)
+        XCTAssertEqual(route.logLabel, "sources")
+        XCTAssertNotEqual(route.logLabel, "today")
+    }
+
+    @MainActor
     func testRetiredChatTokensRouteToToday() {
         XCTAssertEqual(
             NotificationTapRouter.route(categoryId: "SOLSTONE_SOL_CHAT_REQUEST", userInfo: [:]),
@@ -38,6 +50,25 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
             router.debugSynthesizeTap(token)
             XCTAssertEqual(captured, .today, token)
         }
+#endif
+    }
+
+    @MainActor
+    func testDebugSynthesizeTapRoutesSourcesAndBriefing() {
+#if DEBUG
+        var sourcesRoute: NotificationRoute?
+        let sourcesRouter = NotificationTapRouter { route in
+            sourcesRoute = route
+        }
+        sourcesRouter.debugSynthesizeTap("sources")
+        XCTAssertEqual(sourcesRoute, .sources)
+
+        var briefingRoute: NotificationRoute?
+        let briefingRouter = NotificationTapRouter { route in
+            briefingRoute = route
+        }
+        briefingRouter.debugSynthesizeTap("briefing")
+        XCTAssertEqual(briefingRoute, .today)
 #endif
     }
 }

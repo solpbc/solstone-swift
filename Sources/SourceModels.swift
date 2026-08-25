@@ -4,7 +4,7 @@
 import Foundation
 import Observation
 
-nonisolated enum SourceKind: Equatable, Sendable {
+nonisolated enum SourceKind: Codable, Equatable, Hashable, Sendable {
     case observer
     case location
     case omi

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import AppIntents
 import UIKit
 import Security
 import SwiftUI
@@ -11,6 +12,7 @@ import os
 struct SolstoneSwiftApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appConfig: AppConfig
+    @State private var appGroupMirror: AppGroupMirror
     @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
     @State private var connectionSyncModel: ConnectionSyncModel
@@ -236,7 +238,8 @@ struct SolstoneSwiftApp: App {
         }
 #endif
         let log = DiagnosticLog()
-        let appConfig = AppConfig()
+        let appGroupMirror = AppGroupMirror()
+        let appConfig = AppConfig(appGroupMirror: appGroupMirror)
         let observerClock = SystemObserverClock()
         let healthSession = URLSession(configuration: .default)
         let onboardingFlow = OnboardingFlow()
@@ -532,6 +535,8 @@ struct SolstoneSwiftApp: App {
             mobileSegmentEngine: mobileSegmentEngine,
             clock: observerClock
         )
+        AppDependencyManager.shared.add(dependency: observerManager)
+        ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
         let omiSource = makeOmiSourceManager(clock: observerClock)
         let launchCaptureCommitCoordinator = OmiLaunchCaptureCommitCoordinator(
@@ -679,6 +684,7 @@ struct SolstoneSwiftApp: App {
         }
 #endif
         self._appConfig = State(initialValue: appConfig)
+        self._appGroupMirror = State(initialValue: appGroupMirror)
         self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
         self._problemReportsManager = State(initialValue: problemReports)
@@ -749,6 +755,7 @@ struct SolstoneSwiftApp: App {
         WindowGroup {
             ContentView()
                 .environment(self.appConfig)
+                .environment(self.appGroupMirror)
                 .environment(self.onboardingFlow)
                 .environment(self.shellNav)
                 .environment(self.tunnelManager)
@@ -794,7 +801,7 @@ struct SolstoneSwiftApp: App {
                     guard command == .stopRequested else { return }
                     self.pendingObserverCommand.command = nil
                     Task {
-                        await self.observerManager.stopSession()
+                        _ = await self.observerManager.stopSession()
                     }
                 }
                 .task {
@@ -984,7 +991,7 @@ struct SolstoneSwiftApp: App {
                     self.integrationObserverStartTask = Task {
                         try? await Task.sleep(for: .seconds(1))
                         guard !Task.isCancelled else { return }
-                        await self.observerManager.startSession(mode: .meeting)
+                        _ = await self.observerManager.startSession(mode: .meeting)
                     }
                 }
             case .connecting, .waitingForHome, .disconnected, .error:
@@ -1015,7 +1022,7 @@ struct SolstoneSwiftApp: App {
                 self.integrationObserverStopTask = Task {
                     try? await Task.sleep(for: .seconds(3))
                     guard !Task.isCancelled else { return }
-                    await self.observerManager.stopSession()
+                    _ = await self.observerManager.stopSession()
                 }
             case .idle, .starting, .stopping, .error:
                 break

@@ -38,21 +38,19 @@ private final class PairingState: @unchecked Sendable {
 
 nonisolated final class AppConfigTests: XCTestCase {
     private var pairingState: PairingState!
-    private var suiteName: String!
-    private var defaults: UserDefaults!
+    private var appGroupRoot: URL!
 
     override func setUp() {
         super.setUp()
         self.pairingState = PairingState()
-        self.suiteName = "AppConfigTests.\(UUID().uuidString)"
-        self.defaults = UserDefaults(suiteName: self.suiteName)
-        self.defaults.removePersistentDomain(forName: self.suiteName)
+        self.appGroupRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppConfigTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: self.appGroupRoot, withIntermediateDirectories: true)
     }
 
     override func tearDown() {
-        self.defaults.removePersistentDomain(forName: self.suiteName)
-        self.defaults = nil
-        self.suiteName = nil
+        try? FileManager.default.removeItem(at: self.appGroupRoot)
+        self.appGroupRoot = nil
         self.pairingState = nil
         super.tearDown()
     }
@@ -70,7 +68,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(config.deviceID, "instance-123")
         XCTAssertEqual(self.pairingState.load(), pairing)
         XCTAssertEqual(
-            AppGroupMirror(defaults: self.defaults).pairingSnapshot(),
+            self.mirror().snapshot()?.pairing,
             AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
         )
     }
@@ -87,7 +85,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(config.port, 22)
         XCTAssertTrue(self.pairingState.deleted())
         XCTAssertEqual(
-            AppGroupMirror(defaults: self.defaults).pairingSnapshot(),
+            self.mirror().snapshot()?.pairing,
             AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false)
         )
     }
@@ -104,19 +102,21 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(self.pairingState.load()?.relayEndpoint, "wss://127.0.0.1:8676")
         XCTAssertNil(config.currentSessionKey())
         XCTAssertEqual(
-            AppGroupMirror(defaults: self.defaults).pairingSnapshot(),
+            self.mirror().snapshot()?.pairing,
             AppGroupMirror.PairingSnapshot(journalName: "ui-test-solstone", isPaired: true)
         )
     }
 
     @MainActor
     func testInitWithNoPairingClearsStaleMirror() {
-        let mirror = AppGroupMirror(defaults: self.defaults)
-        mirror.writePairing(journalName: "stale")
+        let mirror = self.mirror()
+        if case .failure(let error) = mirror.writePairing(journalName: "stale") {
+            XCTFail("unexpected mirror write failure: \(error)")
+        }
 
         _ = self.makeConfig()
 
-        XCTAssertEqual(mirror.pairingSnapshot(), AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false))
+        XCTAssertEqual(mirror.snapshot()?.pairing, AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false))
     }
 
     @MainActor private func makeConfig() -> AppConfig {
@@ -125,8 +125,13 @@ nonisolated final class AppConfigTests: XCTestCase {
             loadPairing: { pairingState.load() },
             savePairing: { pairingState.save($0) },
             deletePairing: { pairingState.delete() },
-            appGroupMirror: AppGroupMirror(defaults: self.defaults)
+            appGroupMirror: self.mirror()
         )
+    }
+
+    @MainActor private func mirror() -> AppGroupMirror {
+        let rootURL = self.appGroupRoot!
+        return AppGroupMirror(rootURLProvider: { rootURL })
     }
 
     private static func fixturePairing() -> StoredPairing {

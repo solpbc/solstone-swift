@@ -3,7 +3,7 @@
 
 import Foundation
 
-nonisolated enum SourceState: Equatable, Sendable {
+nonisolated enum SourceState: Codable, Equatable, Sendable {
     case off
     case enrolling
     case readyToSetUp
@@ -637,7 +637,7 @@ nonisolated enum SourceVocabulary {
     }
 }
 
-#if !os(watchOS)
+#if !os(watchOS) && !SOLSTONE_LIVE_ACTIVITY_WIDGET
 extension SourceVocabulary {
     nonisolated static func onThisPhoneDropConfirmMessage(sendState: OnThisPhoneSendState) -> String {
         switch sendState {

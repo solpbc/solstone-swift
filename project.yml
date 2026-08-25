@@ -231,6 +231,12 @@ targets:
       - Sources/Observer/ObserverMode.swift
       - Sources/Observer/ObserverLiveActivity.swift
       - Sources/Design/Colors.swift
+      - Sources/Services/AppGroupMirror.swift
+      - Sources/Services/AppGroupContainer.swift
+      - Sources/SourceModels.swift
+      - Sources/SourceVocabulary.swift
+      - Sources/AppIntents/ObserverWidgetConfigurationIntent.swift
+      - Sources/AppIntents/ObserverCaptureIntent.swift
     entitlements:
       path: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements
       properties:
@@ -245,6 +251,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
+        OTHER_SWIFT_FLAGS: -DSOLSTONE_LIVE_ACTIVITY_WIDGET
     info:
       path: SolstoneLiveActivityWidget/Info.plist
       properties:

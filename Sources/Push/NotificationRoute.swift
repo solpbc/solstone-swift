@@ -5,8 +5,14 @@ import Foundation
 
 enum NotificationRoute: Sendable, Equatable {
     case today
+    case sources
 
     var logLabel: String {
-        "today"
+        switch self {
+        case .today:
+            "today"
+        case .sources:
+            "sources"
+        }
     }
 }

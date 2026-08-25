@@ -104,6 +104,7 @@ ShareImportSaveBody.swift|Content-Disposition
 ChunkSidecar.swift|"HHmmss"
 WatchCaptureStorage.swift|"WatchCapture"
 WatchComplicationSnapshot.swift|SolstoneWatchStatus
+AppGroupMirror.swift|SolstoneObserverStatus
 WatchCaptureStorage.swift|"HHmmss"
 ShareImportCoordinator.swift|SolstoneShareImport
 

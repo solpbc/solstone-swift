@@ -72,6 +72,12 @@ nonisolated struct DeckLayout: Equatable, Sendable {
     let columnCount: Int
 }
 
+private struct AppGroupSnapshotInputs: Equatable {
+    let observerState: ObserverState
+    let bundle: HomeSourceBundle
+    let backlogCount: Int
+}
+
 /// `.body` point sizes over the default, matching what
 /// `@ScaledMetric(relativeTo: .body)` computes, but callable from a test at a
 /// named `DynamicTypeSize`.
@@ -143,6 +149,7 @@ struct DayHomeView: View {
     let sourcesBadgeVisible: Bool
 
     @Environment(AppConfig.self) private var appConfig
+    @Environment(AppGroupMirror.self) private var appGroupMirror
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
@@ -193,6 +200,13 @@ struct DayHomeView: View {
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
+        .task(id: self.appGroupSnapshotInputs) {
+            _ = self.appGroupMirror.updateSessionAndSources(
+                session: self.appGroupSessionState,
+                sourceStates: self.appGroupSourceStates,
+                backlogCount: self.backlogCount
+            )
+        }
     }
 }
 
@@ -208,6 +222,31 @@ private extension DayHomeView {
             omiSourceManager: self.omiSourceManager,
             watchLane: self.watchPipelineInputs.assembly(now: self.now).lane
         )
+    }
+
+    var appGroupSnapshotInputs: AppGroupSnapshotInputs {
+        AppGroupSnapshotInputs(
+            observerState: self.observerManager.state,
+            bundle: self.bundle,
+            backlogCount: self.backlogCount
+        )
+    }
+
+    var appGroupSessionState: AppGroupMirror.SessionState {
+        guard case .active(let session) = self.observerManager.state else {
+            return .notLive
+        }
+        return .live(mode: session.mode, startedAt: session.startedAt)
+    }
+
+    var appGroupSourceStates: [SourceKind: SourceState] {
+        let sources = [
+            self.bundle.audio,
+            self.bundle.location,
+            self.bundle.screencast,
+            self.bundle.omi,
+        ] + (self.bundle.watch.map { [$0] } ?? [])
+        return Dictionary(uniqueKeysWithValues: sources.map { ($0.kind, $0.state) })
     }
 
     var layout: DeckLayout {
@@ -295,10 +334,10 @@ private extension DayHomeView {
                     if isOn {
                         self.observerSourcePauseState.isPaused = false
                         let mode = ObserverMode(rawValue: self.preferredMode) ?? .meeting
-                        await self.observerManager.startSession(mode: mode)
+                        _ = await self.observerManager.startSession(mode: mode)
                         self.observerManager.persistEnrolledIfActive()
                     } else {
-                        await self.observerManager.stopSession()
+                        _ = await self.observerManager.stopSession()
                     }
                 }
             }

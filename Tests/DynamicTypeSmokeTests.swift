@@ -128,6 +128,11 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             mirror: transferHarness.mirror,
             store: shareImportStore
         )
+        let appGroupMirrorRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-AppGroup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appGroupMirrorRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appGroupMirrorRoot) }
+        let appGroupMirror = AppGroupMirror(rootURLProvider: { appGroupMirrorRoot })
         let finishSyncingCoordinator = FinishSyncingCoordinator(
             totals: { (0, 0) },
             inFlight: { 0 },
@@ -196,6 +201,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 sourcesBadgeVisible: false
             )
             .environment(appConfig)
+            .environment(appGroupMirror)
             .environment(observerManager)
             .environment(ObserverSourcePauseState())
             .environment(locationManager)

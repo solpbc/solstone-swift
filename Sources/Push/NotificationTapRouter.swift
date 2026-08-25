@@ -8,6 +8,8 @@ import os
 nonisolated private let log = Logger(subsystem: "app.solstone.swift", category: "router")
 
 final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    nonisolated static let sourcesCategoryIdentifier = "SOLSTONE_SOURCES"
+
     nonisolated struct TapPayload {
         let categoryIdentifier: String
         let userInfo: [AnyHashable: Any]
@@ -70,13 +72,19 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
             log.info("resolving tap category=\(categoryId, privacy: .public)")
         }
 
-        return .today
+        switch categoryId {
+        case Self.sourcesCategoryIdentifier:
+            return .sources
+        default:
+            return .today
+        }
     }
 
 #if DEBUG
     @MainActor
-    func debugSynthesizeTap(_: String) {
-        let route = NotificationRoute.today
+    func debugSynthesizeTap(_ kind: String) {
+        let categoryId = kind == "sources" ? Self.sourcesCategoryIdentifier : kind
+        let route = Self.route(categoryId: categoryId, userInfo: [:])
         log.info("routed to \(route.logLabel, privacy: .public)")
         self.onRoute(route)
     }

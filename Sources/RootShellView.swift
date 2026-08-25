@@ -433,10 +433,16 @@ struct RootShellView: View {
         }
     }
 
-    private func apply(_: NotificationRoute) {
+    private func apply(_ route: NotificationRoute) {
         self.showingSources = false
         self.showingJournalLives = false
         self.presentedPane = nil
+        switch route {
+        case .today:
+            break
+        case .sources:
+            self.showingSources = true
+        }
         self.pendingRoute.route = nil
     }
 }

@@ -53,8 +53,9 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
     @MainActor
     func testStartSessionTransitionsToActive() async {
-        await self.manager.startSession(mode: .meeting)
+        let outcome = await self.manager.startSession(mode: .meeting)
 
+        XCTAssertEqual(outcome, .started)
         guard case .active(let session) = self.manager.state else {
             return XCTFail("Expected active state")
         }
@@ -129,8 +130,9 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         await self.manager.startSession(mode: .meeting)
         self.recorder.stopError = ObserverManagerTestError.stopFailed
 
-        await self.manager.stopSession()
+        let outcome = await self.manager.stopSession()
 
+        XCTAssertEqual(outcome, .refused(.error(.unavailable(reason: "stopFailed"))))
         XCTAssertEqual(self.manager.state, .idle)
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
         XCTAssertEqual(self.mobileSegmentUploader.pendingCount, 0)
@@ -140,8 +142,9 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     func testPermissionDeniedTransitionsToError() async {
         self.recorder.permissionGranted = false
 
-        await self.manager.startSession(mode: .meeting)
+        let outcome = await self.manager.startSession(mode: .meeting)
 
+        XCTAssertEqual(outcome, .refused(.error(.permissionDenied)))
         XCTAssertEqual(self.manager.state, .error(.permissionDenied))
     }
 
@@ -478,9 +481,11 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         }
 
         try? await Task.sleep(for: .milliseconds(20))
-        await self.manager.stopSession()
-        await task.value
+        let stopOutcome = await self.manager.stopSession()
+        let startOutcome = await task.value
 
+        XCTAssertEqual(stopOutcome, .stopped)
+        XCTAssertEqual(startOutcome, .refused(.cancelled))
         XCTAssertEqual(self.manager.state, .idle)
         XCTAssertTrue(self.liveActivity.endCalls.isEmpty)
         XCTAssertEqual(self.liveActivity.endAllCallCount, 0)
@@ -496,8 +501,9 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
     @MainActor
     func testStopSessionWhileIdleEndsStaleObserverActivities() async {
-        await self.manager.stopSession()
+        let outcome = await self.manager.stopSession()
 
+        XCTAssertEqual(outcome, .alreadyStopped)
         XCTAssertEqual(self.liveActivity.endAllCallCount, 1)
         XCTAssertTrue(self.liveActivity.endCalls.isEmpty)
     }
@@ -563,10 +569,43 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
     @MainActor
     func testStartSessionIsIdempotentWhenAlreadyActive() async {
-        await self.manager.startSession(mode: .meeting)
-        await self.manager.startSession(mode: .meeting)
+        let firstOutcome = await self.manager.startSession(mode: .meeting)
+        let secondOutcome = await self.manager.startSession(mode: .meeting)
 
+        XCTAssertEqual(firstOutcome, .started)
+        XCTAssertEqual(secondOutcome, .alreadyRunning)
         XCTAssertEqual(self.recorder.startCallCount, 1)
+    }
+
+    @MainActor
+    func testStartingAttemptSupersededByStopAndNewStartDoesNotActivateTwice() async {
+        self.recorder.permissionDelay = .seconds(1)
+        let firstStart = Task { @MainActor [manager = self.manager] in
+            await manager.startSession(mode: .meeting)
+        }
+
+        for _ in 0..<100 {
+            if case .starting = self.manager.state {
+                break
+            }
+            await Task.yield()
+        }
+        guard case .starting = self.manager.state else {
+            return XCTFail("Expected first start to wait for permission")
+        }
+
+        let stopOutcome = await self.manager.stopSession()
+        self.recorder.permissionDelay = nil
+        let secondStartOutcome = await self.manager.startSession(mode: .meeting)
+        let firstStartOutcome = await firstStart.value
+
+        XCTAssertEqual(stopOutcome, .stopped)
+        XCTAssertEqual(secondStartOutcome, .started)
+        XCTAssertEqual(firstStartOutcome, .refused(.cancelled))
+        XCTAssertEqual(self.recorder.startCallCount, 1)
+        XCTAssertEqual(self.liveActivity.startCalls.count, 1, "Each active state transition starts the live activity")
+
+        _ = await self.manager.stopSession()
     }
 }
 

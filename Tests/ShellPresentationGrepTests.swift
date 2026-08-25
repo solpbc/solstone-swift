@@ -84,11 +84,13 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(text.contains(".onChange(of: self.pendingRoute.route)"))
         let apply = try Self.slice(
             in: text,
-            from: "private func apply(_: NotificationRoute) {",
+            from: "private func apply(_ route: NotificationRoute) {",
             to: "\n}\n\nprivate extension SourceState"
         )
         XCTAssertTrue(apply.contains("self.pendingRoute.route = nil"))
         XCTAssertTrue(apply.contains("self.presentedPane = nil"))
+        XCTAssertTrue(apply.contains("case .sources:"))
+        XCTAssertTrue(apply.contains("self.showingSources = true"))
         XCTAssertFalse(apply.contains("self.showingYourSolstone"))
     }
 
