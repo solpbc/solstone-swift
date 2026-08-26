@@ -8,14 +8,6 @@ nonisolated enum ObserverServerURL {
     static let ingestProtocolVersion = "3"
     static let filesFieldName = "files"
 
-    static func registrationURL(localPort: Int) -> URL? {
-        self.url(localPort: localPort, path: "/app/devices/register")
-    }
-
-    static func healthURL(localPort: Int) -> URL? {
-        self.url(localPort: localPort, path: "/app/devices/health")
-    }
-
     static func manifestURL(localPort: Int, source: String) -> URL? {
         self.url(
             localPort: localPort,

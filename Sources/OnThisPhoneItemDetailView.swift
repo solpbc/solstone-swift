@@ -6,7 +6,7 @@ import SwiftUI
 struct OnThisPhoneItemDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(ObserverRegistration.self) private var observerRegistration
+    @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverManager.self) private var observerManager
 
     let item: OnThisPhoneItem
@@ -122,7 +122,7 @@ private extension OnThisPhoneItemDetailView {
     }
 
     var journalBlock: some View {
-        let conveyURL = ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
+        let conveyURL = ConveyURL.rootURL(activeLocalPort: self.tunnelManager.activeConnection?.port)
         let availability = OnThisPhoneItemDetailPresentation.journalAvailability(
             sendState: self.item.sendState,
             hasConveyURL: conveyURL != nil,

@@ -13,7 +13,7 @@ private struct MobileSegmentFacetTransferCounts: Equatable, Sendable {
 
 @MainActor
 @Observable
-final class MobileSegmentTransferHolder: ObserverQueueHealthProviding {
+final class MobileSegmentTransferHolder {
     let transferEngine: TransferEngine
     private let mirror: TransferStatusMirror
     private let uploader: MobileSegmentUploader

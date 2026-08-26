@@ -156,6 +156,38 @@ nonisolated struct LinkedDeviceIngestClient: Sendable {
         return .success(response)
     }
 
+    func deleteSource(
+        localPort: Int,
+        source: String
+    ) async -> Result<DeleteSourceReceipt?, LinkedDeviceIngestClientError> {
+        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, source: source) else {
+            return .failure(.invalidURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 10
+
+        do {
+            let (data, response) = try await self.session.data(for: request)
+            guard let response = response as? HTTPURLResponse else {
+                return .failure(.malformedResponse)
+            }
+            guard 200..<300 ~= response.statusCode else {
+                return .failure(.httpStatus(response.statusCode))
+            }
+            guard !data.isEmpty,
+                  let receipt = try? JSONDecoder().decode(DeleteSourceReceipt.self, from: data)
+            else {
+                return .success(nil)
+            }
+            return .success(receipt)
+        } catch {
+            ingestReadLog.debug("ingest delete failed: \(String(describing: error), privacy: .public)")
+            return .failure(.malformedResponse)
+        }
+    }
+
     private func fetch<Response: Decodable>(url: URL) async -> Result<Response, LinkedDeviceIngestClientError> {
         var request = URLRequest(url: url)
         request.setValue(

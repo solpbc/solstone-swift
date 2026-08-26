@@ -4,7 +4,6 @@
 
 import argparse
 import json
-import os
 import re
 import signal
 import sys
@@ -13,14 +12,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STOP = threading.Event()
 SERVER = None
-EXPECTED_OBSERVER_KEY = "test-observer-key-abc"
 
 
 class Handler(BaseHTTPRequestHandler):
     lock = threading.Lock()
     count_file = None
-    should_fail_create = False
-    create_count = 0
     uploads = []
 
     def log_message(self, format, *args):
@@ -35,12 +31,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_json(self, status, payload):
         self._send_bytes(status, json.dumps(payload).encode(), "application/json")
-
-    def _require_observer_auth(self):
-        if self.headers.get("Authorization") == f"Bearer {EXPECTED_OBSERVER_KEY}":
-            return True
-        self._send_json(401, {"error": "unauthorized"})
-        return False
 
     def _read_bytes(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -57,7 +47,6 @@ class Handler(BaseHTTPRequestHandler):
     @classmethod
     def _state_payload(cls):
         return {
-            "create_count": cls.create_count,
             "upload_count": len(cls.uploads),
             "uploads": cls.uploads,
         }
@@ -123,32 +112,6 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path == "/app/devices/register":
-            if Handler.should_fail_create:
-                self._send_json(500, {"error": "create failed"})
-                return
-            with Handler.lock:
-                Handler.create_count += 1
-                Handler._write_state_file()
-                count = Handler.create_count
-            print(f"OBSERVER_CREATE:{count}", flush=True)
-            self._send_json(200, {"name": "solstone-swift", "key": EXPECTED_OBSERVER_KEY, "prefix": "obs_"})
-            return
-
-        if self.path == "/app/observer/ingest/event":
-            if not self._require_observer_auth():
-                return
-            self._read_bytes()
-            self._send_json(200, {"ok": True})
-            return
-
-        if self.path == "/app/devices/health":
-            if not self._require_observer_auth():
-                return
-            self._read_bytes()
-            self._send_json(200, {"ok": True})
-            return
-
         if self.path == "/app/devices/ingest":
             if not self._require_ingest_protocol():
                 return
@@ -192,8 +155,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         if self.path.startswith("/app/devices/source/"):
-            if not self._require_observer_auth():
-                return
             source = self.path.removeprefix("/app/devices/source/")
             self._send_json(200, {"ok": True, "source": source})
             return
@@ -215,7 +176,6 @@ def main():
     args = parser.parse_args()
 
     Handler.count_file = args.count_file
-    Handler.should_fail_create = os.environ.get("MOCK_OBSERVER_SHOULD_FAIL_CREATE") == "1"
     if Handler.count_file is not None:
         Handler._write_state_file()
 

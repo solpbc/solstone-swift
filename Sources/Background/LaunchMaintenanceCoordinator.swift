@@ -9,7 +9,6 @@ private let launchMaintenanceLog = Logger(subsystem: "app.solstone.swift", categ
 @MainActor
 final class LaunchMaintenanceCoordinator {
     struct Operations {
-        var migrateIngestKeyAccessibility: @MainActor () -> Void
         var startScreencastObserving: @MainActor () -> Void
         var reconcileScreencast: @MainActor (ScreencastReconcileReason) async -> Void
         var resumeImportQueue: @MainActor () async throws -> Void
@@ -68,9 +67,6 @@ final class LaunchMaintenanceCoordinator {
     private func runPass() async {
         guard !Task.isCancelled else { return }
         var passSucceeded = true
-
-        self.operations.migrateIngestKeyAccessibility()
-        guard !Task.isCancelled else { return }
 
         self.operations.startScreencastObserving()
         await self.operations.reconcileScreencast(.launch)

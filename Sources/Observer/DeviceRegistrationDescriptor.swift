@@ -4,30 +4,7 @@
 import Foundation
 import UIKit
 
-nonisolated struct DeviceRegistrationDescriptor: Equatable, Sendable {
-    let hostname: String
-    let displayName: String
-    let vendorIdentifier: String
-
-    static func make(
-        deviceName: String,
-        model: String,
-        isPad: Bool,
-        identifierForVendor: UUID?
-    ) -> Self? {
-        guard let identifierForVendor else { return nil }
-        let vendorIdentifier = identifierForVendor.uuidString.lowercased()
-        return Self(
-            hostname: "\(isPad ? "ipad" : "iphone")-\(vendorIdentifier)",
-            displayName: self.displayName(
-                deviceName: deviceName,
-                model: model,
-                identifierForVendor: identifierForVendor
-            ),
-            vendorIdentifier: vendorIdentifier
-        )
-    }
-
+nonisolated enum DeviceRegistrationDescriptor {
     static func displayName(
         deviceName: String,
         model: String,
@@ -43,17 +20,6 @@ nonisolated struct DeviceRegistrationDescriptor: Equatable, Sendable {
         }
         guard let identifierForVendor else { return fallbackModel }
         return "\(fallbackModel) (\(identifierForVendor.uuidString.prefix(4).uppercased()))"
-    }
-
-    @MainActor
-    static func current() -> Self? {
-        let device = UIDevice.current
-        return self.make(
-            deviceName: device.name,
-            model: device.model,
-            isPad: device.userInterfaceIdiom == .pad,
-            identifierForVendor: device.identifierForVendor
-        )
     }
 
     @MainActor

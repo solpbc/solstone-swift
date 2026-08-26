@@ -5,16 +5,16 @@ import Foundation
 import XCTest
 
 nonisolated final class ShellPresentationGrepTests: XCTestCase {
-    func testFetchTaskUsesActiveLocalPort() throws {
+    func testFetchTaskUsesTunnelActivePort() throws {
         let text = try Self.sourceText("Sources/RootShellView.swift")
-        XCTAssertTrue(text.contains(".task(id: self.observerRegistration.activeLocalPort)"))
+        XCTAssertTrue(text.contains(".task(id: self.tunnelManager.activeConnection?.port)"))
         let body = try Self.slice(
             in: text,
             from: "private func fetchJournalMark() async {",
             to: "\n    private func applyDebugSeeds()"
         )
         XCTAssertTrue(body.contains("JournalIdentityFetcher"))
-        XCTAssertTrue(body.contains("self.observerRegistration.activeLocalPort"))
+        XCTAssertTrue(body.contains("self.tunnelManager.activeConnection?.port"))
         XCTAssertTrue(body.contains("fetch(localPort:"))
         XCTAssertFalse(body.contains("self.localPort"))
     }

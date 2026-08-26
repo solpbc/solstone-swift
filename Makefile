@@ -521,7 +521,7 @@ integration-test-observer: sim
 		done; \
 		[ "$$observer_ready" -eq 1 ] || { echo "mock observer server did not become ready"; cat "$$OBSERVER_MOCK_LOG"; exit 1; }; \
 		xcrun simctl install booted $(SIM_APP); \
-		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-reset-registration --integration-test-observer-tap=sense >"$$SENSE_APP_LOG" 2>&1 & \
+		SIMCTL_CHILD_MOCK_PORT=$(PORT) SIMCTL_CHILD_MOCK_PUSH_PORT=$(PUSH_PORT) SIMCTL_CHILD_MOCK_OBSERVER_PORT=$(OBSERVER_PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test --integration-test-observer-tap=sense >"$$SENSE_APP_LOG" 2>&1 & \
 		LAUNCH_PID=$$!; \
 		sense_started=0; \
 		for _ in 1 2 3 4 5 6 7 8 9 10; do \
@@ -557,15 +557,6 @@ integration-test-observer: sim
 		if curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"authorization"[[:space:]]*:[[:space:]]*"Bearer '; then \
 			echo "integration-test-observer failed: ingest sent authorization"; \
 			cat "$$OBSERVER_COUNT"; \
-			exit 1; \
-		fi; \
-		sleep 5; \
-		registration_count=$$(xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null | grep -c "observer registration succeeded" || true); \
-		[ "$$registration_count" -eq 0 ] || { echo "integration-test-observer failed: linked-device ingest registered $$registration_count times"; xcrun simctl spawn booted log show --info --last 120s --predicate 'subsystem == "$(LOG_SUB)" AND category == "registration"' 2>/dev/null; exit 1; }; \
-		if ! curl -s "http://127.0.0.1:$(OBSERVER_PORT)/api/observer/status" | grep -Eq '"create_count"[[:space:]]*:[[:space:]]*0'; then \
-			echo "integration-test-observer failed: linked-device ingest registered"; \
-			cat "$$OBSERVER_COUNT"; \
-			cat "$$OBSERVER_MOCK_LOG"; \
 			exit 1; \
 		fi; \
 		echo "--- subsystem log tail ---"; \

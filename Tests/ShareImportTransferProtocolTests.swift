@@ -50,7 +50,7 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
         }
         let engine = self.makeEngine(bodyBuilder: { item, spool in
             if item.manifest.saveThenStart?.phase == .savePending {
-                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "handle-1")
+                return try ShareImportSaveBody.build(item: item, spool: spool)
             }
             return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
         })
@@ -79,9 +79,9 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
     }
 
     @MainActor
-    func testSaveRetryFetchesHandlePerAttemptAndBypassesBodyCache() async throws {
+    func testSaveRetryRebuildsBodyAndBypassesBodyCache() async throws {
         let itemID = Self.uuid(32)
-        let handles = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let bodyBuilds = OSAllocatedUnfairLock<Int>(initialState: 0)
         let saveAttempts = OSAllocatedUnfairLock<Int>(initialState: 0)
         let delivered = OSAllocatedUnfairLock<Int>(initialState: 0)
         TransferURLProtocol.handler = { request, _ in
@@ -102,12 +102,8 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
             if item.manifest.saveThenStart?.phase != .savePending {
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             }
-            let handle = handles.withLock { values -> String in
-                let value = "handle-\(values.count + 1)"
-                values.append(value)
-                return value
-            }
-            return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: handle)
+            bodyBuilds.withLock { $0 += 1 }
+            return try ShareImportSaveBody.build(item: item, spool: spool)
         })
         await engine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { _, _ in
             delivered.withLock { $0 += 1 }
@@ -123,10 +119,8 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
             delivered.withLock { $0 == 1 }
         }
         XCTAssertEqual(saveAttempts.withLock { $0 }, 2)
-        XCTAssertEqual(handles.withLock { $0 }, ["handle-1", "handle-2"])
+        XCTAssertEqual(bodyBuilds.withLock { $0 }, 2)
         XCTAssertEqual(TransferURLProtocol.bodies.count, 2)
-        XCTAssertEqual(self.multipartValue(named: "observer_handle", in: TransferURLProtocol.bodies[0]), "handle-1")
-        XCTAssertEqual(self.multipartValue(named: "observer_handle", in: TransferURLProtocol.bodies[1]), "handle-2")
     }
 
     @MainActor
@@ -142,7 +136,7 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
         }
         let engine = self.makeEngine(bodyBuilder: { item, spool in
             if item.manifest.saveThenStart?.phase == .savePending {
-                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "handle-1")
+                return try ShareImportSaveBody.build(item: item, spool: spool)
             }
             return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
         })
@@ -187,7 +181,7 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
         }
         let engine = self.makeEngine(bodyBuilder: { item, spool in
             if item.manifest.saveThenStart?.phase == .savePending {
-                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "handle-1")
+                return try ShareImportSaveBody.build(item: item, spool: spool)
             }
             return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
         })

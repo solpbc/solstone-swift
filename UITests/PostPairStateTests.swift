@@ -78,7 +78,7 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertTrue(status.waitForExistence(timeout: 10))
         status.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
 
-        XCTAssertTrue(app.buttons["diagnostics.reconnectObserver"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["diagnostics.lifecycle"].waitForExistence(timeout: 5))
     }
 
     @MainActor

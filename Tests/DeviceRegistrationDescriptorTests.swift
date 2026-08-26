@@ -6,49 +6,33 @@ import Foundation
 import XCTest
 
 nonisolated final class DeviceRegistrationDescriptorTests: XCTestCase {
-    func testOwnerNameIsPresentationOnlyAndIDFVKeepsRegistrationUnique() throws {
-        let firstID = try XCTUnwrap(UUID(uuidString: "8F14E45F-EA4C-4F4C-AE91-7C3D84B7562A"))
-        let secondID = try XCTUnwrap(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+    func testOwnerNameIsTrimmedForDisplayName() throws {
+        let identifier = try XCTUnwrap(UUID(uuidString: "8F14E45F-EA4C-4F4C-AE91-7C3D84B7562A"))
 
-        let first = try XCTUnwrap(DeviceRegistrationDescriptor.make(
+        let displayName = DeviceRegistrationDescriptor.displayName(
             deviceName: "  Jeremie’s iPhone  ",
             model: "iPhone",
-            isPad: false,
-            identifierForVendor: firstID
-        ))
-        let second = try XCTUnwrap(DeviceRegistrationDescriptor.make(
-            deviceName: "Jeremie’s iPhone",
-            model: "iPhone",
-            isPad: false,
-            identifierForVendor: secondID
-        ))
+            identifierForVendor: identifier
+        )
 
-        XCTAssertEqual(first.displayName, "Jeremie’s iPhone")
-        XCTAssertEqual(second.displayName, first.displayName)
-        XCTAssertEqual(first.hostname, "iphone-8f14e45f-ea4c-4f4c-ae91-7c3d84b7562a")
-        XCTAssertEqual(second.hostname, "iphone-11111111-2222-3333-4444-555555555555")
-        XCTAssertNotEqual(first.hostname, second.hostname)
+        XCTAssertEqual(displayName, "Jeremie’s iPhone")
     }
 
-    func testGenericNamesUseShortFallbackAndPadHostname() throws {
+    func testGenericNamesUseShortDisplayFallback() throws {
         let identifier = try XCTUnwrap(UUID(uuidString: "8F14E45F-EA4C-4F4C-AE91-7C3D84B7562A"))
-        let phone = try XCTUnwrap(DeviceRegistrationDescriptor.make(
+        let phone = DeviceRegistrationDescriptor.displayName(
             deviceName: "iPhone",
             model: "iPhone",
-            isPad: false,
             identifierForVendor: identifier
-        ))
-        let pad = try XCTUnwrap(DeviceRegistrationDescriptor.make(
+        )
+        let pad = DeviceRegistrationDescriptor.displayName(
             deviceName: "ipad",
             model: "iPad",
-            isPad: true,
             identifierForVendor: identifier
-        ))
+        )
 
-        XCTAssertEqual(phone.displayName, "iPhone (8F14)")
-        XCTAssertEqual(phone.hostname, "iphone-8f14e45f-ea4c-4f4c-ae91-7c3d84b7562a")
-        XCTAssertEqual(pad.displayName, "iPad (8F14)")
-        XCTAssertEqual(pad.hostname, "ipad-8f14e45f-ea4c-4f4c-ae91-7c3d84b7562a")
+        XCTAssertEqual(phone, "iPhone (8F14)")
+        XCTAssertEqual(pad, "iPad (8F14)")
         XCTAssertEqual(
             DeviceRegistrationDescriptor.displayName(
                 deviceName: "",

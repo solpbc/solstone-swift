@@ -96,7 +96,6 @@ struct PairFlowView: View {
     }
 
     @Environment(AppConfig.self) private var appConfig
-    @Environment(PairingCredentialRecoveryCoordinator.self) private var pairingCredentialRecovery
     @Environment(PairingHandoffState.self) private var handoff
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.scenePhase) private var scenePhase
@@ -388,7 +387,6 @@ struct PairFlowView: View {
 
     private func completeOnce() {
         self.completionGate.completeOnce {
-            self.pairingCredentialRecovery.confirmedPairingCompleted()
             self.onComplete()
         }
     }

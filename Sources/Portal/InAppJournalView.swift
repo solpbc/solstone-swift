@@ -7,7 +7,7 @@ import WebKit
 struct InAppJournalView: View {
     var mark: JournalMark? = nil
     var presentation: ShellPanePresentation = .phoneModal
-    @Environment(ObserverRegistration.self) private var observerRegistration
+    @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var loadState: JournalWebPresentation.LoadState = .loading
@@ -15,7 +15,7 @@ struct InAppJournalView: View {
     @State private var controller: JournalWebPageController?
 
     private var resolvedURL: URL? {
-        JournalWebPresentation.resolvedURL(activeLocalPort: self.observerRegistration.activeLocalPort)
+        JournalWebPresentation.resolvedURL(activeLocalPort: self.tunnelManager.activeConnection?.port)
     }
 
     private var headingString: String {
@@ -59,7 +59,7 @@ struct InAppJournalView: View {
             }
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
-        .onChange(of: self.observerRegistration.activeLocalPort) { _, newPort in
+        .onChange(of: self.tunnelManager.activeConnection?.port) { _, newPort in
             if newPort == nil {
                 self.loadState = JournalWebPresentation.connectionLostState
             }

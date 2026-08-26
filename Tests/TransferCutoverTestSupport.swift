@@ -261,37 +261,3 @@ extension XCTestCase {
         return try XCTUnwrap(object as? [String: Any])
     }
 }
-
-@MainActor
-func makeTransferTestRegistration(
-    streamType: String,
-    version: String,
-    key: String,
-    prefix: String,
-    localPort: Int = 7071
-) -> ObserverRegistration {
-    let keyBox = OSAllocatedUnfairLock<String?>(initialState: key)
-    let prefixBox = OSAllocatedUnfairLock<String?>(initialState: prefix)
-    let registration = ObserverRegistration(
-        resolveDescriptor: {
-            DeviceRegistrationDescriptor(
-                hostname: "test-device",
-                displayName: "test device",
-                vendorIdentifier: "test-idfv"
-            )
-        },
-        version: version,
-        streamType: streamType,
-        session: URLSession(configuration: .ephemeral),
-        retryDelays: [0],
-        sleep: { _ in },
-        loadKey: { keyBox.withLock { $0 } },
-        saveKey: { value in keyBox.withLock { $0 = value } },
-        deleteKey: { keyBox.withLock { $0 = nil } },
-        loadPrefix: { prefixBox.withLock { $0 } },
-        savePrefix: { value in prefixBox.withLock { $0 = value } },
-        deletePrefix: { prefixBox.withLock { $0 = nil } }
-    )
-    registration.activeLocalPort = localPort
-    return registration
-}

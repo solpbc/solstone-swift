@@ -387,7 +387,7 @@ extension TransferCutoverDispatchTests {
     static var shareBodyBuilder: TransferBodyBuilder {
         { item, spool in
             if item.manifest.saveThenStart?.phase == .savePending {
-                return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "observer-handle")
+                return try ShareImportSaveBody.build(item: item, spool: spool)
             }
             return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
         }

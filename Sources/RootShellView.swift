@@ -11,7 +11,6 @@ struct RootShellView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverManager.self) private var observerManager
-    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
@@ -82,7 +81,7 @@ struct RootShellView: View {
 
     var body: some View {
         self.shellWithSheets
-        .task(id: self.observerRegistration.activeLocalPort) {
+        .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
         .onAppear {
@@ -389,7 +388,7 @@ struct RootShellView: View {
             return
         }
 #endif
-        guard let port = self.observerRegistration.activeLocalPort else {
+        guard let port = self.tunnelManager.activeConnection?.port else {
             self.journalMark = nil
             return
         }

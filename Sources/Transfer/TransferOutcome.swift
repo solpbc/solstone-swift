@@ -4,16 +4,7 @@
 import Foundation
 
 nonisolated enum TransferReasonCodes {
-    static let authKeyInvalid = "auth_key_invalid"
     static let invalidOperationForState = "invalid_operation_for_state"
-}
-
-nonisolated struct TransferAuthenticationErrorResponse: Decodable, Equatable, Sendable {
-    let reasonCode: String?
-
-    enum CodingKeys: String, CodingKey {
-        case reasonCode = "reason_code"
-    }
 }
 
 nonisolated enum TransferEndpointPhase: Equatable, Sendable {

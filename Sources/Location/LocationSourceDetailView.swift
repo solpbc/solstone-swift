@@ -9,7 +9,7 @@ struct LocationSourceDetailView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(ObserverRegistration.self) private var observerRegistration
+    @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
     @State private var showingDeleteConfirm = false
@@ -38,7 +38,7 @@ struct LocationSourceDetailView: View {
         }
         .navigationTitle(LocationVocabulary.sourceDisplayName)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: self.observerRegistration.activeLocalPort) {
+        .task(id: self.tunnelManager.activeConnection?.port) {
             await self.loadRecent()
         }
         .alert(LocationVocabulary.deleteConfirmButton, isPresented: self.$showingDeleteConfirm) {
@@ -281,7 +281,7 @@ private extension LocationSourceDetailView {
     }
 
     var journalURL: URL? {
-        ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
+        ConveyURL.rootURL(activeLocalPort: self.tunnelManager.activeConnection?.port)
     }
 
     var pauseResumeLabel: String {
@@ -333,41 +333,17 @@ private extension LocationSourceDetailView {
     }
 
     func deleteLocationSource() async -> DeleteShareSourceResult {
-        let handle: String
-        do {
-            handle = try await self.observerRegistration.ensureRegistered()
-        } catch {
-            return .unreachable(reason: String(describing: error))
-        }
-
-        guard let localPort = self.observerRegistration.activeLocalPort else {
+        guard let localPort = self.tunnelManager.activeConnection?.port else {
             return .unreachable(reason: "location source delete unavailable: missing local port")
         }
-        guard let url = ObserverServerURL.deleteSourceURL(localPort: localPort, source: "location") else {
-            return .unreachable(reason: "location source delete unavailable: invalid url")
-        }
-
-        var request = ObserverAuthorizedRequest.make(url: url, handle: handle, method: "DELETE")
-        request.timeoutInterval = 10
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
+        switch await LinkedDeviceIngestClient().deleteSource(localPort: localPort, source: "location") {
+        case .success(let receipt?):
+            return .confirmed(receipt: receipt, localNotRemoved: [])
+        case .success(nil):
+            return .notConfirmed
+        case .failure(let error):
             return .unreachable(reason: String(describing: error))
         }
-
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return .unreachable(reason: "HTTP \(status)")
-        }
-        guard !data.isEmpty,
-              let receipt = try? JSONDecoder().decode(DeleteSourceReceipt.self, from: data)
-        else {
-            return .notConfirmed
-        }
-        return .confirmed(receipt: receipt, localNotRemoved: [])
     }
 
     func handleRecovery(_ recovery: LocationRecovery) {
@@ -383,8 +359,8 @@ private extension LocationSourceDetailView {
 
     func loadRecent() async {
         self.recentResult = nil
-        let registration = self.observerRegistration
-        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { registration.activeLocalPort })
+        let tunnelManager = self.tunnelManager
+        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { tunnelManager.activeConnection?.port })
         self.recentResult = await reconciler.reconcileLocationRecent(
             day: LinkedDeviceIngestViewMapper.dayString(for: Date())
         )

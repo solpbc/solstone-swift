@@ -8,7 +8,7 @@ struct SourceDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(ObserverRegistration.self) private var observerRegistration
+    @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
@@ -33,7 +33,7 @@ struct SourceDetailView: View {
         }
         .navigationTitle("audio")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: self.observerRegistration.activeLocalPort) {
+        .task(id: self.tunnelManager.activeConnection?.port) {
             await self.loadManifest()
         }
         .onAppear {
@@ -371,8 +371,8 @@ private extension SourceDetailView {
 
     func loadManifest() async {
         self.manifestResult = nil
-        let registration = self.observerRegistration
-        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { registration.activeLocalPort })
+        let tunnelManager = self.tunnelManager
+        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { tunnelManager.activeConnection?.port })
         self.manifestResult = await reconciler.reconcileObserverManifest(
             day: LinkedDeviceIngestViewMapper.dayString(for: Date())
         )

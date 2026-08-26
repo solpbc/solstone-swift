@@ -16,12 +16,10 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             .appendingPathComponent("TransferConsumerSurfaceTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
         TransferURLProtocol.reset()
-        TransferConsumerHealthURLProtocol.reset()
     }
 
     override func tearDown() {
         TransferURLProtocol.reset()
-        TransferConsumerHealthURLProtocol.reset()
         try? FileManager.default.removeItem(at: self.tempDirectory)
         self.tempDirectory = nil
         super.tearDown()
@@ -126,21 +124,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(harness.watch.recentErrorCount, 2)
         XCTAssertEqual(harness.watch.lastError, "watch-B")
 
-        let omiBeaconPayload = try await self.emitHealthPayload(
-            queueHealth: harness.omi,
-            streamType: "omi",
-            prefix: "obs_omi_"
-        )
-        XCTAssertEqual(omiBeaconPayload["pending_queue_depth"] as? Int, 3)
-        XCTAssertEqual(omiBeaconPayload["last_successful_sync"] as? String, ISO8601DateFormatter().string(from: clock.wallNow()))
-        let watchBeaconPayload = try await self.emitHealthPayload(
-            queueHealth: harness.watch,
-            streamType: "watch",
-            prefix: "obs_watch_"
-        )
-        XCTAssertEqual(watchBeaconPayload["recent_error_count"] as? Int, 2)
-        XCTAssertEqual(watchBeaconPayload["last_error_reason"] as? String, "watch-B")
-
         var aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
             share: zeroSurfaces.shareHolder,
             mobileSegmentUploader: zeroSurfaces.mobileSegmentUploader,
@@ -224,13 +207,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             share: zeroSurfaces.shareHolder
         )
         XCTAssertEqual(totals.pending, 2)
-        let droppedOmiPayload = try await self.emitHealthPayload(
-            queueHealth: harness.omi,
-            streamType: "omi",
-            prefix: "obs_omi_"
-        )
-        XCTAssertEqual(droppedOmiPayload["pending_queue_depth"] as? Int, 2)
-
         try await harness.engine.retryAttention(itemID: watchAttentionIDs[0])
         try await transferTestWaitFor("single watch item retried") {
             await MainActor.run {
@@ -369,16 +345,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             watch: harness.watch,
             share: shareHolder
         ), 0)
-
-        let mobileBeaconPayload = try await self.emitHealthPayload(
-            queueHealth: mobileHolder,
-            streamType: "observer",
-            prefix: "obs_mobile_"
-        )
-        XCTAssertEqual(mobileBeaconPayload["pending_queue_depth"] as? Int, 1)
-        XCTAssertEqual(mobileBeaconPayload["recent_error_count"] as? Int, 1)
-        XCTAssertEqual(mobileBeaconPayload["last_error_reason"] as? String, "mobile-A")
-        XCTAssertEqual(mobileBeaconPayload["last_successful_sync"] as? String, ISO8601DateFormatter().string(from: clock.wallNow()))
 
         let syncModel = ConnectionSyncModel(clock: MockObserverClock()) {
             let totals = uploadTotals(
@@ -568,110 +534,4 @@ private extension TransferConsumerSurfaceTests {
         return (mobileSegmentUploader, mobileSegmentHolder, shareHolder)
     }
 
-    func emitHealthPayload(
-        queueHealth: any ObserverQueueHealthProviding,
-        streamType: String,
-        prefix: String
-    ) async throws -> [String: Any] {
-        TransferConsumerHealthURLProtocol.reset()
-        TransferConsumerHealthURLProtocol.handler = { request in
-            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
-        }
-        let beacon = ObserverHealthBeacon(
-            registration: makeTransferTestRegistration(
-                streamType: streamType,
-                version: "1.0.0",
-                key: "test-\(streamType)-key",
-                prefix: prefix
-            ),
-            uploader: queueHealth,
-            isJournalConfigured: { true },
-            session: self.healthSession(),
-            clock: MockObserverClock(),
-            interval: .seconds(300)
-        )
-        beacon.start()
-        try await transferTestWaitFor("health payload \(streamType)") {
-            TransferConsumerHealthURLProtocol.bodies.count == 1
-        }
-        beacon.stop()
-        let body = try XCTUnwrap(TransferConsumerHealthURLProtocol.bodies.first)
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-    }
-
-    func healthSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [TransferConsumerHealthURLProtocol.self]
-        return URLSession(configuration: configuration)
-    }
-}
-
-private final class TransferConsumerHealthURLProtocol: URLProtocol, @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
-
-    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
-    private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
-
-    static var handler: Handler? {
-        get { self.handlerBox.withLock { $0 } }
-        set { self.handlerBox.withLock { $0 = newValue } }
-    }
-
-    static var bodies: [Data] {
-        self.bodiesBox.withLock { $0 }
-    }
-
-    static func reset() {
-        self.handler = nil
-        self.bodiesBox.withLock { $0 = [] }
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.host == "127.0.0.1"
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
-        do {
-            guard let handler = Self.handler else {
-                self.client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
-                return
-            }
-            let (response, data) = try handler(self.request)
-            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            self.client?.urlProtocol(self, didLoad: data)
-            self.client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            self.client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
-
-    private static func bodyData(from request: URLRequest) -> Data {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else { return Data() }
-        stream.open()
-        defer { stream.close() }
-
-        var output = Data()
-        let bufferSize = 4_096
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { buffer.deallocate() }
-
-        while stream.hasBytesAvailable {
-            let read = stream.read(buffer, maxLength: bufferSize)
-            if read <= 0 {
-                break
-            }
-            output.append(buffer, count: read)
-        }
-        return output
-    }
 }

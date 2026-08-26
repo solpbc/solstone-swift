@@ -3,7 +3,6 @@
 
 @testable import solstone_swift
 import Foundation
-import os
 import XCTest
 
 nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
@@ -12,7 +11,6 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        MobileSegmentOwnerHealthURLProtocol.reset()
         self.tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MobileSegmentOwnerSurfaceTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
@@ -21,7 +19,6 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
     override func tearDown() {
         try? FileManager.default.removeItem(at: self.tempDirectory)
         self.tempDirectory = nil
-        MobileSegmentOwnerHealthURLProtocol.reset()
         super.tearDown()
     }
 
@@ -63,32 +60,10 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         )
         XCTAssertEqual(totals.pending, 1)
 
-        let registration = self.registration()
-        let beacon = ObserverHealthBeacon(
-            registration: registration,
-            uploader: harness.mobileSegmentHolder,
-            isJournalConfigured: { true },
-            session: self.healthSession(),
-            clock: harness.clock,
-            interval: .seconds(300)
-        )
-        MobileSegmentOwnerHealthURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
-            )
-        }
-        beacon.start()
-        try await self.waitFor("health payload") {
-            MobileSegmentOwnerHealthURLProtocol.callCount == 1
-        }
-        beacon.stop()
-        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(MobileSegmentOwnerHealthURLProtocol.capturedBodies.first)) as? [String: Any])
-        XCTAssertEqual(payload["pending_queue_depth"] as? Int, 1)
     }
 
     @MainActor
-    func testStorePendingEnqueueFailureCountsOnceInTotalsAndHealthBeacon() async throws {
+    func testStorePendingEnqueueFailureCountsOnceInTotals() async throws {
         let fileSystem = FailingManifestWriteFileSystem()
         fileSystem.failManifestWrites = true
         let harness = self.makeHarness(fileSystem: fileSystem)
@@ -113,27 +88,6 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .location).pendingCount, 1)
         XCTAssertEqual(harness.mobileSegmentHolder.summary(for: .screencast).pendingCount, 1)
 
-        let beacon = ObserverHealthBeacon(
-            registration: self.registration(),
-            uploader: harness.mobileSegmentHolder,
-            isJournalConfigured: { true },
-            session: self.healthSession(),
-            clock: harness.clock,
-            interval: .seconds(300)
-        )
-        MobileSegmentOwnerHealthURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data("ok".utf8)
-            )
-        }
-        beacon.start()
-        try await self.waitFor("health payload") {
-            MobileSegmentOwnerHealthURLProtocol.callCount == 1
-        }
-        beacon.stop()
-        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(MobileSegmentOwnerHealthURLProtocol.capturedBodies.first)) as? [String: Any])
-        XCTAssertEqual(payload["pending_queue_depth"] as? Int, 1)
     }
 
     @MainActor
@@ -485,35 +439,6 @@ private extension MobileSegmentOwnerSurfaceTests {
         return segmentID
     }
 
-    func registration() -> ObserverRegistration {
-        let registration = ObserverRegistration(
-            resolveDescriptor: {
-                DeviceRegistrationDescriptor(
-                    hostname: "test-device",
-                    displayName: "test device",
-                    vendorIdentifier: "test-idfv"
-                )
-            },
-            version: "0.1.0",
-            streamType: "mobile",
-            session: URLSession(configuration: .ephemeral),
-            loadKey: { "test-observer-key-abc" },
-            saveKey: { _ in },
-            deleteKey: {},
-            loadPrefix: { "obs_mobile_" },
-            savePrefix: { _ in },
-            deletePrefix: {}
-        )
-        registration.activeLocalPort = 7071
-        return registration
-    }
-
-    func healthSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MobileSegmentOwnerHealthURLProtocol.self]
-        return URLSession(configuration: configuration)
-    }
-
     func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
@@ -532,82 +457,5 @@ private extension OnThisPhoneSourceResult {
             return items
         }
         return []
-    }
-}
-
-private final class MobileSegmentOwnerHealthURLProtocol: URLProtocol, @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
-
-    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
-    private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
-    private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
-
-    static var handler: Handler? {
-        get { self.handlerBox.withLock { $0 } }
-        set { self.handlerBox.withLock { $0 = newValue } }
-    }
-
-    static var callCount: Int {
-        self.callCountBox.withLock { $0 }
-    }
-
-    static var capturedBodies: [Data] {
-        self.bodiesBox.withLock { $0 }
-    }
-
-    static func reset() {
-        self.handler = nil
-        self.callCountBox.withLock { $0 = 0 }
-        self.bodiesBox.withLock { $0 = [] }
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.host == "127.0.0.1"
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        Self.callCountBox.withLock { $0 += 1 }
-        Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
-        guard let handler = Self.handler else {
-            XCTFail("MobileSegmentOwnerHealthURLProtocol handler not set")
-            return
-        }
-        do {
-            let (response, data) = try handler(self.request)
-            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            self.client?.urlProtocol(self, didLoad: data)
-            self.client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            self.client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
-
-    private static func bodyData(from request: URLRequest) -> Data {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else { return Data() }
-        stream.open()
-        defer { stream.close() }
-
-        var output = Data()
-        let bufferSize = 4_096
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { buffer.deallocate() }
-
-        while stream.hasBytesAvailable {
-            let read = stream.read(buffer, maxLength: bufferSize)
-            if read <= 0 {
-                break
-            }
-            output.append(buffer, count: read)
-        }
-        return output
     }
 }

@@ -17,7 +17,6 @@ struct DiagnosticsView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
@@ -30,7 +29,6 @@ struct DiagnosticsView: View {
     @State private var diagnosticsExportURL: URL?
     @State private var problemsOnly = false
     @State private var isRetrying = false
-    @State private var showingObserverReset = false
     @State private var lastSynced: Date?
     @State private var lastReconcileKey: FailedReconcileKey?
     @State private var lifecycleMigration = OnThisPhoneMigration(
@@ -70,18 +68,9 @@ struct DiagnosticsView: View {
             if let failedSegmentPresentation {
                 self.failedSegmentSection(failedSegmentPresentation)
             }
-            self.reconnectSection
             self.eventRows
         }
         .navigationTitle("diagnostics")
-        .alert(SourceVocabulary.reconnectObserverConfirmTitle, isPresented: self.$showingObserverReset) {
-            Button(SourceVocabulary.cancel, role: .cancel) {}
-            Button("reconnect", role: .destructive) {
-                self.observerRegistration.reset()
-            }
-        } message: {
-            Text(SourceVocabulary.reconnectObserverConfirmBody)
-        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -233,19 +222,6 @@ struct DiagnosticsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 4)
-        }
-    }
-
-    private var reconnectSection: some View {
-        Section {
-            Button(role: .destructive) {
-                self.showingObserverReset = true
-            } label: {
-                Text(SourceVocabulary.reconnectObserverButton)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .hoverEffect(.highlight)
-            .accessibilityIdentifier("diagnostics.reconnectObserver")
         }
     }
 

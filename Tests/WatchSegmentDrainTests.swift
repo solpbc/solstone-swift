@@ -357,32 +357,6 @@ private extension WatchSegmentDrainTests {
         )
     }
 
-
-    @MainActor
-    func makeWatchRegistration(loadKey: String?, activeLocalPort: Int?) -> ObserverRegistration {
-        let registration = ObserverRegistration(
-            resolveDescriptor: {
-                DeviceRegistrationDescriptor(
-                    hostname: "test-phone",
-                    displayName: "test phone",
-                    vendorIdentifier: "test-idfv"
-                )
-            },
-            version: "0.1.0",
-            streamType: "watch",
-            retryDelays: [],
-            sleep: { _ in },
-            loadKey: { loadKey },
-            saveKey: { _ in },
-            deleteKey: {},
-            loadPrefix: { nil },
-            savePrefix: { _ in },
-            deletePrefix: {}
-        )
-        registration.activeLocalPort = activeLocalPort
-        return registration
-    }
-
     func makeCapturedSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [WatchDrainURLProtocol.self]

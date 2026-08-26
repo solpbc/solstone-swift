@@ -19,15 +19,8 @@ struct SolstoneSwiftApp: App {
     @State private var connectionSyncModel: ConnectionSyncModel
     @State private var diagnosticLog: DiagnosticLog
     @State private var problemReportsManager: ProblemReportsManager
-    @State private var observerRegistration: ObserverRegistration
-    @State private var mobileHealthBeacon: ObserverHealthBeacon
     @State private var mobileSegmentTransferHolder: MobileSegmentTransferHolder
-    @State private var omiRegistration: ObserverRegistration
-    @State private var omiRegistrationRefreshCoordinator: OmiRegistrationRefreshCoordinator
-    @State private var omiHealthBeacon: ObserverHealthBeacon
     @State private var omiUploaderHolder: OmiUploaderHolder
-    @State private var watchRegistration: ObserverRegistration
-    @State private var watchHealthBeacon: ObserverHealthBeacon
     @State private var watchUploaderHolder: WatchUploaderHolder
     @State private var watchSourceFacts: WatchSourceFacts
     @State private var transferEndpointResolver: LoopbackTransferEndpointResolver
@@ -51,7 +44,6 @@ struct SolstoneSwiftApp: App {
     @State private var pendingJournalOpen = PendingJournalOpenState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var shellNav = ShellNavModel()
-    @State private var pairingCredentialRecovery: PairingCredentialRecoveryCoordinator
     @State private var omiSourceManager: OmiSourceManager
     @State private var launchCaptureCommitCoordinator: OmiLaunchCaptureCommitCoordinator
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
@@ -221,18 +213,9 @@ struct SolstoneSwiftApp: App {
 #endif
     }
 
-    private static var shouldResetIntegrationObserverRegistration: Bool {
-#if DEBUG
-        ProcessInfo.processInfo.arguments.contains("--integration-test-observer-reset-registration")
-#else
-        false
-#endif
-    }
-
     init() {
         SPLLogging.configure(subsystem: "app.solstone.swift")
         Self.purgeLegacyKeychainEntries()
-        Self.migrateLegacyIngestPrefixes()
         InnerTLS.purgeOrphanedIdentities()
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
@@ -244,21 +227,8 @@ struct SolstoneSwiftApp: App {
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(appGroupMirror: appGroupMirror)
         let observerClock = SystemObserverClock()
-        let healthSession = URLSession(configuration: .default)
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig)
-        let deviceRegistrationDescriptor: @MainActor @Sendable () -> DeviceRegistrationDescriptor? = {
-            DeviceRegistrationDescriptor.current()
-        }
-        let observerRegistration = ObserverRegistration(
-            resolveDescriptor: deviceRegistrationDescriptor,
-            version: AppVersion.shortVersion,
-            streamType: "mobile",
-            diagnosticLog: log
-        )
-        if Self.shouldResetIntegrationObserverRegistration {
-            observerRegistration.reset()
-        }
 #if DEBUG
         OnThisPhoneUITestSeeder.runIfRequested()
         ProblemReportsUITestSeeder.runIfRequested()
@@ -303,54 +273,6 @@ struct SolstoneSwiftApp: App {
             mobileSegmentStorageDisabledReason = diagnostic
             mobileSegmentMigrationDiagnostics = []
         }
-        let omiRegistration = ObserverRegistration(
-            resolveDescriptor: deviceRegistrationDescriptor,
-            version: AppVersion.shortVersion,
-            streamType: "omi",
-            diagnosticLog: log,
-            loadKey: {
-                try ObserverKeychain.loadOmiIngestKey()
-            },
-            saveKey: {
-                try ObserverKeychain.saveOmiIngestKey($0)
-            },
-            deleteKey: {
-                try ObserverKeychain.deleteOmiIngestKey()
-            },
-            loadPrefix: {
-                IngestPrefixStore().load(.omi)
-            },
-            savePrefix: {
-                IngestPrefixStore().save($0, for: .omi)
-            },
-            deletePrefix: {
-                IngestPrefixStore().clear(.omi)
-            }
-        )
-        let watchRegistration = ObserverRegistration(
-            resolveDescriptor: deviceRegistrationDescriptor,
-            version: AppVersion.shortVersion,
-            streamType: "watch",
-            diagnosticLog: log,
-            loadKey: {
-                try ObserverKeychain.loadWatchIngestKey()
-            },
-            saveKey: {
-                try ObserverKeychain.saveWatchIngestKey($0)
-            },
-            deleteKey: {
-                try ObserverKeychain.deleteWatchIngestKey()
-            },
-            loadPrefix: {
-                IngestPrefixStore().load(.watch)
-            },
-            savePrefix: {
-                IngestPrefixStore().save($0, for: .watch)
-            },
-            deletePrefix: {
-                IngestPrefixStore().clear(.watch)
-            }
-        )
         let transferEndpointResolver = LoopbackTransferEndpointResolver()
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
@@ -378,31 +300,11 @@ struct SolstoneSwiftApp: App {
                 if item.manifest.endpoint.destinationKind == .saveThenStart,
                    item.manifest.saveThenStart?.phase != .startPending
                 {
-                    let observerHandle = try await observerRegistration.ensureRegistered()
-                    return try ShareImportSaveBody.build(
-                        item: item,
-                        spool: spool,
-                        observerHandle: observerHandle
-                    )
+                    return try ShareImportSaveBody.build(item: item, spool: spool)
                 }
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             }
         )
-        let pairingCredentialRecovery = PairingCredentialRecoveryCoordinator(
-            observerRegistration: observerRegistration,
-            omiRegistration: omiRegistration,
-            watchRegistration: watchRegistration,
-            transferEngine: transferEngine
-        )
-        let omiRegistrationRefreshCoordinator = OmiRegistrationRefreshCoordinator { port in
-            guard !Self.isIntegrationMode, !Self.isUITest else { return }
-            omiRegistration.activeLocalPort = port
-            if pairingCredentialRecovery.isPending(sourceKey: ObserverAudioTransferSource.omi) {
-                await pairingCredentialRecovery.recoverIfPending()
-            } else {
-                _ = try? await omiRegistration.refreshRegistration()
-            }
-        }
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
@@ -422,42 +324,11 @@ struct SolstoneSwiftApp: App {
             uploader: mobileSegmentUploader,
             clock: observerClock
         )
-        let mobileHealthBeacon = ObserverHealthBeacon(
-            registration: observerRegistration,
-            uploader: mobileSegmentTransferHolder,
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            session: healthSession,
-            clock: observerClock
-        )
         let omiUploaderHolder = OmiUploaderHolder(
             transferEngine: transferEngine,
             mirror: transferStatusMirror
         )
-        let omiHealthBeacon = ObserverHealthBeacon(
-            registration: omiRegistration,
-            uploader: omiUploaderHolder,
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            session: healthSession,
-            clock: observerClock
-        )
-        let watchUploaderHolderForHealth = WatchUploaderHolder(
-            transferEngine: transferEngine,
-            mirror: transferStatusMirror
-        )
         let watchSourceFacts = WatchSourceFacts()
-        let watchHealthBeacon = ObserverHealthBeacon(
-            registration: watchRegistration,
-            uploader: watchUploaderHolderForHealth,
-            isJournalConfigured: {
-                appConfig.isPaired
-            },
-            session: healthSession,
-            clock: observerClock
-        )
         let watchConnectivitySession = LiveWatchConnectivitySession()
         let watchPipeline = makeWatchPhonePipeline(
             transferEngine: transferEngine,
@@ -631,9 +502,6 @@ struct SolstoneSwiftApp: App {
         })
         let launchMaintenanceCoordinator = LaunchMaintenanceCoordinator(
             operations: LaunchMaintenanceCoordinator.Operations(
-                migrateIngestKeyAccessibility: {
-                    _ = ObserverKeychain.migrateIngestKeyAccessibility()
-                },
                 startScreencastObserving: {
                     screencastManager.startObservingDarwin()
                 },
@@ -695,15 +563,8 @@ struct SolstoneSwiftApp: App {
         self._problemReportsManager = State(initialValue: problemReports)
         self._tunnelManager = State(initialValue: tunnel)
         self._connectionSyncModel = State(initialValue: connectionSyncModel)
-        self._observerRegistration = State(initialValue: observerRegistration)
-        self._mobileHealthBeacon = State(initialValue: mobileHealthBeacon)
         self._mobileSegmentTransferHolder = State(initialValue: mobileSegmentTransferHolder)
-        self._omiRegistration = State(initialValue: omiRegistration)
-        self._omiRegistrationRefreshCoordinator = State(initialValue: omiRegistrationRefreshCoordinator)
-        self._omiHealthBeacon = State(initialValue: omiHealthBeacon)
         self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
-        self._watchRegistration = State(initialValue: watchRegistration)
-        self._watchHealthBeacon = State(initialValue: watchHealthBeacon)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
         self._watchSourceFacts = State(initialValue: watchSourceFacts)
         self._transferEndpointResolver = State(initialValue: transferEndpointResolver)
@@ -723,7 +584,6 @@ struct SolstoneSwiftApp: App {
         self._screencastManager = State(initialValue: screencastManager)
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
-        self._pairingCredentialRecovery = State(initialValue: pairingCredentialRecovery)
         self._omiSourceManager = State(initialValue: omiSource)
         self._launchCaptureCommitCoordinator = State(initialValue: launchCaptureCommitCoordinator)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
@@ -769,7 +629,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.finishSyncingCoordinator)
                 .environment(self.foregroundDrainGate)
                 .environment(self.omiSourceManager)
-                .environment(self.observerRegistration)
                 .environment(self.mobileSegmentTransferHolder)
                 .environment(self.omiUploaderHolder)
                 .environment(self.watchUploaderHolder)
@@ -788,7 +647,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.pendingObserverCommand)
                 .environment(self.pendingJournalOpen)
                 .environment(self.pairingHandoff)
-                .environment(self.pairingCredentialRecovery)
                 .environment(self.diagnosticLog)
                 .environment(self.problemReportsManager)
                 .environment(self.appDelegate.pushManager)
@@ -824,12 +682,6 @@ struct SolstoneSwiftApp: App {
                 .task {
                     await self.bootstrapTransfer()
                     _ = await self.omiSourceManager.resumeLaunchCaptureOnce()
-                    await self.pairingCredentialRecovery.recoverIfPending()
-                }
-                .task {
-                    self.mobileHealthBeacon.start()
-                    self.omiHealthBeacon.start()
-                    self.watchHealthBeacon.start()
                 }
                 .task {
                     await Task.yield()
@@ -854,16 +706,11 @@ struct SolstoneSwiftApp: App {
                     }
                 }
                 .task {
-                    // Initial connected state needs the same registration, transfer, recovery,
-                    // and Omi edge handling because onChange does not fire for its initial value.
+                    // Initial connected state needs the same transfer edge handling because
+                    // onChange does not fire for its initial value.
                     guard case .connected(let port, _) = self.tunnelManager.state else { return }
-                    self.observerRegistration.activeLocalPort = port
-                    self.omiRegistration.activeLocalPort = port
-                    self.watchRegistration.activeLocalPort = port
                     await self.transferEndpointResolver.update(activeLocalPort: port)
                     await self.transferEngine.endpointAvailabilityChanged()
-                    await self.pairingCredentialRecovery.recoverIfPending()
-                    self.omiRegistrationRefreshCoordinator.observe(tunnelState: self.tunnelManager.state)
                 }
         }
         .onChange(of: self.scenePhase) { _, newPhase in
@@ -980,14 +827,10 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(let port, _):
-                self.observerRegistration.activeLocalPort = port
-                self.omiRegistration.activeLocalPort = port
-                self.watchRegistration.activeLocalPort = port
                 Task {
                     await self.transferEndpointResolver.update(activeLocalPort: port)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
-                Task { await self.pairingCredentialRecovery.recoverIfPending() }
                 Task { await self.foregroundDrainGate.requestDrain() }
 
                 if Self.isIntegrationMode,
@@ -1004,9 +847,6 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .connecting, .waitingForHome, .disconnected, .error:
-                self.observerRegistration.activeLocalPort = nil
-                self.omiRegistration.activeLocalPort = nil
-                self.watchRegistration.activeLocalPort = nil
                 Task {
                     await self.transferEndpointResolver.update(activeLocalPort: nil)
                     await self.transferEngine.endpointAvailabilityChanged()
@@ -1016,7 +856,6 @@ struct SolstoneSwiftApp: App {
                 self.integrationObserverStopTask?.cancel()
                 self.integrationObserverStopTask = nil
             }
-            self.omiRegistrationRefreshCoordinator.observe(tunnelState: newState)
         }
         .onChange(of: self.observerManager.state) { _, newState in
             guard Self.isIntegrationMode,
@@ -1180,61 +1019,19 @@ struct SolstoneSwiftApp: App {
     }
 }
 
-extension SolstoneSwiftApp {
-    typealias LegacyIngestPrefixStream = (
-        stream: IngestPrefixStore.Stream,
-        name: String,
-        legacyLoad: () throws -> String?,
-        legacyDelete: () throws -> Void
-    )
-
-    static func migrateLegacyIngestPrefixes(store: IngestPrefixStore, streams: [LegacyIngestPrefixStream]) {
-        let log = Logger(subsystem: "app.solstone.swift", category: "ingest-prefix-migration")
-
-        for (stream, name, legacyLoad, legacyDelete) in streams {
-            guard let legacy = try? legacyLoad() else { continue }
-            let current = store.load(stream)
-            if current == nil {
-                store.save(legacy, for: stream)
-                guard store.load(stream) != nil else { continue }
-            } else if current != legacy {
-                log.error("legacy ingest prefix conflict for \(name, privacy: .public): keeping defaults value")
-            }
-
-            do {
-                try legacyDelete()
-            } catch {
-                log.error("legacy ingest prefix delete failed for \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                continue
-            }
-        }
-    }
-}
-
 private extension SolstoneSwiftApp {
-    static func migrateLegacyIngestPrefixes() {
-        let store = IngestPrefixStore()
-        let streams: [LegacyIngestPrefixStream] = [
-            (.observer, "observer",
-             { try ObserverKeychain.legacyLoadObserverIngestPrefix() },
-             { try ObserverKeychain.legacyDeleteObserverIngestPrefix() }),
-            (.omi, "omi",
-             { try ObserverKeychain.legacyLoadOmiIngestPrefix() },
-             { try ObserverKeychain.legacyDeleteOmiIngestPrefix() }),
-            (.watch, "watch",
-             { try ObserverKeychain.legacyLoadWatchIngestPrefix() },
-             { try ObserverKeychain.legacyDeleteWatchIngestPrefix() }),
-        ]
-
-        self.migrateLegacyIngestPrefixes(store: store, streams: streams)
-    }
-
     static func purgeLegacyKeychainEntries() {
         for account in [
             "solstone-swift-identity-key",
             "solstone-swift-host-key",
             "solstone-swift-pair-identity",
             "solstone-swift-pair-session",
+            "solstone-swift-observer-ingest-key-v2",
+            "solstone-swift-observer-ingest-prefix",
+            "solstone-swift-omi-ingest-key-v2",
+            "solstone-swift-omi-ingest-prefix",
+            "solstone-swift-watch-ingest-key-v2",
+            "solstone-swift-watch-ingest-prefix",
         ] {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
@@ -1243,7 +1040,7 @@ private extension SolstoneSwiftApp {
             ]
             SecItemDelete(query as CFDictionary)
         }
-        Logger(subsystem: "app.solstone.swift", category: "app-config").debug("legacy SSH keychain entries purged")
+        Logger(subsystem: "app.solstone.swift", category: "app-config").debug("legacy keychain entries purged")
     }
 
     static func resetOnboardingIntegrationState() {

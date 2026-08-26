@@ -6,7 +6,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WatchUploaderHolder: ObserverQueueHealthProviding {
+final class WatchUploaderHolder {
     let transferEngine: TransferEngine
     private let mirror: TransferStatusMirror
     private let sourceKey: String

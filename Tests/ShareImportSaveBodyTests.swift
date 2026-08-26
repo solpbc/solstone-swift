@@ -33,8 +33,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
 
             let actual = try self.bodyData(ShareImportSaveBody.build(
                 item: item.item,
-                spool: item.spool,
-                observerHandle: "observer-fixture-handle"
+                spool: item.spool
             ))
 
             XCTAssertEqual(
@@ -65,16 +64,12 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
     func testFileSaveBodyLengthEqualsWrappingPlusPayload() throws {
         let payload = Data(repeating: 0x61, count: 8_192)
         let item = try self.storedFileItem(payload: payload)
-        let wrapping = try ShareImportSaveBody.fileWrappingByteCount(
-            item: item.item,
-            observerHandle: "observer-fixture-handle"
-        )
+        let wrapping = try ShareImportSaveBody.fileWrappingByteCount(item: item.item)
         XCTAssertGreaterThan(payload.count, wrapping)
 
         let built = try ShareImportSaveBody.build(
             item: item.item,
-            spool: item.spool,
-            observerHandle: "observer-fixture-handle"
+            spool: item.spool
         )
         guard case .written(let url, let byteCount) = built else {
             XCTFail("expected streamed file body")
@@ -96,17 +91,13 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
         let manifest = self.fileManifest(itemID: itemID)
         let staged = try spool.stage(manifest: manifest, payloads: ["file": payload])
         let item = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
-        let wrapping = try ShareImportSaveBody.fileWrappingByteCount(
-            item: item,
-            observerHandle: "observer-fixture-handle"
-        )
+        let wrapping = try ShareImportSaveBody.fileWrappingByteCount(item: item)
         fileSystem.wrappingBudget = wrapping
         XCTAssertGreaterThan(payload.count, wrapping)
 
         let built = try ShareImportSaveBody.build(
             item: item,
-            spool: spool,
-            observerHandle: "observer-fixture-handle"
+            spool: spool
         )
         guard case .written(_, let byteCount) = built else {
             XCTFail("expected streamed file body")
@@ -147,7 +138,7 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             clock: FakeTransferClock(wall: Self.baseDate),
             bodyBuilder: { item, spool in
                 if item.manifest.saveThenStart?.phase == .savePending {
-                    return try ShareImportSaveBody.build(item: item, spool: spool, observerHandle: "observer-fixture-handle")
+                    return try ShareImportSaveBody.build(item: item, spool: spool)
                 }
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             }

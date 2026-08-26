@@ -179,7 +179,6 @@ struct JournalSettingsPane: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(ObserverRegistration.self) private var observerRegistration
 
     @State private var showingForgetConfirm = false
     @State private var showingPairNewConfirm = false
@@ -187,7 +186,7 @@ struct JournalSettingsPane: View {
     @AccessibilityFocusState private var headingFocused: Bool
 
     private var conveyURL: URL? {
-        ConveyURL.rootURL(activeLocalPort: self.observerRegistration.activeLocalPort)
+        ConveyURL.rootURL(activeLocalPort: self.tunnelManager.activeConnection?.port)
     }
 
     var body: some View {

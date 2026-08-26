@@ -13,19 +13,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
 
         let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
         let diagnosticLog = DiagnosticLog()
-        let observerRegistration = ObserverRegistration(
-            resolveDescriptor: {
-                DeviceRegistrationDescriptor(
-                    hostname: "test-device",
-                    displayName: "test device",
-                    vendorIdentifier: "test-idfv"
-                )
-            },
-            version: "1.0",
-            loadKey: { nil },
-            saveKey: { _ in },
-            deleteKey: {}
-        )
         let mobileSegmentRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-MobileSegment-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: mobileSegmentRoot) }
@@ -172,7 +159,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(appConfig)
             .environment(OnboardingFlow())
             .environment(tunnelManager)
-            .environment(observerRegistration)
             .environment(PushNotificationManager())
             .environment(problemReportsManager)
             .environment(ShellNavModel())
@@ -181,7 +167,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             SourcesView()
                 .environment(appConfig)
                 .environment(observerManager)
-                .environment(observerRegistration)
+                .environment(tunnelManager)
                 .environment(ObserverSourcePauseState())
                 .environment(shareImportStore)
                 .environment(shareTransferHolder)
@@ -231,7 +217,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(locationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(observerRegistration)
+                .environment(tunnelManager)
         }
         let omiSourceDetailView = NavigationStack {
             OmiSourceDetailView()
@@ -255,7 +241,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(activeLocationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(observerRegistration)
+                .environment(tunnelManager)
         }
         let needsAttentionLocationSourceDetailView = NavigationStack {
             LocationSourceDetailView()
@@ -263,7 +249,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(needsAttentionLocationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(observerRegistration)
+                .environment(tunnelManager)
         }
         let importerSourceDetailView = NavigationStack {
             ImportView()
@@ -278,7 +264,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(finishSyncingCoordinator)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(observerRegistration)
                 .environment(observerManager)
         }
         let onThisPhoneView = NavigationStack {
@@ -296,7 +281,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(locationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(observerRegistration)
         }
         let onThisPhoneItemDetailView = NavigationStack {
             OnThisPhoneItemDetailView(
@@ -312,7 +296,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchUploaderHolder)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(observerRegistration)
+                .environment(tunnelManager)
         }
 
         try self.assertHosted(

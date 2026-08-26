@@ -10,7 +10,7 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
     private let mobileKey = "didMigrateLegacyMobileSegmentsV1"
     private let audioKey = "didMigrateLegacyAudioSegmentKeysV1"
 
-    func testForegroundPassRunsAllEightOpsInOrder() async throws {
+    func testForegroundPassRunsAllRemainingOpsInOrder() async throws {
         let harness = try self.makeHarness()
 
         await harness.coordinator.runForegroundMaintenance()
@@ -93,7 +93,6 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
         await second.value
 
         XCTAssertEqual(harness.log.entries, [
-            "ingestKey",
             "startScreencast",
             "reconcile:launch",
             "resumeImport",
@@ -142,7 +141,6 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
         let coordinator = LaunchMaintenanceCoordinator(
             defaults: defaults,
             operations: LaunchMaintenanceCoordinator.Operations(
-                migrateIngestKeyAccessibility: { log.append("ingestKey") },
                 startScreencastObserving: { log.append("startScreencast") },
                 reconcileScreencast: { log.append("reconcile:\($0.rawValue)") },
                 resumeImportQueue: {
@@ -244,7 +242,6 @@ final class LaunchMaintenanceCoordinatorTests: XCTestCase {
 
 private extension LaunchMaintenanceCoordinatorTests {
     static let migrationExpectedOrder = [
-        "ingestKey",
         "startScreencast",
         "reconcile:launch",
         "resumeImport",
@@ -272,9 +269,6 @@ private extension LaunchMaintenanceCoordinatorTests {
         let defaults = try defaults ?? self.makeDefaults()
         let log = LaunchMaintenanceLogBox()
         let operations = LaunchMaintenanceCoordinator.Operations(
-            migrateIngestKeyAccessibility: {
-                log.append("ingestKey")
-            },
             startScreencastObserving: {
                 log.append("startScreencast")
             },

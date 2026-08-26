@@ -766,27 +766,6 @@ actor TransferEngine {
         try self.moveAttentionItemsToQueued(items)
     }
 
-    /// Pairing credentials are intentionally not retried as a blanket 4xx
-    /// policy. A confirmed pairing replacement requeues only items whose
-    /// persisted server response explicitly identifies the superseded key.
-    func retryAuthenticationAttention(source: String? = nil) throws {
-        let items = self.attentionItems.values
-            .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
-            .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
-            .filter { !self.isGateActive($0.manifest.itemID) }
-            .filter { source == nil || $0.manifest.sourceKey == source }
-            .filter { item in
-                guard item.manifest.attention?.reason == "http_client_error",
-                      let detail = item.manifest.attention?.shortDetail,
-                      let data = detail.data(using: .utf8),
-                      let response = try? JSONDecoder().decode(TransferAuthenticationErrorResponse.self, from: data)
-                else { return false }
-                return response.reasonCode == TransferReasonCodes.authKeyInvalid
-            }
-            .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
-        try self.moveAttentionItemsToQueued(items)
-    }
-
     /// Moves one attention item back to queued, resets its in-memory attempts,
     /// and clears its persisted retry deadline. Missing item IDs are treated as
     /// a no-op that still kicks the engine.
@@ -1064,7 +1043,7 @@ actor TransferEngine {
             let canUseBodyCache: Bool
             switch phase {
             case .save:
-                // SAVE bodies include a per-attempt observer_handle. Do not reuse body.upload for SAVE retries: the old ImportQueue called ensureRegistered() immediately before each SAVE body build, and observer handles may rotate between attempts. Rebuild cost is a second multipart encoding of the share payload; observer ingest and START bodies remain cacheable.
+                // SAVE bodies always rebuild fresh and are never cached. Observer ingest and START bodies remain cacheable.
                 canUseBodyCache = false
             case .observerIngest, .start:
                 canUseBodyCache = true

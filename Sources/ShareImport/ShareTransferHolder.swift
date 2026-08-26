@@ -6,7 +6,7 @@ import Observation
 
 @MainActor
 @Observable
-final class ShareTransferHolder: ObserverQueueHealthProviding {
+final class ShareTransferHolder {
     let transferEngine: TransferEngine
     let store: ShareImportStore
     private let mirror: TransferStatusMirror

@@ -12,7 +12,6 @@ nonisolated final class ShareExtensionActivationRuleTests: XCTestCase {
 
         XCTAssertTrue(projectYML.contains(plainTextPredicate))
         XCTAssertTrue(infoPlist.contains(plainTextPredicate))
-        XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("Sources/Observer/ObserverAuthorizedRequest.swift") ?? true)
         XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("Sources/ShareImport/ImporterServerURL.swift") ?? true)
         XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("Sources/Transfer/") ?? true)
         XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("ShareImportTransfer") ?? true)

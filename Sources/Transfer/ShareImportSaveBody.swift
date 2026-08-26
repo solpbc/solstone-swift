@@ -6,8 +6,7 @@ import Foundation
 nonisolated enum ShareImportSaveBody {
     static func build(
         item: TransferStoredItem,
-        spool: TransferSpool,
-        observerHandle: String
+        spool: TransferSpool
     ) throws -> TransferBodyPayload {
         guard item.manifest.endpoint.destinationKind == .saveThenStart else {
             throw TransferBodyBuildError.malformedManifest("unsupported save destination")
@@ -31,7 +30,7 @@ nonisolated enum ShareImportSaveBody {
                 throw TransferBodyBuildError.malformedManifest("text payload is not utf8")
             }
             var body = Data()
-            body.append(self.prefixFields(item: item, observerHandle: observerHandle, boundary: boundary))
+            body.append(self.prefixFields(item: item, boundary: boundary))
             body.append(self.multipartField(named: "text", value: text, boundary: boundary))
             body.append(self.closing(boundary: boundary))
             return .inMemory(body)
@@ -43,7 +42,6 @@ nonisolated enum ShareImportSaveBody {
             let wrapping = self.fileWrapping(
                 item: item,
                 part: part,
-                observerHandle: observerHandle,
                 boundary: boundary
             )
             let expected = wrapping.prefix.count + payloadLength + wrapping.suffix.count
@@ -61,10 +59,7 @@ nonisolated enum ShareImportSaveBody {
         }
     }
 
-    static func fileWrappingByteCount(
-        item: TransferStoredItem,
-        observerHandle: String
-    ) throws -> Int {
+    static func fileWrappingByteCount(item: TransferStoredItem) throws -> Int {
         guard item.manifest.payloadParts.count == 1,
               let part = item.manifest.payloadParts.first
         else {
@@ -73,7 +68,6 @@ nonisolated enum ShareImportSaveBody {
         let wrapping = self.fileWrapping(
             item: item,
             part: part,
-            observerHandle: observerHandle,
             boundary: TransferTransport.boundary(for: item.manifest.itemID)
         )
         return wrapping.prefix.count + wrapping.suffix.count
@@ -82,10 +76,9 @@ nonisolated enum ShareImportSaveBody {
     private static func fileWrapping(
         item: TransferStoredItem,
         part: TransferPayloadPartDescriptor,
-        observerHandle: String,
         boundary: String
     ) -> (prefix: Data, suffix: Data) {
-        var prefix = self.prefixFields(item: item, observerHandle: observerHandle, boundary: boundary)
+        var prefix = self.prefixFields(item: item, boundary: boundary)
         prefix.append(Data("--\(boundary)\r\n".utf8))
         prefix.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(part.filename)\"\r\n".utf8))
         prefix.append(Data("Content-Type: \(part.contentType)\r\n\r\n".utf8))
@@ -96,12 +89,10 @@ nonisolated enum ShareImportSaveBody {
 
     private static func prefixFields(
         item: TransferStoredItem,
-        observerHandle: String,
         boundary: String
     ) -> Data {
         var fields = Data()
         fields.append(self.multipartField(named: "imported_via", value: "mobile_share", boundary: boundary))
-        fields.append(self.multipartField(named: "observer_handle", value: observerHandle, boundary: boundary))
         fields.append(self.multipartField(
             named: "client_item_id",
             value: item.manifest.itemID.uuidString.lowercased(),

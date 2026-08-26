@@ -26,7 +26,7 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         let body = try Self.slice(
             in: text,
             from: "private func lifecycleSection",
-            to: "\n    private var reconnectSection"
+            to: "\n    private var lastSyncedValue"
         )
 
         for forbidden in ["standingHealth", "standingSyncLine", "standingSegmentReach"] {

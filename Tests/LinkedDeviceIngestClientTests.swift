@@ -117,6 +117,50 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         })
     }
 
+    func testDeleteSourceUsesCertificateOnlyDeleteContract() async {
+        let client = self.client
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            (Self.response(for: request), Self.deleteReceiptData)
+        }
+        let decoded = await client.deleteSource(localPort: 7071, source: "location")
+        XCTAssertEqual(decoded, .success(Self.deleteReceipt))
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            (Self.response(for: request), Data())
+        }
+        let empty = await client.deleteSource(localPort: 7071, source: "location")
+        XCTAssertEqual(empty, .success(nil))
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            (Self.response(for: request), Data("not a receipt".utf8))
+        }
+        let undecodable = await client.deleteSource(localPort: 7071, source: "location")
+        XCTAssertEqual(undecodable, .success(nil))
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            (Self.response(for: request, status: 503), Data())
+        }
+        let httpFailure = await client.deleteSource(localPort: 7071, source: "location")
+        XCTAssertEqual(httpFailure, .failure(.httpStatus(503)))
+
+        LinkedDeviceIngestURLProtocol.handler = { _ in
+            throw URLError(.notConnectedToInternet)
+        }
+        let transportFailure = await client.deleteSource(localPort: 7071, source: "location")
+        XCTAssertEqual(transportFailure, .failure(.malformedResponse))
+
+        XCTAssertEqual(LinkedDeviceIngestURLProtocol.requests.count, 5)
+        XCTAssertTrue(LinkedDeviceIngestURLProtocol.requests.allSatisfy { request in
+            request.url?.path == "/app/devices/source/location"
+                && request.httpMethod == "DELETE"
+                && request.timeoutInterval == 10
+                && request.value(forHTTPHeaderField: "Authorization") == nil
+                && request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName) == nil
+                && !(request.allHTTPHeaderFields ?? [:]).keys.contains { $0.localizedCaseInsensitiveContains("observer") }
+        })
+    }
+
     private var client: LinkedDeviceIngestClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LinkedDeviceIngestURLProtocol.self]
@@ -141,7 +185,26 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         #"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present","submitted_name":"audio-original.m4a"},{"name":"location.jsonl","size":12,"sha256":"def","status":"processed"}]}]}"#.utf8
     )
 
-    private static func response(for request: URLRequest) -> HTTPURLResponse {
-        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    private static let deleteReceipt = DeleteSourceReceipt(
+        removed: DeleteSourceReceipt.Removed(
+            originals: 1,
+            segments: 2,
+            inSegmentDerived: 3,
+            indexChunks: 4,
+            streamIdentity: 5,
+            historyRows: 6,
+            days: 7
+        ),
+        notConfirmed: [],
+        notRemoved: [],
+        backupHosted: "kept"
+    )
+
+    private static let deleteReceiptData = Data(
+        #"{"removed":{"originals":1,"segments":2,"in_segment_derived":3,"index_chunks":4,"stream_identity":5,"history_rows":6,"days":7},"not_confirmed":[],"not_removed":[],"backup_hosted":"kept"}"#.utf8
+    )
+
+    private static func response(for request: URLRequest, status: Int = 200) -> HTTPURLResponse {
+        HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
     }
 }

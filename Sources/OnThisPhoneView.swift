@@ -109,7 +109,6 @@ struct OnThisPhoneMomentsView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
     @Environment(LocationManager.self) private var locationManager
-    @Environment(ObserverRegistration.self) private var observerRegistration
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @AppStorage(AudioStorageKey.magicMomentFirstSeen) private var magicMomentFirstSeen = false
@@ -245,7 +244,7 @@ struct OnThisPhoneMomentsView: View {
             .onChange(of: self.deliveryMarkers) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .delivery) }
             }
-            .onChange(of: self.observerRegistration.activeLocalPort) { _, _ in
+            .onChange(of: self.tunnelManager.activeConnection?.port) { _, _ in
                 Task { await self.loadSnapshot(trigger: .activePort) }
                 self.refreshWelcomeFraming()
             }
@@ -845,7 +844,7 @@ private extension OnThisPhoneMomentsView {
 
     private func refreshWelcomeFraming() {
         self.welcomeFramingTask?.cancel()
-        guard let port = self.observerRegistration.activeLocalPort else {
+        guard let port = self.tunnelManager.activeConnection?.port else {
             self.welcomeFraming = nil
             return
         }

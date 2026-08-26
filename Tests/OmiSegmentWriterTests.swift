@@ -219,12 +219,6 @@ nonisolated final class OmiSegmentWriterTests: XCTestCase {
         XCTAssertEqual(channel[3], -4)
     }
 
-    func testKeychainAccountIsolation() {
-        XCTAssertEqual(ObserverKeychain.observerIngestKeyAccount, "solstone-swift-observer-ingest-key-v2")
-        XCTAssertEqual(ObserverKeychain.omiIngestKeyAccount, "solstone-swift-omi-ingest-key-v2")
-        XCTAssertNotEqual(ObserverKeychain.observerIngestKeyAccount, ObserverKeychain.omiIngestKeyAccount)
-    }
-
     @MainActor
     func testSegmentStringUsesLocalTimeAndRoundedPositiveDuration() throws {
         let date = try self.fixedLocalDate(hour: 10, minute: 43, second: 55)
