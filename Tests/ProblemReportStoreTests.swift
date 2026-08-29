@@ -167,7 +167,12 @@ nonisolated final class ProblemReportStoreTests: XCTestCase {
     }
 
     @MainActor
-    private func makeStore(log: DiagnosticLog? = nil, now: @escaping @Sendable () -> Date = { Date() }) -> ProblemReportStore {
+    private func makeStore(
+        log: DiagnosticLog? = nil,
+        now: @escaping @Sendable () -> Date = {
+            Date(timeIntervalSince1970: 1_780_086_400)
+        }
+    ) -> ProblemReportStore {
         ProblemReportStore(rootURL: self.tempDirectory, diagnosticLog: log, now: now)
     }
 }

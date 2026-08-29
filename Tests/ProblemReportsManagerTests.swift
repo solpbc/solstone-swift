@@ -47,7 +47,7 @@ nonisolated final class ProblemReportsManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testMockCanEmitFixtureIntoManager() {
+    func testMockCanEmitFixtureIntoManager() throws {
         let mock = MockMetricSubscriber()
         let manager = self.makeManagerWithFactory(mock: mock)
 
@@ -60,18 +60,25 @@ nonisolated final class ProblemReportsManagerTests: XCTestCase {
         ])
 
         XCTAssertEqual(manager.reports.count, 1)
-        XCTAssertEqual(manager.reports[0].kind, .crash)
+        let report = try XCTUnwrap(manager.reports.first)
+        XCTAssertEqual(report.kind, .crash)
     }
 
     @MainActor
     private func makeManager(mock: MockMetricSubscriber, initialEnabled: Bool) -> ProblemReportsManager {
-        let store = ProblemReportStore(rootURL: self.tempDirectory)
+        let store = ProblemReportStore(
+            rootURL: self.tempDirectory,
+            now: { Date(timeIntervalSince1970: 1_780_086_400) }
+        )
         return ProblemReportsManager(store: store, subscriber: mock, initialEnabled: initialEnabled)
     }
 
     @MainActor
     private func makeManagerWithFactory(mock: MockMetricSubscriber) -> ProblemReportsManager {
-        let store = ProblemReportStore(rootURL: self.tempDirectory)
+        let store = ProblemReportStore(
+            rootURL: self.tempDirectory,
+            now: { Date(timeIntervalSince1970: 1_780_086_400) }
+        )
         return ProblemReportsManager(store: store, initialEnabled: false) { ingest in
             mock.ingest = ingest
             return mock
