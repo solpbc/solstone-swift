@@ -145,8 +145,10 @@ final class ShellPaneShotTests: XCTestCase {
     func testCaptureSplashAxes() {
         self.captureSplash(name: "30-splash-light", style: "Light", ax5: false, landscape: false)
         self.captureSplash(name: "31-splash-dark", style: "Dark", ax5: false, landscape: false)
-        self.captureSplash(name: "32-splash-ax5", style: "Light", ax5: true, landscape: false)
         self.captureSplash(name: "33-splash-landscape", style: "Light", ax5: false, landscape: true)
+        // Keep AX5 last. Relaunching from an accessibility-size process back to the
+        // default category wedges XCUITest's automation-session setup on Xcode 26.6.
+        self.captureSplash(name: "32-splash-ax5", style: "Light", ax5: true, landscape: false)
     }
 }
 
