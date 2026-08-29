@@ -60,7 +60,7 @@ CI_SIM_PLATFORM="${CI_SIM_PLATFORM:-iOS Simulator}"
 CI_SIM_NAME="${CI_SIM_NAME:-solstone-swift-ci}"
 CI_SIM_DEVICETYPE="${CI_SIM_DEVICETYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro}"
 CI_SIM_RUNTIME="${CI_SIM_RUNTIME:-com.apple.CoreSimulator.SimRuntime.iOS-26-5}"
-CI_ATTEMPT_TIMEOUT="${CI_ATTEMPT_TIMEOUT:-1200}"   # seconds; a healthy run is ~6min
+CI_ATTEMPT_TIMEOUT="${CI_ATTEMPT_TIMEOUT:-1800}"   # seconds; bounded for the expanded iOS suite
 CI_MAX_ATTEMPTS="${CI_MAX_ATTEMPTS:-2}"            # 1 retry
 
 BUILD_DIR="build"

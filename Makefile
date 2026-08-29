@@ -60,7 +60,9 @@ CI_WATCH_SIM_RUNTIME     ?= com.apple.CoreSimulator.SimRuntime.watchOS-26-5
 # chained into `ci` — a third full lane on every run is a cost only the iPad work needs.
 CI_IPAD_SIM_NAME         ?= solstone-ipad-ci
 CI_IPAD_SIM_DEVICETYPE   ?= com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M4-8GB
-CI_ATTEMPT_TIMEOUT ?= 1200
+# The iOS lane reached its final UI-test classes after 19 minutes on Xcode 26.6.
+# Keep a bounded watchdog, with enough room for the complete expanded suite.
+CI_ATTEMPT_TIMEOUT ?= 1800
 CI_MAX_ATTEMPTS    ?= 2
 
 # --- Project setup ---
