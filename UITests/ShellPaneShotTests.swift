@@ -323,6 +323,7 @@ private extension ShellPaneShotTests {
 
     func captureSplash(name: String, style: String, ax5: Bool, landscape: Bool) {
         let app = XCUIApplication()
+        defer { app.terminate() }
         app.launchArguments += [
             "--ui-test",
             "--ui-test-onboarding-step=welcome",
