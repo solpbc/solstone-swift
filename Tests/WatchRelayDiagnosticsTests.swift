@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import WatchConnectivity
 import XCTest
 
@@ -134,12 +135,14 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let history = self.storageActor(for: storage)
         try await history.upsertSessionHistory(Self.historyEntry(1, at: now), asOf: now)
         let sink = WatchSignpostTestSink()
+        let diagnosticsSink = WatchDiagnosticsSignpostTestSink()
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
-            signposter: WatchSignposter(sink: sink)
+            signposter: WatchSignposter(sink: sink),
+            diagnosticsSignposter: WatchStorageSignposter(sink: diagnosticsSink)
         )
 
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
@@ -151,10 +154,13 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             .diagnosticsChangedWitnessRevalidation,
             .diagnosticsHistorySummaryRead,
             .diagnosticsPayloadAssembly,
-            .diagnosticsFirstEncode,
         ] {
             XCTAssertEqual(sink.events.filter { $0.boundary == boundary }.map(\.kind), [.begin, .end])
         }
+        XCTAssertEqual(
+            diagnosticsSink.snapshot().filter { $0.boundary == .diagnosticsFirstEncode }.map(\.kind),
+            [.begin, .end]
+        )
     }
 
     func testCollectorEmitsBoundedCompactionEncodeSubspans() async throws {
@@ -166,18 +172,20 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             session.seedOutstandingTransfer(id: Self.uuid(92_000 + index))
         }
         let sink = WatchSignpostTestSink()
+        let diagnosticsSink = WatchDiagnosticsSignpostTestSink()
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
-            signposter: WatchSignposter(sink: sink)
+            signposter: WatchSignposter(sink: sink),
+            diagnosticsSignposter: WatchStorageSignposter(sink: diagnosticsSink)
         )
 
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
         XCTAssertNotNil(envelopeData)
 
-        let compactionEnds = sink.events.filter {
+        let compactionEnds = diagnosticsSink.snapshot().filter {
             $0.kind == .end && $0.boundary == .diagnosticsCompactionEncode
         }
         XCTAssertGreaterThan(compactionEnds.count, 1)
@@ -186,6 +194,35 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
                 && $0.fields.retainedObservationCount != nil
                 && $0.fields.encodedByteCount != nil
         })
+    }
+
+    func testDiagnosticsEncodingDoesNotOccupyMainActor() async throws {
+        let storage = try self.storage("background-encoding")
+        let gate = WatchDiagnosticsEncodingHoldGate()
+        let diagnosticsSink = WatchDiagnosticsSignpostTestSink(
+            onBegin: { boundary in
+                guard boundary == .diagnosticsFirstEncode else { return }
+                gate.enterAndBlock()
+            }
+        )
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: MockWatchConnectivitySession(),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
+            diagnosticsSignposter: WatchStorageSignposter(sink: diagnosticsSink)
+        )
+        let encoding = Task { @MainActor in
+            await collector.makeEnvelopeData(asOf: Self.now)
+        }
+
+        await gate.waitUntilEntered()
+        gate.recordMainActorProgressAndRelease()
+        let envelopeData = await encoding.value
+
+        XCTAssertNotNil(envelopeData)
+        XCTAssertTrue(gate.didObserveMainActorProgressBeforeRelease())
+        XCTAssertFalse(gate.didTimeOut())
     }
 
     func testTransferAttemptIdentityReachesEncodedDiagnosticsEnvelope() async throws {
@@ -1292,6 +1329,125 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         diagnostics["value"] = payload
         root["diagnostics"] = diagnostics
         return try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+    }
+}
+
+private struct WatchDiagnosticsSignpostTestSink: WatchStorageSignpostIntervalSink {
+    enum Kind: Equatable {
+        case begin
+        case end
+    }
+
+    struct Event: Equatable {
+        let kind: Kind
+        let boundary: WatchSignpostBoundary
+        let fields: WatchSignpostFields
+    }
+
+    private struct State {
+        var events: [Event] = []
+        var openBoundaries: [WatchSignpostBoundary] = []
+    }
+
+    let isEnabled = true
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let onBegin: @Sendable (WatchSignpostBoundary) -> Void
+    private let onEnd: @Sendable (WatchSignpostBoundary) -> Void
+
+    init(
+        onBegin: @escaping @Sendable (WatchSignpostBoundary) -> Void = { _ in },
+        onEnd: @escaping @Sendable (WatchSignpostBoundary) -> Void = { _ in }
+    ) {
+        self.onBegin = onBegin
+        self.onEnd = onEnd
+    }
+
+    func begin(
+        _ boundary: WatchSignpostBoundary,
+        fields: WatchSignpostFields
+    ) -> WatchStorageSignpostInvocation {
+        self.onBegin(boundary)
+        self.state.withLock {
+            $0.openBoundaries.append(boundary)
+            $0.events.append(Event(kind: .begin, boundary: boundary, fields: fields))
+        }
+        return WatchStorageSignpostInvocation(boundary: boundary, state: nil)
+    }
+
+    func end(
+        _ invocation: WatchStorageSignpostInvocation,
+        fields: WatchSignpostFields
+    ) {
+        self.state.withLock {
+            precondition($0.openBoundaries.last == invocation.boundary)
+            $0.openBoundaries.removeLast()
+            $0.events.append(Event(kind: .end, boundary: invocation.boundary, fields: fields))
+        }
+        self.onEnd(invocation.boundary)
+    }
+
+    func snapshot() -> [Event] {
+        self.state.withLock { $0.events }
+    }
+}
+
+private struct WatchDiagnosticsEncodingHoldGate: Sendable {
+    private struct State {
+        var entered = false
+        var released = false
+        var timedOut = false
+        var observedMainActorProgressBeforeRelease = false
+        var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func enterAndBlock() {
+        let waiters = self.state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.entered = true
+            let waiters = state.entryWaiters
+            state.entryWaiters.removeAll()
+            return waiters
+        }
+        for waiter in waiters { waiter.resume() }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if self.state.withLock({ $0.released }) { return }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        self.state.withLock {
+            $0.timedOut = true
+            $0.released = true
+        }
+    }
+
+    func waitUntilEntered() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = self.state.withLock { state -> Bool in
+                guard !state.entered else { return true }
+                state.entryWaiters.append(continuation)
+                return false
+            }
+            if shouldResume { continuation.resume() }
+        }
+    }
+
+    func recordMainActorProgressAndRelease() {
+        self.state.withLock {
+            if $0.entered, !$0.released {
+                $0.observedMainActorProgressBeforeRelease = true
+            }
+            $0.released = true
+        }
+    }
+
+    func didObserveMainActorProgressBeforeRelease() -> Bool {
+        self.state.withLock { $0.observedMainActorProgressBeforeRelease }
+    }
+
+    func didTimeOut() -> Bool {
+        self.state.withLock { $0.timedOut }
     }
 }
 

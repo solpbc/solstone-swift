@@ -111,6 +111,10 @@ nonisolated struct WatchCaptureContentWitness: Equatable, Sendable {
         self.audioFingerprint = audioFingerprint
         self.locationFingerprint = locationFingerprint
     }
+
+    var hasCompleteMediaEvidence: Bool {
+        self.audioBytes != nil && self.locationBytes != nil
+    }
 }
 
 nonisolated struct WatchCaptureCatalogEntry: Sendable {
@@ -1137,6 +1141,34 @@ actor WatchCaptureStorageActor {
                         issues.append(self.issue(.pathMismatch, namespace: namespace))
                         continue
                     }
+                    let mediaURLs = self.withSynchronousActorWork(boundary) {
+                        [
+                            self.paths.audioURL(directory: segmentURL),
+                            self.paths.locationURL(directory: segmentURL),
+                        ]
+                    }
+                    var mediaShapeFailed = false
+                    for mediaURL in mediaURLs {
+                        do {
+                            switch try await self.fileWriter.itemKind(at: mediaURL) {
+                            case .directory:
+                                issues.append(self.issue(
+                                    .unexpectedShape,
+                                    namespace: "\(namespace)/\(mediaURL.lastPathComponent)"
+                                ))
+                                mediaShapeFailed = true
+                            case .missing, .file:
+                                break
+                            }
+                        } catch {
+                            issues.append(self.issue(
+                                .fileTypeLookupFailure,
+                                namespace: "\(namespace)/\(mediaURL.lastPathComponent)"
+                            ))
+                            mediaShapeFailed = true
+                        }
+                    }
+                    guard !mediaShapeFailed else { continue }
                     let witness = await self.contentWitness(
                         manifestData: data,
                         directoryURL: segmentURL,
@@ -1225,7 +1257,10 @@ actor WatchCaptureStorageActor {
         _ current: WatchCaptureCatalogEntry,
         against expected: WatchCaptureCatalogEntry
     ) throws {
-        guard current.witness == expected.witness else {
+        guard current.witness.hasCompleteMediaEvidence,
+              expected.witness.hasCompleteMediaEvidence,
+              current.witness == expected.witness
+        else {
             throw WatchCaptureStorageConflict.contentWitnessChanged(id: expected.id)
         }
     }

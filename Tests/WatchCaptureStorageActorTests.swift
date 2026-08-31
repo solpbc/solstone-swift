@@ -45,6 +45,29 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertFalse(catalog.canInferUUIDAbsence)
     }
 
+    func testDirectoryShapedMediaIsIsolatedWithoutSuppressingHealthySibling() async throws {
+        let actor = self.actor()
+        let healthy = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
+        let malformed = self.manifest(id: UUID(), segment: "120500_300", state: .queued)
+        try await actor.writeManifest(healthy)
+        try await actor.writeManifest(malformed)
+        let malformedAudioURL = self.root
+            .appendingPathComponent("20250101/120500_300/audio.m4a", isDirectory: true)
+        try FileManager.default.createDirectory(at: malformedAudioURL, withIntermediateDirectories: true)
+
+        let catalog = await actor.scanCatalog()
+
+        XCTAssertEqual(catalog.rootState, .partial)
+        XCTAssertEqual(catalog.entries.map(\.manifest.id), [healthy.id])
+        XCTAssertEqual(catalog.issues, [WatchCaptureCatalogIssue(
+            id: "unexpectedShape:20250101/120500_300/audio.m4a",
+            kind: .unexpectedShape,
+            namespace: "20250101/120500_300/audio.m4a"
+        )])
+        XCTAssertFalse(catalog.canInferUUIDAbsence)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: malformedAudioURL.path))
+    }
+
     func testEmptyExistingRootIsAuthoritative() async throws {
         let actor = self.actor()
         try await actor.prepareRoot()
@@ -667,7 +690,10 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
         self.isEnabled = isEnabled
     }
 
-    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation {
+    func begin(
+        _ boundary: WatchSignpostBoundary,
+        fields _: WatchSignpostFields
+    ) -> WatchStorageSignpostInvocation {
         self.state.withLock { state in
             state.beginCallCount += 1
             state.openBoundaries.append(boundary)
@@ -681,7 +707,10 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
         return WatchStorageSignpostInvocation(boundary: boundary, state: nil)
     }
 
-    func end(_ invocation: WatchStorageSignpostInvocation) {
+    func end(
+        _ invocation: WatchStorageSignpostInvocation,
+        fields _: WatchSignpostFields
+    ) {
         self.state.withLock { state in
             precondition(state.openBoundaries.last == invocation.boundary)
             state.openBoundaries.removeLast()

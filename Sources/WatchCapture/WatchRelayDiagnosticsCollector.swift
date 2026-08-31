@@ -76,19 +76,22 @@ final class WatchRelayDiagnosticsCollector {
     private let session: any WatchConnectivitySession
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     private let signposter: any WatchSignposting
+    private let diagnosticsEncoder: WatchRelayDiagnosticsEncoder
 
     init(
         paths: WatchCaptureStoragePaths,
         storageActor: WatchCaptureStorageActor,
         session: any WatchConnectivitySession,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
-        signposter: any WatchSignposting = WatchSignpost.live
+        signposter: any WatchSignposting = WatchSignpost.live,
+        diagnosticsSignposter: WatchStorageSignposter = WatchStorageSignposter()
     ) {
         self.paths = paths
         self.storageActor = storageActor
         self.session = session
         self.environmentProvider = environmentProvider
         self.signposter = signposter
+        self.diagnosticsEncoder = WatchRelayDiagnosticsEncoder(signposter: diagnosticsSignposter)
     }
 
     func makeEnvelopeData(asOf: Date) async -> Data? {
@@ -96,16 +99,10 @@ final class WatchRelayDiagnosticsCollector {
         let payloadInterval = self.signposter.begin(.diagnosticsPayloadAssembly)
         let fullPayload = await self.makePayload(asOf: asOf, environment: environment)
         self.signposter.end(payloadInterval, fields: WatchSignpostFields(result: .completed))
-        let encodeInterval = self.signposter.begin(.diagnosticsFirstEncode)
-        let data = self.encodeCompactedEnvelope(generatedAt: asOf, payload: fullPayload)
-        self.signposter.end(
-            encodeInterval,
-            fields: WatchSignpostFields(
-                result: data == nil ? .failed : .completed,
-                encodedByteCount: data?.count
-            )
+        return await self.diagnosticsEncoder.encodeCompactedEnvelope(
+            generatedAt: asOf,
+            payload: fullPayload
         )
-        return data
     }
 
     nonisolated static func encodeCompactedEnvelope(
@@ -113,101 +110,6 @@ final class WatchRelayDiagnosticsCollector {
         payload: WatchRelayDiagnosticsPayload
     ) -> Data? {
         self._encodeCompactedEnvelope(generatedAt: generatedAt, payload: payload)
-    }
-
-    private func encodeCompactedEnvelope(
-        generatedAt: Date,
-        payload: WatchRelayDiagnosticsPayload
-    ) -> Data? {
-        let observations = payload.observedFileTransfers
-        let observationCount = observations.count
-        do {
-            let fullData = try Self.encodedEnvelopeData(
-                generatedAt: generatedAt,
-                payload: payload,
-                observations: observations,
-                retainedObservationCount: observationCount
-            )
-            guard fullData.count > WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
-                return fullData
-            }
-
-            let emptyData = try self.encodeCompactionEnvelope(
-                generatedAt: generatedAt,
-                payload: payload,
-                observations: observations,
-                retainedObservationCount: 0
-            )
-            guard emptyData.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
-                return Self.unavailableEnvelopeData(
-                    generatedAt: generatedAt,
-                    reason: WatchRelayDiagnosticsEnvelopeReason.publicationFailed
-                )
-            }
-
-            var low = 0
-            var lowData = emptyData
-            var high = observationCount
-            while high - low > 1 {
-                let mid = low + (high - low) / 2
-                let data = try self.encodeCompactionEnvelope(
-                    generatedAt: generatedAt,
-                    payload: payload,
-                    observations: observations,
-                    retainedObservationCount: mid
-                )
-                if data.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount {
-                    low = mid
-                    lowData = data
-                } else {
-                    high = mid
-                }
-            }
-            return lowData
-        } catch {
-            return Self.unavailableEnvelopeData(
-                generatedAt: generatedAt,
-                reason: WatchRelayDiagnosticsEnvelopeReason.encodeFailed
-            )
-        }
-    }
-
-    private func encodeCompactionEnvelope(
-        generatedAt: Date,
-        payload: WatchRelayDiagnosticsPayload,
-        observations: [WatchRelayTransferObservation],
-        retainedObservationCount: Int
-    ) throws -> Data {
-        let interval = self.signposter.begin(
-            .diagnosticsCompactionEncode,
-            fields: WatchSignpostFields(retainedObservationCount: retainedObservationCount)
-        )
-        do {
-            let data = try Self.encodedEnvelopeData(
-                generatedAt: generatedAt,
-                payload: payload,
-                observations: observations,
-                retainedObservationCount: retainedObservationCount
-            )
-            self.signposter.end(
-                interval,
-                fields: WatchSignpostFields(
-                    result: .completed,
-                    retainedObservationCount: retainedObservationCount,
-                    encodedByteCount: data.count
-                )
-            )
-            return data
-        } catch {
-            self.signposter.end(
-                interval,
-                fields: WatchSignpostFields(
-                    result: .failed,
-                    retainedObservationCount: retainedObservationCount
-                )
-            )
-            throw error
-        }
     }
 
     nonisolated static func unavailableEnvelopeData(generatedAt: Date, reason: String) -> Data? {
@@ -255,6 +157,131 @@ final class WatchRelayDiagnosticsCollector {
             orphaned: orphaned,
             unparseable: unparseable
         )
+    }
+}
+
+/// Owns diagnostics encoding so JSON construction and bounded compaction never
+/// occupy MainActor. Its signposts are emitted directly from actor-local work,
+/// so their intervals never require an instrumentation hop through MainActor.
+private actor WatchRelayDiagnosticsEncoder {
+    private let signposter: WatchStorageSignposter
+
+    init(signposter: WatchStorageSignposter) {
+        self.signposter = signposter
+    }
+
+    func encodeCompactedEnvelope(
+        generatedAt: Date,
+        payload: WatchRelayDiagnosticsPayload
+    ) -> Data? {
+        let interval = self.signposter.begin(.diagnosticsFirstEncode)
+        let data = self.encodeCompactedEnvelopeInner(
+            generatedAt: generatedAt,
+            payload: payload
+        )
+        self.signposter.end(
+            interval,
+            fields: WatchSignpostFields(
+                result: data == nil ? .failed : .completed,
+                encodedByteCount: data?.count
+            )
+        )
+        return data
+    }
+
+    private func encodeCompactedEnvelopeInner(
+        generatedAt: Date,
+        payload: WatchRelayDiagnosticsPayload
+    ) -> Data? {
+        let observations = payload.observedFileTransfers
+        let observationCount = observations.count
+        do {
+            let fullData = try WatchRelayDiagnosticsCollector.encodedEnvelopeData(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: observationCount
+            )
+            guard fullData.count > WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
+                return fullData
+            }
+
+            let emptyData = try self.encodeCompactionEnvelope(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: 0
+            )
+            guard emptyData.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
+                return WatchRelayDiagnosticsCollector.unavailableEnvelopeData(
+                    generatedAt: generatedAt,
+                    reason: WatchRelayDiagnosticsEnvelopeReason.publicationFailed
+                )
+            }
+
+            var low = 0
+            var lowData = emptyData
+            var high = observationCount
+            while high - low > 1 {
+                let mid = low + (high - low) / 2
+                let data = try self.encodeCompactionEnvelope(
+                    generatedAt: generatedAt,
+                    payload: payload,
+                    observations: observations,
+                    retainedObservationCount: mid
+                )
+                if data.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount {
+                    low = mid
+                    lowData = data
+                } else {
+                    high = mid
+                }
+            }
+            return lowData
+        } catch {
+            return WatchRelayDiagnosticsCollector.unavailableEnvelopeData(
+                generatedAt: generatedAt,
+                reason: WatchRelayDiagnosticsEnvelopeReason.encodeFailed
+            )
+        }
+    }
+
+    private func encodeCompactionEnvelope(
+        generatedAt: Date,
+        payload: WatchRelayDiagnosticsPayload,
+        observations: [WatchRelayTransferObservation],
+        retainedObservationCount: Int
+    ) throws -> Data {
+        let interval = self.signposter.begin(
+            .diagnosticsCompactionEncode,
+            fields: WatchSignpostFields(retainedObservationCount: retainedObservationCount)
+        )
+        do {
+            let data = try WatchRelayDiagnosticsCollector.encodedEnvelopeData(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: retainedObservationCount
+            )
+            self.signposter.end(
+                interval,
+                fields: WatchSignpostFields(
+                    result: .completed,
+                    retainedObservationCount: retainedObservationCount,
+                    encodedByteCount: data.count
+                )
+            )
+            return data
+        } catch {
+            self.signposter.end(
+                interval,
+                fields: WatchSignpostFields(
+                    result: .failed,
+                    retainedObservationCount: retainedObservationCount
+                )
+            )
+            throw error
+        }
     }
 }
 

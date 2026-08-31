@@ -194,6 +194,21 @@ nonisolated struct WatchSignpostFields: Equatable, Sendable {
         self.retainedObservationCount = retainedObservationCount
         self.encodedByteCount = encodedByteCount
     }
+
+    var signpostDescription: String {
+        var parts: [String] = []
+        if let trigger { parts.append("trigger=\(trigger.rawValue)") }
+        if let result { parts.append("result=\(result.rawValue)") }
+        if let activation { parts.append("activation=\(activation.rawValue)") }
+        if let entryWorkload { parts.append("entryWorkload=\(entryWorkload.rawValue)") }
+        if let refreshedWorkload { parts.append("refreshedWorkload=\(refreshedWorkload.rawValue)") }
+        if let transferCandidateCount { parts.append("transferCandidateCount=\(transferCandidateCount)") }
+        if let failureCount { parts.append("failureCount=\(failureCount)") }
+        if let usedFallback { parts.append("usedFallback=\(usedFallback)") }
+        if let retainedObservationCount { parts.append("retainedObservationCount=\(retainedObservationCount)") }
+        if let encodedByteCount { parts.append("encodedByteCount=\(encodedByteCount)") }
+        return parts.joined(separator: " ")
+    }
 }
 
 @MainActor
@@ -309,7 +324,7 @@ final class LiveWatchSignpostIntervalSink: WatchSignpostIntervalSink {
         fields: WatchSignpostFields
     ) -> WatchSignpostInvocation {
         let invocation = WatchSignpostInvocation(boundary: boundary)
-        let state = self.signposter.beginInterval(boundary.name, "\(self.description(fields), privacy: .public)")
+        let state = self.signposter.beginInterval(boundary.name, "\(fields.signpostDescription, privacy: .public)")
         self.states[ObjectIdentifier(invocation)] = state
         return invocation
     }
@@ -319,22 +334,11 @@ final class LiveWatchSignpostIntervalSink: WatchSignpostIntervalSink {
         fields: WatchSignpostFields
     ) {
         guard let state = self.states.removeValue(forKey: ObjectIdentifier(invocation)) else { return }
-        self.signposter.endInterval(invocation.boundary.name, state, "\(self.description(fields), privacy: .public)")
-    }
-
-    private func description(_ fields: WatchSignpostFields) -> String {
-        var parts: [String] = []
-        if let trigger = fields.trigger { parts.append("trigger=\(trigger.rawValue)") }
-        if let result = fields.result { parts.append("result=\(result.rawValue)") }
-        if let activation = fields.activation { parts.append("activation=\(activation.rawValue)") }
-        if let entryWorkload = fields.entryWorkload { parts.append("entryWorkload=\(entryWorkload.rawValue)") }
-        if let refreshedWorkload = fields.refreshedWorkload { parts.append("refreshedWorkload=\(refreshedWorkload.rawValue)") }
-        if let transferCandidateCount = fields.transferCandidateCount { parts.append("transferCandidateCount=\(transferCandidateCount)") }
-        if let failureCount = fields.failureCount { parts.append("failureCount=\(failureCount)") }
-        if let usedFallback = fields.usedFallback { parts.append("usedFallback=\(usedFallback)") }
-        if let retainedObservationCount = fields.retainedObservationCount { parts.append("retainedObservationCount=\(retainedObservationCount)") }
-        if let encodedByteCount = fields.encodedByteCount { parts.append("encodedByteCount=\(encodedByteCount)") }
-        return parts.joined(separator: " ")
+        self.signposter.endInterval(
+            invocation.boundary.name,
+            state,
+            "\(fields.signpostDescription, privacy: .public)"
+        )
     }
 }
 
@@ -365,8 +369,14 @@ nonisolated struct WatchStorageSignpostInvocation: Sendable {
 nonisolated protocol WatchStorageSignpostIntervalSink: Sendable {
     var isEnabled: Bool { get }
 
-    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation
-    func end(_ invocation: WatchStorageSignpostInvocation)
+    func begin(
+        _ boundary: WatchSignpostBoundary,
+        fields: WatchSignpostFields
+    ) -> WatchStorageSignpostInvocation
+    func end(
+        _ invocation: WatchStorageSignpostInvocation,
+        fields: WatchSignpostFields
+    )
 }
 
 nonisolated struct WatchStorageSignposter: Sendable {
@@ -380,16 +390,22 @@ nonisolated struct WatchStorageSignposter: Sendable {
         self.sink = sink
     }
 
-    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation? {
+    func begin(
+        _ boundary: WatchSignpostBoundary,
+        fields: @autoclosure () -> WatchSignpostFields = WatchSignpostFields()
+    ) -> WatchStorageSignpostInvocation? {
         // Keep the disabled path allocation-free: no interval state or operation fields exist
         // until the OS signposter (or an injected test sink) has enabled instrumentation.
         guard self.sink.isEnabled else { return nil }
-        return self.sink.begin(boundary)
+        return self.sink.begin(boundary, fields: fields())
     }
 
-    func end(_ invocation: WatchStorageSignpostInvocation?) {
+    func end(
+        _ invocation: WatchStorageSignpostInvocation?,
+        fields: @autoclosure () -> WatchSignpostFields = WatchSignpostFields()
+    ) {
         guard let invocation else { return }
-        self.sink.end(invocation)
+        self.sink.end(invocation, fields: fields())
     }
 }
 
@@ -400,15 +416,25 @@ nonisolated private struct LiveWatchStorageSignpostIntervalSink: WatchStorageSig
 
     var isEnabled: Bool { self.signposter.isEnabled }
 
-    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation {
+    func begin(
+        _ boundary: WatchSignpostBoundary,
+        fields: WatchSignpostFields
+    ) -> WatchStorageSignpostInvocation {
         WatchStorageSignpostInvocation(
             boundary: boundary,
-            state: self.signposter.beginInterval(boundary.name)
+            state: self.signposter.beginInterval(boundary.name, "\(fields.signpostDescription, privacy: .public)")
         )
     }
 
-    func end(_ invocation: WatchStorageSignpostInvocation) {
+    func end(
+        _ invocation: WatchStorageSignpostInvocation,
+        fields: WatchSignpostFields
+    ) {
         guard let state = invocation.state else { return }
-        self.signposter.endInterval(invocation.boundary.name, state)
+        self.signposter.endInterval(
+            invocation.boundary.name,
+            state,
+            "\(fields.signpostDescription, privacy: .public)"
+        )
     }
 }
