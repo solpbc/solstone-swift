@@ -143,6 +143,8 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
     }
 
     func testRelayStateRefreshTailPublishesNewerCountsAfterHeldEarlierRefresh() async throws {
+        let sink = WatchModelSignpostSink()
+        let signposter = WatchSignposter(sink: sink)
         let writer = BlockingRelayStateRefreshWriter()
         let storage = try WatchModelTestStorage(
             rootURL: self.temporaryDirectory.appendingPathComponent("relay-state-storage"),
@@ -179,6 +181,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             diagnosticsCollector: collector,
             notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
+            signposter: signposter,
             complicationRootURL: { complicationRoot },
             reloadComplicationTimelines: {}
         )
@@ -189,6 +192,12 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didWriteInitialSnapshot)
         let didPublishInitialCounts = await self.waitForRelayCount(1, model: model)
         XCTAssertTrue(didPublishInitialCounts)
+        let didFinishLaunchMaintenance = await self.waitUntilSettled {
+            sink.events.contains {
+                $0.kind == .end && $0.boundary == .reconciliationMaintenance
+            }
+        }
+        XCTAssertTrue(didFinishLaunchMaintenance)
         await model.requestDiagnosticsRefresh()
         await self.waitUntilReadsIdle(writer: writer)
 
@@ -256,6 +265,12 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await writer.releaseRead()
         let didPublishInitialCounts = await self.waitForRelayCount(1, model: model)
         XCTAssertTrue(didPublishInitialCounts)
+        let didFinishLaunchMaintenance = await self.waitUntilSettled {
+            sink.events.contains {
+                $0.kind == .end && $0.boundary == .reconciliationMaintenance
+            }
+        }
+        XCTAssertTrue(didFinishLaunchMaintenance)
         await model.requestDiagnosticsRefresh()
         await self.waitUntilReadsIdle(writer: writer)
         sink.reset()
@@ -705,7 +720,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
         session.activationState = .activated
         session.emitActivationChanged(true)
-        let didDrainActivation = await self.waitUntil {
+        let didDrainActivation = await self.waitUntilSettled {
             sink.events.contains {
                 $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .connectivityActivation
             }
@@ -717,7 +732,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
         sink.reset()
         session.emitReachability(true)
-        let didDrainReachability = await self.waitUntil {
+        let didDrainReachability = await self.waitUntilSettled {
             sink.events.contains {
                 $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .connectivityReachability
             }
