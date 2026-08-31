@@ -215,7 +215,8 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let relayReadCount = await writer.readCount()
         XCTAssertTrue(
             didPublishNewerCounts,
-            "relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount)"
+            "relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount); "
+                + "published queued counts: \(session.publishedQueuedCounts)"
         )
         XCTAssertEqual(model.presentation.queuedCount, 2)
     }
@@ -287,7 +288,8 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let relayReadCount = await writer.readCount()
         XCTAssertTrue(
             didPublishNewerCounts,
-            "coalesced relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount)"
+            "coalesced relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount); "
+                + "published queued counts: \(session.publishedQueuedCounts)"
         )
 
         let requestEnds = sink.events.filter {
@@ -1280,6 +1282,7 @@ private final class WatchModelConnectivitySession: WatchConnectivitySession {
 
     func activate() {}
     private(set) var transferredFiles: [(URL, [String: Any])] = []
+    private(set) var publishedQueuedCounts: [Int] = []
 
     func transferFile(_ url: URL, metadata: [String: Any]) {
         self.transferredFiles.append((url, metadata))
@@ -1288,6 +1291,9 @@ private final class WatchModelConnectivitySession: WatchConnectivitySession {
     func sendMessage(_ message: [String: Any]) {}
     func updateApplicationContext(_ applicationContext: [String: Any]) throws {
         self.applicationContextUpdateCount += 1
+        if let context = WatchStatusContext(applicationContext: applicationContext) {
+            self.publishedQueuedCounts.append(context.queuedCount)
+        }
         if self.remainingPublicationFailures > 0 {
             self.remainingPublicationFailures -= 1
             throw WatchModelTestError.publicationFailed
