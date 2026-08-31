@@ -115,13 +115,17 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(maximum, 1)
     }
 
-    func testActorSignpostsBeginAfterTransactionGateAdmissionAndBalance() async throws {
+    func testActorSignpostsMeasureSynchronousWorkAfterTransactionGateAdmission() async throws {
         let writer = BlockingStorageWriter()
         let sink = WatchStorageSignpostTestSink()
         let storage = WatchCaptureStorageActor(
             paths: WatchCaptureStoragePaths(rootURL: self.root),
             fileWriter: writer,
-            storageSignposter: WatchStorageSignposter(sink: sink)
+            storageSignposter: WatchStorageSignposter(sink: sink),
+            synchronousWorkHook: { boundary in
+                guard boundary == .capturePreparation else { return }
+                Thread.sleep(forTimeInterval: 0.03)
+            }
         )
 
         async let first: Void = storage.prepareRoot()
@@ -164,14 +168,26 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let secondBegin = try XCTUnwrap(captureBegins.dropFirst().first)
         XCTAssertGreaterThanOrEqual(secondBegin.at.timeIntervalSince1970, releasedAt.timeIntervalSince1970)
         XCTAssertGreaterThanOrEqual(secondCompletedAt.timeIntervalSince(secondSubmittedAt), 0.03)
+        let captureEvents = snapshot.events.filter { $0.boundary == .capturePreparation }
+        XCTAssertEqual(captureEvents.count, 4)
+        for index in stride(from: 0, to: captureEvents.count, by: 2) {
+            XCTAssertEqual(captureEvents[index].kind, .begin)
+            XCTAssertEqual(captureEvents[index + 1].kind, .end)
+            XCTAssertGreaterThanOrEqual(
+                captureEvents[index + 1].at.timeIntervalSince(captureEvents[index].at),
+                0.025
+            )
+        }
     }
 
     func testDisabledActorSignpostingDoesNotCreateIntervals() async throws {
         let sink = WatchStorageSignpostTestSink(isEnabled: false)
+        let hook = WatchStorageSynchronousWorkCounter()
         let storage = WatchCaptureStorageActor(
             paths: WatchCaptureStoragePaths(rootURL: self.root),
             fileWriter: FoundationWatchFileWriter(),
-            storageSignposter: WatchStorageSignposter(sink: sink)
+            storageSignposter: WatchStorageSignposter(sink: sink),
+            synchronousWorkHook: { _ in hook.increment() }
         )
 
         try await storage.writeComplicationSnapshot(
@@ -183,6 +199,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(snapshot.beginCallCount, 0)
         XCTAssertTrue(snapshot.events.isEmpty)
         XCTAssertEqual(snapshot.openIntervalCount, 0)
+        XCTAssertEqual(hook.value(), 0)
     }
 
     func testActorSignpostsBalanceUnavailablePartialAndConflictExits() async throws {
@@ -686,6 +703,18 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
                 openBoundaries: state.openBoundaries
             )
         }
+    }
+}
+
+private struct WatchStorageSynchronousWorkCounter: Sendable {
+    private let count = OSAllocatedUnfairLock(initialState: 0)
+
+    func increment() {
+        self.count.withLock { $0 += 1 }
+    }
+
+    func value() -> Int {
+        self.count.withLock { $0 }
     }
 }
 

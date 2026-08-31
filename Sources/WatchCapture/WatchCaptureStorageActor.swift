@@ -189,6 +189,9 @@ actor WatchCaptureStorageActor {
     private let diagnosticsEncoder: JSONEncoder
     private let diagnosticsDecoder: JSONDecoder
     private let storageSignposter: WatchStorageSignposter
+    // Tests use this only to make a synchronous actor-work span long enough to observe.
+    // The production default is a no-op and is skipped while signposting is disabled.
+    private let synchronousWorkHook: @Sendable (WatchSignpostBoundary) -> Void
     private var transactionIsActive = false
     private var transactionWaiters: [CheckedContinuation<Void, Never>] = []
     private var loggedCorruptDiagnosticURLs: Set<String> = []
@@ -198,12 +201,14 @@ actor WatchCaptureStorageActor {
         paths: WatchCaptureStoragePaths,
         fileWriter: any WatchFileWriting,
         audioProbe: any WatchAudioProbing = LiveWatchAudioProbe(),
-        storageSignposter: WatchStorageSignposter = WatchStorageSignposter()
+        storageSignposter: WatchStorageSignposter = WatchStorageSignposter(),
+        synchronousWorkHook: @escaping @Sendable (WatchSignpostBoundary) -> Void = { _ in }
     ) {
         self.paths = paths
         self.fileWriter = fileWriter
         self.audioProbe = audioProbe
         self.storageSignposter = storageSignposter
+        self.synchronousWorkHook = synchronousWorkHook
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -227,20 +232,28 @@ actor WatchCaptureStorageActor {
     }
 
     func prepareRoot() async throws {
-        try await self.withTransaction(.capturePreparation) {
-            try await self.fileWriter.createDirectory(at: self.paths.rootURL)
+        try await self.withTransaction {
+            let rootURL = self.withSynchronousActorWork(.capturePreparation) {
+                self.paths.rootURL
+            }
+            try await self.fileWriter.createDirectory(at: rootURL)
         }
     }
 
     func prepareSegmentDirectory(day: String, segment: String) async throws -> URL {
-        try await self.withTransaction(.capturePreparation) {
-            let directory = self.paths.segmentDirectoryURL(day: day, segment: segment)
-            if await self.fileWriter.fileExists(at: directory) {
-                throw NSError(
-                    domain: NSCocoaErrorDomain,
-                    code: NSFileWriteFileExistsError,
-                    userInfo: [NSFilePathErrorKey: directory.path]
-                )
+        try await self.withTransaction {
+            let directory = self.withSynchronousActorWork(.capturePreparation) {
+                self.paths.segmentDirectoryURL(day: day, segment: segment)
+            }
+            let exists = await self.fileWriter.fileExists(at: directory)
+            try self.withSynchronousActorWork(.capturePreparation) {
+                guard !exists else {
+                    throw NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: NSFileWriteFileExistsError,
+                        userInfo: [NSFilePathErrorKey: directory.path]
+                    )
+                }
             }
             try await self.fileWriter.createDirectory(at: directory)
             return directory
@@ -253,9 +266,12 @@ actor WatchCaptureStorageActor {
         currentSegment: String,
         finalSegment: String
     ) async throws -> URL {
-        try await self.withTransaction(.captureFinalization) {
-            guard currentSegment != finalSegment else { return currentURL }
-            let finalURL = self.paths.segmentDirectoryURL(day: day, segment: finalSegment)
+        try await self.withTransaction {
+            let finalURL = self.withSynchronousActorWork(.captureFinalization) { () -> URL? in
+                guard currentSegment != finalSegment else { return nil }
+                return self.paths.segmentDirectoryURL(day: day, segment: finalSegment)
+            }
+            guard let finalURL else { return currentURL }
             try await self.fileWriter.moveItem(at: currentURL, to: finalURL)
             return finalURL
         }
@@ -263,37 +279,45 @@ actor WatchCaptureStorageActor {
 
     func fileExists(at url: URL) async -> Bool {
         await self.withTransaction {
-            await self.fileWriter.fileExists(at: url)
+            let fileURL = self.withSynchronousActorWork(.storageActorFileOperation) { url }
+            return await self.fileWriter.fileExists(at: fileURL)
         }
     }
 
     func fileSize(at url: URL) async throws -> Int64 {
         try await self.withTransaction {
-            try await self.fileWriter.fileSize(at: url)
+            let fileURL = self.withSynchronousActorWork(.storageActorFileOperation) { url }
+            return try await self.fileWriter.fileSize(at: fileURL)
         }
     }
 
     func removeItem(at url: URL) async throws {
         try await self.withTransaction {
-            try await self.fileWriter.removeItem(at: url)
+            let fileURL = self.withSynchronousActorWork(.storageActorFileOperation) { url }
+            try await self.fileWriter.removeItem(at: fileURL)
         }
     }
 
     func writeComplicationSnapshot(_ data: Data, to url: URL) async throws {
-        try await self.withTransaction(.complicationSnapshot) {
-            try await self.fileWriter.writeData(data, to: url, options: .atomic)
+        try await self.withTransaction {
+            let snapshot = self.withSynchronousActorWork(.complicationSnapshot) { (data, url) }
+            try await self.fileWriter.writeData(snapshot.0, to: snapshot.1, options: .atomic)
         }
     }
 
     func removeSegmentDirectoryIfMediaIsProvablyEmpty(at directory: URL) async -> Bool {
-        await self.withTransaction(.captureFinalization) {
-            let mediaURLs = [
-                self.paths.audioURL(directory: directory),
-                self.paths.locationURL(directory: directory),
-            ]
+        await self.withTransaction {
+            let mediaURLs = self.withSynchronousActorWork(.captureFinalization) {
+                [
+                    self.paths.audioURL(directory: directory),
+                    self.paths.locationURL(directory: directory),
+                ]
+            }
             for url in mediaURLs {
                 do {
-                    guard try await self.fileWriter.fileSize(at: url) == 0 else { return false }
+                    let size = try await self.fileWriter.fileSize(at: url)
+                    let isEmpty = self.withSynchronousActorWork(.captureFinalization) { size == 0 }
+                    guard isEmpty else { return false }
                 } catch {
                     return false
                 }
@@ -308,19 +332,20 @@ actor WatchCaptureStorageActor {
     }
 
     func probeAudio(at url: URL) async -> WatchAudioProbeResult {
-        await self.withTransaction(.captureFinalization) {
+        await self.withTransaction {
+            let audioURL = self.withSynchronousActorWork(.captureFinalization) { url }
             do {
-                _ = try await self.fileWriter.readData(from: url)
+                _ = try await self.fileWriter.readData(from: audioURL)
             } catch {
-                return .ioUnknown
+                return self.withSynchronousActorWork(.captureFinalization) { .ioUnknown }
             }
-            return await self.audioProbe.probe(at: url)
+            return await self.audioProbe.probe(at: audioURL)
         }
     }
 
     func scanCatalog() async -> WatchCaptureCatalog {
-        await self.withTransaction(.manifestScan) {
-            await self.scanCatalogInner()
+        await self.withTransaction {
+            await self.scanCatalogInner(boundary: .manifestScan)
         }
     }
 
@@ -329,17 +354,26 @@ actor WatchCaptureStorageActor {
         entry: WatchCaptureCatalogEntry? = nil,
         ensuringDirectory: Bool = true
     ) async throws {
-        try await self.withTransaction(.storageActorManifestWrite) {
-            let directory = entry?.directoryURL ?? self.paths.segmentDirectoryURL(day: manifest.day, segment: manifest.segment)
+        try await self.withTransaction {
+            let directory = self.withSynchronousActorWork(.storageActorManifestWrite) {
+                entry?.directoryURL ?? self.paths.segmentDirectoryURL(day: manifest.day, segment: manifest.segment)
+            }
             if let entry {
                 let current = try await self.fileWriter.readData(from: entry.manifestURL)
-                guard current == entry.witness.manifestData else { throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id) }
+                try self.withSynchronousActorWork(.storageActorManifestWrite) {
+                    guard current == entry.witness.manifestData else {
+                        throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id)
+                    }
+                }
             } else if ensuringDirectory {
-                try await self.prepareRootInner()
+                try await self.prepareRootInner(boundary: .storageActorManifestWrite)
                 try await self.fileWriter.createDirectory(at: directory)
             }
+            let data = try self.withSynchronousActorWork(.storageActorManifestWrite) {
+                try self.manifestEncoder.encode(manifest)
+            }
             try await self.fileWriter.writeData(
-                try self.manifestEncoder.encode(manifest),
+                data,
                 to: self.paths.manifestURL(directory: directory),
                 options: .atomic
             )
@@ -347,59 +381,76 @@ actor WatchCaptureStorageActor {
     }
 
     func promoteQueuedForRelay(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.currentRelayEntry(entry)
-            guard current.manifest.state == .queued else {
-                throw self.staleState(entry, expected: .queued, actual: current.manifest.state)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
+            let manifest = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                guard current.manifest.state == .queued else {
+                    throw self.staleState(entry, expected: .queued, actual: current.manifest.state)
+                }
+                try self.verifyRelayWitness(current, against: entry)
+                var manifest = current.manifest
+                manifest.state = .transferring
+                return manifest
             }
-            try self.verifyRelayWitness(current, against: entry)
-            var manifest = current.manifest
-            manifest.state = .transferring
             return WatchRelayStorageTransition(
-                entry: try await self.writeRelayManifest(manifest, replacing: current),
+                entry: try await self.writeRelayManifest(manifest, replacing: current, boundary: .relaySegmentTransition),
                 didChange: true
             )
         }
     }
 
     func adoptQueuedForRelay(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.currentRelayEntry(entry)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
             switch current.manifest.state {
             case .queued:
-                try self.verifyRelayWitness(current, against: entry)
-                var manifest = current.manifest
-                manifest.state = .transferring
+                let manifest = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                    try self.verifyRelayWitness(current, against: entry)
+                    var manifest = current.manifest
+                    manifest.state = .transferring
+                    return manifest
+                }
                 return WatchRelayStorageTransition(
-                    entry: try await self.writeRelayManifest(manifest, replacing: current),
+                    entry: try await self.writeRelayManifest(manifest, replacing: current, boundary: .relaySegmentTransition),
                     didChange: true
                 )
             case .transferring:
-                try self.verifyRelayWitness(current, against: entry)
-                return WatchRelayStorageTransition(entry: current, didChange: false)
+                return try self.withSynchronousActorWork(.relaySegmentTransition) {
+                    try self.verifyRelayWitness(current, against: entry)
+                    return WatchRelayStorageTransition(entry: current, didChange: false)
+                }
             default:
-                throw self.staleState(entry, expected: .queued, actual: current.manifest.state)
+                throw self.withSynchronousActorWork(.relaySegmentTransition) {
+                    self.staleState(entry, expected: .queued, actual: current.manifest.state)
+                }
             }
         }
     }
 
     func requeueFailedRelayTransfer(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.currentRelayEntry(entry)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
             switch current.manifest.state {
             case .transferring:
-                try self.verifyRelayWitness(current, against: entry)
-                var manifest = current.manifest
-                manifest.state = .queued
+                let manifest = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                    try self.verifyRelayWitness(current, against: entry)
+                    var manifest = current.manifest
+                    manifest.state = .queued
+                    return manifest
+                }
                 return WatchRelayStorageTransition(
-                    entry: try await self.writeRelayManifest(manifest, replacing: current),
+                    entry: try await self.writeRelayManifest(manifest, replacing: current, boundary: .relaySegmentTransition),
                     didChange: true
                 )
             case .queued:
-                try self.verifyRelayWitness(current, against: entry)
-                return WatchRelayStorageTransition(entry: current, didChange: false)
+                return try self.withSynchronousActorWork(.relaySegmentTransition) {
+                    try self.verifyRelayWitness(current, against: entry)
+                    return WatchRelayStorageTransition(entry: current, didChange: false)
+                }
             default:
-                throw self.staleState(entry, expected: .transferring, actual: current.manifest.state)
+                throw self.withSynchronousActorWork(.relaySegmentTransition) {
+                    self.staleState(entry, expected: .transferring, actual: current.manifest.state)
+                }
             }
         }
     }
@@ -408,38 +459,50 @@ actor WatchCaptureStorageActor {
         _ entry: WatchCaptureCatalogEntry,
         at deliveredAt: Date
     ) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.currentRelayEntry(entry)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
             switch current.manifest.state {
             case .transferring, .queued:
-                try self.verifyRelayWitness(current, against: entry)
-                var manifest = current.manifest
-                manifest.state = .delivered
-                manifest.deliveredAt = deliveredAt
+                let manifest = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                    try self.verifyRelayWitness(current, against: entry)
+                    var manifest = current.manifest
+                    manifest.state = .delivered
+                    manifest.deliveredAt = deliveredAt
+                    return manifest
+                }
                 return WatchRelayStorageTransition(
-                    entry: try await self.writeRelayManifest(manifest, replacing: current),
+                    entry: try await self.writeRelayManifest(manifest, replacing: current, boundary: .relaySegmentTransition),
                     didChange: true
                 )
             case .delivered:
-                try self.verifyRelayWitness(current, against: entry)
-                return WatchRelayStorageTransition(entry: current, didChange: false)
+                return try self.withSynchronousActorWork(.relaySegmentTransition) {
+                    try self.verifyRelayWitness(current, against: entry)
+                    return WatchRelayStorageTransition(entry: current, didChange: false)
+                }
             default:
-                throw self.staleState(entry, expected: entry.manifest.state, actual: current.manifest.state)
+                throw self.withSynchronousActorWork(.relaySegmentTransition) {
+                    self.staleState(entry, expected: entry.manifest.state, actual: current.manifest.state)
+                }
             }
         }
     }
 
     func acknowledgeRelaySegment(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.verifiedRelayEntry(entry)
+        try await self.withTransaction {
+            let current = try await self.verifiedRelayEntry(entry, boundary: .relaySegmentTransition)
             switch current.manifest.state {
             case .acked, .safeToDelete:
-                return WatchRelayStorageTransition(entry: current, didChange: false)
+                return self.withSynchronousActorWork(.relaySegmentTransition) {
+                    WatchRelayStorageTransition(entry: current, didChange: false)
+                }
             default:
-                var manifest = current.manifest
-                manifest.state = .acked
+                let manifest = self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                    var manifest = current.manifest
+                    manifest.state = .acked
+                    return manifest
+                }
                 return WatchRelayStorageTransition(
-                    entry: try await self.writeRelayManifest(manifest, replacing: current),
+                    entry: try await self.writeRelayManifest(manifest, replacing: current, boundary: .relaySegmentTransition),
                     didChange: true
                 )
             }
@@ -447,22 +510,29 @@ actor WatchCaptureStorageActor {
     }
 
     func markRelaySegmentSafeToDelete(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.currentRelayEntry(entry)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
             switch current.manifest.state {
             case .acked:
-                try self.verifyRelayWitness(current, against: entry)
-                var manifest = current.manifest
-                manifest.state = .safeToDelete
+                let manifest = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                    try self.verifyRelayWitness(current, against: entry)
+                    var manifest = current.manifest
+                    manifest.state = .safeToDelete
+                    return manifest
+                }
                 return WatchRelayStorageTransition(
-                    entry: try await self.writeRelayManifest(manifest, replacing: current),
+                    entry: try await self.writeRelayManifest(manifest, replacing: current, boundary: .relaySegmentTransition),
                     didChange: true
                 )
             case .safeToDelete:
-                try self.verifyRelayWitness(current, against: entry)
-                return WatchRelayStorageTransition(entry: current, didChange: false)
+                return try self.withSynchronousActorWork(.relaySegmentTransition) {
+                    try self.verifyRelayWitness(current, against: entry)
+                    return WatchRelayStorageTransition(entry: current, didChange: false)
+                }
             default:
-                throw self.staleState(entry, expected: .acked, actual: current.manifest.state)
+                throw self.withSynchronousActorWork(.relaySegmentTransition) {
+                    self.staleState(entry, expected: .acked, actual: current.manifest.state)
+                }
             }
         }
     }
@@ -471,10 +541,12 @@ actor WatchCaptureStorageActor {
         _ entry: WatchCaptureCatalogEntry,
         bundleURL: URL
     ) async throws {
-        try await self.withTransaction(.relayCleanupScan) {
-            let current = try await self.verifiedRelayDeletionEntry(entry)
-            guard current.manifest.state == .safeToDelete else {
-                throw self.staleState(entry, expected: .safeToDelete, actual: current.manifest.state)
+        try await self.withTransaction {
+            let current = try await self.verifiedRelayDeletionEntry(entry, boundary: .relayCleanupScan)
+            try self.withSynchronousActorWork(.relayCleanupScan) {
+                guard current.manifest.state == .safeToDelete else {
+                    throw self.staleState(entry, expected: .safeToDelete, actual: current.manifest.state)
+                }
             }
             try await self.fileWriter.removeItem(at: current.directoryURL)
             try? await self.fileWriter.removeItem(at: bundleURL)
@@ -486,27 +558,28 @@ actor WatchCaptureStorageActor {
         at now: Date,
         deadline: TimeInterval
     ) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(.relaySegmentTransition) {
-            let current = try await self.currentRelayEntry(entry)
-            guard current.manifest.state == .delivered else {
-                throw self.staleState(entry, expected: .delivered, actual: current.manifest.state)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
+            let transition = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest? in
+                guard current.manifest.state == .delivered else {
+                    throw self.staleState(entry, expected: .delivered, actual: current.manifest.state)
+                }
+                try self.verifyRelayWitness(current, against: entry)
+                var manifest = current.manifest
+                guard let deliveredAt = manifest.deliveredAt else {
+                    manifest.deliveredAt = now
+                    return manifest
+                }
+                guard now.timeIntervalSince(deliveredAt) >= deadline else { return nil }
+                manifest.state = .queued
+                manifest.deliveredAt = nil
+                return manifest
             }
-            try self.verifyRelayWitness(current, against: entry)
-            var manifest = current.manifest
-            guard let deliveredAt = manifest.deliveredAt else {
-                manifest.deliveredAt = now
-                return WatchRelayStorageTransition(
-                    entry: try await self.writeRelayManifest(manifest, replacing: current),
-                    didChange: true
-                )
-            }
-            guard now.timeIntervalSince(deliveredAt) >= deadline else {
+            guard let transition else {
                 return WatchRelayStorageTransition(entry: current, didChange: false)
             }
-            manifest.state = .queued
-            manifest.deliveredAt = nil
             return WatchRelayStorageTransition(
-                entry: try await self.writeRelayManifest(manifest, replacing: current),
+                entry: try await self.writeRelayManifest(transition, replacing: current, boundary: .relaySegmentTransition),
                 didChange: true
             )
         }
@@ -517,12 +590,14 @@ actor WatchCaptureStorageActor {
         bundleURL: URL,
         attempt: WatchRelayAttemptRecord
     ) async throws -> WatchRelayTransferPreparation {
-        try await self.withTransaction(.relayBundleWrite) {
-            let current = try await self.currentRelayEntry(entry)
-            guard current.manifest.state == .transferring else {
-                throw self.staleState(entry, expected: .transferring, actual: current.manifest.state)
+        try await self.withTransaction {
+            let current = try await self.currentRelayEntry(entry, boundary: .relayBundleWrite)
+            try self.withSynchronousActorWork(.relayBundleWrite) {
+                guard current.manifest.state == .transferring else {
+                    throw self.staleState(entry, expected: .transferring, actual: current.manifest.state)
+                }
+                try self.verifyRelayWitness(current, against: entry)
             }
-            try self.verifyRelayWitness(current, against: entry)
 
             var bundleCleanupFailed = false
             do {
@@ -530,14 +605,18 @@ actor WatchCaptureStorageActor {
             } catch {
                 bundleCleanupFailed = true
             }
-            let bundleData = try await self.relayBundleData(for: current)
+            let bundleData = try await self.relayBundleData(for: current, boundary: .relayBundleWrite)
             try await self.fileWriter.writeData(bundleData, to: bundleURL, options: .atomic)
 
-            let attemptURL = current.directoryURL
-                .appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
+            let attemptURL = self.withSynchronousActorWork(.relayAttemptPersistence) {
+                current.directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
+            }
             do {
+                let attemptData = try self.withSynchronousActorWork(.relayAttemptPersistence) {
+                    try WatchRelayAttemptRecord.makeEncoder().encode(attempt)
+                }
                 try await self.fileWriter.writeData(
-                    try WatchRelayAttemptRecord.makeEncoder().encode(attempt),
+                    attemptData,
                     to: attemptURL,
                     options: .atomic
                 )
@@ -550,7 +629,9 @@ actor WatchCaptureStorageActor {
                     attemptFailure: nil
                 )
             } catch {
-                let failure = WatchConnectivityTransferFailureSnapshot(error: error)
+                let failure = self.withSynchronousActorWork(.relayAttemptPersistence) {
+                    WatchConnectivityTransferFailureSnapshot(error: error)
+                }
                 var attemptCleanupFailed = false
                 do {
                     try await self.fileWriter.removeItem(at: attemptURL)
@@ -573,36 +654,63 @@ actor WatchCaptureStorageActor {
         manifest: WatchSegmentManifest,
         directoryURL: URL
     ) async -> DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar> {
-        await self.withTransaction(.diagnosticsHistorySummaryRead) {
-            guard !self.diagnosticsUnavailableAfterWriteFailure else {
+        await self.withTransaction {
+            let preflight = self.withSynchronousActorWork(.diagnosticsHistorySummaryRead) {
+                (
+                    self.diagnosticsUnavailableAfterWriteFailure,
+                    WatchRelayDiagnosticsFiles.sidecarURL(directoryURL: directoryURL)
+                )
+            }
+            guard !preflight.0 else {
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
-            let url = WatchRelayDiagnosticsFiles.sidecarURL(directoryURL: directoryURL)
+            let url = preflight.1
             guard await self.fileWriter.fileExists(at: url) else {
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
             do {
-                return .available(try await self.decodeDiagnosticsSidecar(from: url, expectedID: manifest.id))
+                return .available(try await self.decodeDiagnosticsSidecar(
+                    from: url,
+                    expectedID: manifest.id,
+                    boundary: .diagnosticsHistorySummaryRead
+                ))
             } catch {
-                await self.resetCorruptDiagnosticFile(at: url, error: error)
+                await self.resetCorruptDiagnosticFile(
+                    at: url,
+                    error: error,
+                    boundary: .diagnosticsHistorySummaryRead
+                )
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
         }
     }
 
     func readDiagnosticsSummary() async -> DiagnosticAvailability<WatchRelayLastFactsSummary> {
-        await self.withTransaction(.diagnosticsHistorySummaryRead) {
-            guard !self.diagnosticsUnavailableAfterWriteFailure else {
+        await self.withTransaction {
+            let preflight = self.withSynchronousActorWork(.diagnosticsHistorySummaryRead) {
+                (
+                    self.diagnosticsUnavailableAfterWriteFailure,
+                    WatchRelayDiagnosticsFiles.summaryURL(rootURL: self.paths.rootURL)
+                )
+            }
+            guard !preflight.0 else {
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
-            let url = WatchRelayDiagnosticsFiles.summaryURL(rootURL: self.paths.rootURL)
+            let url = preflight.1
             guard await self.fileWriter.fileExists(at: url) else {
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
             do {
-                return .available(try await self.decodeDiagnosticsSummary(from: url).lastFactsSummary)
+                return .available(try await self.decodeDiagnosticsSummary(
+                    from: url,
+                    boundary: .diagnosticsHistorySummaryRead
+                ).lastFactsSummary)
             } catch {
-                await self.resetCorruptDiagnosticFile(at: url, error: error)
+                await self.resetCorruptDiagnosticFile(
+                    at: url,
+                    error: error,
+                    boundary: .diagnosticsHistorySummaryRead
+                )
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
         }
@@ -614,11 +722,23 @@ actor WatchCaptureStorageActor {
         bundleURL: URL,
         at date: Date
     ) async -> Bool {
-        await self.withTransaction(.relayDiagnosticsPersistence) {
-            await self.performDiagnosticsWrite("enqueue", segmentID: manifest.id) {
+        await self.withTransaction {
+            await self.performDiagnosticsWrite(
+                "enqueue",
+                segmentID: manifest.id,
+                boundary: .relayDiagnosticsPersistence
+            ) {
                 let sourcePresent = await self.fileWriter.fileExists(at: bundleURL)
-                let sourceBytes = await self.diagnosticsSourceByteSize(at: bundleURL, sourcePresent: sourcePresent)
-                var sidecar = await self.diagnosticsSidecarForUpdate(manifest: manifest, directoryURL: directoryURL)
+                let sourceBytes = await self.diagnosticsSourceByteSize(
+                    at: bundleURL,
+                    sourcePresent: sourcePresent,
+                    boundary: .relayDiagnosticsPersistence
+                )
+                var sidecar = await self.diagnosticsSidecarForUpdate(
+                    manifest: manifest,
+                    directoryURL: directoryURL,
+                    boundary: .relayDiagnosticsPersistence
+                )
                 if sidecar.originalEnqueuedAt == nil {
                     sidecar.originalEnqueuedAt = date
                 }
@@ -628,11 +748,15 @@ actor WatchCaptureStorageActor {
                 sidecar.sourcePresent = sourcePresent
                 let fact = WatchRelayFactCounter(at: date, count: sidecar.attemptCount, segmentID: manifest.id)
                 sidecar.lastFacts.lastEnqueue = fact
-                try await self.writeDiagnosticsSidecar(sidecar, directoryURL: directoryURL)
+                try await self.writeDiagnosticsSidecar(
+                    sidecar,
+                    directoryURL: directoryURL,
+                    boundary: .relayDiagnosticsPersistence
+                )
 
-                var summary = await self.diagnosticsSummaryForUpdate()
+                var summary = await self.diagnosticsSummaryForUpdate(boundary: .relayDiagnosticsPersistence)
                 summary.lastEnqueue = fact
-                try await self.writeDiagnosticsSummary(summary)
+                try await self.writeDiagnosticsSummary(summary, boundary: .relayDiagnosticsPersistence)
             }
         }
     }
@@ -644,9 +768,13 @@ actor WatchCaptureStorageActor {
         failure: WatchConnectivityTransferFailureSnapshot?,
         at date: Date
     ) async {
-        _ = await self.withTransaction(.relayDiagnosticsPersistence) {
-            await self.performDiagnosticsWrite("transfer completion", segmentID: manifest.id) {
-                var summary = await self.diagnosticsSummaryForUpdate()
+        _ = await self.withTransaction {
+            await self.performDiagnosticsWrite(
+                "transfer completion",
+                segmentID: manifest.id,
+                boundary: .relayDiagnosticsPersistence
+            ) {
+                var summary = await self.diagnosticsSummaryForUpdate(boundary: .relayDiagnosticsPersistence)
                 let previousSuccess = summary.lastTransferCompletion?.successCount ?? 0
                 let previousFailure = summary.lastTransferCompletion?.failureCount ?? 0
                 let completion = WatchRelayTransferCompletionFact(
@@ -656,7 +784,11 @@ actor WatchCaptureStorageActor {
                     successCount: succeeded ? try Self.incrementDiagnosticsCounter(previousSuccess) : previousSuccess,
                     failureCount: succeeded ? previousFailure : try Self.incrementDiagnosticsCounter(previousFailure)
                 )
-                var sidecar = await self.diagnosticsSidecarForUpdate(manifest: manifest, directoryURL: directoryURL)
+                var sidecar = await self.diagnosticsSidecarForUpdate(
+                    manifest: manifest,
+                    directoryURL: directoryURL,
+                    boundary: .relayDiagnosticsPersistence
+                )
                 sidecar.lastFacts.lastTransferCompletion = completion
                 summary.lastTransferCompletion = completion
                 if let failure {
@@ -664,8 +796,12 @@ actor WatchCaptureStorageActor {
                     sidecar.lastFacts.lastStructuredFailure = structured
                     summary.lastStructuredFailure = structured
                 }
-                try await self.writeDiagnosticsSidecar(sidecar, directoryURL: directoryURL)
-                try await self.writeDiagnosticsSummary(summary)
+                try await self.writeDiagnosticsSidecar(
+                    sidecar,
+                    directoryURL: directoryURL,
+                    boundary: .relayDiagnosticsPersistence
+                )
+                try await self.writeDiagnosticsSummary(summary, boundary: .relayDiagnosticsPersistence)
             }
         }
     }
@@ -675,16 +811,28 @@ actor WatchCaptureStorageActor {
         directoryURL: URL,
         at date: Date
     ) async {
-        _ = await self.withTransaction(.relayDiagnosticsPersistence) {
-            await self.performDiagnosticsWrite("durable ack", segmentID: manifest.id) {
-                var summary = await self.diagnosticsSummaryForUpdate()
+        _ = await self.withTransaction {
+            await self.performDiagnosticsWrite(
+                "durable ack",
+                segmentID: manifest.id,
+                boundary: .relayDiagnosticsPersistence
+            ) {
+                var summary = await self.diagnosticsSummaryForUpdate(boundary: .relayDiagnosticsPersistence)
                 let count = try Self.incrementDiagnosticsCounter(summary.lastDurableACK?.count ?? 0)
                 let fact = WatchRelayFactCounter(at: date, count: count, segmentID: manifest.id)
-                var sidecar = await self.diagnosticsSidecarForUpdate(manifest: manifest, directoryURL: directoryURL)
+                var sidecar = await self.diagnosticsSidecarForUpdate(
+                    manifest: manifest,
+                    directoryURL: directoryURL,
+                    boundary: .relayDiagnosticsPersistence
+                )
                 sidecar.lastFacts.lastDurableACK = fact
-                try await self.writeDiagnosticsSidecar(sidecar, directoryURL: directoryURL)
+                try await self.writeDiagnosticsSidecar(
+                    sidecar,
+                    directoryURL: directoryURL,
+                    boundary: .relayDiagnosticsPersistence
+                )
                 summary.lastDurableACK = fact
-                try await self.writeDiagnosticsSummary(summary)
+                try await self.writeDiagnosticsSummary(summary, boundary: .relayDiagnosticsPersistence)
             }
         }
     }
@@ -695,17 +843,23 @@ actor WatchCaptureStorageActor {
         activeManifestCount: Int,
         at date: Date
     ) async -> Bool {
-        await self.withTransaction(.relayDiagnosticsPersistence) {
-            await self.performDiagnosticsWrite("queue reconciliation", segmentID: nil) {
-                let fact = WatchRelayQueueReconciliationFact(
-                    at: date,
-                    counts: counts,
-                    observedFileTransferCount: observedFileTransferCount,
-                    activeManifestCount: activeManifestCount
-                )
-                var summary = await self.diagnosticsSummaryForUpdate()
+        await self.withTransaction {
+            await self.performDiagnosticsWrite(
+                "queue reconciliation",
+                segmentID: nil,
+                boundary: .relayDiagnosticsPersistence
+            ) {
+                let fact = self.withSynchronousActorWork(.relayDiagnosticsPersistence) {
+                    WatchRelayQueueReconciliationFact(
+                        at: date,
+                        counts: counts,
+                        observedFileTransferCount: observedFileTransferCount,
+                        activeManifestCount: activeManifestCount
+                    )
+                }
+                var summary = await self.diagnosticsSummaryForUpdate(boundary: .relayDiagnosticsPersistence)
                 summary.lastQueueReconciliationObservation = fact
-                try await self.writeDiagnosticsSummary(summary)
+                try await self.writeDiagnosticsSummary(summary, boundary: .relayDiagnosticsPersistence)
             }
         }
     }
@@ -717,49 +871,60 @@ actor WatchCaptureStorageActor {
         deadlineCount: Int,
         at date: Date
     ) async {
-        _ = await self.withTransaction(.relayDiagnosticsPersistence) {
-            await self.performDiagnosticsWrite("background wake", segmentID: nil) {
-                let fact = WatchRelayBackgroundWakeFact(
-                    at: date,
-                    reason: reason,
-                    heldTaskCount: heldTaskCount,
-                    completedTaskCount: completedTaskCount,
-                    deadlineCount: deadlineCount
-                )
-                var summary = await self.diagnosticsSummaryForUpdate()
+        _ = await self.withTransaction {
+            await self.performDiagnosticsWrite(
+                "background wake",
+                segmentID: nil,
+                boundary: .relayDiagnosticsPersistence
+            ) {
+                let fact = self.withSynchronousActorWork(.relayDiagnosticsPersistence) {
+                    WatchRelayBackgroundWakeFact(
+                        at: date,
+                        reason: reason,
+                        heldTaskCount: heldTaskCount,
+                        completedTaskCount: completedTaskCount,
+                        deadlineCount: deadlineCount
+                    )
+                }
+                var summary = await self.diagnosticsSummaryForUpdate(boundary: .relayDiagnosticsPersistence)
                 if reason == "deadline" {
                     summary.lastBackgroundWakeDeadline = fact
                 } else {
                     summary.lastBackgroundWakeCompletion = fact
                 }
-                try await self.writeDiagnosticsSummary(summary)
+                try await self.writeDiagnosticsSummary(summary, boundary: .relayDiagnosticsPersistence)
             }
         }
     }
 
     func readSessionRecord() async throws -> WatchCaptureSessionRecord? {
-        try await self.withTransaction(.sessionRecord) {
-            let url = self.paths.sessionRecordURL()
+        try await self.withTransaction {
+            let url = self.withSynchronousActorWork(.sessionRecord) {
+                self.paths.sessionRecordURL()
+            }
             guard await self.fileWriter.fileExists(at: url) else { return nil }
-            return try self.manifestDecoder.decode(
-                WatchCaptureSessionRecord.self,
-                from: try await self.fileWriter.readData(from: url)
-            )
+            let data = try await self.fileWriter.readData(from: url)
+            return try self.withSynchronousActorWork(.sessionRecord) {
+                try self.manifestDecoder.decode(WatchCaptureSessionRecord.self, from: data)
+            }
         }
     }
 
     func writeSessionRecord(_ record: WatchCaptureSessionRecord) async throws {
-        try await self.withTransaction(.sessionRecord) {
+        try await self.withTransaction {
+            let write = try self.withSynchronousActorWork(.sessionRecord) {
+                (self.paths.sessionRecordURL(), try self.manifestEncoder.encode(record))
+            }
             try await self.fileWriter.atomicReplaceFile(
-                at: self.paths.sessionRecordURL(),
-                with: self.manifestEncoder.encode(record)
+                at: write.0,
+                with: write.1
             )
         }
     }
 
     func readSessionHistory(asOf: Date) async -> WatchCaptureSessionHistoryReadResult {
-        await self.withTransaction(.sessionHistory) {
-            await self.readSessionHistoryInner(asOf: asOf)
+        await self.withTransaction {
+            await self.readSessionHistoryInner(asOf: asOf, boundary: .sessionHistory)
         }
     }
 
@@ -767,11 +932,16 @@ actor WatchCaptureStorageActor {
         sessionID: String,
         asOf: Date
     ) async -> WatchCaptureSessionHistoryEntry? {
-        await self.withTransaction(.sessionHistory) {
-            guard case let .available(entries) = await self.readSessionHistoryInner(asOf: asOf) else {
+        await self.withTransaction {
+            guard case let .available(entries) = await self.readSessionHistoryInner(
+                asOf: asOf,
+                boundary: .sessionHistory
+            ) else {
                 return nil
             }
-            return entries.first { $0.sessionID == sessionID }
+            return self.withSynchronousActorWork(.sessionHistory) {
+                entries.first { $0.sessionID == sessionID }
+            }
         }
     }
 
@@ -779,36 +949,49 @@ actor WatchCaptureStorageActor {
         _ entry: WatchCaptureSessionHistoryEntry,
         asOf: Date
     ) async throws {
-        try await self.withTransaction(.sessionHistory) {
-            try await self.upsertSessionHistoryInner(entry, asOf: asOf)
+        try await self.withTransaction {
+            try await self.upsertSessionHistoryInner(entry, asOf: asOf, boundary: .sessionHistory)
         }
     }
 
     func readSessionHistoryCounter() async -> WatchCaptureSessionHistoryCounter? {
-        await self.withTransaction(.sessionHistory) {
-            await self.readSessionHistoryCounterInner()
+        await self.withTransaction {
+            await self.readSessionHistoryCounterInner(boundary: .sessionHistory)
         }
     }
 
     func incrementLifetimeSessionCounter() async throws -> WatchCaptureSessionHistoryCounter? {
-        try await self.withTransaction(.sessionHistory) {
-            let url = self.paths.sessionHistoryCounterURL()
+        try await self.withTransaction {
+            let url = self.withSynchronousActorWork(.sessionHistory) {
+                self.paths.sessionHistoryCounterURL()
+            }
             if await self.fileWriter.fileExists(at: url) {
-                guard let current = try? self.sessionDecoder.decode(
-                    WatchCaptureSessionHistoryCounter.self,
-                    from: try await self.fileWriter.readData(from: url)
-                ) else {
+                guard let data = try? await self.fileWriter.readData(from: url) else {
                     return nil
                 }
-                let updated = WatchCaptureSessionHistoryCounter(
-                    epoch: current.epoch,
-                    lifetimeSessionsStarted: current.lifetimeSessionsStarted + 1
-                )
-                try await self.fileWriter.atomicReplaceFile(at: url, with: self.sessionEncoder.encode(updated))
+                let updated: WatchCaptureSessionHistoryCounter? = self.withSynchronousActorWork(.sessionHistory) {
+                    guard let current = try? self.sessionDecoder.decode(WatchCaptureSessionHistoryCounter.self, from: data) else {
+                        return nil
+                    }
+                    return WatchCaptureSessionHistoryCounter(
+                        epoch: current.epoch,
+                        lifetimeSessionsStarted: current.lifetimeSessionsStarted + 1
+                    )
+                }
+                guard let updated else { return nil }
+                let encoded = try self.withSynchronousActorWork(.sessionHistory) {
+                    try self.sessionEncoder.encode(updated)
+                }
+                try await self.fileWriter.atomicReplaceFile(at: url, with: encoded)
                 return updated
             }
-            let counter = WatchCaptureSessionHistoryCounter(epoch: UUID().uuidString, lifetimeSessionsStarted: 1)
-            try await self.fileWriter.atomicReplaceFile(at: url, with: self.sessionEncoder.encode(counter))
+            let counter = self.withSynchronousActorWork(.sessionHistory) {
+                WatchCaptureSessionHistoryCounter(epoch: UUID().uuidString, lifetimeSessionsStarted: 1)
+            }
+            let encoded = try self.withSynchronousActorWork(.sessionHistory) {
+                try self.sessionEncoder.encode(counter)
+            }
+            try await self.fileWriter.atomicReplaceFile(at: url, with: encoded)
             return counter
         }
     }
@@ -816,34 +999,44 @@ actor WatchCaptureStorageActor {
     func revertLifetimeSessionCounterIncrement(
         _ incremented: WatchCaptureSessionHistoryCounter
     ) async throws {
-        try await self.withTransaction(.sessionHistory) {
-            guard let current = await self.readSessionHistoryCounterInner(),
+        try await self.withTransaction {
+            guard let current = await self.readSessionHistoryCounterInner(boundary: .sessionHistory),
                   current.epoch == incremented.epoch,
                   current.lifetimeSessionsStarted == incremented.lifetimeSessionsStarted,
                   current.lifetimeSessionsStarted > 0
             else { return }
-            let reverted = WatchCaptureSessionHistoryCounter(
-                epoch: current.epoch,
-                lifetimeSessionsStarted: current.lifetimeSessionsStarted - 1
-            )
+            let reverted = self.withSynchronousActorWork(.sessionHistory) {
+                WatchCaptureSessionHistoryCounter(
+                    epoch: current.epoch,
+                    lifetimeSessionsStarted: current.lifetimeSessionsStarted - 1
+                )
+            }
+            let data = try self.withSynchronousActorWork(.sessionHistory) {
+                try self.sessionEncoder.encode(reverted)
+            }
             try await self.fileWriter.atomicReplaceFile(
                 at: self.paths.sessionHistoryCounterURL(),
-                with: self.sessionEncoder.encode(reverted)
+                with: data
             )
         }
     }
 
     func openLocationLogHeader(at url: URL) async throws {
-        try await self.withTransaction(.capturePreparation) {
-            let data = try self.locationSegmentData(fixCount: 0, gap: true, fixLines: [])
+        try await self.withTransaction {
+            let data = try self.withSynchronousActorWork(.capturePreparation) {
+                try self.locationSegmentData(fixCount: 0, gap: true, fixLines: [])
+            }
             try await self.fileWriter.writeData(data, to: url, options: .atomic)
         }
     }
 
     func appendLocationFix(_ fix: WatchLocationFix, at url: URL) async throws {
-        try await self.withTransaction(.locationLogAppend) {
+        try await self.withTransaction {
+            let data = try self.withSynchronousActorWork(.locationLogAppend) {
+                try self.locationEncoder.encode(LocationFixLine(fix: fix))
+            }
             try await self.fileWriter.appendLine(
-                try self.locationEncoder.encode(LocationFixLine(fix: fix)),
+                data,
                 to: url
             )
         }
@@ -853,27 +1046,34 @@ actor WatchCaptureStorageActor {
         at url: URL,
         armed: Bool
     ) async throws -> WatchCaptureLocationLogFinalizedStats {
-        try await self.withTransaction(.locationLogReconciliation) {
-            let fixLines = try await self.durableLocationFixLines(at: url)
-            let stats = WatchCaptureLocationLogFinalizedStats(
-                fixCount: fixLines.count,
-                gap: armed && fixLines.isEmpty
-            )
+        try await self.withTransaction {
+            let fixLines = try await self.durableLocationFixLines(at: url, boundary: .locationLogReconciliation)
+            let output = try self.withSynchronousActorWork(.locationLogReconciliation) { () -> (WatchCaptureLocationLogFinalizedStats, Data) in
+                let stats = WatchCaptureLocationLogFinalizedStats(
+                    fixCount: fixLines.count,
+                    gap: armed && fixLines.isEmpty
+                )
+                return (
+                    stats,
+                    try self.locationSegmentData(
+                        fixCount: stats.fixCount,
+                        gap: stats.gap,
+                        fixLines: fixLines
+                    )
+                )
+            }
             try await self.fileWriter.atomicReplaceFile(
                 at: url,
-                with: try self.locationSegmentData(
-                    fixCount: stats.fixCount,
-                    gap: stats.gap,
-                    fixLines: fixLines
-                )
+                with: output.1
             )
-            return stats
+            return output.0
         }
     }
 
-    private func scanCatalogInner() async -> WatchCaptureCatalog {
+    private func scanCatalogInner(boundary: WatchSignpostBoundary) async -> WatchCaptureCatalog {
+        let rootURL = self.withSynchronousActorWork(boundary) { self.paths.rootURL }
         let rootKind: WatchCaptureStorageItemKind
-        do { rootKind = try await self.fileWriter.itemKind(at: self.paths.rootURL) }
+        do { rootKind = try await self.fileWriter.itemKind(at: rootURL) }
         catch { return WatchCaptureCatalog(rootState: .unavailable(.unreadable), entries: [], issues: []) }
         guard rootKind != .missing else {
             return WatchCaptureCatalog(rootState: .unavailable(.missing), entries: [], issues: [])
@@ -881,7 +1081,7 @@ actor WatchCaptureStorageActor {
         guard rootKind == .directory else {
             return WatchCaptureCatalog(rootState: .unavailable(.notDirectory), entries: [], issues: [])
         }
-        guard let days = try? await self.fileWriter.contentsOfDirectory(at: self.paths.rootURL) else {
+        guard let days = try? await self.fileWriter.contentsOfDirectory(at: rootURL) else {
             return WatchCaptureCatalog(rootState: .unavailable(.notEnumerable), entries: [], issues: [])
         }
 
@@ -937,77 +1137,87 @@ actor WatchCaptureStorageActor {
                         issues.append(self.issue(.pathMismatch, namespace: namespace))
                         continue
                     }
-                    entries.append(WatchCaptureCatalogEntry(
-                        id: id,
+                    let witness = await self.contentWitness(
+                        manifestData: data,
                         directoryURL: segmentURL,
-                        manifestURL: manifestURL,
-                        manifest: manifest,
-                        witness: WatchCaptureContentWitness(
-                            manifestData: data,
-                            audioBytes: try? await self.fileWriter.fileSize(
-                                at: self.paths.audioURL(directory: segmentURL)
-                            ),
-                            locationBytes: try? await self.fileWriter.fileSize(
-                                at: self.paths.locationURL(directory: segmentURL)
-                            ),
-                            audioFingerprint: try? await self.fileWriter.fileFingerprint(
-                                at: self.paths.audioURL(directory: segmentURL)
-                            ),
-                            locationFingerprint: try? await self.fileWriter.fileFingerprint(
-                                at: self.paths.locationURL(directory: segmentURL)
-                            )
+                        boundary: boundary
+                    )
+                    entries.append(self.withSynchronousActorWork(boundary) {
+                        WatchCaptureCatalogEntry(
+                            id: id,
+                            directoryURL: segmentURL,
+                            manifestURL: manifestURL,
+                            manifest: manifest,
+                            witness: witness
                         )
-                    ))
+                    })
                 } catch {
                     issues.append(self.issue(.manifestDecodeFailure, namespace: namespace))
                 }
             }
         }
-        let duplicateIDs = Dictionary(grouping: entries, by: { $0.manifest.id }).filter { $0.value.count > 1 }
-        if !duplicateIDs.isEmpty {
-            for (_, duplicates) in duplicateIDs {
-                let namespace = duplicates.map { "\($0.id.day)/\($0.id.segment)" }.sorted().joined(separator: ",")
-                issues.append(self.issue(.duplicateManifestUUID, namespace: namespace))
+        let catalog = self.withSynchronousActorWork(boundary) { () -> WatchCaptureCatalog in
+            let duplicateIDs = Dictionary(grouping: entries, by: { $0.manifest.id }).filter { $0.value.count > 1 }
+            if !duplicateIDs.isEmpty {
+                for (_, duplicates) in duplicateIDs {
+                    let namespace = duplicates.map { "\($0.id.day)/\($0.id.segment)" }.sorted().joined(separator: ",")
+                    issues.append(self.issue(.duplicateManifestUUID, namespace: namespace))
+                }
+                entries.removeAll { duplicateIDs[$0.manifest.id] != nil }
             }
-            entries.removeAll { duplicateIDs[$0.manifest.id] != nil }
+            let rootState: WatchCaptureCatalogRootState
+            if !issues.isEmpty { rootState = .partial }
+            else if entries.isEmpty { rootState = .emptyComplete }
+            else { rootState = .complete }
+            return WatchCaptureCatalog(rootState: rootState, entries: entries, issues: issues.sorted { $0.id < $1.id })
         }
-        let rootState: WatchCaptureCatalogRootState
-        if !issues.isEmpty { rootState = .partial }
-        else if entries.isEmpty { rootState = .emptyComplete }
-        else { rootState = .complete }
-        return WatchCaptureCatalog(rootState: rootState, entries: entries, issues: issues.sorted { $0.id < $1.id })
+        return catalog
     }
 
     private func currentRelayEntry(
-        _ expected: WatchCaptureCatalogEntry
+        _ expected: WatchCaptureCatalogEntry,
+        boundary: WatchSignpostBoundary
     ) async throws -> WatchCaptureCatalogEntry {
-        guard await self.fileWriter.fileExists(at: expected.manifestURL),
-              let manifestData = try? await self.fileWriter.readData(from: expected.manifestURL),
-              let manifest = try? self.manifestDecoder.decode(WatchSegmentManifest.self, from: manifestData),
-              manifest.id == expected.manifest.id,
-              manifest.day == expected.id.day,
-              manifest.segment == expected.id.segment
+        let manifestURL = self.withSynchronousActorWork(boundary) { expected.manifestURL }
+        guard await self.fileWriter.fileExists(at: manifestURL),
+              let manifestData = try? await self.fileWriter.readData(from: manifestURL)
         else {
             throw WatchCaptureStorageConflict.contentWitnessChanged(id: expected.id)
         }
+        let manifest = try self.withSynchronousActorWork(boundary) {
+            guard let manifest = try? self.manifestDecoder.decode(WatchSegmentManifest.self, from: manifestData),
+                  manifest.id == expected.manifest.id,
+                  manifest.day == expected.id.day,
+                  manifest.segment == expected.id.segment
+            else {
+                throw WatchCaptureStorageConflict.contentWitnessChanged(id: expected.id)
+            }
+            return manifest
+        }
         let witness = await self.contentWitness(
             manifestData: manifestData,
-            directoryURL: expected.directoryURL
-        )
-        return WatchCaptureCatalogEntry(
-            id: expected.id,
             directoryURL: expected.directoryURL,
-            manifestURL: expected.manifestURL,
-            manifest: manifest,
-            witness: witness
+            boundary: boundary
         )
+        return self.withSynchronousActorWork(boundary) {
+            WatchCaptureCatalogEntry(
+                id: expected.id,
+                directoryURL: expected.directoryURL,
+                manifestURL: manifestURL,
+                manifest: manifest,
+                witness: witness
+            )
+        }
     }
 
     private func verifiedRelayEntry(
-        _ expected: WatchCaptureCatalogEntry
+        _ expected: WatchCaptureCatalogEntry,
+        boundary: WatchSignpostBoundary
     ) async throws -> WatchCaptureCatalogEntry {
-        let current = try await self.currentRelayEntry(expected)
-        try self.verifyRelayWitness(current, against: expected)
+        let current = try await self.currentRelayEntry(expected, boundary: boundary)
+        try self.withSynchronousActorWork(boundary) {
+            try self.verifyRelayWitness(current, against: expected)
+        }
         return current
     }
 
@@ -1022,86 +1232,122 @@ actor WatchCaptureStorageActor {
 
     private func writeRelayManifest(
         _ manifest: WatchSegmentManifest,
-        replacing entry: WatchCaptureCatalogEntry
+        replacing entry: WatchCaptureCatalogEntry,
+        boundary: WatchSignpostBoundary
     ) async throws -> WatchCaptureCatalogEntry {
-        let data = try self.manifestEncoder.encode(manifest)
+        let data = try self.withSynchronousActorWork(boundary) {
+            try self.manifestEncoder.encode(manifest)
+        }
         try await self.fileWriter.writeData(data, to: entry.manifestURL, options: .atomic)
-        return WatchCaptureCatalogEntry(
-            id: entry.id,
+        let witness = await self.contentWitness(
+            manifestData: data,
             directoryURL: entry.directoryURL,
-            manifestURL: entry.manifestURL,
-            manifest: manifest,
-            witness: await self.contentWitness(manifestData: data, directoryURL: entry.directoryURL)
+            boundary: boundary
         )
+        return self.withSynchronousActorWork(boundary) {
+            WatchCaptureCatalogEntry(
+                id: entry.id,
+                directoryURL: entry.directoryURL,
+                manifestURL: entry.manifestURL,
+                manifest: manifest,
+                witness: witness
+            )
+        }
     }
 
-    private func relayBundleData(for entry: WatchCaptureCatalogEntry) async throws -> Data {
+    private func relayBundleData(
+        for entry: WatchCaptureCatalogEntry,
+        boundary: WatchSignpostBoundary
+    ) async throws -> Data {
         var files: [String: Data] = [:]
         let manifestData = try await self.fileWriter.readData(from: entry.manifestURL)
-        guard manifestData == entry.witness.manifestData else {
-            throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id)
+        try self.withSynchronousActorWork(boundary) {
+            guard manifestData == entry.witness.manifestData else {
+                throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id)
+            }
+            files[WatchSegmentBundleCodec.manifestFilename] = manifestData
         }
-        files[WatchSegmentBundleCodec.manifestFilename] = manifestData
 
-        let audioURL = self.paths.audioURL(directory: entry.directoryURL)
+        let audioURL = self.withSynchronousActorWork(boundary) {
+            self.paths.audioURL(directory: entry.directoryURL)
+        }
         if await self.fileWriter.fileExists(at: audioURL) {
             files[WatchSegmentBundleCodec.audioFilename] = try await self.fileWriter.readData(from: audioURL)
         }
 
-        let locationURL = self.paths.locationURL(directory: entry.directoryURL)
+        let locationURL = self.withSynchronousActorWork(boundary) {
+            self.paths.locationURL(directory: entry.directoryURL)
+        }
         if await self.fileWriter.fileExists(at: locationURL) {
             files[WatchSegmentBundleCodec.locationFilename] = try await self.fileWriter.readData(from: locationURL)
         }
 
-        return try PropertyListSerialization.data(
-            fromPropertyList: files,
-            format: .binary,
-            options: 0
-        )
+        return try self.withSynchronousActorWork(boundary) {
+            try PropertyListSerialization.data(
+                fromPropertyList: files,
+                format: .binary,
+                options: 0
+            )
+        }
     }
 
     private func contentWitness(
         manifestData: Data,
-        directoryURL: URL
+        directoryURL: URL,
+        boundary: WatchSignpostBoundary
     ) async -> WatchCaptureContentWitness {
-        WatchCaptureContentWitness(
-            manifestData: manifestData,
-            audioBytes: try? await self.fileWriter.fileSize(
-                at: self.paths.audioURL(directory: directoryURL)
-            ),
-            locationBytes: try? await self.fileWriter.fileSize(
-                at: self.paths.locationURL(directory: directoryURL)
-            ),
-            audioFingerprint: try? await self.fileWriter.fileFingerprint(
-                at: self.paths.audioURL(directory: directoryURL)
-            ),
-            locationFingerprint: try? await self.fileWriter.fileFingerprint(
-                at: self.paths.locationURL(directory: directoryURL)
+        let urls = self.withSynchronousActorWork(boundary) {
+            (
+                self.paths.audioURL(directory: directoryURL),
+                self.paths.locationURL(directory: directoryURL)
             )
-        )
+        }
+        let audioBytes = try? await self.fileWriter.fileSize(at: urls.0)
+        let locationBytes = try? await self.fileWriter.fileSize(at: urls.1)
+        let audioFingerprint = try? await self.fileWriter.fileFingerprint(at: urls.0)
+        let locationFingerprint = try? await self.fileWriter.fileFingerprint(at: urls.1)
+        return self.withSynchronousActorWork(boundary) {
+            WatchCaptureContentWitness(
+                manifestData: manifestData,
+                audioBytes: audioBytes,
+                locationBytes: locationBytes,
+                audioFingerprint: audioFingerprint,
+                locationFingerprint: locationFingerprint
+            )
+        }
     }
 
-    private func currentRelayManifest(at directoryURL: URL) async -> (id: UUID, entryID: WatchCaptureCatalogEntryID)? {
-        let manifestURL = self.paths.manifestURL(directory: directoryURL)
+    private func currentRelayManifest(
+        at directoryURL: URL,
+        boundary: WatchSignpostBoundary
+    ) async -> (id: UUID, entryID: WatchCaptureCatalogEntryID)? {
+        let manifestURL = self.withSynchronousActorWork(boundary) {
+            self.paths.manifestURL(directory: directoryURL)
+        }
         guard await self.fileWriter.fileExists(at: manifestURL),
-              let data = try? await self.fileWriter.readData(from: manifestURL),
-              let manifest = try? self.manifestDecoder.decode(WatchSegmentManifest.self, from: data)
+              let data = try? await self.fileWriter.readData(from: manifestURL)
         else {
             return nil
         }
-        return (
-            manifest.id,
-            WatchCaptureCatalogEntryID(day: manifest.day, segment: manifest.segment)
-        )
+        return self.withSynchronousActorWork(boundary) {
+            guard let manifest = try? self.manifestDecoder.decode(WatchSegmentManifest.self, from: data) else {
+                return nil
+            }
+            return (
+                manifest.id,
+                WatchCaptureCatalogEntryID(day: manifest.day, segment: manifest.segment)
+            )
+        }
     }
 
     private func verifiedRelayDeletionEntry(
-        _ expected: WatchCaptureCatalogEntry
+        _ expected: WatchCaptureCatalogEntry,
+        boundary: WatchSignpostBoundary
     ) async throws -> WatchCaptureCatalogEntry {
         do {
-            return try await self.verifiedRelayEntry(expected)
+            return try await self.verifiedRelayEntry(expected, boundary: boundary)
         } catch WatchCaptureStorageConflict.contentWitnessChanged {
-            let found = await self.currentRelayManifest(at: expected.directoryURL)
+            let found = await self.currentRelayManifest(at: expected.directoryURL, boundary: boundary)
             guard found?.entryID == expected.id, found?.id == expected.manifest.id else {
                 throw WatchCaptureStorageConflict.staleAcknowledgementReplacement(
                     id: expected.manifest.id,
@@ -1116,6 +1362,7 @@ actor WatchCaptureStorageActor {
     private func performDiagnosticsWrite(
         _ label: String,
         segmentID: UUID?,
+        boundary: WatchSignpostBoundary,
         _ body: () async throws -> Void
     ) async -> Bool {
         do {
@@ -1123,7 +1370,9 @@ actor WatchCaptureStorageActor {
             return true
         } catch {
             self.diagnosticsUnavailableAfterWriteFailure = true
-            let id = segmentID?.uuidString ?? "none"
+            let id = self.withSynchronousActorWork(boundary) {
+                segmentID?.uuidString ?? "none"
+            }
             watchRelayDiagnosticsLog.error(
                 "watch relay diagnostic \(label, privacy: .public) write failed id=\(id, privacy: .public): \(String(describing: error), privacy: .private)"
             )
@@ -1133,90 +1382,133 @@ actor WatchCaptureStorageActor {
 
     private func diagnosticsSidecarForUpdate(
         manifest: WatchSegmentManifest,
-        directoryURL: URL
+        directoryURL: URL,
+        boundary: WatchSignpostBoundary
     ) async -> WatchRelaySegmentDiagnosticsSidecar {
-        let url = WatchRelayDiagnosticsFiles.sidecarURL(directoryURL: directoryURL)
+        let url = self.withSynchronousActorWork(boundary) {
+            WatchRelayDiagnosticsFiles.sidecarURL(directoryURL: directoryURL)
+        }
         guard await self.fileWriter.fileExists(at: url) else {
-            return WatchRelaySegmentDiagnosticsSidecar(segmentID: manifest.id)
+            return self.withSynchronousActorWork(boundary) {
+                WatchRelaySegmentDiagnosticsSidecar(segmentID: manifest.id)
+            }
         }
         do {
-            return try await self.decodeDiagnosticsSidecar(from: url, expectedID: manifest.id)
+            return try await self.decodeDiagnosticsSidecar(
+                from: url,
+                expectedID: manifest.id,
+                boundary: boundary
+            )
         } catch {
-            await self.resetCorruptDiagnosticFile(at: url, error: error)
-            return WatchRelaySegmentDiagnosticsSidecar(segmentID: manifest.id)
+            await self.resetCorruptDiagnosticFile(at: url, error: error, boundary: boundary)
+            return self.withSynchronousActorWork(boundary) {
+                WatchRelaySegmentDiagnosticsSidecar(segmentID: manifest.id)
+            }
         }
     }
 
-    private func diagnosticsSummaryForUpdate() async -> WatchRelayDiagnosticsSummaryFile {
-        let url = WatchRelayDiagnosticsFiles.summaryURL(rootURL: self.paths.rootURL)
+    private func diagnosticsSummaryForUpdate(
+        boundary: WatchSignpostBoundary
+    ) async -> WatchRelayDiagnosticsSummaryFile {
+        let url = self.withSynchronousActorWork(boundary) {
+            WatchRelayDiagnosticsFiles.summaryURL(rootURL: self.paths.rootURL)
+        }
         guard await self.fileWriter.fileExists(at: url) else { return .empty }
         do {
-            return try await self.decodeDiagnosticsSummary(from: url)
+            return try await self.decodeDiagnosticsSummary(from: url, boundary: boundary)
         } catch {
-            await self.resetCorruptDiagnosticFile(at: url, error: error)
+            await self.resetCorruptDiagnosticFile(at: url, error: error, boundary: boundary)
             return .empty
         }
     }
 
-    private func diagnosticsSourceByteSize(at url: URL, sourcePresent: Bool) async -> Int64? {
+    private func diagnosticsSourceByteSize(
+        at url: URL,
+        sourcePresent: Bool,
+        boundary: WatchSignpostBoundary
+    ) async -> Int64? {
         guard sourcePresent else { return nil }
-        return try? await self.fileWriter.fileSize(at: url)
+        let sourceURL = self.withSynchronousActorWork(boundary) { url }
+        return try? await self.fileWriter.fileSize(at: sourceURL)
     }
 
     private func decodeDiagnosticsSidecar(
         from url: URL,
-        expectedID: UUID
+        expectedID: UUID,
+        boundary: WatchSignpostBoundary
     ) async throws -> WatchRelaySegmentDiagnosticsSidecar {
-        let sidecar = try self.diagnosticsDecoder.decode(
-            WatchRelaySegmentDiagnosticsSidecar.self,
-            from: try await self.fileWriter.readData(from: url)
-        )
-        guard sidecar.version <= WatchRelaySegmentDiagnosticsSidecar.currentVersion,
-              sidecar.segmentID == expectedID
-        else {
-            throw WatchRelayDiagnosticsStoreError.unsupportedOrMismatchedSidecar
+        let data = try await self.fileWriter.readData(from: url)
+        return try self.withSynchronousActorWork(boundary) {
+            let sidecar = try self.diagnosticsDecoder.decode(
+                WatchRelaySegmentDiagnosticsSidecar.self,
+                from: data
+            )
+            guard sidecar.version <= WatchRelaySegmentDiagnosticsSidecar.currentVersion,
+                  sidecar.segmentID == expectedID
+            else {
+                throw WatchRelayDiagnosticsStoreError.unsupportedOrMismatchedSidecar
+            }
+            try Self.validateDiagnosticsSidecarInvariants(sidecar)
+            return sidecar
         }
-        try Self.validateDiagnosticsSidecarInvariants(sidecar)
-        return sidecar
     }
 
-    private func decodeDiagnosticsSummary(from url: URL) async throws -> WatchRelayDiagnosticsSummaryFile {
-        let summary = try self.diagnosticsDecoder.decode(
-            WatchRelayDiagnosticsSummaryFile.self,
-            from: try await self.fileWriter.readData(from: url)
-        )
-        guard summary.version <= WatchRelayDiagnosticsSummaryFile.currentVersion else {
-            throw WatchRelayDiagnosticsStoreError.unsupportedSummary
+    private func decodeDiagnosticsSummary(
+        from url: URL,
+        boundary: WatchSignpostBoundary
+    ) async throws -> WatchRelayDiagnosticsSummaryFile {
+        let data = try await self.fileWriter.readData(from: url)
+        return try self.withSynchronousActorWork(boundary) {
+            let summary = try self.diagnosticsDecoder.decode(WatchRelayDiagnosticsSummaryFile.self, from: data)
+            guard summary.version <= WatchRelayDiagnosticsSummaryFile.currentVersion else {
+                throw WatchRelayDiagnosticsStoreError.unsupportedSummary
+            }
+            try Self.validateDiagnosticsSummaryInvariants(summary)
+            return summary
         }
-        try Self.validateDiagnosticsSummaryInvariants(summary)
-        return summary
     }
 
     private func writeDiagnosticsSidecar(
         _ sidecar: WatchRelaySegmentDiagnosticsSidecar,
-        directoryURL: URL
+        directoryURL: URL,
+        boundary: WatchSignpostBoundary
     ) async throws {
+        let data = try self.withSynchronousActorWork(boundary) {
+            try self.diagnosticsEncoder.encode(sidecar)
+        }
         try await self.fileWriter.writeData(
-            try self.diagnosticsEncoder.encode(sidecar),
+            data,
             to: WatchRelayDiagnosticsFiles.sidecarURL(directoryURL: directoryURL),
             options: .atomic
         )
     }
 
-    private func writeDiagnosticsSummary(_ summary: WatchRelayDiagnosticsSummaryFile) async throws {
+    private func writeDiagnosticsSummary(
+        _ summary: WatchRelayDiagnosticsSummaryFile,
+        boundary: WatchSignpostBoundary
+    ) async throws {
+        let data = try self.withSynchronousActorWork(boundary) {
+            try self.diagnosticsEncoder.encode(summary)
+        }
         try await self.fileWriter.writeData(
-            try self.diagnosticsEncoder.encode(summary),
+            data,
             to: WatchRelayDiagnosticsFiles.summaryURL(rootURL: self.paths.rootURL),
             options: .atomic
         )
     }
 
-    private func resetCorruptDiagnosticFile(at url: URL, error: any Error) async {
-        let key = url.standardizedFileURL.path
-        if self.loggedCorruptDiagnosticURLs.insert(key).inserted {
-            watchRelayDiagnosticsLog.error(
-                "watch relay diagnostic file reset path=\(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .private)"
-            )
+    private func resetCorruptDiagnosticFile(
+        at url: URL,
+        error: any Error,
+        boundary: WatchSignpostBoundary
+    ) async {
+        self.withSynchronousActorWork(boundary) {
+            let key = url.standardizedFileURL.path
+            if self.loggedCorruptDiagnosticURLs.insert(key).inserted {
+                watchRelayDiagnosticsLog.error(
+                    "watch relay diagnostic file reset path=\(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .private)"
+                )
+            }
         }
         try? await self.fileWriter.removeItem(at: url)
     }
@@ -1316,19 +1608,31 @@ actor WatchCaptureStorageActor {
         .staleRelayState(id: entry.manifest.id, expected: expected, actual: actual)
     }
 
-    private func readSessionHistoryInner(asOf: Date) async -> WatchCaptureSessionHistoryReadResult {
-        let parsed = await self.readParsedSessionHistoryEntries()
+    private func readSessionHistoryInner(
+        asOf: Date,
+        boundary: WatchSignpostBoundary
+    ) async -> WatchCaptureSessionHistoryReadResult {
+        let parsed = await self.readParsedSessionHistoryEntries(boundary: boundary)
         guard parsed.fileExists else { return .available([]) }
-        let entries = self.prunedSessionHistoryEntries(parsed.entries, asOf: asOf)
-        if entries.count != parsed.entries.count {
+        let update = self.withSynchronousActorWork(boundary) {
+            let entries = self.prunedSessionHistoryEntries(parsed.entries, asOf: asOf)
+            return (entries, entries.count != parsed.entries.count)
+        }
+        if update.1 {
             do {
-                try await self.writeSessionHistory(entries: entries, unreadableLines: parsed.unreadableLines)
+                try await self.writeSessionHistory(
+                    entries: update.0,
+                    unreadableLines: parsed.unreadableLines,
+                    boundary: boundary
+                )
             } catch {
                 return .unreadable
             }
         }
-        guard !parsed.hadDamage || !entries.isEmpty else { return .unreadable }
-        return .available(entries)
+        return self.withSynchronousActorWork(boundary) {
+            guard !parsed.hadDamage || !update.0.isEmpty else { return .unreadable }
+            return .available(update.0)
+        }
     }
 
     private func locationSegmentData(
@@ -1346,74 +1650,100 @@ actor WatchCaptureStorageActor {
         return data
     }
 
-    private func durableLocationFixLines(at url: URL) async throws -> [Data] {
+    private func durableLocationFixLines(
+        at url: URL,
+        boundary: WatchSignpostBoundary
+    ) async throws -> [Data] {
         guard await self.fileWriter.fileExists(at: url) else { return [] }
         let data = try await self.fileWriter.readData(from: url)
-        let lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
-        guard lines.count > 1 else { return [] }
-        return lines.dropFirst().map { Data($0) }
+        return self.withSynchronousActorWork(boundary) {
+            let lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
+            guard lines.count > 1 else { return [] }
+            return lines.dropFirst().map { Data($0) }
+        }
     }
 
     private func upsertSessionHistoryInner(
         _ entry: WatchCaptureSessionHistoryEntry,
-        asOf: Date
+        asOf: Date,
+        boundary: WatchSignpostBoundary
     ) async throws {
-        let parsed = await self.readParsedSessionHistoryEntries()
-        var entriesByID = Dictionary(uniqueKeysWithValues: parsed.entries.map { ($0.sessionID, $0) })
-        entriesByID[entry.sessionID] = entry
-        let entries = self.prunedSessionHistoryEntries(Array(entriesByID.values), asOf: asOf)
-            .sorted { $0.startedAt < $1.startedAt }
-        try await self.writeSessionHistory(entries: entries, unreadableLines: parsed.unreadableLines)
+        let parsed = await self.readParsedSessionHistoryEntries(boundary: boundary)
+        let entries = self.withSynchronousActorWork(boundary) {
+            var entriesByID = Dictionary(uniqueKeysWithValues: parsed.entries.map { ($0.sessionID, $0) })
+            entriesByID[entry.sessionID] = entry
+            return self.prunedSessionHistoryEntries(Array(entriesByID.values), asOf: asOf)
+                .sorted { $0.startedAt < $1.startedAt }
+        }
+        try await self.writeSessionHistory(
+            entries: entries,
+            unreadableLines: parsed.unreadableLines,
+            boundary: boundary
+        )
     }
 
-    private func readSessionHistoryCounterInner() async -> WatchCaptureSessionHistoryCounter? {
-        let url = self.paths.sessionHistoryCounterURL()
+    private func readSessionHistoryCounterInner(
+        boundary: WatchSignpostBoundary
+    ) async -> WatchCaptureSessionHistoryCounter? {
+        let url = self.withSynchronousActorWork(boundary) {
+            self.paths.sessionHistoryCounterURL()
+        }
         guard await self.fileWriter.fileExists(at: url) else { return nil }
         guard let data = try? await self.fileWriter.readData(from: url) else { return nil }
-        return try? self.sessionDecoder.decode(WatchCaptureSessionHistoryCounter.self, from: data)
+        return self.withSynchronousActorWork(boundary) {
+            try? self.sessionDecoder.decode(WatchCaptureSessionHistoryCounter.self, from: data)
+        }
     }
 
     private func writeSessionHistory(
         entries: [WatchCaptureSessionHistoryEntry],
-        unreadableLines: [Data]
+        unreadableLines: [Data],
+        boundary: WatchSignpostBoundary
     ) async throws {
-        var data = Data()
-        for entry in entries {
-            data.append(try self.sessionEncoder.encode(entry))
-            data.append(0x0A)
-        }
-        // Preserve malformed source lines for diagnosis; a damaged tail must never turn into a silent reset.
-        for line in unreadableLines {
-            data.append(line)
-            data.append(0x0A)
+        let data = try self.withSynchronousActorWork(boundary) { () -> Data in
+            var data = Data()
+            for entry in entries {
+                data.append(try self.sessionEncoder.encode(entry))
+                data.append(0x0A)
+            }
+            // Preserve malformed source lines for diagnosis; a damaged tail must never turn into a silent reset.
+            for line in unreadableLines {
+                data.append(line)
+                data.append(0x0A)
+            }
+            return data
         }
         try await self.fileWriter.atomicReplaceFile(at: self.paths.sessionHistoryURL(), with: data)
     }
 
-    private func readParsedSessionHistoryEntries() async -> (
+    private func readParsedSessionHistoryEntries(boundary: WatchSignpostBoundary) async -> (
         entries: [WatchCaptureSessionHistoryEntry],
         unreadableLines: [Data],
         hadDamage: Bool,
         fileExists: Bool
     ) {
-        let url = self.paths.sessionHistoryURL()
+        let url = self.withSynchronousActorWork(boundary) {
+            self.paths.sessionHistoryURL()
+        }
         guard await self.fileWriter.fileExists(at: url) else {
             return ([], [], false, false)
         }
         guard let data = try? await self.fileWriter.readData(from: url) else {
             return ([], [], true, true)
         }
-        var newestByID: [String: WatchCaptureSessionHistoryEntry] = [:]
-        var unreadableLines: [Data] = []
-        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            let lineData = Data(line)
-            if let entry = try? self.sessionDecoder.decode(WatchCaptureSessionHistoryEntry.self, from: lineData) {
-                newestByID[entry.sessionID] = entry
-            } else {
-                unreadableLines.append(lineData)
+        return self.withSynchronousActorWork(boundary) {
+            var newestByID: [String: WatchCaptureSessionHistoryEntry] = [:]
+            var unreadableLines: [Data] = []
+            for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                let lineData = Data(line)
+                if let entry = try? self.sessionDecoder.decode(WatchCaptureSessionHistoryEntry.self, from: lineData) {
+                    newestByID[entry.sessionID] = entry
+                } else {
+                    unreadableLines.append(lineData)
+                }
             }
+            return (Array(newestByID.values), unreadableLines, !unreadableLines.isEmpty, true)
         }
-        return (Array(newestByID.values), unreadableLines, !unreadableLines.isEmpty, true)
     }
 
     private func prunedSessionHistoryEntries(
@@ -1507,26 +1837,36 @@ actor WatchCaptureStorageActor {
         WatchCaptureCatalogIssue(id: "\(kind.rawValue):\(namespace)", kind: kind, namespace: namespace)
     }
 
-    private func prepareRootInner() async throws {
-        try await self.fileWriter.createDirectory(at: self.paths.rootURL)
+    private func prepareRootInner(boundary: WatchSignpostBoundary) async throws {
+        let rootURL = self.withSynchronousActorWork(boundary) { self.paths.rootURL }
+        try await self.fileWriter.createDirectory(at: rootURL)
     }
 
     private func withTransaction<Value: Sendable>(
-        _ boundary: WatchSignpostBoundary = .storageActorFileOperation,
         _ body: @escaping @isolated(any) () async throws -> Value
     ) async rethrows -> Value {
         await self.acquireTransaction()
-        // The elapsed transaction interval intentionally includes awaited file work. It
-        // is distinct from `boundary`, which measures only synchronous actor admission
-        // and closes before invoking an async storage operation.
+        // This interval intentionally includes awaited file work. Domain-specific
+        // signposts are emitted by `withSynchronousActorWork`, which cannot contain an
+        // await and therefore measures only actor-local synchronous work.
         let elapsedInvocation = self.storageSignposter.begin(.storageActorTransactionElapsed)
-        let occupancyInvocation = self.storageSignposter.begin(boundary)
-        self.storageSignposter.end(occupancyInvocation)
         defer {
             self.storageSignposter.end(elapsedInvocation)
             self.releaseTransaction()
         }
         return try await body()
+    }
+
+    private func withSynchronousActorWork<Value>(
+        _ boundary: WatchSignpostBoundary,
+        _ body: () throws -> Value
+    ) rethrows -> Value {
+        let invocation = self.storageSignposter.begin(boundary)
+        defer { self.storageSignposter.end(invocation) }
+        if invocation != nil {
+            self.synchronousWorkHook(boundary)
+        }
+        return try body()
     }
 
     private func acquireTransaction() async {
